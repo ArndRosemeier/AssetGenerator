@@ -5,6 +5,16 @@ tools/.blender_path
 # Generated assets, reports and previews
 assets/out/
 
+# Character Studio: Godot cache + exported/imported humans (rebuild via sync script)
+character_studio/.godot/
+character_studio/assets/humans/**
+!character_studio/assets/humans/.gitkeep
+!character_studio/assets/humans/outfits/
+!character_studio/assets/humans/outfits/.gitkeep
+
+# MPFB user data staged for the Character Studio export
+tools/character_studio/.mpfb_user_data/
+
 __pycache__/
 *.py[cod]
 .venv/

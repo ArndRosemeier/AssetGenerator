@@ -33,6 +33,18 @@ Optional flags: `--no-preview` (faster), `--skip-bootstrap`, `--no-smoke`.
 
 If you already have Blender installed elsewhere, set `BLENDER_BIN` to its executable.
 
+## Character Studio (face / body morphs)
+
+Focused Godot app with a **front-facing** preview and body/face sliders. The humans are
+built here by `tools/character_studio/blender_export_humans.py` (MPFB body + 28 face
+morphs + MakeHuman eyes), reusing City's vendored Blender/MPFB without modifying City.
+
+```bat
+character_studio\CharacterStudio.bat
+```
+
+See [`character_studio/README.md`](character_studio/README.md).
+
 ## Make one asset
 
 ```bash
