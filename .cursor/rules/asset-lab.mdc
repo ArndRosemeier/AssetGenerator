@@ -1,0 +1,56 @@
+---
+description: How to build 3D assets in this repo (headless Blender via the ag CLI)
+alwaysApply: true
+---
+
+# Asset Lab working agreement
+
+This repo generates engine-agnostic 3D assets with headless Blender. Cursor is the
+orchestrator; Blender is a deterministic worker driven only through `tools/ag.py`.
+
+Full agent manual (pitfalls, timing, QA quirks): `docs/AGENT_GUIDE.md`.
+
+## Non-negotiables
+
+- Never ask the user to open the Blender UI. The only manual step that exists is
+  `python tools/bootstrap.py`, and only if `python tools/ag.py doctor` fails.
+- Never invoke `blender.exe` directly. Everything goes through `tools/ag.py` so that
+  every run produces a QA report.
+- Never write geometry values straight into a generator to make one asset. Assets are
+  described by a spec in `assets/specs/`; generators stay parametric and reusable.
+- Never weaken a QA gate to make a run pass. If `max_triangles` is genuinely too low,
+  say so and change it deliberately; do not delete checks or add fallbacks.
+- Errors must stay loud. No try/except that swallows a failure, no silent defaults for
+  missing spec fields.
+
+## The loop
+
+1. Write or edit `assets/specs/<id>.json`.
+2. `python tools/ag.py generate <id>` (builds, QA-gates, exports `.glb`, re-imports it,
+   then renders previews).
+3. Read the report. Exit code 0 means every gate passed.
+4. Look at the PNGs in `assets/out/previews/` with the image reader. Judge proportions,
+   silhouette and material, not just the numbers.
+5. Iterate on the spec. Only touch the generator when no parameter can express the change.
+
+Exit codes: `0` pass, `1` a QA gate or build failed, `2` bad spec or missing toolchain.
+
+## Adding a generator
+
+1. Create `blender/generators/<family>_<name>.py` exposing `MATERIAL_SLOTS` and
+   `build(spec) -> list[bpy.types.Object]`.
+2. Register it in `blender/lib/registry.py`.
+3. Parse `spec.params` into a frozen dataclass with the strict helpers from
+   `blender/lib/spec.py`, and reject impossible dimensions with a message that states
+   the actual numbers.
+4. Prefer `BoxBuilder` and let boxes interpenetrate. Never leave coplanar faces on the
+   outside of an asset; they z-fight in every engine.
+5. Finish with `apply_bevel`, `shade_flat` and `unwrap` so the mesh that ships is the
+   mesh that was measured.
+
+## Conventions
+
+- Meters, Z-up while authoring; the exporter converts to Y-up for glTF.
+- Origin centred on the footprint with the base at Z=0.
+- Modifiers are applied before export, so QA numbers describe the shipped file.
+- Materials are plain Principled BSDF values; textures are not part of this pipeline yet.

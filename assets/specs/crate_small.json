@@ -1,0 +1,36 @@
+{
+  "spec_version": 1,
+  "id": "crate_small",
+  "generator": "hard_surface.crate",
+  "params": {
+    "width": 0.6,
+    "depth": 0.6,
+    "height": 0.6,
+    "post_size": 0.045,
+    "plank_thickness": 0.018,
+    "plank_gap": 0.012,
+    "side_plank_count": 4,
+    "floor_plank_count": 5,
+    "lid": true,
+    "bevel_width": 0.003
+  },
+  "materials": {
+    "frame": {
+      "base_color": [0.19, 0.12, 0.07, 1.0],
+      "roughness": 0.82,
+      "metallic": 0.0
+    },
+    "planks": {
+      "base_color": [0.42, 0.28, 0.15, 1.0],
+      "roughness": 0.75,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.5
+  }
+}

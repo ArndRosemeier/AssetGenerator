@@ -1,0 +1,40 @@
+{
+  "spec_version": 1,
+  "id": "rock_slab_veined",
+  "generator": "nature.rock",
+  "params": {
+    "size": 1.6,
+    "subdivisions": 4,
+    "elongation": 2.4,
+    "stretch_axis": "x",
+    "smoothness": 0.5,
+    "displace_amount": 0.16,
+    "noise_scale": 1.8,
+    "noise_detail": 3,
+    "vein_amount": 0.9,
+    "vein_scale": 1.4,
+    "vein_contrast": 2.5,
+    "texture_resolution": 512,
+    "bake_samples": 24,
+    "seed": 19
+  },
+  "materials": {
+    "rock": {
+      "base_color": [0.28, 0.30, 0.33, 1.0],
+      "roughness": 0.82,
+      "metallic": 0.0
+    },
+    "vein": {
+      "base_color": [0.78, 0.55, 0.28, 1.0],
+      "roughness": 0.55,
+      "metallic": 0.05
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 5.0
+  }
+}

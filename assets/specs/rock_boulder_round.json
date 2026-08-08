@@ -1,0 +1,40 @@
+{
+  "spec_version": 1,
+  "id": "rock_boulder_round",
+  "generator": "nature.rock",
+  "params": {
+    "size": 1.2,
+    "subdivisions": 4,
+    "elongation": 1.15,
+    "stretch_axis": "z",
+    "smoothness": 0.28,
+    "displace_amount": 0.28,
+    "noise_scale": 2.4,
+    "noise_detail": 4,
+    "vein_amount": 0.35,
+    "vein_scale": 4.0,
+    "vein_contrast": 2.5,
+    "texture_resolution": 512,
+    "bake_samples": 24,
+    "seed": 7
+  },
+  "materials": {
+    "rock": {
+      "base_color": [0.38, 0.36, 0.34, 1.0],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "vein": {
+      "base_color": [0.72, 0.70, 0.64, 1.0],
+      "roughness": 0.7,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 4.0
+  }
+}

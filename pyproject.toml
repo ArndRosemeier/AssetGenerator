@@ -1,0 +1,21 @@
+[project]
+name = "asset-lab"
+version = "0.1.0"
+description = "Cursor-orchestrated, engine-agnostic 3D asset generation on headless Blender"
+requires-python = ">=3.11"
+# Intentionally dependency-free: the CLI must run on a bare Python install.
+dependencies = []
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+# Blender entrypoints must mutate sys.path before importing project modules.
+"blender/entrypoints/*.py" = ["E402"]
+"tools/ag.py" = ["E402"]
+"tools/bootstrap.py" = ["E402"]
