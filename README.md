@@ -6,23 +6,34 @@ automated quality checks, exports a `.glb` and renders preview images.
 
 You never open Blender.
 
-## Setup
+## Setup / regenerate everything
 
-Requires Python 3.11+ on `PATH`. Nothing else.
+**You install:** Python 3.11+ on `PATH`.  
+**The script installs:** pinned headless Blender (Windows auto-download; elsewhere set `BLENDER_BIN`).
 
 ```bash
-python tools/bootstrap.py
+python tools/regenerate_assets.py
 ```
 
-This downloads the pinned Blender 4.5.12 LTS portable build (~400 MB) into
-`tools/blender-bin/`, verifies its SHA-256 against the official checksum, records the
-path and proves the pipeline works by building a cube, exporting it and reading it back.
-Nothing is installed system-wide and no add-ons are configured.
+On a fresh clone this will:
 
-If you already have Blender, set `BLENDER_BIN` to its executable and bootstrap will use
-that instead of downloading.
+1. Verify host prerequisites (Python version, stdlib modules, writable dirs, disk space, network to Blender CDN when needed) and print install hints on failure
+2. Download the pinned Blender 4.5.12 LTS portable build (~400 MB) into `tools/blender-bin/` if missing
+3. Verify its checksum and run a smoke test
+4. Rebuild every asset listed under `assets/specs/` into `assets/out/`
 
-## Make something
+Generated `.glb` files and previews are gitignored on purpose — the specs are the source of
+truth and can always be regenerated. If Blender is already bootstrapped:
+
+```bash
+python tools/ag.py regenerate
+```
+
+Optional flags: `--no-preview` (faster), `--skip-bootstrap`, `--no-smoke`.
+
+If you already have Blender installed elsewhere, set `BLENDER_BIN` to its executable.
+
+## Make one asset
 
 ```bash
 python tools/ag.py generate crate_small
@@ -36,8 +47,10 @@ That writes `assets/out/crate_small.glb` and three renders in `assets/out/previe
 
 | Command | What it does |
 | --- | --- |
+| `python tools/regenerate_assets.py` | Bootstrap Blender if needed, then rebuild all specs |
 | `python tools/ag.py doctor` | Toolchain, paths, registered generators, available specs |
 | `python tools/ag.py generate <id>` | Build, QA-gate, export, verify the export, render previews |
+| `python tools/ag.py regenerate` | Rebuild every asset in `assets/specs/` |
 | `python tools/ag.py preview <id>` | Re-render previews from the existing `.glb` |
 | `python tools/ag.py validate <id>` | Re-open the shipped `.glb` and re-run the gates on it |
 | `python tools/ag.py specs` | List available specs |
@@ -100,9 +113,11 @@ Use `blender/generators/hard_surface_crate.py` as the reference.
 
 ## For agents
 
-Read [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md). It covers the generate loop, QA gates,
-timing expectations, and the failure modes that already bit this project (z-fighting,
-false manifold failures after glTF reimport, preview exposure, etc.).
+Read [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md) — especially **Process (must follow)**.
+Always-on Cursor rules live in [`.cursor/rules/asset-lab.mdc`](.cursor/rules/asset-lab.mdc).
+
+Pattern in one line: commit specs under `assets/specs/`; regenerate products into
+`assets/out/` with `python tools/regenerate_assets.py` (or `python tools/ag.py regenerate`).
 
 ## Scope
 

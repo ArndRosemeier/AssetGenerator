@@ -7,8 +7,35 @@ description: Generate, QA and preview engine-agnostic 3D assets with headless Bl
 
 Build 3D assets by editing a JSON spec and running one CLI. Blender never opens a window.
 
-For the full agent manual (pitfalls, timing, QA quirks, generator rules), read
+For the full agent manual (process, pitfalls, timing, QA quirks), read
 [`docs/AGENT_GUIDE.md`](../../../docs/AGENT_GUIDE.md) before improvising.
+
+## Process pattern (mandatory)
+
+| Commit | Do not commit (regenerate) |
+| --- | --- |
+| `assets/specs/<id>.json` — recipe | `assets/out/**` — `.glb`, previews, bake dumps |
+| `blender/generators/*` — builders | |
+
+- Specs are the source of truth. Same JSON ⇒ same asset (`seed` + params).
+- New asset = new file in `assets/specs/`. `regenerate` auto-discovers `*.json` (no ID list).
+- Generators are registered by name in `blender/lib/registry.py`; asset IDs are not.
+
+Fresh clone / rebuild library:
+
+```bash
+python tools/regenerate_assets.py
+```
+
+That runs host prerequisite checks first (Python ≥ 3.11, stdlib, writable dirs, Blender
+or Windows CDN bootstrap path) with `fix:` hints, then bootstraps Blender and rebuilds
+all specs. See `tools/prereqs.py`.
+
+Blender already set up:
+
+```bash
+python tools/ag.py regenerate
+```
 
 ## Check the toolchain first
 
@@ -16,23 +43,24 @@ For the full agent manual (pitfalls, timing, QA quirks, generator rules), read
 python tools/ag.py doctor
 ```
 
-If it reports no Blender, run `python tools/bootstrap.py` once. It downloads a pinned
-portable Blender 4.5 LTS into `tools/blender-bin/`, verifies its checksum and runs a
-build-export-reimport self test. Nothing is installed system-wide.
+Doctor prints the same prerequisite report. If anything FAILs, run
+`python tools/regenerate_assets.py` after fixing the listed items.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `python tools/ag.py doctor` | Toolchain, paths, registered generators, available specs |
-| `python tools/ag.py generate <id>` | Build, QA-gate, export `.glb`, verify the export, render previews |
-| `python tools/ag.py generate <id> --no-preview` | Same without renders (fast iteration on geometry) |
-| `python tools/ag.py preview <id>` | Re-render previews from the existing `.glb` |
-| `python tools/ag.py validate <id>` | Re-open the shipped `.glb` and re-run the gates on it |
+| `python tools/regenerate_assets.py` | Bootstrap if needed + rebuild all specs |
+| `python tools/ag.py doctor` | Toolchain, paths, generators, specs |
+| `python tools/ag.py generate <id>` | Build, QA, export `.glb`, verify, previews |
+| `python tools/ag.py generate <id> --no-preview` | Fast geometry iteration |
+| `python tools/ag.py regenerate` | Rebuild every `assets/specs/*.json` |
+| `python tools/ag.py preview <id>` | Re-render previews from existing `.glb` |
+| `python tools/ag.py validate <id>` | Re-check shipped `.glb` against its spec |
 | `python tools/ag.py specs` / `generators` | List what exists |
 
-Add `--json` to any command for the raw report. Exit codes: `0` pass, `1` QA or build
-failure, `2` bad spec or missing toolchain.
+Add `--json` for the raw report. Exit codes: `0` pass, `1` QA/build failure, `2` bad
+spec or missing toolchain.
 
 Outputs land in `assets/out/<id>.glb` and `assets/out/previews/<id>_{hero,front,side}.png`.
 
@@ -40,12 +68,9 @@ Outputs land in `assets/out/<id>.glb` and `assets/out/previews/<id>_{hero,front,
 
 1. Create or edit `assets/specs/<id>.json`.
 2. Run `generate`.
-3. Read the report. Every gate is listed with its measured value, so a failure tells you
-   the number to fix.
-4. **Open the preview PNGs and actually look at them.** The numbers cannot tell you that
-   a crate looks like a filing cabinet. Check proportions, silhouette, plank rhythm,
-   material read.
-5. Adjust the spec and repeat.
+3. Read the report. Failed gates include measured values.
+4. **Open the preview PNGs and look at them.** Numbers cannot catch a bad silhouette.
+5. Adjust the **spec** first; change the generator only when params cannot express it.
 
 ## Writing a spec
 
@@ -69,34 +94,27 @@ Outputs land in `assets/out/<id>.glb` and `assets/out/previews/<id>_{hero,front,
 }
 ```
 
-Parsing is strict on purpose: unknown keys, missing keys and wrong types all fail before
-Blender starts. Material slots must match the generator's `MATERIAL_SLOTS` exactly.
-Dimensions are meters.
+Parsing is strict: unknown keys, missing keys, wrong types fail before Blender starts.
+Material slots must match the generator's `MATERIAL_SLOTS`. Dimensions are meters.
+Use `seed` (where supported) for reproducible variation inside a family.
 
 ## Interpreting the gates
 
 | Gate | Meaning when it fails |
 | --- | --- |
-| `triangle_budget` | Reduce plank/segment counts, or raise the budget if the asset genuinely needs it |
-| `uvs_present`, `uvs_in_unit_square` | The unwrap did not produce usable texture space |
-| `manifold`, `no_loose_geometry` | Boxes were built open or geometry was left stranded |
-| `normals_outward` | Inside-out geometry; it will render black in engines |
-| `no_degenerate_faces` | Zero-area faces, usually from a parameter collapsing to 0 |
-| `transforms_identity`, `origin_at_base` | Pivot convention broken; the asset will not place correctly |
-| `roundtrip_*` | The exported file disagrees with the authored scene, so the export lost something |
+| `triangle_budget` | Reduce detail params, or raise the budget deliberately |
+| `uvs_present`, `uvs_in_unit_square` | Unwrap failed or left bad UVs |
+| `manifold`, `no_loose_geometry` | Broken topology at authoring time |
+| `normals_outward` | Inside-out geometry |
+| `no_degenerate_faces` | Collapsed faces from bad params |
+| `transforms_identity`, `origin_at_base` | Pivot/placement convention broken |
+| `roundtrip_*` | Export lost data vs the authored scene |
 
-`validate` deliberately omits `manifold` and `no_loose_geometry`: glTF stores one vertex
-per unique normal/UV pair, so edge connectivity is not something the format preserves.
-Topology is guaranteed at authoring time by `generate` instead.
+`validate` omits manifold checks on reimported glTF (format splits verts). Topology is
+guaranteed by `generate` at authoring time.
 
 ## Adding a generator
 
-Create `blender/generators/<family>_<name>.py` with `MATERIAL_SLOTS: tuple[str, ...]`
-and `build(spec: AssetSpec) -> list[bpy.types.Object]`, then register the module in
-`blender/lib/registry.py`. Follow `hard_surface_crate.py`: parse params into a frozen
-dataclass, reject impossible dimensions with the real numbers in the message, assemble
-with `BoxBuilder`, then `apply_bevel` / `shade_flat` / `unwrap`.
-
-Let boxes interpenetrate rather than butt together. Two coplanar faces on the outside of
-an asset z-fight in every renderer, and that is exactly the class of defect that makes
-generated assets look broken.
+Create `blender/generators/<family>_<name>.py` with `MATERIAL_SLOTS` and
+`build(spec) -> list[bpy.types.Object]`, register in `blender/lib/registry.py`, add a
+sample spec under `assets/specs/`, then prove `generate` and that `regenerate` picks it up.

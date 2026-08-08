@@ -2,8 +2,13 @@
 
     python tools/ag.py doctor
     python tools/ag.py generate crate_small
+    python tools/ag.py regenerate
     python tools/ag.py preview crate_small
     python tools/ag.py validate crate_small
+
+For a fresh clone (bootstrap Blender + rebuild everything):
+
+    python tools/regenerate_assets.py
 
 Stdlib-only, so it runs with any Python 3.11+ and needs no virtualenv.
 """
@@ -30,6 +35,7 @@ from tools.blenderctl import (
     require_blender,
     run_entrypoint,
 )
+from tools.prereqs import collect_prereqs, format_prereqs, failed_errors
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 SPEC_DIR: Final[Path] = REPO_ROOT / "assets" / "specs"
@@ -89,23 +95,18 @@ def _run_preview(
 def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"repo root      : {REPO_ROOT}")
     print(f"pinned Blender : {BLENDER_VERSION}")
-    install = find_blender()
-    if install is None:
-        print("blender        : NOT FOUND")
-        print("\nRun `python tools/bootstrap.py` to install it.")
-        return 1
-    print(f"blender        : {install.executable}")
-    print(f"version        : {install.version_str}  (found via {install.source})")
-
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    probe = OUT_DIR / ".write-probe"
-    probe.write_text("ok", encoding="utf-8")
-    probe.unlink()
-    print(f"output dir     : {OUT_DIR} (writable)")
-
+    print()
+    # Doctor reports readiness for generation; if Blender is missing it still
+    # explains how bootstrap will obtain it.
+    checks = collect_prereqs(for_bootstrap=find_blender() is None)
+    print(format_prereqs(checks))
+    print()
     specs = sorted(path.stem for path in SPEC_DIR.glob("*.json"))
     print(f"generators     : {sorted(GENERATORS)}")
     print(f"specs          : {specs}")
+    if failed_errors(checks):
+        print("\nRun `python tools/regenerate_assets.py` after fixing the FAIL items.")
+        return 1
     return 0
 
 
@@ -122,22 +123,83 @@ def cmd_specs(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_generate(args: argparse.Namespace) -> int:
-    spec = load_and_check_spec(args.spec)
-    install = require_blender()
+def list_spec_paths() -> list[Path]:
+    return sorted(SPEC_DIR.glob("*.json"))
 
+
+def generate_one(
+    install: BlenderInstall,
+    spec: AssetSpec,
+    *,
+    no_preview: bool,
+    resolution: int,
+    samples: int,
+    as_json: bool,
+) -> int:
     result = run_entrypoint(
         install,
         "generate",
         {"spec_path": str(spec.source_path), "out_dir": str(OUT_DIR)},
     )
-    status = _emit(result, args.json)
-    if status != 0 or args.no_preview:
+    status = _emit(result, as_json)
+    if status != 0 or no_preview:
         return status
 
     glb_path = OUT_DIR / spec.glb_name
-    preview_result = _run_preview(install, spec.asset_id, glb_path, args.resolution, args.samples)
-    return _emit(preview_result, args.json)
+    preview_result = _run_preview(install, spec.asset_id, glb_path, resolution, samples)
+    return _emit(preview_result, as_json)
+
+
+def cmd_generate(args: argparse.Namespace) -> int:
+    spec = load_and_check_spec(args.spec)
+    install = require_blender()
+    return generate_one(
+        install,
+        spec,
+        no_preview=args.no_preview,
+        resolution=args.resolution,
+        samples=args.samples,
+        as_json=args.json,
+    )
+
+
+def cmd_regenerate(args: argparse.Namespace) -> int:
+    """Rebuild every spec under assets/specs/. Continues after failures; exits 1 if any failed."""
+    paths = list_spec_paths()
+    if not paths:
+        raise SpecError(f"No specs found in {SPEC_DIR}")
+
+    install = require_blender()
+    print(f"Regenerating {len(paths)} asset(s) from {SPEC_DIR}")
+    failures: list[str] = []
+
+    for index, path in enumerate(paths, start=1):
+        print(f"\n=== [{index}/{len(paths)}] {path.stem} ===")
+        try:
+            spec = load_and_check_spec(str(path))
+            status = generate_one(
+                install,
+                spec,
+                no_preview=args.no_preview,
+                resolution=args.resolution,
+                samples=args.samples,
+                as_json=args.json,
+            )
+        except (SpecError, BlenderError, UnknownGeneratorError) as exc:
+            print(f"[FAIL] {path.stem}: {exc}")
+            status = 1
+        if status != 0:
+            failures.append(path.stem)
+
+    print("\n=== regenerate summary ===")
+    print(f"total   : {len(paths)}")
+    print(f"passed  : {len(paths) - len(failures)}")
+    print(f"failed  : {len(failures)}")
+    if failures:
+        print(f"failures: {failures}")
+        return 1
+    print("All assets regenerated.")
+    return 0
 
 
 def cmd_preview(args: argparse.Namespace) -> int:
@@ -184,6 +246,15 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--resolution", type=int, default=DEFAULT_RESOLUTION)
     generate.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
     generate.set_defaults(func=cmd_generate)
+
+    regenerate = subparsers.add_parser(
+        "regenerate",
+        help="rebuild every asset in assets/specs/ (Blender must already be bootstrapped)",
+    )
+    regenerate.add_argument("--no-preview", action="store_true", help="skip preview renders")
+    regenerate.add_argument("--resolution", type=int, default=DEFAULT_RESOLUTION)
+    regenerate.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
+    regenerate.set_defaults(func=cmd_regenerate)
 
     preview = subparsers.add_parser("preview", help="render preview images of an exported glb")
     preview.add_argument("target", help="spec id or path to a .glb")

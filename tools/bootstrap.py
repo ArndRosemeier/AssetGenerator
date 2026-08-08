@@ -15,7 +15,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from blender.lib.report import Report, format_report
 from tools.blenderctl import (
     BLENDER_SERIES,
     BLENDER_VERSION,
@@ -26,6 +25,7 @@ from tools.blenderctl import (
     record_blender_path,
     run_entrypoint,
 )
+from tools.prereqs import PrereqError, require_prereqs
 
 SMOKE_DIR = Path(__file__).resolve().parent.parent / "assets" / "out" / "_smoke"
 
@@ -46,30 +46,40 @@ def acquire_blender() -> BlenderInstall:
     return existing
 
 
-def main() -> int:
-    print("=== Blender Asset Lab bootstrap ===")
-    try:
-        install = acquire_blender()
-    except BlenderError as exc:
-        print(f"\nerror: {exc}", file=sys.stderr)
-        return 2
-
+def ensure_blender(*, smoke: bool = True) -> BlenderInstall:
+    """Locate or install Blender, record its path, optionally run the smoke test."""
+    install = acquire_blender()
     record_blender_path(install)
     print(f"Using Blender {install.version_str}: {install.executable}")
+
+    if not smoke:
+        return install
 
     print("\nRunning pipeline smoke test (build -> export glb -> reimport)")
     result = run_entrypoint(install, "smoke", {"out_dir": str(SMOKE_DIR)})
     report: Report = result.report  # type: ignore[assignment]
     print(format_report(report))
-
     if not report.get("ok"):
-        print("\nBootstrap FAILED. The report above shows which stage broke.", file=sys.stderr)
+        raise BlenderError("Bootstrap smoke test failed. See report above.")
+    return install
+
+
+def main() -> int:
+    print("=== Blender Asset Lab bootstrap ===")
+    try:
+        require_prereqs(for_bootstrap=True)
+        print()
+        ensure_blender(smoke=True)
+    except PrereqError as exc:
+        print(f"\nerror: {exc}", file=sys.stderr)
+        return 2
+    except BlenderError as exc:
+        print(f"\nerror: {exc}", file=sys.stderr)
         return 1
 
     print("\nBootstrap complete. Next:")
-    print("  python tools/ag.py doctor")
-    print("  python tools/ag.py generate crate_small")
-    print("  then look at assets/out/previews/")
+    print("  python tools/regenerate_assets.py")
+    print("  # or: python tools/ag.py generate crate_small")
     return 0
 
 

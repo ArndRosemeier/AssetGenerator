@@ -13,6 +13,48 @@ Also see:
 
 ---
 
+## Process (must follow)
+
+This is the only supported asset workflow. Do not invent a parallel one.
+
+| Layer | Path | In git? | Role |
+| --- | --- | --- | --- |
+| Spec / recipe | `assets/specs/<id>.json` | **Yes** | Exact generation recipe (params, materials, QA, `seed`) |
+| Generator | `blender/generators/*.py` | **Yes** | Parametric builder, registered by name |
+| Products | `assets/out/**` | **No** (gitignored) | Regenerable `.glb`, previews, bake dumps |
+
+**Rules of the process**
+
+1. Create or change an asset by editing a **spec**, not by hand-editing a `.glb`.
+2. Same spec ⇒ same output. Use `seed` and params for controlled variation.
+3. Register **generators** in `blender/lib/registry.py`. Do **not** maintain a separate
+   list of asset IDs — `regenerate` discovers every `assets/specs/*.json` via glob.
+4. Fresh clone / full library rebuild:
+
+   ```bash
+   python tools/regenerate_assets.py
+   ```
+
+   Blender already present:
+
+   ```bash
+   python tools/ag.py regenerate
+   ```
+
+5. Single-asset work:
+
+   ```bash
+   python tools/ag.py generate <id>
+   ```
+
+6. Commit the spec (and generator code if you added one). Do not commit `assets/out/`
+   unless the user explicitly asks. Products stay rebuildable from specs.
+
+If a future “recipes” rename happens, the pattern stays the same: committed JSON recipe
+in, regenerable products out.
+
+---
+
 ## Mental model
 
 ```text
@@ -41,8 +83,27 @@ python tools/ag.py doctor
 | Result | What to do |
 | --- | --- |
 | Blender found, paths OK | Proceed |
-| Blender not found | Run `python tools/bootstrap.py` once (~400 MB download, a few minutes, prints progress) |
+| Blender not found | Run `python tools/regenerate_assets.py` or `python tools/bootstrap.py` (~400 MB) |
 | Spec/generator missing | Create them; do not invent a parallel pipeline |
+
+Fresh clone one-liner (prereq check + bootstrap + rebuild every spec):
+
+```bash
+python tools/regenerate_assets.py
+```
+
+That command first verifies clone-host requirements via `tools/prereqs.py`:
+
+| Check | Why |
+| --- | --- |
+| Python ≥ 3.11 | Language baseline (`requires-python`) |
+| Stdlib modules | No `pip install` — broken/embed Python fails here |
+| Repo layout | `assets/specs/`, `blender/entrypoints/` present |
+| Writable `assets/out/` and `tools/blender-bin/` | Outputs + Blender extract |
+| Blender present **or** Windows + CDN + ~2 GiB free | Auto-bootstrap path |
+| `BLENDER_BIN` | Non-Windows / custom installs |
+
+Failures print a `fix:` line. Do not skip with `--skip-prereqs` unless debugging.
 
 Override an existing Blender install with `BLENDER_BIN` if needed. Bootstrap still
 pins and prefers the managed 4.5.12 LTS under `tools/blender-bin/` for reproducibility.
@@ -53,9 +114,11 @@ pins and prefers the managed 4.5.12 LTS under `tools/blender-bin/` for reproduci
 
 | Command | Use when |
 | --- | --- |
+| `python tools/regenerate_assets.py` | Fresh clone / rebuild the whole library |
 | `python tools/ag.py doctor` | Session start / toolchain suspicion |
 | `python tools/ag.py generate <id>` | Build + QA + export + round-trip + previews |
 | `python tools/ag.py generate <id> --no-preview` | Fast geometry iteration |
+| `python tools/ag.py regenerate` | Rebuild all specs (Blender already present) |
 | `python tools/ag.py preview <id>` | Re-render after a generate that skipped previews |
 | `python tools/ag.py validate <id>` | Re-check the shipped `.glb` against its spec |
 | `python tools/ag.py specs` / `generators` | Discover what exists |
@@ -273,9 +336,11 @@ docs/AGENT_GUIDE.md     this file
 
 An asset request is done only when **all** of these are true:
 
-1. Spec is committed under `assets/specs/` (or updated there).
+1. Spec exists under `assets/specs/<id>.json` and is the recipe you would regenerate from.
 2. `python tools/ag.py generate <id>` exits `0`.
 3. You have inspected the preview PNGs and they match the request.
-4. You have not asked the user to click around in Blender.
-5. Failures encountered along the way were fixed by changing specs/generators, not by
-   silencing checks.
+4. A full sweep would include it: `python tools/ag.py regenerate` globs that spec
+   (no hard-coded allowlist to update).
+5. You have not asked the user to click around in Blender.
+6. Failures were fixed by changing specs/generators, not by silencing checks.
+7. You did not rely on committing `assets/out/` as the source of truth.
