@@ -5,8 +5,13 @@ const StudioUIScript := preload("res://scripts/studio_ui.gd")
 const ProportionModifierScript := preload("res://scripts/proportion_modifier.gd")
 
 var _female: bool = false
-var _suit_id: String = ""
-var _shoes_id: String = ""
+## slot -> asset id; empty string means the slot is unequipped (None).
+var _selection: Dictionary = {
+	"suit": "",
+	"shoes": "",
+	"hair": "",
+	"eyebrows": "",
+}
 var _props: BodyProportions = BodyProportions.identity()
 var _catalog: WardrobeCatalog
 var _body_path: String = ""
@@ -19,30 +24,34 @@ var _pivot: Node3D
 var _camera: Camera3D
 var _yaw: float = 0.0
 var _pitch: float = 0.08
-var _distance: float = 1.15
-var _look_height: float = 1.48
+var _distance: float = 3.9
+var _look_height: float = 0.85
 var _dragging: bool = false
-var _framing: StringName = &"face"
+var _framing: StringName = &"body"
 
 
 func _ready() -> void:
 	_build_environment()
 	_build_camera_rig()
 	_catalog = WardrobeCatalog.load_default()
-	## Open on a dressed character so the modular assembly is visible at a glance.
-	_suit_id = _catalog.first_id(_female, "suit")
-	_shoes_id = _catalog.first_id(_female, "shoes")
+	## Open dressed, with hair + eyebrows, so the full modular stack is visible.
+	_selection = {
+		"suit": _catalog.first_id(_female, "suit"),
+		"shoes": _catalog.first_id(_female, "shoes"),
+		"hair": _default_hair(_female),
+		"eyebrows": _catalog.first_id(_female, "eyebrows"),
+	}
 	_ui = StudioUIScript.new()
 	_ui.name = "StudioUI"
 	_ui.set_catalog(_catalog)
 	add_child(_ui)
-	_ui.set_wardrobe(_suit_id, _shoes_id)
+	_ui.set_wardrobe(_selection)
 	_ui.proportions_changed.connect(_on_proportions)
 	_ui.sex_change_requested.connect(_on_sex)
 	_ui.wardrobe_changed.connect(_on_wardrobe)
 	_ui.framing_requested.connect(_on_framing)
 	_rebuild_character()
-	_apply_framing(&"face")
+	_apply_framing(&"body")
 	_update_camera()
 
 
@@ -89,9 +98,9 @@ func _build_camera_rig() -> void:
 	_pivot.add_child(_camera)
 
 
-## Reloads the body only when the suit changed; shoes are swapped in place.
+## Reloads the body only when the suit changed; other slots are swapped in place.
 func _rebuild_character() -> void:
-	var wanted_body := _catalog.body_path(_female, _suit_id)
+	var wanted_body := _catalog.body_path(_female, String(_selection.get("suit", "")))
 	if wanted_body.is_empty():
 		return
 	if wanted_body != _body_path or _body_root == null or not is_instance_valid(_body_root):
@@ -138,14 +147,19 @@ func _apply_wardrobe() -> void:
 		return
 	ModularAssembler.clear(_body_root)
 	var paths: Array[String] = []
-	var suit := _catalog.path_for(_female, "suit", _suit_id)
-	if not suit.is_empty():
-		paths.append(suit)
-	var shoes := _catalog.path_for(_female, "shoes", _shoes_id)
-	if not shoes.is_empty():
-		paths.append(shoes)
+	for slot: String in ["suit", "shoes", "hair", "eyebrows"]:
+		var path := _catalog.path_for(_female, slot, String(_selection.get(slot, "")))
+		if not path.is_empty():
+			paths.append(path)
 	var attached := ModularAssembler.attach(_body_root, _skeleton, paths)
-	print("CharacterStudio wardrobe suit=", _suit_id, " shoes=", _shoes_id, " meshes=", attached)
+	print(
+		"CharacterStudio wardrobe",
+		" suit=", _selection.get("suit", ""),
+		" shoes=", _selection.get("shoes", ""),
+		" hair=", _selection.get("hair", ""),
+		" eyebrows=", _selection.get("eyebrows", ""),
+		" meshes=", attached
+	)
 
 
 func _apply_proportions() -> void:
@@ -166,18 +180,33 @@ func _on_proportions(props: BodyProportions) -> void:
 
 func _on_sex(female: bool) -> void:
 	_female = female
-	## Garment ids are sex-specific; keep the same slot filled where possible.
-	_suit_id = _catalog.first_id(_female, "suit") if not _suit_id.is_empty() else ""
-	if not _shoes_id.is_empty() and _catalog.path_for(_female, "shoes", _shoes_id).is_empty():
-		_shoes_id = _catalog.first_id(_female, "shoes")
-	_ui.set_wardrobe(_suit_id, _shoes_id)
+	## Remap each filled slot onto the new sex; suits are sex-specific, the rest
+	## keep their id when the same asset exists for both bodies.
+	var next: Dictionary = {}
+	for slot: String in ["suit", "shoes", "hair", "eyebrows"]:
+		var current := String(_selection.get(slot, ""))
+		if current.is_empty():
+			next[slot] = ""
+			continue
+		if not _catalog.path_for(_female, slot, current).is_empty():
+			next[slot] = current
+		else:
+			next[slot] = _catalog.first_id(_female, slot)
+	_selection = next
+	_ui.set_wardrobe(_selection)
 	_rebuild_character()
 
 
-func _on_wardrobe(suit_id: String, shoes_id: String) -> void:
-	_suit_id = suit_id
-	_shoes_id = shoes_id
+func _on_wardrobe(selection: Dictionary) -> void:
+	_selection = selection.duplicate()
 	_rebuild_character()
+
+
+func _default_hair(female: bool) -> String:
+	var preferred := "bob01" if female else "short02"
+	if not _catalog.path_for(female, "hair", preferred).is_empty():
+		return preferred
+	return _catalog.first_id(female, "hair")
 
 
 func _on_framing(mode: StringName) -> void:
@@ -187,11 +216,13 @@ func _on_framing(mode: StringName) -> void:
 func _apply_framing(mode: StringName) -> void:
 	_framing = mode
 	_yaw = 0.0
-	_pitch = 0.08
 	if mode == &"body":
-		_look_height = 0.95
-		_distance = 2.6
+		## Aim near mid-height and stand far enough that shoes stay in a 28° FOV.
+		_pitch = 0.0
+		_look_height = 0.85
+		_distance = 3.9
 	else:
+		_pitch = 0.08
 		_look_height = 1.48
 		_distance = 1.15
 	_update_camera()

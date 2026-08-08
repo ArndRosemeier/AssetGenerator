@@ -29,7 +29,7 @@ Override with `GODOT_BIN`.
 | Mouse wheel | Zoom |
 | **Frame face** / **Frame body** | Camera presets (face is default) |
 | Male / Female | Swap base sex |
-| Suit / Shoes | Equip a garment, or `None` |
+| Suit / Shoes / Hair / Eyebrows | Equip a piece, or `None` |
 | Body + Face sliders | Live morphs |
 | Randomize / Reset | Props |
 
@@ -45,9 +45,9 @@ Everything is built by Asset Lab’s own MPFB export
 | `assets/humans/pieces/{sex}_{garment}.glb` | One garment on the shared `game_engine` rig |
 | `assets/humans/wardrobe.json` | Slot/label/path catalogue the runtime reads |
 
-Choosing a suit swaps the body; choosing shoes does not, because shoes enclose
-the foot and need no delete mask. That keeps the body count linear in the number
-of suits (11 today) instead of combinatorial.
+Choosing a suit swaps the body; shoes, hair and eyebrows do not, because none of
+them need a body delete mask. That keeps the body count linear in the number of
+suits (11 today) instead of combinatorial. Eyebrows and hair both offer `None`.
 
 ```bash
 python tools/sync_character_studio_assets.py                     # full modular set

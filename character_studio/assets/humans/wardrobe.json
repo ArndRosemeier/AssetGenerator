@@ -1,7 +1,9 @@
 {
   "slots": [
     "suit",
-    "shoes"
+    "shoes",
+    "hair",
+    "eyebrows"
   ],
   "bodies": [
     {
@@ -98,6 +100,160 @@
       "path": "res://assets/humans/pieces/male_shoes05.glb"
     },
     {
+      "id": "afro01",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Afro 01",
+      "path": "res://assets/humans/pieces/male_afro01.glb"
+    },
+    {
+      "id": "bob01",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Bob 01",
+      "path": "res://assets/humans/pieces/male_bob01.glb"
+    },
+    {
+      "id": "bob02",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Bob 02",
+      "path": "res://assets/humans/pieces/male_bob02.glb"
+    },
+    {
+      "id": "braid01",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Braid 01",
+      "path": "res://assets/humans/pieces/male_braid01.glb"
+    },
+    {
+      "id": "long01",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Long 01",
+      "path": "res://assets/humans/pieces/male_long01.glb"
+    },
+    {
+      "id": "ponytail01",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Ponytail 01",
+      "path": "res://assets/humans/pieces/male_ponytail01.glb"
+    },
+    {
+      "id": "short01",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Short 01",
+      "path": "res://assets/humans/pieces/male_short01.glb"
+    },
+    {
+      "id": "short02",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Short 02",
+      "path": "res://assets/humans/pieces/male_short02.glb"
+    },
+    {
+      "id": "short03",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Short 03",
+      "path": "res://assets/humans/pieces/male_short03.glb"
+    },
+    {
+      "id": "short04",
+      "sex": "male",
+      "slot": "hair",
+      "label": "Short 04",
+      "path": "res://assets/humans/pieces/male_short04.glb"
+    },
+    {
+      "id": "eyebrow001",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 01",
+      "path": "res://assets/humans/pieces/male_eyebrow001.glb"
+    },
+    {
+      "id": "eyebrow002",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 02",
+      "path": "res://assets/humans/pieces/male_eyebrow002.glb"
+    },
+    {
+      "id": "eyebrow003",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 03",
+      "path": "res://assets/humans/pieces/male_eyebrow003.glb"
+    },
+    {
+      "id": "eyebrow004",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 04",
+      "path": "res://assets/humans/pieces/male_eyebrow004.glb"
+    },
+    {
+      "id": "eyebrow005",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 05",
+      "path": "res://assets/humans/pieces/male_eyebrow005.glb"
+    },
+    {
+      "id": "eyebrow006",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 06",
+      "path": "res://assets/humans/pieces/male_eyebrow006.glb"
+    },
+    {
+      "id": "eyebrow007",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 07",
+      "path": "res://assets/humans/pieces/male_eyebrow007.glb"
+    },
+    {
+      "id": "eyebrow008",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 08",
+      "path": "res://assets/humans/pieces/male_eyebrow008.glb"
+    },
+    {
+      "id": "eyebrow009",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 09",
+      "path": "res://assets/humans/pieces/male_eyebrow009.glb"
+    },
+    {
+      "id": "eyebrow010",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 10",
+      "path": "res://assets/humans/pieces/male_eyebrow010.glb"
+    },
+    {
+      "id": "eyebrow011",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 11",
+      "path": "res://assets/humans/pieces/male_eyebrow011.glb"
+    },
+    {
+      "id": "eyebrow012",
+      "sex": "male",
+      "slot": "eyebrows",
+      "label": "Eyebrow 12",
+      "path": "res://assets/humans/pieces/male_eyebrow012.glb"
+    },
+    {
       "id": "female_casualsuit01",
       "sex": "female",
       "slot": "suit",
@@ -159,6 +315,160 @@
       "slot": "shoes",
       "label": "Shoes 05",
       "path": "res://assets/humans/pieces/female_shoes05.glb"
+    },
+    {
+      "id": "afro01",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Afro 01",
+      "path": "res://assets/humans/pieces/female_afro01.glb"
+    },
+    {
+      "id": "bob01",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Bob 01",
+      "path": "res://assets/humans/pieces/female_bob01.glb"
+    },
+    {
+      "id": "bob02",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Bob 02",
+      "path": "res://assets/humans/pieces/female_bob02.glb"
+    },
+    {
+      "id": "braid01",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Braid 01",
+      "path": "res://assets/humans/pieces/female_braid01.glb"
+    },
+    {
+      "id": "long01",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Long 01",
+      "path": "res://assets/humans/pieces/female_long01.glb"
+    },
+    {
+      "id": "ponytail01",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Ponytail 01",
+      "path": "res://assets/humans/pieces/female_ponytail01.glb"
+    },
+    {
+      "id": "short01",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Short 01",
+      "path": "res://assets/humans/pieces/female_short01.glb"
+    },
+    {
+      "id": "short02",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Short 02",
+      "path": "res://assets/humans/pieces/female_short02.glb"
+    },
+    {
+      "id": "short03",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Short 03",
+      "path": "res://assets/humans/pieces/female_short03.glb"
+    },
+    {
+      "id": "short04",
+      "sex": "female",
+      "slot": "hair",
+      "label": "Short 04",
+      "path": "res://assets/humans/pieces/female_short04.glb"
+    },
+    {
+      "id": "eyebrow001",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 01",
+      "path": "res://assets/humans/pieces/female_eyebrow001.glb"
+    },
+    {
+      "id": "eyebrow002",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 02",
+      "path": "res://assets/humans/pieces/female_eyebrow002.glb"
+    },
+    {
+      "id": "eyebrow003",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 03",
+      "path": "res://assets/humans/pieces/female_eyebrow003.glb"
+    },
+    {
+      "id": "eyebrow004",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 04",
+      "path": "res://assets/humans/pieces/female_eyebrow004.glb"
+    },
+    {
+      "id": "eyebrow005",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 05",
+      "path": "res://assets/humans/pieces/female_eyebrow005.glb"
+    },
+    {
+      "id": "eyebrow006",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 06",
+      "path": "res://assets/humans/pieces/female_eyebrow006.glb"
+    },
+    {
+      "id": "eyebrow007",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 07",
+      "path": "res://assets/humans/pieces/female_eyebrow007.glb"
+    },
+    {
+      "id": "eyebrow008",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 08",
+      "path": "res://assets/humans/pieces/female_eyebrow008.glb"
+    },
+    {
+      "id": "eyebrow009",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 09",
+      "path": "res://assets/humans/pieces/female_eyebrow009.glb"
+    },
+    {
+      "id": "eyebrow010",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 10",
+      "path": "res://assets/humans/pieces/female_eyebrow010.glb"
+    },
+    {
+      "id": "eyebrow011",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 11",
+      "path": "res://assets/humans/pieces/female_eyebrow011.glb"
+    },
+    {
+      "id": "eyebrow012",
+      "sex": "female",
+      "slot": "eyebrows",
+      "label": "Eyebrow 12",
+      "path": "res://assets/humans/pieces/female_eyebrow012.glb"
     }
   ]
 }

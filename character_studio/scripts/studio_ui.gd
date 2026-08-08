@@ -4,7 +4,8 @@ extends CanvasLayer
 
 signal proportions_changed(props: BodyProportions)
 signal sex_change_requested(female: bool)
-signal wardrobe_changed(suit_id: String, shoes_id: String)
+## selection maps slot name -> asset id (empty string means None).
+signal wardrobe_changed(selection: Dictionary)
 signal framing_requested(mode: StringName)
 
 const BODY_SLIDERS: Array[Dictionary] = [
@@ -40,15 +41,24 @@ const FACE_SLIDERS: Array[Dictionary] = [
 ]
 
 const NONE_LABEL := "None"
+const SLOT_LABELS: Dictionary = {
+	"suit": "Suit",
+	"shoes": "Shoes",
+	"hair": "Hair",
+	"eyebrows": "Eyebrows",
+}
 
 var _props: BodyProportions = BodyProportions.identity()
 var _female: bool = false
 var _catalog: WardrobeCatalog
-var _suit_id: String = ""
-var _shoes_id: String = ""
+var _selection: Dictionary = {
+	"suit": "",
+	"shoes": "",
+	"hair": "",
+	"eyebrows": "",
+}
 var _sex_label: Label
-var _suit_picker: OptionButton
-var _shoes_picker: OptionButton
+var _pickers: Dictionary = {}
 var _slider_by_key: Dictionary = {}
 var _suppress: bool = false
 
@@ -70,9 +80,9 @@ func get_proportions() -> BodyProportions:
 	return _props
 
 
-func set_wardrobe(suit_id: String, shoes_id: String) -> void:
-	_suit_id = suit_id
-	_shoes_id = shoes_id
+func set_wardrobe(selection: Dictionary) -> void:
+	for slot: Variant in _selection.keys():
+		_selection[String(slot)] = String(selection.get(String(slot), ""))
 	_refresh_wardrobe_pickers()
 
 
@@ -111,7 +121,7 @@ func _build_ui() -> void:
 	root.add_child(title)
 
 	var hint := Label.new()
-	hint.text = "Drag to orbit · Wheel zoom · Face-first preview"
+	hint.text = "Drag to orbit · Wheel zoom"
 	hint.modulate = Color(0.72, 0.76, 0.84)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(hint)
@@ -132,10 +142,12 @@ func _build_ui() -> void:
 	sex_row.add_child(female_btn)
 
 	root.add_child(_section_label("Wardrobe"))
-	_suit_picker = _make_slot_row(root, "Suit")
-	_suit_picker.item_selected.connect(func(index: int) -> void: _on_slot_selected("suit", index))
-	_shoes_picker = _make_slot_row(root, "Shoes")
-	_shoes_picker.item_selected.connect(func(index: int) -> void: _on_slot_selected("shoes", index))
+	for slot: String in ["suit", "shoes", "hair", "eyebrows"]:
+		var picker := _make_slot_row(root, String(SLOT_LABELS[slot]))
+		_pickers[slot] = picker
+		picker.item_selected.connect(
+			func(index: int, selected_slot := slot) -> void: _on_slot_selected(selected_slot, index)
+		)
 
 	var frame_row := HBoxContainer.new()
 	frame_row.add_theme_constant_override("separation", 8)
@@ -188,7 +200,7 @@ func _make_slot_row(parent: Control, label_text: String) -> OptionButton:
 	parent.add_child(row)
 	var label := Label.new()
 	label.text = label_text
-	label.custom_minimum_size = Vector2(64, 0)
+	label.custom_minimum_size = Vector2(80, 0)
 	row.add_child(label)
 	var picker := OptionButton.new()
 	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -196,14 +208,14 @@ func _make_slot_row(parent: Control, label_text: String) -> OptionButton:
 	return picker
 
 
-## Rebuilds both pickers for the current sex. Item 0 is always "None"; the id of
-## each garment rides along as item metadata so labels can repeat across slots.
+## Rebuilds every picker for the current sex. Item 0 is always "None".
 func _refresh_wardrobe_pickers() -> void:
-	if _suit_picker == null or _shoes_picker == null:
+	if _pickers.is_empty():
 		return
 	_suppress = true
-	_fill_slot_picker(_suit_picker, "suit", _suit_id)
-	_fill_slot_picker(_shoes_picker, "shoes", _shoes_id)
+	for slot: Variant in _pickers.keys():
+		var key := String(slot)
+		_fill_slot_picker(_pickers[key] as OptionButton, key, String(_selection.get(key, "")))
 	_suppress = false
 
 
@@ -226,13 +238,9 @@ func _fill_slot_picker(picker: OptionButton, slot: String, selected_id: String) 
 func _on_slot_selected(slot: String, index: int) -> void:
 	if _suppress:
 		return
-	var picker := _suit_picker if slot == "suit" else _shoes_picker
-	var id := String(picker.get_item_metadata(index))
-	if slot == "suit":
-		_suit_id = id
-	else:
-		_shoes_id = id
-	wardrobe_changed.emit(_suit_id, _shoes_id)
+	var picker: OptionButton = _pickers[slot]
+	_selection[slot] = String(picker.get_item_metadata(index))
+	wardrobe_changed.emit(_selection.duplicate())
 
 
 func _section_label(text: String) -> Label:

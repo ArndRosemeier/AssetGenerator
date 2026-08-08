@@ -7,37 +7,62 @@ extends SceneTree
 ## "look"/"dist" override the body framing; feet need their own close-up because
 ## the bodies carry no shoe mask.
 const SHOTS: Array[Dictionary] = [
-	{"name": "male_casual", "female": false, "suit": "male_casualsuit01", "shoes": "shoes01"},
-	{"name": "male_elegant", "female": false, "suit": "male_elegantsuit01", "shoes": "shoes03"},
-	{"name": "male_work", "female": false, "suit": "male_worksuit01", "shoes": "shoes04"},
-	{"name": "male_shoes_only", "female": false, "suit": "", "shoes": "shoes01"},
-	{"name": "male_nude", "female": false, "suit": "", "shoes": ""},
 	{
-		"name": "male_feet",
+		"name": "male_casual",
 		"female": false,
 		"suit": "male_casualsuit01",
 		"shoes": "shoes01",
-		"look": 0.35,
-		"dist": 1.5,
+		"hair": "short02",
+		"eyebrows": "eyebrow001",
 	},
-	{"name": "female_casual", "female": true, "suit": "female_casualsuit01", "shoes": "shoes01"},
-	{"name": "female_sport", "female": true, "suit": "female_sportsuit01", "shoes": "shoes02"},
-	{"name": "female_elegant", "female": true, "suit": "female_elegantsuit01", "shoes": "shoes03"},
 	{
-		"name": "female_feet",
+		"name": "male_elegant",
+		"female": false,
+		"suit": "male_elegantsuit01",
+		"shoes": "shoes03",
+		"hair": "short01",
+		"eyebrows": "eyebrow003",
+	},
+	{
+		"name": "male_bald_no_brows",
+		"female": false,
+		"suit": "male_casualsuit01",
+		"shoes": "shoes01",
+		"hair": "",
+		"eyebrows": "",
+	},
+	{
+		"name": "female_casual",
+		"female": true,
+		"suit": "female_casualsuit01",
+		"shoes": "shoes01",
+		"hair": "bob01",
+		"eyebrows": "eyebrow002",
+	},
+	{
+		"name": "female_sport",
 		"female": true,
 		"suit": "female_sportsuit01",
 		"shoes": "shoes02",
-		"look": 0.35,
-		"dist": 1.5,
+		"hair": "ponytail01",
+		"eyebrows": "eyebrow001",
 	},
 	{
-		"name": "male_barefoot",
+		"name": "female_long",
+		"female": true,
+		"suit": "female_elegantsuit01",
+		"shoes": "shoes03",
+		"hair": "long01",
+		"eyebrows": "eyebrow004",
+	},
+	{
+		"name": "male_face",
 		"female": false,
 		"suit": "male_casualsuit01",
-		"shoes": "",
-		"look": 0.35,
-		"dist": 1.5,
+		"shoes": "shoes01",
+		"hair": "short02",
+		"eyebrows": "eyebrow001",
+		"frame": "face",
 	},
 ]
 
@@ -61,8 +86,16 @@ func _run() -> void:
 
 	for shot in SHOTS:
 		studio._female = bool(shot["female"])
-		studio._on_wardrobe(String(shot["suit"]), String(shot["shoes"]))
-		studio._apply_framing(&"body")
+		studio._on_wardrobe(
+			{
+				"suit": String(shot.get("suit", "")),
+				"shoes": String(shot.get("shoes", "")),
+				"hair": String(shot.get("hair", "")),
+				"eyebrows": String(shot.get("eyebrows", "")),
+			}
+		)
+		var frame := StringName(shot.get("frame", "body"))
+		studio._apply_framing(frame)
 		if shot.has("look"):
 			studio._look_height = float(shot["look"])
 			studio._distance = float(shot["dist"])

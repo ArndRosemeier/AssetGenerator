@@ -81,8 +81,8 @@ WARDROBE_SUITS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
-# Shoes are unisex mhclo assets, but each one is fitted and exported per sex so
-# its weights match the body it will be bound to.
+# Shoes / hair / eyebrows are unisex mhclo assets, but each one is fitted and
+# exported per sex so its weights match the body it will be bound to.
 WARDROBE_SHOES: list[tuple[str, str]] = [
     ("shoes01", "Shoes 01"),
     ("shoes02", "Shoes 02"),
@@ -91,18 +91,68 @@ WARDROBE_SHOES: list[tuple[str, str]] = [
     ("shoes05", "Shoes 05"),
 ]
 
+WARDROBE_HAIR: list[tuple[str, str]] = [
+    ("afro01", "Afro 01"),
+    ("bob01", "Bob 01"),
+    ("bob02", "Bob 02"),
+    ("braid01", "Braid 01"),
+    ("long01", "Long 01"),
+    ("ponytail01", "Ponytail 01"),
+    ("short01", "Short 01"),
+    ("short02", "Short 02"),
+    ("short03", "Short 03"),
+    ("short04", "Short 04"),
+]
+
+WARDROBE_EYEBROWS: list[tuple[str, str]] = [
+    ("eyebrow001", "Eyebrow 01"),
+    ("eyebrow002", "Eyebrow 02"),
+    ("eyebrow003", "Eyebrow 03"),
+    ("eyebrow004", "Eyebrow 04"),
+    ("eyebrow005", "Eyebrow 05"),
+    ("eyebrow006", "Eyebrow 06"),
+    ("eyebrow007", "Eyebrow 07"),
+    ("eyebrow008", "Eyebrow 08"),
+    ("eyebrow009", "Eyebrow 09"),
+    ("eyebrow010", "Eyebrow 10"),
+    ("eyebrow011", "Eyebrow 11"),
+    ("eyebrow012", "Eyebrow 12"),
+]
+
+# slot -> (MakeHuman asset root under the system pack, MPFB object_type)
+SLOT_ASSET_KIND: dict[str, tuple[str, str]] = {
+    "suit": ("clothes", "Clothes"),
+    "shoes": ("clothes", "Clothes"),
+    "hair": ("hair", "Hair"),
+    "eyebrows": ("eyebrows", "Eyebrows"),
+}
+
+WARDROBE_SLOTS: tuple[str, ...] = ("suit", "shoes", "hair", "eyebrows")
+
 
 def wardrobe_items(sex: str) -> list[dict]:
-    """Every garment Character Studio can equip on this sex, in slot order."""
+    """Every modular piece Character Studio can equip on this sex, in slot order."""
     if sex not in WARDROBE_SUITS:
         raise KeyError(f"unknown sex {sex!r}; expected one of {SEXES}")
-    items = [
-        {"id": garment, "slot": "suit", "label": label}
-        for garment, label in WARDROBE_SUITS[sex]
+    catalog: list[tuple[str, list[tuple[str, str]]]] = [
+        ("suit", WARDROBE_SUITS[sex]),
+        ("shoes", WARDROBE_SHOES),
+        ("hair", WARDROBE_HAIR),
+        ("eyebrows", WARDROBE_EYEBROWS),
     ]
-    items += [
-        {"id": garment, "slot": "shoes", "label": label} for garment, label in WARDROBE_SHOES
-    ]
+    items: list[dict] = []
+    for slot, entries in catalog:
+        asset_folder, asset_type = SLOT_ASSET_KIND[slot]
+        for asset_id, label in entries:
+            items.append(
+                {
+                    "id": asset_id,
+                    "slot": slot,
+                    "label": label,
+                    "asset_folder": asset_folder,
+                    "asset_type": asset_type,
+                }
+            )
     return items
 
 
@@ -146,7 +196,7 @@ def build_specs() -> list[dict]:
                     "id": _piece_id(sex, item["id"]),
                     "kind": "piece",
                     "sex": sex,
-                    "garments": [item["id"]],
+                    "item": item,
                     "out": _piece_out(sex, item["id"]),
                 }
             )
@@ -259,8 +309,8 @@ def _macro(gender: float) -> dict:
     return d
 
 
-def _mhclo_path(folder_name: str) -> Path:
-    folder = ASSETS_DIR / "clothes" / folder_name
+def _mhclo_path(folder_name: str, asset_folder: str = "clothes") -> Path:
+    folder = ASSETS_DIR / asset_folder / folder_name
     matches = sorted(folder.glob("*.mhclo"))
     if not matches:
         raise FileNotFoundError(f"No .mhclo in {folder}")
@@ -522,17 +572,26 @@ def _create_rigged_human(sex: str):
     return basemesh, armature
 
 
-def _equip_garments(basemesh, garments: list[str], spec_id: str) -> list:
+def _equip_assets(basemesh, items: list[dict], spec_id: str) -> list:
+    """Fit one or more mhclo assets and return the resulting mesh objects in order."""
     HumanService = _mpfb_import("services.humanservice").HumanService
     ObjectService = _mpfb_import("services.objectservice").ObjectService
 
-    for garment in garments:
-        garment_path = _mhclo_path(garment)
-        _log(f"Equipping {garment_path.name}")
+    equipped: list = []
+    for item in items:
+        asset_type = str(item["asset_type"])
+        before = {
+            obj.name
+            for obj in ObjectService.find_all_objects_of_type_amongst_nearest_relatives(
+                basemesh, asset_type
+            )
+        }
+        asset_path = _mhclo_path(str(item["id"]), str(item["asset_folder"]))
+        _log(f"Equipping {asset_path.name} as {asset_type}")
         HumanService.add_mhclo_asset(
-            str(garment_path),
+            str(asset_path),
             basemesh,
-            asset_type="Clothes",
+            asset_type=asset_type,
             subdiv_levels=0,
             material_type="GAMEENGINE",
             set_up_rigging=True,
@@ -540,14 +599,29 @@ def _equip_garments(basemesh, garments: list[str], spec_id: str) -> list:
             import_subrig=False,
             import_weights=True,
         )
-    clothes_objs = list(
-        ObjectService.find_all_objects_of_type_amongst_nearest_relatives(basemesh, "Clothes")
-    )
-    if len(clothes_objs) != len(garments):
-        raise RuntimeError(
-            f"{spec_id}: equipped {len(clothes_objs)} garments, expected {len(garments)}"
-        )
-    return clothes_objs
+        after = [
+            obj
+            for obj in ObjectService.find_all_objects_of_type_amongst_nearest_relatives(
+                basemesh, asset_type
+            )
+            if obj.name not in before
+        ]
+        if len(after) != 1:
+            raise RuntimeError(
+                f"{spec_id}: expected one new {asset_type} after {item['id']}, got "
+                f"{[o.name for o in after]}"
+            )
+        equipped.append(after[0])
+    return equipped
+
+
+def _equip_clothes(basemesh, garments: list[str], spec_id: str) -> list:
+    """Body delete-masks only come from Clothes; suits use this helper."""
+    items = [
+        {"id": garment, "asset_folder": "clothes", "asset_type": "Clothes"}
+        for garment in garments
+    ]
+    return _equip_assets(basemesh, items, spec_id)
 
 
 def _export_selection(out_rel: str, *, with_morphs: bool) -> Path:
@@ -580,7 +654,7 @@ def _export_body(spec: dict) -> Path:
     # before the shape keys are collapsed. The garments here exist only to stamp
     # their delete groups onto the body; they are dropped before export.
     eyes = _equip_eyes(basemesh)
-    clothes_objs = _equip_garments(basemesh, garments, spec["id"])
+    clothes_objs = _equip_clothes(basemesh, garments, spec["id"])
 
     # Bake macros into Basis, then face morphs while MH vertex indices still match
     # the target files, then strip helpers and the masked-away skin.
@@ -618,20 +692,18 @@ def _export_body(spec: dict) -> Path:
 
 
 def _export_piece(spec: dict) -> Path:
-    """A single garment on the shared rig, with no body and no face morphs."""
-    garments: list[str] = spec["garments"]
-    if len(garments) != 1:
-        raise RuntimeError(f"{spec['id']}: a piece must hold exactly one garment, got {garments}")
+    """A single wardrobe piece on the shared rig, with no body and no face morphs."""
+    item: dict = spec["item"]
     basemesh, armature = _create_rigged_human(spec["sex"])
-    clothes = _equip_garments(basemesh, garments, spec["id"])[0]
+    piece = _equip_assets(basemesh, [item], spec["id"])[0]
 
-    _apply_non_armature_modifiers(clothes)
-    _assign_unweighted_verts(clothes, ("spine_03", "pelvis", "foot_l", "foot_r", "head"))
-    _limit_weights_to_four(clothes)
-    _log(f"{spec['id']}: garment verts={len(clothes.data.vertices)}")
+    _apply_non_armature_modifiers(piece)
+    _assign_unweighted_verts(piece, ("head", "spine_03", "pelvis", "foot_l", "foot_r"))
+    _limit_weights_to_four(piece)
+    _log(f"{spec['id']}: {item['slot']} verts={len(piece.data.vertices)}")
 
     bpy.ops.object.select_all(action="DESELECT")
-    clothes.select_set(True)
+    piece.select_set(True)
     armature.select_set(True)
     bpy.context.view_layer.objects.active = armature
     return _export_selection(spec["out"], with_morphs=False)
@@ -672,7 +744,7 @@ def _write_wardrobe_json() -> None:
                 }
             )
     payload = {
-        "slots": ["suit", "shoes"],
+        "slots": list(WARDROBE_SLOTS),
         "bodies": [
             {
                 "sex": sex,
@@ -689,7 +761,7 @@ def _write_wardrobe_json() -> None:
     }
     WARDROBE_JSON.parent.mkdir(parents=True, exist_ok=True)
     WARDROBE_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    _log(f"Wrote {WARDROBE_JSON.name} ({len(items)} garments)")
+    _log(f"Wrote {WARDROBE_JSON.name} ({len(items)} pieces)")
 
 
 def main() -> None:
