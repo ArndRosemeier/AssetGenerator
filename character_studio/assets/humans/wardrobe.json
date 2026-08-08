@@ -1,0 +1,164 @@
+{
+  "slots": [
+    "suit",
+    "shoes"
+  ],
+  "bodies": [
+    {
+      "sex": "male",
+      "nude": "res://assets/humans/male_base.glb",
+      "dressed": {
+        "male_casualsuit01": "res://assets/humans/male_dressed_male_casualsuit01.glb",
+        "male_casualsuit02": "res://assets/humans/male_dressed_male_casualsuit02.glb",
+        "male_casualsuit03": "res://assets/humans/male_dressed_male_casualsuit03.glb",
+        "male_worksuit01": "res://assets/humans/male_dressed_male_worksuit01.glb",
+        "male_elegantsuit01": "res://assets/humans/male_dressed_male_elegantsuit01.glb"
+      }
+    },
+    {
+      "sex": "female",
+      "nude": "res://assets/humans/female_base.glb",
+      "dressed": {
+        "female_casualsuit01": "res://assets/humans/female_dressed_female_casualsuit01.glb",
+        "female_casualsuit02": "res://assets/humans/female_dressed_female_casualsuit02.glb",
+        "female_sportsuit01": "res://assets/humans/female_dressed_female_sportsuit01.glb",
+        "female_elegantsuit01": "res://assets/humans/female_dressed_female_elegantsuit01.glb"
+      }
+    }
+  ],
+  "items": [
+    {
+      "id": "male_casualsuit01",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Casual 01",
+      "path": "res://assets/humans/pieces/male_male_casualsuit01.glb"
+    },
+    {
+      "id": "male_casualsuit02",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Casual 02",
+      "path": "res://assets/humans/pieces/male_male_casualsuit02.glb"
+    },
+    {
+      "id": "male_casualsuit03",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Casual 03",
+      "path": "res://assets/humans/pieces/male_male_casualsuit03.glb"
+    },
+    {
+      "id": "male_worksuit01",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Work 01",
+      "path": "res://assets/humans/pieces/male_male_worksuit01.glb"
+    },
+    {
+      "id": "male_elegantsuit01",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Elegant 01",
+      "path": "res://assets/humans/pieces/male_male_elegantsuit01.glb"
+    },
+    {
+      "id": "shoes01",
+      "sex": "male",
+      "slot": "shoes",
+      "label": "Shoes 01",
+      "path": "res://assets/humans/pieces/male_shoes01.glb"
+    },
+    {
+      "id": "shoes02",
+      "sex": "male",
+      "slot": "shoes",
+      "label": "Shoes 02",
+      "path": "res://assets/humans/pieces/male_shoes02.glb"
+    },
+    {
+      "id": "shoes03",
+      "sex": "male",
+      "slot": "shoes",
+      "label": "Shoes 03",
+      "path": "res://assets/humans/pieces/male_shoes03.glb"
+    },
+    {
+      "id": "shoes04",
+      "sex": "male",
+      "slot": "shoes",
+      "label": "Shoes 04",
+      "path": "res://assets/humans/pieces/male_shoes04.glb"
+    },
+    {
+      "id": "shoes05",
+      "sex": "male",
+      "slot": "shoes",
+      "label": "Shoes 05",
+      "path": "res://assets/humans/pieces/male_shoes05.glb"
+    },
+    {
+      "id": "female_casualsuit01",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Casual 01",
+      "path": "res://assets/humans/pieces/female_female_casualsuit01.glb"
+    },
+    {
+      "id": "female_casualsuit02",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Casual 02",
+      "path": "res://assets/humans/pieces/female_female_casualsuit02.glb"
+    },
+    {
+      "id": "female_sportsuit01",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Sport 01",
+      "path": "res://assets/humans/pieces/female_female_sportsuit01.glb"
+    },
+    {
+      "id": "female_elegantsuit01",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Elegant 01",
+      "path": "res://assets/humans/pieces/female_female_elegantsuit01.glb"
+    },
+    {
+      "id": "shoes01",
+      "sex": "female",
+      "slot": "shoes",
+      "label": "Shoes 01",
+      "path": "res://assets/humans/pieces/female_shoes01.glb"
+    },
+    {
+      "id": "shoes02",
+      "sex": "female",
+      "slot": "shoes",
+      "label": "Shoes 02",
+      "path": "res://assets/humans/pieces/female_shoes02.glb"
+    },
+    {
+      "id": "shoes03",
+      "sex": "female",
+      "slot": "shoes",
+      "label": "Shoes 03",
+      "path": "res://assets/humans/pieces/female_shoes03.glb"
+    },
+    {
+      "id": "shoes04",
+      "sex": "female",
+      "slot": "shoes",
+      "label": "Shoes 04",
+      "path": "res://assets/humans/pieces/female_shoes04.glb"
+    },
+    {
+      "id": "shoes05",
+      "sex": "female",
+      "slot": "shoes",
+      "label": "Shoes 05",
+      "path": "res://assets/humans/pieces/female_shoes05.glb"
+    }
+  ]
+}

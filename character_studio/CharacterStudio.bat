@@ -12,8 +12,8 @@ if not exist "%GODOT%" (
   echo Set GODOT_BIN to your Godot_v4.6*_win64.exe
   exit /b 1
 )
-if not exist "%PROJECT%\assets\humans\male_base.glb" (
-  echo Exporting human GLBs with MPFB ^(first run, takes a few minutes^)...
+if not exist "%PROJECT%\assets\humans\wardrobe.json" (
+  echo Exporting modular human GLBs with MPFB ^(first run, takes a few minutes^)...
   python "%ROOT%\..\tools\sync_character_studio_assets.py"
   if errorlevel 1 exit /b 1
 )

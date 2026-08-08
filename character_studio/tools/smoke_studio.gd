@@ -1,5 +1,5 @@
 extends SceneTree
-## Headless smoke: main scene loads and face morphs are present.
+## Headless smoke: the modular character assembles with eyes, morphs and garments.
 
 
 func _initialize() -> void:
@@ -23,7 +23,13 @@ func _run() -> void:
 		return
 	var face := _count_face(body)
 	var eyes := _find_eyes(body)
-	print("smoke body_ok face_morphs=", face, " eyes=", eyes != null)
+	var skeleton := _find_skeleton(body)
+	var pieces := _collect_pieces(body)
+	print(
+		"smoke body_ok face_morphs=", face,
+		" eyes=", eyes != null,
+		" pieces=", pieces.size()
+	)
 	if face < 28:
 		push_error("expected 28 face morphs, got %d" % face)
 		quit(1)
@@ -36,7 +42,39 @@ func _run() -> void:
 		push_error("Eyes mesh has no surface")
 		quit(1)
 		return
+	if skeleton == null:
+		push_error("no Skeleton3D in the spawned body")
+		quit(1)
+		return
+	if pieces.size() < 2:
+		push_error("expected the default suit and shoes to be attached, got %d" % pieces.size())
+		quit(1)
+		return
+	for piece in pieces:
+		if piece.get_node_or_null(piece.skeleton) != skeleton:
+			push_error("garment %s is not bound to the body skeleton" % piece.name)
+			quit(1)
+			return
 	quit(0)
+
+
+func _collect_pieces(n: Node) -> Array[MeshInstance3D]:
+	var found: Array[MeshInstance3D] = []
+	if n is MeshInstance3D and n.is_in_group(&"ModularPiece"):
+		found.append(n as MeshInstance3D)
+	for ch in n.get_children():
+		found.append_array(_collect_pieces(ch))
+	return found
+
+
+func _find_skeleton(n: Node) -> Skeleton3D:
+	if n is Skeleton3D:
+		return n as Skeleton3D
+	for ch in n.get_children():
+		var found := _find_skeleton(ch)
+		if found != null:
+			return found
+	return null
 
 
 func _find_eyes(n: Node) -> MeshInstance3D:

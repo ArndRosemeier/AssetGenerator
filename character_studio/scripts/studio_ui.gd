@@ -4,7 +4,7 @@ extends CanvasLayer
 
 signal proportions_changed(props: BodyProportions)
 signal sex_change_requested(female: bool)
-signal outfit_change_requested(use_outfit: bool)
+signal wardrobe_changed(suit_id: String, shoes_id: String)
 signal framing_requested(mode: StringName)
 
 const BODY_SLIDERS: Array[Dictionary] = [
@@ -39,10 +39,16 @@ const FACE_SLIDERS: Array[Dictionary] = [
 	{"key": "face_lip_fullness", "label": "Lip fullness"},
 ]
 
+const NONE_LABEL := "None"
+
 var _props: BodyProportions = BodyProportions.identity()
 var _female: bool = false
-var _use_outfit: bool = true
+var _catalog: WardrobeCatalog
+var _suit_id: String = ""
+var _shoes_id: String = ""
 var _sex_label: Label
+var _suit_picker: OptionButton
+var _shoes_picker: OptionButton
 var _slider_by_key: Dictionary = {}
 var _suppress: bool = false
 
@@ -52,10 +58,22 @@ func _ready() -> void:
 	_build_ui()
 	_sync_sliders_from_props()
 	_refresh_sex_label()
+	_refresh_wardrobe_pickers()
+
+
+## Must be called before the node enters the tree so the pickers can be filled.
+func set_catalog(catalog: WardrobeCatalog) -> void:
+	_catalog = catalog
 
 
 func get_proportions() -> BodyProportions:
 	return _props
+
+
+func set_wardrobe(suit_id: String, shoes_id: String) -> void:
+	_suit_id = suit_id
+	_shoes_id = shoes_id
+	_refresh_wardrobe_pickers()
 
 
 func set_state(props: BodyProportions, female: bool) -> void:
@@ -63,6 +81,7 @@ func set_state(props: BodyProportions, female: bool) -> void:
 	_female = female
 	_sync_sliders_from_props()
 	_refresh_sex_label()
+	_refresh_wardrobe_pickers()
 
 
 func _build_ui() -> void:
@@ -112,19 +131,11 @@ func _build_ui() -> void:
 	female_btn.pressed.connect(func() -> void: _request_sex(true))
 	sex_row.add_child(female_btn)
 
-	var outfit_row := HBoxContainer.new()
-	outfit_row.add_theme_constant_override("separation", 8)
-	root.add_child(outfit_row)
-	var nude_btn := Button.new()
-	nude_btn.text = "Nude base"
-	nude_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	nude_btn.pressed.connect(func() -> void: _request_outfit(false))
-	outfit_row.add_child(nude_btn)
-	var outfit_btn := Button.new()
-	outfit_btn.text = "Casual outfit"
-	outfit_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outfit_btn.pressed.connect(func() -> void: _request_outfit(true))
-	outfit_row.add_child(outfit_btn)
+	root.add_child(_section_label("Wardrobe"))
+	_suit_picker = _make_slot_row(root, "Suit")
+	_suit_picker.item_selected.connect(func(index: int) -> void: _on_slot_selected("suit", index))
+	_shoes_picker = _make_slot_row(root, "Shoes")
+	_shoes_picker.item_selected.connect(func(index: int) -> void: _on_slot_selected("shoes", index))
 
 	var frame_row := HBoxContainer.new()
 	frame_row.add_theme_constant_override("separation", 8)
@@ -169,6 +180,59 @@ func _build_ui() -> void:
 	reset_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	reset_btn.pressed.connect(_on_reset)
 	actions.add_child(reset_btn)
+
+
+func _make_slot_row(parent: Control, label_text: String) -> OptionButton:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(64, 0)
+	row.add_child(label)
+	var picker := OptionButton.new()
+	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(picker)
+	return picker
+
+
+## Rebuilds both pickers for the current sex. Item 0 is always "None"; the id of
+## each garment rides along as item metadata so labels can repeat across slots.
+func _refresh_wardrobe_pickers() -> void:
+	if _suit_picker == null or _shoes_picker == null:
+		return
+	_suppress = true
+	_fill_slot_picker(_suit_picker, "suit", _suit_id)
+	_fill_slot_picker(_shoes_picker, "shoes", _shoes_id)
+	_suppress = false
+
+
+func _fill_slot_picker(picker: OptionButton, slot: String, selected_id: String) -> void:
+	picker.clear()
+	picker.add_item(NONE_LABEL)
+	picker.set_item_metadata(0, "")
+	var selected_index := 0
+	if _catalog != null:
+		var items := _catalog.items_for(_female, slot)
+		for item in items:
+			var index := picker.item_count
+			picker.add_item(String(item["label"]))
+			picker.set_item_metadata(index, String(item["id"]))
+			if String(item["id"]) == selected_id:
+				selected_index = index
+	picker.select(selected_index)
+
+
+func _on_slot_selected(slot: String, index: int) -> void:
+	if _suppress:
+		return
+	var picker := _suit_picker if slot == "suit" else _shoes_picker
+	var id := String(picker.get_item_metadata(index))
+	if slot == "suit":
+		_suit_id = id
+	else:
+		_shoes_id = id
+	wardrobe_changed.emit(_suit_id, _shoes_id)
 
 
 func _section_label(text: String) -> Label:
@@ -247,8 +311,3 @@ func _request_sex(female: bool) -> void:
 	_female = female
 	_refresh_sex_label()
 	sex_change_requested.emit(_female)
-
-
-func _request_outfit(use_outfit: bool) -> void:
-	_use_outfit = use_outfit
-	outfit_change_requested.emit(_use_outfit)

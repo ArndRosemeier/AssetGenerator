@@ -1,5 +1,6 @@
 @echo off
-REM Export Character Studio humans (MPFB body + face morphs + MakeHuman eyes).
+REM Export the Character Studio modular set: nude and dressed bodies (MPFB body +
+REM face morphs + MakeHuman eyes), one GLB per wardrobe garment, and wardrobe.json.
 setlocal
 set "ROOT=%~dp0..\.."
 if not defined CITY_ROOT set "CITY_ROOT=%ROOT%\..\City"

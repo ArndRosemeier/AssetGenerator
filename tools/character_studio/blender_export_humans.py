@@ -1,10 +1,16 @@
 """
-Blender headless script: MPFB humans with MakeHuman eyes for Character Studio.
+Blender headless script: modular MPFB humans for Character Studio.
 
-Produces the four GLBs Character Studio loads (male/female nude base and one
-casual outfit each). Every export carries the 28 curated face morphs plus a
-fitted, head-weighted `Eyes` mesh, so faces have real eyeballs instead of empty
-sockets.
+Character Studio assembles a character at runtime, so this exports parts rather
+than finished outfits:
+
+  {sex}_base.glb              nude body + eyes + 28 face morphs
+  {sex}_dressed_{suit}.glb    same body with that suit's delete mask applied, so
+                              no skin pokes through it
+  pieces/{sex}_{id}.glb       one garment on the shared game_engine rig, no body
+
+Every piece is fitted against an identically generated body, so all exports
+share one rest pose and Godot can bind the garment meshes to the body skeleton.
 
 Asset Lab owns this pipeline but does not vendor MPFB: Blender 4.2, the MPFB
 plugin and the MakeHuman CC0 system assets are read from the City checkout.
@@ -17,10 +23,11 @@ Run via:
 
 Environment:
   CITY_ROOT     override the City checkout (default: <AssetGenerator>/../City)
-  STUDIO_ONLY   comma-separated subset of ids from HUMAN_MATRIX
+  STUDIO_ONLY   comma-separated subset of export ids
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -40,6 +47,8 @@ TARGETS_ROOT = MPFB_SRC / "data" / "targets"
 # never mutates the City checkout.
 USER_DATA_OVERRIDE = SCRIPT_DIR / ".mpfb_user_data"
 OUT_DIR = ROOT / "character_studio" / "assets" / "humans"
+PIECES_SUBDIR = "pieces"
+WARDROBE_JSON = OUT_DIR / "wardrobe.json"
 
 EYES_MHCLO = ASSETS_DIR / "eyes" / "low-poly" / "low-poly.mhclo"
 EYE_TEXTURE = ASSETS_DIR / "eyes" / "materials" / "brown_eye.png"
@@ -53,23 +62,95 @@ from mpfb_face_morphs import (  # noqa: E402
     configure_targets_root,
 )
 
-# "garments" is the mhclo equip order; an empty list is a nude base.
-HUMAN_MATRIX: list[dict] = [
-    {"id": "male_base", "sex": "male", "garments": [], "out": "male_base.glb"},
-    {"id": "female_base", "sex": "female", "garments": [], "out": "female_base.glb"},
-    {
-        "id": "male_casual_01",
-        "sex": "male",
-        "garments": ["male_casualsuit01", "shoes01"],
-        "out": "outfits/male_casual_01.glb",
-    },
-    {
-        "id": "female_casual_01",
-        "sex": "female",
-        "garments": ["female_casualsuit01", "shoes01"],
-        "out": "outfits/female_casual_01.glb",
-    },
+SEXES = ("male", "female")
+
+# MakeHuman CC0 civilian wardrobe, split by the slot Character Studio offers.
+WARDROBE_SUITS: dict[str, list[tuple[str, str]]] = {
+    "male": [
+        ("male_casualsuit01", "Casual 01"),
+        ("male_casualsuit02", "Casual 02"),
+        ("male_casualsuit03", "Casual 03"),
+        ("male_worksuit01", "Work 01"),
+        ("male_elegantsuit01", "Elegant 01"),
+    ],
+    "female": [
+        ("female_casualsuit01", "Casual 01"),
+        ("female_casualsuit02", "Casual 02"),
+        ("female_sportsuit01", "Sport 01"),
+        ("female_elegantsuit01", "Elegant 01"),
+    ],
+}
+
+# Shoes are unisex mhclo assets, but each one is fitted and exported per sex so
+# its weights match the body it will be bound to.
+WARDROBE_SHOES: list[tuple[str, str]] = [
+    ("shoes01", "Shoes 01"),
+    ("shoes02", "Shoes 02"),
+    ("shoes03", "Shoes 03"),
+    ("shoes04", "Shoes 04"),
+    ("shoes05", "Shoes 05"),
 ]
+
+
+def wardrobe_items(sex: str) -> list[dict]:
+    """Every garment Character Studio can equip on this sex, in slot order."""
+    if sex not in WARDROBE_SUITS:
+        raise KeyError(f"unknown sex {sex!r}; expected one of {SEXES}")
+    items = [
+        {"id": garment, "slot": "suit", "label": label}
+        for garment, label in WARDROBE_SUITS[sex]
+    ]
+    items += [
+        {"id": garment, "slot": "shoes", "label": label} for garment, label in WARDROBE_SHOES
+    ]
+    return items
+
+
+def _piece_id(sex: str, garment: str) -> str:
+    return f"{sex}_{garment}"
+
+
+def _piece_out(sex: str, garment: str) -> str:
+    return f"{PIECES_SUBDIR}/{_piece_id(sex, garment)}.glb"
+
+
+def _dressed_out(sex: str, suit: str) -> str:
+    return f"{sex}_dressed_{suit}.glb"
+
+
+def build_specs() -> list[dict]:
+    """Bodies first (cheap, most useful), then one export per garment piece."""
+    specs: list[dict] = []
+    for sex in SEXES:
+        specs.append(
+            {"id": f"{sex}_base", "kind": "body", "sex": sex, "garments": [], "out": f"{sex}_base.glb"}
+        )
+    # One body per suit: the delete mask has to match the suit that is actually
+    # worn, or a short sleeve exposes the hole a long one carved out. Shoes never
+    # mask the body, so any shoe fits any of these.
+    for sex in SEXES:
+        for suit, _label in WARDROBE_SUITS[sex]:
+            specs.append(
+                {
+                    "id": f"{sex}_dressed_{suit}",
+                    "kind": "body",
+                    "sex": sex,
+                    "garments": [suit],
+                    "out": _dressed_out(sex, suit),
+                }
+            )
+    for sex in SEXES:
+        for item in wardrobe_items(sex):
+            specs.append(
+                {
+                    "id": _piece_id(sex, item["id"]),
+                    "kind": "piece",
+                    "sex": sex,
+                    "garments": [item["id"]],
+                    "out": _piece_out(sex, item["id"]),
+                }
+            )
+    return specs
 
 
 def _log(msg: str) -> None:
@@ -415,10 +496,9 @@ def _log_rig_alignment(basemesh, armature, *, require_pelvis_in_mesh: bool) -> N
         raise RuntimeError(f"pelvis sits at {rel:.3f} of mesh height - rig fit failed")
 
 
-def _create_and_export(spec: dict) -> Path:
+def _create_rigged_human(sex: str):
+    """Fresh macro-shaped body on the game_engine rig. Identical for every export."""
     HumanService = _mpfb_import("services.humanservice").HumanService
-    ObjectService = _mpfb_import("services.objectservice").ObjectService
-    sex = spec["sex"]
 
     _clear_scene()
     gender = 0.05 if sex == "female" else 0.95
@@ -439,11 +519,14 @@ def _create_and_export(spec: dict) -> Path:
         raise RuntimeError("Failed to add game_engine rig")
     armature.name = f"{sex}_armature"
     _log(f"Added rig {armature.name} bones={len(armature.data.bones)}")
+    return basemesh, armature
 
-    # Eyes and clothes both fit against the macro-shaped basemesh, so equip them
-    # before the shape keys are collapsed.
-    eyes = _equip_eyes(basemesh)
-    for garment in spec["garments"]:
+
+def _equip_garments(basemesh, garments: list[str], spec_id: str) -> list:
+    HumanService = _mpfb_import("services.humanservice").HumanService
+    ObjectService = _mpfb_import("services.objectservice").ObjectService
+
+    for garment in garments:
         garment_path = _mhclo_path(garment)
         _log(f"Equipping {garment_path.name}")
         HumanService.add_mhclo_asset(
@@ -460,13 +543,47 @@ def _create_and_export(spec: dict) -> Path:
     clothes_objs = list(
         ObjectService.find_all_objects_of_type_amongst_nearest_relatives(basemesh, "Clothes")
     )
-    if len(clothes_objs) != len(spec["garments"]):
+    if len(clothes_objs) != len(garments):
         raise RuntimeError(
-            f"{spec['id']}: equipped {len(clothes_objs)} garments, expected {len(spec['garments'])}"
+            f"{spec_id}: equipped {len(clothes_objs)} garments, expected {len(garments)}"
         )
+    return clothes_objs
+
+
+def _export_selection(out_rel: str, *, with_morphs: bool) -> Path:
+    out_glb = OUT_DIR / out_rel
+    out_glb.parent.mkdir(parents=True, exist_ok=True)
+    if out_glb.exists():
+        out_glb.unlink()
+
+    bpy.ops.export_scene.gltf(
+        filepath=str(out_glb),
+        export_format="GLB",
+        use_selection=True,
+        export_apply=False,
+        export_animations=False,
+        export_skins=True,
+        export_morph=with_morphs,
+        export_yup=True,
+    )
+    _log(f"Exported {out_glb} ({out_glb.stat().st_size} bytes)")
+    return out_glb
+
+
+def _export_body(spec: dict) -> Path:
+    """Nude base, or the dressed base whose garment delete-masks have been applied."""
+    sex = spec["sex"]
+    garments: list[str] = spec["garments"]
+    basemesh, armature = _create_rigged_human(sex)
+
+    # Eyes and clothes both fit against the macro-shaped basemesh, so equip them
+    # before the shape keys are collapsed. The garments here exist only to stamp
+    # their delete groups onto the body; they are dropped before export.
+    eyes = _equip_eyes(basemesh)
+    clothes_objs = _equip_garments(basemesh, garments, spec["id"])
 
     # Bake macros into Basis, then face morphs while MH vertex indices still match
-    # the target files, then strip helpers.
+    # the target files, then strip helpers and the masked-away skin.
     _strip_shape_keys_keeping_mix(basemesh)
     morphs = bake_face_morphs(basemesh, mpfb_import=_mpfb_import, log=_log)
     if len(morphs) != MORPH_COUNT:
@@ -486,53 +603,97 @@ def _create_and_export(spec: dict) -> Path:
     _assign_eye_material(eyes)
 
     for clothes in clothes_objs:
-        _apply_non_armature_modifiers(clothes)
-        _assign_unweighted_verts(clothes, ("spine_03", "pelvis", "foot_l", "foot_r", "head"))
-        _limit_weights_to_four(clothes)
+        bpy.data.objects.remove(clothes, do_unlink=True)
+    if clothes_objs:
+        _log(f"Dropped {len(clothes_objs)} garment objects; body keeps their delete masks")
 
-    _log_rig_alignment(basemesh, armature, require_pelvis_in_mesh=not spec["garments"])
+    _log_rig_alignment(basemesh, armature, require_pelvis_in_mesh=not garments)
 
     bpy.ops.object.select_all(action="DESELECT")
     basemesh.select_set(True)
     armature.select_set(True)
     eyes.select_set(True)
-    for clothes in clothes_objs:
-        clothes.select_set(True)
     bpy.context.view_layer.objects.active = armature
-
-    out_glb = OUT_DIR / spec["out"]
-    out_glb.parent.mkdir(parents=True, exist_ok=True)
-    if out_glb.exists():
-        out_glb.unlink()
-
-    bpy.ops.export_scene.gltf(
-        filepath=str(out_glb),
-        export_format="GLB",
-        use_selection=True,
-        export_apply=False,
-        export_animations=False,
-        export_skins=True,
-        export_morph=True,
-        export_yup=True,
-    )
-    _log(f"Exported {out_glb} ({out_glb.stat().st_size} bytes)")
-    return out_glb
+    return _export_selection(spec["out"], with_morphs=True)
 
 
-def _selected_specs() -> list[dict]:
+def _export_piece(spec: dict) -> Path:
+    """A single garment on the shared rig, with no body and no face morphs."""
+    garments: list[str] = spec["garments"]
+    if len(garments) != 1:
+        raise RuntimeError(f"{spec['id']}: a piece must hold exactly one garment, got {garments}")
+    basemesh, armature = _create_rigged_human(spec["sex"])
+    clothes = _equip_garments(basemesh, garments, spec["id"])[0]
+
+    _apply_non_armature_modifiers(clothes)
+    _assign_unweighted_verts(clothes, ("spine_03", "pelvis", "foot_l", "foot_r", "head"))
+    _limit_weights_to_four(clothes)
+    _log(f"{spec['id']}: garment verts={len(clothes.data.vertices)}")
+
+    bpy.ops.object.select_all(action="DESELECT")
+    clothes.select_set(True)
+    armature.select_set(True)
+    bpy.context.view_layer.objects.active = armature
+    return _export_selection(spec["out"], with_morphs=False)
+
+
+def _create_and_export(spec: dict) -> Path:
+    if spec["kind"] == "body":
+        return _export_body(spec)
+    if spec["kind"] == "piece":
+        return _export_piece(spec)
+    raise RuntimeError(f"{spec['id']}: unknown export kind {spec['kind']!r}")
+
+
+def _selected_specs(specs: list[dict]) -> list[dict]:
     only = os.environ.get("STUDIO_ONLY", "").strip()
     if not only:
-        return HUMAN_MATRIX
+        return specs
     wanted = {s.strip() for s in only.split(",") if s.strip()}
-    known = {s["id"] for s in HUMAN_MATRIX}
+    known = {s["id"] for s in specs}
     missing = wanted - known
     if missing:
         raise RuntimeError(f"STUDIO_ONLY unknown ids: {sorted(missing)} (known: {sorted(known)})")
-    return [s for s in HUMAN_MATRIX if s["id"] in wanted]
+    return [s for s in specs if s["id"] in wanted]
+
+
+def _write_wardrobe_json() -> None:
+    """Runtime catalogue. Always full, even when STUDIO_ONLY exported a subset."""
+    items: list[dict] = []
+    for sex in SEXES:
+        for item in wardrobe_items(sex):
+            items.append(
+                {
+                    "id": item["id"],
+                    "sex": sex,
+                    "slot": item["slot"],
+                    "label": item["label"],
+                    "path": f"res://assets/humans/{_piece_out(sex, item['id'])}",
+                }
+            )
+    payload = {
+        "slots": ["suit", "shoes"],
+        "bodies": [
+            {
+                "sex": sex,
+                "nude": f"res://assets/humans/{sex}_base.glb",
+                # suit id -> the body whose skin under that suit has been deleted
+                "dressed": {
+                    suit: f"res://assets/humans/{_dressed_out(sex, suit)}"
+                    for suit, _label in WARDROBE_SUITS[sex]
+                },
+            }
+            for sex in SEXES
+        ],
+        "items": items,
+    }
+    WARDROBE_JSON.parent.mkdir(parents=True, exist_ok=True)
+    WARDROBE_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    _log(f"Wrote {WARDROBE_JSON.name} ({len(items)} garments)")
 
 
 def main() -> None:
-    _log("Starting Character Studio human export (with eyes)")
+    _log("Starting Character Studio modular export")
     for required in (MPFB_SRC, ASSETS_DIR, TARGETS_ROOT):
         if not required.is_dir():
             raise FileNotFoundError(f"City vendor path missing: {required}")
@@ -544,8 +705,11 @@ def main() -> None:
     LocationService = _mpfb_import("services.locationservice").LocationService
     _log(f"MPFB user data: {LocationService.get_user_data()}")
 
-    for spec in _selected_specs():
+    specs = _selected_specs(build_specs())
+    for index, spec in enumerate(specs, start=1):
+        _log(f"--- [{index}/{len(specs)}] {spec['id']} ({spec['kind']})")
         _create_and_export(spec)
+    _write_wardrobe_json()
     _log("DONE")
 
 

@@ -35,9 +35,12 @@ If you already have Blender installed elsewhere, set `BLENDER_BIN` to its execut
 
 ## Character Studio (face / body morphs)
 
-Focused Godot app with a **front-facing** preview and body/face sliders. The humans are
-built here by `tools/character_studio/blender_export_humans.py` (MPFB body + 28 face
-morphs + MakeHuman eyes), reusing City's vendored Blender/MPFB without modifying City.
+Focused Godot app with a **front-facing** preview, body/face sliders and a modular
+wardrobe: bodies and garments are exported separately by
+`tools/character_studio/blender_export_humans.py` (MPFB body + 28 face morphs +
+MakeHuman eyes + MakeHuman civilian clothes) and assembled onto one skeleton at
+runtime, so no outfit combination is pre-baked. It reuses City's vendored
+Blender/MPFB without modifying City.
 
 ```bat
 character_studio\CharacterStudio.bat

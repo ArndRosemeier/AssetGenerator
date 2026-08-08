@@ -1,17 +1,15 @@
-## Focused front-facing character editor (body + face morphs).
+## Focused front-facing character editor (modular body + garments + face morphs).
 extends Node3D
-
-const MALE_BASE := "res://assets/humans/male_base.glb"
-const FEMALE_BASE := "res://assets/humans/female_base.glb"
-const MALE_OUTFIT := "res://assets/humans/outfits/male_casual_01.glb"
-const FEMALE_OUTFIT := "res://assets/humans/outfits/female_casual_01.glb"
 
 const StudioUIScript := preload("res://scripts/studio_ui.gd")
 const ProportionModifierScript := preload("res://scripts/proportion_modifier.gd")
 
 var _female: bool = false
-var _use_outfit: bool = true
+var _suit_id: String = ""
+var _shoes_id: String = ""
 var _props: BodyProportions = BodyProportions.identity()
+var _catalog: WardrobeCatalog
+var _body_path: String = ""
 var _body_root: Node3D
 var _skeleton: Skeleton3D
 var _prop_mod: ProportionModifier
@@ -30,14 +28,20 @@ var _framing: StringName = &"face"
 func _ready() -> void:
 	_build_environment()
 	_build_camera_rig()
+	_catalog = WardrobeCatalog.load_default()
+	## Open on a dressed character so the modular assembly is visible at a glance.
+	_suit_id = _catalog.first_id(_female, "suit")
+	_shoes_id = _catalog.first_id(_female, "shoes")
 	_ui = StudioUIScript.new()
 	_ui.name = "StudioUI"
+	_ui.set_catalog(_catalog)
 	add_child(_ui)
+	_ui.set_wardrobe(_suit_id, _shoes_id)
 	_ui.proportions_changed.connect(_on_proportions)
 	_ui.sex_change_requested.connect(_on_sex)
-	_ui.outfit_change_requested.connect(_on_outfit)
+	_ui.wardrobe_changed.connect(_on_wardrobe)
 	_ui.framing_requested.connect(_on_framing)
-	_spawn_body()
+	_rebuild_character()
 	_apply_framing(&"face")
 	_update_camera()
 
@@ -85,14 +89,25 @@ func _build_camera_rig() -> void:
 	_pivot.add_child(_camera)
 
 
-func _spawn_body() -> void:
+## Reloads the body only when the suit changed; shoes are swapped in place.
+func _rebuild_character() -> void:
+	var wanted_body := _catalog.body_path(_female, _suit_id)
+	if wanted_body.is_empty():
+		return
+	if wanted_body != _body_path or _body_root == null or not is_instance_valid(_body_root):
+		_spawn_body(wanted_body)
+	_apply_wardrobe()
+	_apply_proportions()
+
+
+func _spawn_body(path: String) -> void:
 	if _body_root != null and is_instance_valid(_body_root):
 		_body_root.queue_free()
 	_body_root = null
 	_skeleton = null
 	_prop_mod = null
+	_body_path = ""
 
-	var path := _resolve_path()
 	if not ResourceLoader.exists(path):
 		push_error("CharacterStudio: missing asset %s" % path)
 		return
@@ -107,19 +122,30 @@ func _spawn_body() -> void:
 	instance.rotation.y = 0.0
 	add_child(instance)
 	_body_root = instance
+	_body_path = path
 	_skeleton = _find_skeleton(instance)
-	if _skeleton != null:
-		_prop_mod = ProportionModifierScript.new()
-		_prop_mod.name = "ProportionModifier"
-		_skeleton.add_child(_prop_mod)
-	_apply_proportions()
-	print("CharacterStudio loaded ", path, " face_morphs=", _count_face_morphs(instance))
+	if _skeleton == null:
+		push_error("CharacterStudio: %s has no Skeleton3D" % path)
+		return
+	_prop_mod = ProportionModifierScript.new()
+	_prop_mod.name = "ProportionModifier"
+	_skeleton.add_child(_prop_mod)
+	print("CharacterStudio body ", path, " face_morphs=", _count_face_morphs(instance))
 
 
-func _resolve_path() -> String:
-	if _use_outfit:
-		return FEMALE_OUTFIT if _female else MALE_OUTFIT
-	return FEMALE_BASE if _female else MALE_BASE
+func _apply_wardrobe() -> void:
+	if _body_root == null or _skeleton == null:
+		return
+	ModularAssembler.clear(_body_root)
+	var paths: Array[String] = []
+	var suit := _catalog.path_for(_female, "suit", _suit_id)
+	if not suit.is_empty():
+		paths.append(suit)
+	var shoes := _catalog.path_for(_female, "shoes", _shoes_id)
+	if not shoes.is_empty():
+		paths.append(shoes)
+	var attached := ModularAssembler.attach(_body_root, _skeleton, paths)
+	print("CharacterStudio wardrobe suit=", _suit_id, " shoes=", _shoes_id, " meshes=", attached)
 
 
 func _apply_proportions() -> void:
@@ -140,12 +166,18 @@ func _on_proportions(props: BodyProportions) -> void:
 
 func _on_sex(female: bool) -> void:
 	_female = female
-	_spawn_body()
+	## Garment ids are sex-specific; keep the same slot filled where possible.
+	_suit_id = _catalog.first_id(_female, "suit") if not _suit_id.is_empty() else ""
+	if not _shoes_id.is_empty() and _catalog.path_for(_female, "shoes", _shoes_id).is_empty():
+		_shoes_id = _catalog.first_id(_female, "shoes")
+	_ui.set_wardrobe(_suit_id, _shoes_id)
+	_rebuild_character()
 
 
-func _on_outfit(use_outfit: bool) -> void:
-	_use_outfit = use_outfit
-	_spawn_body()
+func _on_wardrobe(suit_id: String, shoes_id: String) -> void:
+	_suit_id = suit_id
+	_shoes_id = shoes_id
+	_rebuild_character()
 
 
 func _on_framing(mode: StringName) -> void:

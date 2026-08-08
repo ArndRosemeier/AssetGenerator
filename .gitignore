@@ -9,8 +9,9 @@ assets/out/
 character_studio/.godot/
 character_studio/assets/humans/**
 !character_studio/assets/humans/.gitkeep
-!character_studio/assets/humans/outfits/
-!character_studio/assets/humans/outfits/.gitkeep
+!character_studio/assets/humans/wardrobe.json
+!character_studio/assets/humans/pieces/
+!character_studio/assets/humans/pieces/.gitkeep
 
 # MPFB user data staged for the Character Studio export
 tools/character_studio/.mpfb_user_data/
