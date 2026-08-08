@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from blender.lib.report import format_report
 from tools.blenderctl import (
     BLENDER_SERIES,
     BLENDER_VERSION,
