@@ -46,6 +46,8 @@ _PARAM_KEYS = (
     "vein_amount",
     "vein_scale",
     "vein_contrast",
+    "vertical_squash",
+    "flat_base",
     "texture_resolution",
     "bake_samples",
     "seed",
@@ -67,6 +69,10 @@ class RockParams:
     vein_amount: float
     vein_scale: float
     vein_contrast: float
+    ## Scale Z after shaping ( <1 settles the rock into a low fieldstone silhouette).
+    vertical_squash: float
+    ## Fraction of height from the bottom flattened into a seating face (0 = none).
+    flat_base: float
     texture_resolution: int
     bake_samples: int
     seed: int
@@ -98,6 +104,10 @@ def parse_params(raw: Mapping[str, object]) -> RockParams:
         vein_contrast=positive_float(
             require_key(raw, "vein_contrast", path), f"{path}.vein_contrast"
         ),
+        vertical_squash=_unit_interval(
+            require_key(raw, "vertical_squash", path), f"{path}.vertical_squash"
+        ),
+        flat_base=_unit_interval(require_key(raw, "flat_base", path), f"{path}.flat_base"),
         texture_resolution=positive_int(
             require_key(raw, "texture_resolution", path), f"{path}.texture_resolution"
         ),
@@ -124,6 +134,11 @@ def _validate(params: RockParams) -> None:
         )
     if params.bake_samples > 128:
         raise SpecError(f"params.bake_samples ({params.bake_samples}) must be <= 128")
+    if params.vertical_squash < 0.35:
+        raise SpecError(
+            f"params.vertical_squash ({params.vertical_squash}) must be >= 0.35 "
+            f"(or the rock collapses to a pancake)."
+        )
 
 
 def _axis_scales(params: RockParams) -> Vector:
@@ -183,14 +198,37 @@ def _smooth(bm: bmesh.types.BMesh, smoothness: float) -> None:
         )
 
 
+def _flatten_base(bm: bmesh.types.BMesh, flat_base: float) -> None:
+    """Crush the bottom of the mesh into a seating plane so it rests on the ground."""
+    if flat_base <= 0.01 or not bm.verts:
+        return
+    zs = [vert.co.z for vert in bm.verts]
+    z_min = min(zs)
+    z_max = max(zs)
+    height = z_max - z_min
+    if height <= 1e-6:
+        return
+    cut = z_min + height * flat_base
+    for vert in bm.verts:
+        if vert.co.z < cut:
+            vert.co.z = cut
+
+
 def _build_mesh(params: RockParams, rng: random.Random) -> bpy.types.Mesh:
     bm = bmesh.new()
     bmesh.ops.create_icosphere(bm, subdivisions=params.subdivisions, radius=0.5)
     bmesh.ops.transform(bm, verts=list(bm.verts), matrix=Matrix.Diagonal((*_axis_scales(params), 1.0)))
+    if abs(params.vertical_squash - 1.0) > 1e-4:
+        bmesh.ops.transform(
+            bm,
+            verts=list(bm.verts),
+            matrix=Matrix.Diagonal((1.0, 1.0, params.vertical_squash, 1.0)),
+        )
     bm.normal_update()
     _displace(bm, params, rng)
     bm.normal_update()
     _smooth(bm, params.smoothness)
+    _flatten_base(bm, params.flat_base)
     bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
 
     mesh = bpy.data.meshes.new("rock_mesh")

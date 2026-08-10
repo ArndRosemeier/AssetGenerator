@@ -1,0 +1,27 @@
+{
+  "spec_version": 1,
+  "id": "grass_tuft_dry",
+  "generator": "nature.grass_tuft",
+  "params": {
+    "height": 0.28,
+    "blade_count": 6,
+    "blade_width": 0.045,
+    "blade_thickness": 0.005,
+    "splay": 0.14,
+    "seed": 22
+  },
+  "materials": {
+    "blades": {
+      "base_color": [0.45, 0.4, 0.18, 1.0],
+      "roughness": 0.95,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

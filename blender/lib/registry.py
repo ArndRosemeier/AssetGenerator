@@ -10,8 +10,12 @@ from typing import Final
 
 GENERATORS: Final[dict[str, str]] = {
     "hard_surface.crate": "blender.generators.hard_surface_crate",
+    "hard_surface.bridge_span": "blender.generators.hard_surface_bridge_span",
+    "hard_surface.bridge_abutment": "blender.generators.hard_surface_bridge_abutment",
+    "hard_surface.cabin": "blender.generators.hard_surface_cabin",
     "nature.pine": "blender.generators.nature_pine",
     "nature.rock": "blender.generators.nature_rock",
+    "nature.grass_tuft": "blender.generators.nature_grass_tuft",
 }
 
 

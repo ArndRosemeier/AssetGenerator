@@ -1,0 +1,42 @@
+{
+  "spec_version": 1,
+  "id": "rock_riverstone_flat",
+  "generator": "nature.rock",
+  "params": {
+    "size": 0.9,
+    "subdivisions": 4,
+    "elongation": 1.45,
+    "stretch_axis": "x",
+    "smoothness": 0.62,
+    "displace_amount": 0.1,
+    "noise_scale": 1.6,
+    "noise_detail": 3,
+    "vein_amount": 0.05,
+    "vein_scale": 1.6,
+    "vein_contrast": 1.3,
+    "vertical_squash": 0.45,
+    "flat_base": 0.32,
+    "texture_resolution": 512,
+    "bake_samples": 24,
+    "seed": 414
+  },
+  "materials": {
+    "rock": {
+      "base_color": [0.36, 0.38, 0.37, 1.0],
+      "roughness": 0.78,
+      "metallic": 0.0
+    },
+    "vein": {
+      "base_color": [0.58, 0.6, 0.56, 1.0],
+      "roughness": 0.7,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 3.0
+  }
+}

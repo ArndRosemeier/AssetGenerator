@@ -1,0 +1,27 @@
+{
+  "spec_version": 1,
+  "id": "grass_tuft_lush",
+  "generator": "nature.grass_tuft",
+  "params": {
+    "height": 0.42,
+    "blade_count": 9,
+    "blade_width": 0.055,
+    "blade_thickness": 0.006,
+    "splay": 0.16,
+    "seed": 11
+  },
+  "materials": {
+    "blades": {
+      "base_color": [0.22, 0.42, 0.16, 1.0],
+      "roughness": 0.92,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}

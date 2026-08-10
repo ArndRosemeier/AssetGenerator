@@ -14,6 +14,8 @@
     "vein_amount": 0.9,
     "vein_scale": 1.4,
     "vein_contrast": 2.5,
+    "vertical_squash": 0.72,
+    "flat_base": 0.14,
     "texture_resolution": 512,
     "bake_samples": 24,
     "seed": 19

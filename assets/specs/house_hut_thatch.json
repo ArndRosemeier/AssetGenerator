@@ -1,0 +1,49 @@
+{
+  "spec_version": 1,
+  "id": "house_hut_thatch",
+  "generator": "hard_surface.cabin",
+  "params": {
+    "width": 4.2,
+    "depth": 5.0,
+    "wall_height": 2.35,
+    "wall_thickness": 0.18,
+    "roof_height": 1.35,
+    "roof_overhang": 0.35,
+    "roof_layers": 3,
+    "door_width": 0.95,
+    "door_height": 1.9,
+    "window_width": 0.55,
+    "window_height": 0.55,
+    "window_count": 1,
+    "chimney": false,
+    "porch": false,
+    "porch_depth": 1.0,
+    "bevel_width": 0.01,
+    "foundation_height": 0.7,
+    "foundation_overhang": 0.12
+  },
+  "materials": {
+    "walls": {
+      "base_color": [0.45, 0.36, 0.22, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "roof": {
+      "base_color": [0.42, 0.38, 0.22, 1.0],
+      "roughness": 0.95,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [0.22, 0.14, 0.08, 1.0],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 8.0
+  }
+}

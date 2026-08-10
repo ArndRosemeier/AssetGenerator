@@ -1,0 +1,43 @@
+{
+  "spec_version": 1,
+  "id": "bridge_stone_mid",
+  "generator": "hard_surface.bridge_span",
+  "params": {
+    "segment_length": 10.0,
+    "deck_width": 6.0,
+    "deck_thickness": 0.28,
+    "beam_depth": 0.7,
+    "beam_width": 0.45,
+    "beam_count": 2,
+    "joist_spacing": 2.0,
+    "joist_width": 0.35,
+    "joist_depth": 0.22,
+    "plank_count": 4,
+    "plank_gap": 0.01,
+    "parapet_height": 1.05,
+    "parapet_thickness": 0.32,
+    "rail_inset": 0.04,
+    "post_size": 0.28,
+    "brace": false,
+    "bevel_width": 0.012
+  },
+  "materials": {
+    "structure": {
+      "base_color": [0.38, 0.36, 0.33, 1.0],
+      "roughness": 0.92,
+      "metallic": 0.0
+    },
+    "deck": {
+      "base_color": [0.48, 0.46, 0.42, 1.0],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 10000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 12.0
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "spec_version": 1,
+  "id": "bridge_timber_mid",
+  "generator": "hard_surface.bridge_span",
+  "params": {
+    "segment_length": 8.0,
+    "deck_width": 5.2,
+    "deck_thickness": 0.12,
+    "beam_depth": 0.55,
+    "beam_width": 0.28,
+    "beam_count": 3,
+    "joist_spacing": 1.35,
+    "joist_width": 0.16,
+    "joist_depth": 0.18,
+    "plank_count": 10,
+    "plank_gap": 0.02,
+    "parapet_height": 0.9,
+    "parapet_thickness": 0.14,
+    "rail_inset": 0.08,
+    "post_size": 0.16,
+    "brace": true,
+    "bevel_width": 0.008
+  },
+  "materials": {
+    "structure": {
+      "base_color": [0.22, 0.14, 0.08, 1.0],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "deck": {
+      "base_color": [0.42, 0.29, 0.16, 1.0],
+      "roughness": 0.78,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 12000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 10.0
+  }
+}

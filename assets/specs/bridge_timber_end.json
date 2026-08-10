@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "bridge_timber_end",
+  "generator": "hard_surface.bridge_abutment",
+  "params": {
+    "length": 4.0,
+    "deck_width": 5.2,
+    "deck_thickness": 0.12,
+    "beam_depth": 0.73,
+    "parapet_height": 0.9,
+    "parapet_thickness": 0.14,
+    "wing_flare": 0.85,
+    "apron_drop": 0.45,
+    "bevel_width": 0.008
+  },
+  "materials": {
+    "structure": {
+      "base_color": [0.22, 0.14, 0.08, 1.0],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "deck": {
+      "base_color": [0.42, 0.29, 0.16, 1.0],
+      "roughness": 0.78,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 8.0
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "spec_version": 1,
+  "id": "house_cottage_stone",
+  "generator": "hard_surface.cabin",
+  "params": {
+    "width": 7.2,
+    "depth": 8.0,
+    "wall_height": 2.85,
+    "wall_thickness": 0.28,
+    "roof_height": 2.0,
+    "roof_overhang": 0.4,
+    "roof_layers": 4,
+    "door_width": 1.1,
+    "door_height": 2.1,
+    "window_width": 0.75,
+    "window_height": 0.85,
+    "window_count": 3,
+    "chimney": true,
+    "porch": true,
+    "porch_depth": 1.6,
+    "bevel_width": 0.014,
+    "foundation_height": 0.8,
+    "foundation_overhang": 0.16
+  },
+  "materials": {
+    "walls": {
+      "base_color": [0.52, 0.5, 0.46, 1.0],
+      "roughness": 0.92,
+      "metallic": 0.0
+    },
+    "roof": {
+      "base_color": [0.35, 0.22, 0.16, 1.0],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [0.25, 0.18, 0.12, 1.0],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 12000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 14.0
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "spec_version": 1,
+  "id": "rock_fieldstone_low",
+  "generator": "nature.rock",
+  "params": {
+    "size": 1.05,
+    "subdivisions": 4,
+    "elongation": 1.25,
+    "stretch_axis": "x",
+    "smoothness": 0.42,
+    "displace_amount": 0.16,
+    "noise_scale": 1.9,
+    "noise_detail": 3,
+    "vein_amount": 0.04,
+    "vein_scale": 1.8,
+    "vein_contrast": 1.2,
+    "vertical_squash": 0.52,
+    "flat_base": 0.28,
+    "texture_resolution": 512,
+    "bake_samples": 24,
+    "seed": 201
+  },
+  "materials": {
+    "rock": {
+      "base_color": [0.42, 0.4, 0.36, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "vein": {
+      "base_color": [0.55, 0.52, 0.46, 1.0],
+      "roughness": 0.82,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 3.5
+  }
+}

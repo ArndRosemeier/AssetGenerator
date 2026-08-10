@@ -1,39 +1,39 @@
 {
   "spec_version": 1,
-  "id": "rock_boulder_round",
+  "id": "rock_talus_shard",
   "generator": "nature.rock",
   "params": {
-    "size": 1.2,
-    "subdivisions": 4,
-    "elongation": 1.15,
+    "size": 0.85,
+    "subdivisions": 3,
+    "elongation": 2.8,
     "stretch_axis": "z",
-    "smoothness": 0.28,
-    "displace_amount": 0.28,
-    "noise_scale": 2.4,
-    "noise_detail": 4,
-    "vein_amount": 0.35,
-    "vein_scale": 4.0,
-    "vein_contrast": 2.5,
+    "smoothness": 0.08,
+    "displace_amount": 0.32,
+    "noise_scale": 4.0,
+    "noise_detail": 3,
+    "vein_amount": 0.45,
+    "vein_scale": 2.2,
+    "vein_contrast": 2.8,
     "vertical_squash": 1.0,
     "flat_base": 0.0,
     "texture_resolution": 512,
     "bake_samples": 24,
-    "seed": 7
+    "seed": 14
   },
   "materials": {
     "rock": {
-      "base_color": [0.38, 0.36, 0.34, 1.0],
-      "roughness": 0.88,
+      "base_color": [0.50, 0.46, 0.42, 1.0],
+      "roughness": 0.9,
       "metallic": 0.0
     },
     "vein": {
-      "base_color": [0.72, 0.70, 0.64, 1.0],
+      "base_color": [0.68, 0.58, 0.48, 1.0],
       "roughness": 0.7,
       "metallic": 0.0
     }
   },
   "qa": {
-    "max_triangles": 8000,
+    "max_triangles": 4000,
     "require_uvs": true,
     "require_manifold": true,
     "require_origin_at_base": true,

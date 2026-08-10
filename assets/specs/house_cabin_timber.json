@@ -1,0 +1,49 @@
+{
+  "spec_version": 1,
+  "id": "house_cabin_timber",
+  "generator": "hard_surface.cabin",
+  "params": {
+    "width": 6.0,
+    "depth": 7.5,
+    "wall_height": 2.7,
+    "wall_thickness": 0.22,
+    "roof_height": 1.8,
+    "roof_overhang": 0.45,
+    "roof_layers": 4,
+    "door_width": 1.05,
+    "door_height": 2.05,
+    "window_width": 0.7,
+    "window_height": 0.75,
+    "window_count": 2,
+    "chimney": true,
+    "porch": false,
+    "porch_depth": 1.2,
+    "bevel_width": 0.012,
+    "foundation_height": 0.75,
+    "foundation_overhang": 0.14
+  },
+  "materials": {
+    "walls": {
+      "base_color": [0.32, 0.2, 0.11, 1.0],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "roof": {
+      "base_color": [0.28, 0.22, 0.18, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [0.18, 0.12, 0.07, 1.0],
+      "roughness": 0.82,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 10000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 12.0
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "spec_version": 1,
+  "id": "grass_tuft_sparse",
+  "generator": "nature.grass_tuft",
+  "params": {
+    "height": 0.22,
+    "blade_count": 4,
+    "blade_width": 0.04,
+    "blade_thickness": 0.005,
+    "splay": 0.12,
+    "seed": 33
+  },
+  "materials": {
+    "blades": {
+      "base_color": [0.34, 0.38, 0.2, 1.0],
+      "roughness": 0.93,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1500,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 0.9
+  }
+}

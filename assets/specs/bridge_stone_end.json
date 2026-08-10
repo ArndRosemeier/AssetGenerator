@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "bridge_stone_end",
+  "generator": "hard_surface.bridge_abutment",
+  "params": {
+    "length": 5.0,
+    "deck_width": 6.0,
+    "deck_thickness": 0.28,
+    "beam_depth": 0.92,
+    "parapet_height": 1.05,
+    "parapet_thickness": 0.32,
+    "wing_flare": 1.1,
+    "apron_drop": 0.55,
+    "bevel_width": 0.012
+  },
+  "materials": {
+    "structure": {
+      "base_color": [0.38, 0.36, 0.33, 1.0],
+      "roughness": 0.92,
+      "metallic": 0.0
+    },
+    "deck": {
+      "base_color": [0.48, 0.46, 0.42, 1.0],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 10.0
+  }
+}

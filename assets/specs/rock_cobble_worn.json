@@ -1,0 +1,42 @@
+{
+  "spec_version": 1,
+  "id": "rock_cobble_worn",
+  "generator": "nature.rock",
+  "params": {
+    "size": 0.7,
+    "subdivisions": 4,
+    "elongation": 1.12,
+    "stretch_axis": "y",
+    "smoothness": 0.55,
+    "displace_amount": 0.12,
+    "noise_scale": 2.2,
+    "noise_detail": 3,
+    "vein_amount": 0.03,
+    "vein_scale": 2.2,
+    "vein_contrast": 1.1,
+    "vertical_squash": 0.58,
+    "flat_base": 0.26,
+    "texture_resolution": 512,
+    "bake_samples": 24,
+    "seed": 307
+  },
+  "materials": {
+    "rock": {
+      "base_color": [0.48, 0.45, 0.4, 1.0],
+      "roughness": 0.86,
+      "metallic": 0.0
+    },
+    "vein": {
+      "base_color": [0.6, 0.58, 0.52, 1.0],
+      "roughness": 0.78,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.5
+  }
+}

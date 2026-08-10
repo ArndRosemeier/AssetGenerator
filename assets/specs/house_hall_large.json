@@ -1,0 +1,49 @@
+{
+  "spec_version": 1,
+  "id": "house_hall_large",
+  "generator": "hard_surface.cabin",
+  "params": {
+    "width": 12.0,
+    "depth": 16.0,
+    "wall_height": 4.2,
+    "wall_thickness": 0.35,
+    "roof_height": 3.2,
+    "roof_overhang": 0.65,
+    "roof_layers": 5,
+    "door_width": 1.6,
+    "door_height": 2.6,
+    "window_width": 0.9,
+    "window_height": 1.1,
+    "window_count": 6,
+    "chimney": true,
+    "porch": true,
+    "porch_depth": 2.4,
+    "bevel_width": 0.016,
+    "foundation_height": 0.95,
+    "foundation_overhang": 0.2
+  },
+  "materials": {
+    "walls": {
+      "base_color": [0.48, 0.42, 0.34, 1.0],
+      "roughness": 0.86,
+      "metallic": 0.0
+    },
+    "roof": {
+      "base_color": [0.22, 0.2, 0.22, 1.0],
+      "roughness": 0.84,
+      "metallic": 0.05
+    },
+    "trim": {
+      "base_color": [0.3, 0.22, 0.14, 1.0],
+      "roughness": 0.78,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 16000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 22.0
+  }
+}
