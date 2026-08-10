@@ -169,8 +169,38 @@ func _apply_proportions() -> void:
 		_props.apply_to_node(_body_root)
 		var s := _props.body_uniform_scale()
 		_body_root.scale = Vector3(s, s, s)
+		## Measure soles from the authored placement, then re-plant.
+		_body_root.position.y = 0.0
 	if _prop_mod != null:
 		_prop_mod.set_proportions(_props)
+	_plant_feet_on_floor()
+
+
+## Shift the body so the lowest sole sits on the floor plane at Y=0.
+func _plant_feet_on_floor() -> void:
+	if _body_root == null or _skeleton == null:
+		return
+	if not is_instance_valid(_body_root) or not is_instance_valid(_skeleton):
+		return
+	_skeleton.force_update_all_bone_transforms()
+	var sole_y := _lowest_sole_world_y()
+	if is_nan(sole_y):
+		return
+	_body_root.position.y = -sole_y
+
+
+func _lowest_sole_world_y() -> float:
+	## Prefer toe bones; mesh AABBs are rest-pose only and ignore bone scale.
+	var min_y := INF
+	var found := false
+	for bone_name: StringName in [&"ball_l", &"ball_r", &"foot_l", &"foot_r"]:
+		var idx := _skeleton.find_bone(String(bone_name))
+		if idx < 0:
+			continue
+		var world := _skeleton.to_global(_skeleton.get_bone_global_pose(idx).origin)
+		min_y = minf(min_y, world.y)
+		found = true
+	return min_y if found else NAN
 
 
 func _on_proportions(props: BodyProportions) -> void:
