@@ -16,6 +16,10 @@ character_studio/assets/humans/**
 # MPFB user data staged for the Character Studio export
 tools/character_studio/.mpfb_user_data/
 
+# Downloaded MakeHuman community/pack clothes (rebuild via fetch_medieval_clothes.py)
+tools/character_studio/.mh_download_cache/
+tools/character_studio/makehuman_extra_assets/clothes/
+
 __pycache__/
 *.py[cod]
 .venv/

@@ -17,6 +17,12 @@ if not exist "%PROJECT%\assets\humans\wardrobe.json" (
   python "%ROOT%\..\tools\sync_character_studio_assets.py"
   if errorlevel 1 exit /b 1
 )
+REM class_name scripts only resolve after Godot has imported the project once.
+if not exist "%PROJECT%\.godot\global_script_class_cache.cfg" (
+  echo Importing Godot project ^(first run^)...
+  "%GODOT%" --path "%PROJECT%" --headless --import
+  if errorlevel 1 exit /b 1
+)
 echo Launching Character Studio
 "%GODOT%" --path "%PROJECT%" %*
 exit /b %ERRORLEVEL%

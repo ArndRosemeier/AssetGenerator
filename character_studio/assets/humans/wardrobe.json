@@ -14,7 +14,15 @@
         "male_casualsuit02": "res://assets/humans/male_dressed_male_casualsuit02.glb",
         "male_casualsuit03": "res://assets/humans/male_dressed_male_casualsuit03.glb",
         "male_worksuit01": "res://assets/humans/male_dressed_male_worksuit01.glb",
-        "male_elegantsuit01": "res://assets/humans/male_dressed_male_elegantsuit01.glb"
+        "male_elegantsuit01": "res://assets/humans/male_dressed_male_elegantsuit01.glb",
+        "monks_robe": "res://assets/humans/male_dressed_monks_robe.glb",
+        "donitz_monk_robe": "res://assets/humans/male_dressed_donitz_monk_robe.glb",
+        "donitz_monk_robe_hood_off": "res://assets/humans/male_dressed_donitz_monk_robe_hood_off.glb",
+        "monk_robe_hooded": "res://assets/humans/male_dressed_monk_robe_hooded.glb",
+        "monk_robe_hood_down": "res://assets/humans/male_dressed_monk_robe_hood_down.glb",
+        "viking": "res://assets/humans/male_dressed_viking.glb",
+        "viking_soft": "res://assets/humans/male_dressed_viking_soft.glb",
+        "germanic_clothes": "res://assets/humans/male_dressed_germanic_clothes.glb"
       }
     },
     {
@@ -24,7 +32,17 @@
         "female_casualsuit01": "res://assets/humans/female_dressed_female_casualsuit01.glb",
         "female_casualsuit02": "res://assets/humans/female_dressed_female_casualsuit02.glb",
         "female_sportsuit01": "res://assets/humans/female_dressed_female_sportsuit01.glb",
-        "female_elegantsuit01": "res://assets/humans/female_dressed_female_elegantsuit01.glb"
+        "female_elegantsuit01": "res://assets/humans/female_dressed_female_elegantsuit01.glb",
+        "monks_robe": "res://assets/humans/female_dressed_monks_robe.glb",
+        "donitz_monk_robe": "res://assets/humans/female_dressed_donitz_monk_robe.glb",
+        "donitz_monk_robe_hood_off": "res://assets/humans/female_dressed_donitz_monk_robe_hood_off.glb",
+        "monk_robe_hooded": "res://assets/humans/female_dressed_monk_robe_hooded.glb",
+        "monk_robe_hood_down": "res://assets/humans/female_dressed_monk_robe_hood_down.glb",
+        "viking": "res://assets/humans/female_dressed_viking.glb",
+        "viking_soft": "res://assets/humans/female_dressed_viking_soft.glb",
+        "germanic_clothes": "res://assets/humans/female_dressed_germanic_clothes.glb",
+        "viking_dress": "res://assets/humans/female_dressed_viking_dress.glb",
+        "medievaldress": "res://assets/humans/female_dressed_medievaldress.glb"
       }
     }
   ],
@@ -65,6 +83,62 @@
       "path": "res://assets/humans/pieces/male_male_elegantsuit01.glb"
     },
     {
+      "id": "monks_robe",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Monk Robe",
+      "path": "res://assets/humans/pieces/male_monks_robe.glb"
+    },
+    {
+      "id": "donitz_monk_robe",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Monk Robe (Pack)",
+      "path": "res://assets/humans/pieces/male_donitz_monk_robe.glb"
+    },
+    {
+      "id": "donitz_monk_robe_hood_off",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Monk Robe Hood Off",
+      "path": "res://assets/humans/pieces/male_donitz_monk_robe_hood_off.glb"
+    },
+    {
+      "id": "monk_robe_hooded",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Monk Robe + Hood",
+      "path": "res://assets/humans/pieces/male_monk_robe_hooded.glb"
+    },
+    {
+      "id": "monk_robe_hood_down",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Monk Robe + Hood Down",
+      "path": "res://assets/humans/pieces/male_monk_robe_hood_down.glb"
+    },
+    {
+      "id": "viking",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Viking",
+      "path": "res://assets/humans/pieces/male_viking.glb"
+    },
+    {
+      "id": "viking_soft",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Viking (Soft)",
+      "path": "res://assets/humans/pieces/male_viking_soft.glb"
+    },
+    {
+      "id": "germanic_clothes",
+      "sex": "male",
+      "slot": "suit",
+      "label": "Germanic",
+      "path": "res://assets/humans/pieces/male_germanic_clothes.glb"
+    },
+    {
       "id": "shoes01",
       "sex": "male",
       "slot": "shoes",
@@ -98,6 +172,20 @@
       "slot": "shoes",
       "label": "Shoes 05",
       "path": "res://assets/humans/pieces/male_shoes05.glb"
+    },
+    {
+      "id": "bootsviking",
+      "sex": "male",
+      "slot": "shoes",
+      "label": "Viking Boots",
+      "path": "res://assets/humans/pieces/male_bootsviking.glb"
+    },
+    {
+      "id": "rehmanpolanski_viking_boots",
+      "sex": "male",
+      "slot": "shoes",
+      "label": "Viking Boots (Pack)",
+      "path": "res://assets/humans/pieces/male_rehmanpolanski_viking_boots.glb"
     },
     {
       "id": "afro01",
@@ -282,6 +370,76 @@
       "path": "res://assets/humans/pieces/female_female_elegantsuit01.glb"
     },
     {
+      "id": "monks_robe",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Monk Robe",
+      "path": "res://assets/humans/pieces/female_monks_robe.glb"
+    },
+    {
+      "id": "donitz_monk_robe",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Monk Robe (Pack)",
+      "path": "res://assets/humans/pieces/female_donitz_monk_robe.glb"
+    },
+    {
+      "id": "donitz_monk_robe_hood_off",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Monk Robe Hood Off",
+      "path": "res://assets/humans/pieces/female_donitz_monk_robe_hood_off.glb"
+    },
+    {
+      "id": "monk_robe_hooded",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Monk Robe + Hood",
+      "path": "res://assets/humans/pieces/female_monk_robe_hooded.glb"
+    },
+    {
+      "id": "monk_robe_hood_down",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Monk Robe + Hood Down",
+      "path": "res://assets/humans/pieces/female_monk_robe_hood_down.glb"
+    },
+    {
+      "id": "viking",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Viking",
+      "path": "res://assets/humans/pieces/female_viking.glb"
+    },
+    {
+      "id": "viking_soft",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Viking (Soft)",
+      "path": "res://assets/humans/pieces/female_viking_soft.glb"
+    },
+    {
+      "id": "germanic_clothes",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Germanic",
+      "path": "res://assets/humans/pieces/female_germanic_clothes.glb"
+    },
+    {
+      "id": "viking_dress",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Viking Dress",
+      "path": "res://assets/humans/pieces/female_viking_dress.glb"
+    },
+    {
+      "id": "medievaldress",
+      "sex": "female",
+      "slot": "suit",
+      "label": "Medieval Dress",
+      "path": "res://assets/humans/pieces/female_medievaldress.glb"
+    },
+    {
       "id": "shoes01",
       "sex": "female",
       "slot": "shoes",
@@ -315,6 +473,20 @@
       "slot": "shoes",
       "label": "Shoes 05",
       "path": "res://assets/humans/pieces/female_shoes05.glb"
+    },
+    {
+      "id": "bootsviking",
+      "sex": "female",
+      "slot": "shoes",
+      "label": "Viking Boots",
+      "path": "res://assets/humans/pieces/female_bootsviking.glb"
+    },
+    {
+      "id": "rehmanpolanski_viking_boots",
+      "sex": "female",
+      "slot": "shoes",
+      "label": "Viking Boots (Pack)",
+      "path": "res://assets/humans/pieces/female_rehmanpolanski_viking_boots.glb"
     },
     {
       "id": "afro01",

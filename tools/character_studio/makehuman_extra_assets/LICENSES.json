@@ -1,0 +1,94 @@
+{
+  "bootsviking": {
+    "author": "RehmanPolanski",
+    "label": "Viking Boots",
+    "license": "CC0",
+    "source": "http://www.makehumancommunity.org/clothes/boots_viking.html"
+  },
+  "donitz_monk_robe": {
+    "author": "Donitz",
+    "label": "Monk Robe",
+    "license": "CC0",
+    "pack": "suits02",
+    "source": "https://static.makehumancommunity.org/assets/assetpacks/suits02.html"
+  },
+  "donitz_monk_robe_hood": {
+    "author": "Donitz",
+    "label": "Monk Hood",
+    "license": "CC0",
+    "pack": "suits02",
+    "source": "https://static.makehumancommunity.org/assets/assetpacks/suits02.html"
+  },
+  "donitz_monk_robe_hood_down": {
+    "author": "Donitz",
+    "label": "Monk Hood Down",
+    "license": "CC0",
+    "pack": "suits02",
+    "source": "https://static.makehumancommunity.org/assets/assetpacks/suits02.html"
+  },
+  "donitz_monk_robe_hood_off": {
+    "author": "Donitz",
+    "label": "Monk Robe (Hood Off)",
+    "license": "CC0",
+    "pack": "suits02",
+    "source": "https://static.makehumancommunity.org/assets/assetpacks/suits02.html"
+  },
+  "germanic_clothes": {
+    "author": "Aethelraed_Unraed",
+    "label": "Germanic Clothes",
+    "license": "CC0",
+    "source": "http://www.makehumancommunity.org/clothes/germanicviking_clothes.html"
+  },
+  "medievaldress": {
+    "attribution": "Medieval Dress (non-historical) \u2014 CC-BY, MakeHuman Community",
+    "author": "MakeHuman Community",
+    "label": "Medieval Dress",
+    "license": "CC-BY",
+    "source": "http://www.makehumancommunity.org/clothes/medieval_dress_nonhistorical.html"
+  },
+  "monks_robe": {
+    "author": "Donitz",
+    "label": "Monk Robe",
+    "license": "CC0",
+    "source": "http://www.makehumancommunity.org/clothes/monks_robe.html"
+  },
+  "pantsviking": {
+    "author": "MakeHuman Community",
+    "label": "Viking Pants (Leather)",
+    "license": "CC0",
+    "source": "http://www.makehumancommunity.org/clothes/pants_viking.html"
+  },
+  "rehmanpolanski_viking_boots": {
+    "author": "RehmanPolanski",
+    "label": "Viking Boots",
+    "license": "CC0",
+    "pack": "suits02",
+    "source": "https://static.makehumancommunity.org/assets/assetpacks/suits02.html"
+  },
+  "rehmanpolanski_viking_pants": {
+    "author": "RehmanPolanski",
+    "label": "Viking Pants",
+    "license": "CC0",
+    "pack": "suits02",
+    "source": "https://static.makehumancommunity.org/assets/assetpacks/suits02.html"
+  },
+  "rehmanpolanski_viking_tunic": {
+    "author": "RehmanPolanski",
+    "label": "Viking Tunic",
+    "license": "CC0",
+    "pack": "suits02",
+    "source": "https://static.makehumancommunity.org/assets/assetpacks/suits02.html"
+  },
+  "tunicviking": {
+    "author": "MakeHuman Community",
+    "label": "Viking Tunic (Armored)",
+    "license": "CC0",
+    "source": "http://www.makehumancommunity.org/clothes/tunic_viking.html"
+  },
+  "viking_dress": {
+    "author": "Aethelraed_Unraed",
+    "label": "Viking Dress",
+    "license": "CC0",
+    "source": "http://www.makehumancommunity.org/clothes/viking_dress.html"
+  }
+}

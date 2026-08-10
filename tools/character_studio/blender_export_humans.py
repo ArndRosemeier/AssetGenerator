@@ -42,6 +42,8 @@ VENDOR = CITY_ROOT / "tools" / "vendor"
 MPFB_SRC = VENDOR / "mpfb2_plugin" / "mpfb"
 ASSETS_DIR = VENDOR / "makehuman_system_assets"
 TARGETS_ROOT = MPFB_SRC / "data" / "targets"
+# Community / pack clothes fetched by fetch_medieval_clothes.py (not in City).
+EXTRA_CLOTHES_DIR = SCRIPT_DIR / "makehuman_extra_assets" / "clothes"
 
 # MPFB writes into its user data dir; keep that inside Asset Lab so an export
 # never mutates the City checkout.
@@ -64,20 +66,90 @@ from mpfb_face_morphs import (  # noqa: E402
 
 SEXES = ("male", "female")
 
-# MakeHuman CC0 civilian wardrobe, split by the slot Character Studio offers.
-WARDROBE_SUITS: dict[str, list[tuple[str, str]]] = {
+# Suit entry: (id, label) or (id, label, (mhclo_part, ...)) for multi-piece suits.
+# Multi-piece suits stamp every part's delete mask on the dressed body and export
+# all part meshes into one piece GLB so the editor still has a single Suit slot.
+SuitEntry = tuple[str, str] | tuple[str, str, tuple[str, ...]]
+
+
+def _suit_id(entry: SuitEntry) -> str:
+    return entry[0]
+
+
+def _suit_label(entry: SuitEntry) -> str:
+    return entry[1]
+
+
+def _suit_parts(entry: SuitEntry) -> tuple[str, ...]:
+    if len(entry) == 3:
+        return entry[2]
+    return (entry[0],)
+
+
+# MakeHuman CC0 civilian wardrobe + free medieval/early-medieval community clothes.
+WARDROBE_SUITS: dict[str, list[SuitEntry]] = {
     "male": [
         ("male_casualsuit01", "Casual 01"),
         ("male_casualsuit02", "Casual 02"),
         ("male_casualsuit03", "Casual 03"),
         ("male_worksuit01", "Work 01"),
         ("male_elegantsuit01", "Elegant 01"),
+        ("monks_robe", "Monk Robe"),
+        ("donitz_monk_robe", "Monk Robe (Pack)"),
+        ("donitz_monk_robe_hood_off", "Monk Robe Hood Off"),
+        (
+            "monk_robe_hooded",
+            "Monk Robe + Hood",
+            ("donitz_monk_robe", "donitz_monk_robe_hood"),
+        ),
+        (
+            "monk_robe_hood_down",
+            "Monk Robe + Hood Down",
+            ("donitz_monk_robe", "donitz_monk_robe_hood_down"),
+        ),
+        (
+            "viking",
+            "Viking",
+            ("tunicviking", "pantsviking"),
+        ),
+        (
+            "viking_soft",
+            "Viking (Soft)",
+            ("rehmanpolanski_viking_tunic", "rehmanpolanski_viking_pants"),
+        ),
+        ("germanic_clothes", "Germanic"),
     ],
     "female": [
         ("female_casualsuit01", "Casual 01"),
         ("female_casualsuit02", "Casual 02"),
         ("female_sportsuit01", "Sport 01"),
         ("female_elegantsuit01", "Elegant 01"),
+        ("monks_robe", "Monk Robe"),
+        ("donitz_monk_robe", "Monk Robe (Pack)"),
+        ("donitz_monk_robe_hood_off", "Monk Robe Hood Off"),
+        (
+            "monk_robe_hooded",
+            "Monk Robe + Hood",
+            ("donitz_monk_robe", "donitz_monk_robe_hood"),
+        ),
+        (
+            "monk_robe_hood_down",
+            "Monk Robe + Hood Down",
+            ("donitz_monk_robe", "donitz_monk_robe_hood_down"),
+        ),
+        (
+            "viking",
+            "Viking",
+            ("tunicviking", "pantsviking"),
+        ),
+        (
+            "viking_soft",
+            "Viking (Soft)",
+            ("rehmanpolanski_viking_tunic", "rehmanpolanski_viking_pants"),
+        ),
+        ("germanic_clothes", "Germanic"),
+        ("viking_dress", "Viking Dress"),
+        ("medievaldress", "Medieval Dress"),
     ],
 }
 
@@ -89,6 +161,8 @@ WARDROBE_SHOES: list[tuple[str, str]] = [
     ("shoes03", "Shoes 03"),
     ("shoes04", "Shoes 04"),
     ("shoes05", "Shoes 05"),
+    ("bootsviking", "Viking Boots"),
+    ("rehmanpolanski_viking_boots", "Viking Boots (Pack)"),
 ]
 
 WARDROBE_HAIR: list[tuple[str, str]] = [
@@ -134,14 +208,25 @@ def wardrobe_items(sex: str) -> list[dict]:
     """Every modular piece Character Studio can equip on this sex, in slot order."""
     if sex not in WARDROBE_SUITS:
         raise KeyError(f"unknown sex {sex!r}; expected one of {SEXES}")
-    catalog: list[tuple[str, list[tuple[str, str]]]] = [
-        ("suit", WARDROBE_SUITS[sex]),
+    items: list[dict] = []
+    suit_folder, suit_type = SLOT_ASSET_KIND["suit"]
+    for entry in WARDROBE_SUITS[sex]:
+        parts = _suit_parts(entry)
+        items.append(
+            {
+                "id": _suit_id(entry),
+                "slot": "suit",
+                "label": _suit_label(entry),
+                "asset_folder": suit_folder,
+                "asset_type": suit_type,
+                "parts": list(parts),
+            }
+        )
+    for slot, entries in (
         ("shoes", WARDROBE_SHOES),
         ("hair", WARDROBE_HAIR),
         ("eyebrows", WARDROBE_EYEBROWS),
-    ]
-    items: list[dict] = []
-    for slot, entries in catalog:
+    ):
         asset_folder, asset_type = SLOT_ASSET_KIND[slot]
         for asset_id, label in entries:
             items.append(
@@ -151,6 +236,7 @@ def wardrobe_items(sex: str) -> list[dict]:
                     "label": label,
                     "asset_folder": asset_folder,
                     "asset_type": asset_type,
+                    "parts": [asset_id],
                 }
             )
     return items
@@ -179,13 +265,14 @@ def build_specs() -> list[dict]:
     # worn, or a short sleeve exposes the hole a long one carved out. Shoes never
     # mask the body, so any shoe fits any of these.
     for sex in SEXES:
-        for suit, _label in WARDROBE_SUITS[sex]:
+        for entry in WARDROBE_SUITS[sex]:
+            suit = _suit_id(entry)
             specs.append(
                 {
                     "id": f"{sex}_dressed_{suit}",
                     "kind": "body",
                     "sex": sex,
-                    "garments": [suit],
+                    "garments": list(_suit_parts(entry)),
                     "out": _dressed_out(sex, suit),
                 }
             )
@@ -219,17 +306,19 @@ def _mpfb_import(path: str):
 
 
 def _ensure_mpfb_enabled() -> None:
+    # Prefer the real user_default repo path. The extensions/.user staging tree
+    # accepts a copy but Blender 4.2 does not load addons from there.
     candidates = [
-        Path(os.path.expandvars(r"%APPDATA%\Blender Foundation\Blender\4.2\extensions\.user\user_default\mpfb")),
-        Path(os.path.expandvars(r"%APPDATA%\Blender Foundation\Blender\4.2\extensions\user_default\mpfb")),
         Path(bpy.utils.user_resource("EXTENSIONS")) / "user_default" / "mpfb",
+        Path(os.path.expandvars(r"%APPDATA%\Blender Foundation\Blender\4.2\extensions\user_default\mpfb")),
+        Path(os.path.expandvars(r"%APPDATA%\Blender Foundation\Blender\4.2\scripts\addons\mpfb")),
     ]
     try:
         candidates.insert(0, Path(bpy.utils.extension_path_user("bl_ext.user_default")) / "mpfb")
     except Exception:  # noqa: BLE001
         pass
 
-    installed = False
+    errors: list[str] = []
     for target in candidates:
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -237,22 +326,22 @@ def _ensure_mpfb_enabled() -> None:
                 shutil.rmtree(target)
             shutil.copytree(MPFB_SRC, target)
             _log(f"Installed MPFB to {target}")
-            installed = True
-            break
         except Exception as exc:  # noqa: BLE001
+            errors.append(f"install {target}: {exc}")
             _log(f"Install candidate failed {target}: {exc}")
-    if not installed:
-        raise RuntimeError("Could not install MPFB into any Blender extension path")
+            continue
 
-    for mod in ("bl_ext.user_default.mpfb", "mpfb"):
-        try:
-            bpy.ops.preferences.addon_enable(module=mod)
-            _log(f"Enabled addon module: {mod}")
-            bpy.ops.wm.save_userpref()
-            return
-        except Exception as exc:  # noqa: BLE001
-            _log(f"Could not enable {mod}: {exc}")
-    raise RuntimeError("Failed to enable MPFB addon/extension")
+        for mod in ("bl_ext.user_default.mpfb", "mpfb"):
+            try:
+                bpy.ops.preferences.addon_enable(module=mod)
+                _log(f"Enabled addon module: {mod}")
+                bpy.ops.wm.save_userpref()
+                return
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"enable {mod} after {target}: {exc}")
+                _log(f"Could not enable {mod}: {exc}")
+
+    raise RuntimeError("Failed to enable MPFB addon/extension; " + " | ".join(errors))
 
 
 def _install_system_assets() -> None:
@@ -277,6 +366,22 @@ def _install_system_assets() -> None:
             shutil.rmtree(dst)
         shutil.copytree(src, dst)
         _log(f"Installed asset folder {name}")
+
+    # Overlay community/pack clothes (medieval, etc.) without mutating City.
+    if EXTRA_CLOTHES_DIR.is_dir():
+        clothes_dst = data_dir / "clothes"
+        extra_count = 0
+        for asset_dir in sorted(EXTRA_CLOTHES_DIR.iterdir()):
+            if not asset_dir.is_dir():
+                continue
+            dest = clothes_dst / asset_dir.name
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(asset_dir, dest)
+            extra_count += 1
+        _log(f"Overlayed {extra_count} extra clothes from {EXTRA_CLOTHES_DIR}")
+    else:
+        _log(f"No extra clothes dir at {EXTRA_CLOTHES_DIR}")
 
     AssetService = _mpfb_import("services.assetservice").AssetService
     AssetService.update_all_asset_lists()
@@ -310,11 +415,18 @@ def _macro(gender: float) -> dict:
 
 
 def _mhclo_path(folder_name: str, asset_folder: str = "clothes") -> Path:
-    folder = ASSETS_DIR / asset_folder / folder_name
-    matches = sorted(folder.glob("*.mhclo"))
-    if not matches:
-        raise FileNotFoundError(f"No .mhclo in {folder}")
-    return matches[0]
+    candidates: list[Path] = []
+    if asset_folder == "clothes":
+        candidates.append(EXTRA_CLOTHES_DIR / folder_name)
+        candidates.append(USER_DATA_OVERRIDE / "data" / "clothes" / folder_name)
+    candidates.append(ASSETS_DIR / asset_folder / folder_name)
+    for folder in candidates:
+        matches = sorted(folder.glob("*.mhclo"))
+        if matches:
+            return matches[0]
+    raise FileNotFoundError(
+        f"No .mhclo for {folder_name!r} under {asset_folder}; looked in {candidates}"
+    )
 
 
 def _equip_eyes(basemesh) -> object:
@@ -692,18 +804,31 @@ def _export_body(spec: dict) -> Path:
 
 
 def _export_piece(spec: dict) -> Path:
-    """A single wardrobe piece on the shared rig, with no body and no face morphs."""
-    item: dict = spec["item"]
-    basemesh, armature = _create_rigged_human(spec["sex"])
-    piece = _equip_assets(basemesh, [item], spec["id"])[0]
+    """A wardrobe piece on the shared rig, with no body and no face morphs.
 
-    _apply_non_armature_modifiers(piece)
-    _assign_unweighted_verts(piece, ("head", "spine_03", "pelvis", "foot_l", "foot_r"))
-    _limit_weights_to_four(piece)
-    _log(f"{spec['id']}: {item['slot']} verts={len(piece.data.vertices)}")
+    Multi-part suits (e.g. viking tunic + pants) equip every part and export them
+    together so Character Studio still binds one Suit path.
+    """
+    item: dict = spec["item"]
+    parts: list[str] = list(item.get("parts") or [item["id"]])
+    basemesh, armature = _create_rigged_human(spec["sex"])
+    equip_items = [
+        {
+            "id": part_id,
+            "asset_folder": item["asset_folder"],
+            "asset_type": item["asset_type"],
+        }
+        for part_id in parts
+    ]
+    pieces = _equip_assets(basemesh, equip_items, spec["id"])
 
     bpy.ops.object.select_all(action="DESELECT")
-    piece.select_set(True)
+    for piece in pieces:
+        _apply_non_armature_modifiers(piece)
+        _assign_unweighted_verts(piece, ("head", "spine_03", "pelvis", "foot_l", "foot_r"))
+        _limit_weights_to_four(piece)
+        _log(f"{spec['id']}: {item['slot']} part verts={len(piece.data.vertices)}")
+        piece.select_set(True)
     armature.select_set(True)
     bpy.context.view_layer.objects.active = armature
     return _export_selection(spec["out"], with_morphs=False)
@@ -751,8 +876,8 @@ def _write_wardrobe_json() -> None:
                 "nude": f"res://assets/humans/{sex}_base.glb",
                 # suit id -> the body whose skin under that suit has been deleted
                 "dressed": {
-                    suit: f"res://assets/humans/{_dressed_out(sex, suit)}"
-                    for suit, _label in WARDROBE_SUITS[sex]
+                    _suit_id(entry): f"res://assets/humans/{_dressed_out(sex, _suit_id(entry))}"
+                    for entry in WARDROBE_SUITS[sex]
                 },
             }
             for sex in SEXES

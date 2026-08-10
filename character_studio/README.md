@@ -11,14 +11,18 @@ Lives in Asset Lab; does not change the City in-game editor.
 character_studio\CharacterStudio.bat
 ```
 
+First launch imports the Godot project (builds `.godot/` class/cache data). That is
+required once so `class_name` scripts resolve; the bat does it automatically.
+
 Or:
 
 ```bat
 python tools\sync_character_studio_assets.py
+"<path-to-Godot-4.6>" --path character_studio --headless --import
 "<path-to-Godot-4.6>" --path character_studio
 ```
 
-Default Godot binary: `..\City\tools\godot\Godot_v4.6-voxel_win64.exe`  
+Default Godot binary: `..\..\City\tools\godot\Godot_v4.6-voxel_win64.exe`  
 Override with `GODOT_BIN`.
 
 ## Controls
@@ -65,11 +69,30 @@ review; it needs a real window, so run it without `--headless`:
 "<godot>" --path character_studio --script tools/shoot_studio.gd -- --out=C:/tmp/shots
 ```
 
+## Medieval / community clothes
+
+Free MakeHuman clothes (Suits 02 medieval subset + community CC0/CC-BY dresses)
+live under `tools/character_studio/makehuman_extra_assets/` after:
+
+```bash
+python tools/character_studio/fetch_medieval_clothes.py
+python tools/sync_character_studio_assets.py
+```
+
+License notes are in `makehuman_extra_assets/LICENSES.json`. The non-historical
+medieval dress is **CC-BY** (attribution required); everything else pulled here
+is CC0.
+
 ## Adding a garment
 
-Add it to `WARDROBE_SUITS` or `WARDROBE_SHOES` in
-`tools/character_studio/blender_export_humans.py` and re-export. A new suit also
-means a new dressed body; a new pair of shoes is just one more piece.
+1. Put a MakeHuman `.mhclo` folder under
+   `tools/character_studio/makehuman_extra_assets/clothes/` (or the City system
+   pack).
+2. Add it to `WARDROBE_SUITS` or `WARDROBE_SHOES` in
+   `tools/character_studio/blender_export_humans.py`. Multi-piece suits use
+   `(id, label, (part_a, part_b))`.
+3. Re-export. A new suit also means a new dressed body; a new pair of shoes is
+   just one more piece.
 
 Eye morph caveat: `face_eye_size` / `face_eye_spacing` deform the basemesh lids
 only. The eyeballs are a separate fitted mesh, so extreme values on those two
