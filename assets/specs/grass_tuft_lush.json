@@ -12,7 +12,7 @@
   },
   "materials": {
     "blades": {
-      "base_color": [0.22, 0.42, 0.16, 1.0],
+      "base_color": [0.068, 0.229, 0.034, 1.0],
       "roughness": 0.92,
       "metallic": 0.0
     }

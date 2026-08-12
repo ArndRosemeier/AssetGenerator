@@ -7,7 +7,7 @@
     "trunk_radius_base": 0.42,
     "trunk_radius_top": 0.07,
     "trunk_segments": 10,
-    "canopy_start": 0.40,
+    "canopy_start": 0.4,
     "branch_count": 42,
     "stub_count": 9,
     "branch_length_scale": 2.4,
@@ -16,13 +16,23 @@
   },
   "materials": {
     "bark": {
-      "base_color": [0.55, 0.24, 0.11, 1.0],
+      "base_color": [
+        0.147,
+        0.0685,
+        0.0284,
+        1.0
+      ],
       "roughness": 0.94,
       "metallic": 0.0
     },
     "foliage": {
-      "base_color": [0.10, 0.36, 0.12, 1.0],
-      "roughness": 0.80,
+      "base_color": [
+        0.0423,
+        0.1329,
+        0.0296,
+        1.0
+      ],
+      "roughness": 0.8,
       "metallic": 0.0
     }
   },
