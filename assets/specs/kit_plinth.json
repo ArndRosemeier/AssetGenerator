@@ -1,0 +1,36 @@
+{
+  "spec_version": 1,
+  "id": "kit_plinth",
+  "generator": "hard_surface.kit_cell",
+  "params": {
+    "kind": "plinth",
+    "cell_xz": 4.0,
+    "cell_y": 2.7,
+    "wall_thickness": 0.28,
+    "overlap": 0.02,
+    "door_width": 1.1,
+    "door_height": 2.1,
+    "roof_height": 0.85,
+    "overhang": 0.22,
+    "bevel_width": 0.0
+  },
+  "materials": {
+    "structure": {
+      "base_color": [0.38, 0.36, 0.33, 1.0],
+      "roughness": 0.94,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [0.25, 0.18, 0.12, 1.0],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 6.0
+  }
+}
