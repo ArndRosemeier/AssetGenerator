@@ -1,0 +1,44 @@
+{
+  "spec_version": 1,
+  "id": "castle_gate",
+  "generator": "hard_surface.kit_cell",
+  "params": {
+    "kind": "gate",
+    "cell_xz": 4.0,
+    "cell_y": 2.7,
+    "wall_thickness": 1.5,
+    "overlap": 0.02,
+    "door_width": 2.4,
+    "door_height": 2.35,
+    "window_width": 0.22,
+    "window_height": 0.95,
+    "window_sill": 1.15,
+    "roof_height": 1.1,
+    "overhang": 0.18,
+    "jetty": 0.0,
+    "timber": false,
+    "bevel_width": 0.0,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "seed": 24
+  },
+  "materials": {
+    "structure": {
+      "base_color": [0.74, 0.66, 0.52, 1.0],
+      "roughness": 0.94,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [0.28, 0.24, 0.2, 1.0],
+      "roughness": 0.82,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": false,
+    "max_dimension_m": 6.0
+  }
+}

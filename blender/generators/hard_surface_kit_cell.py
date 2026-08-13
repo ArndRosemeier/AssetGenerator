@@ -1,4 +1,5 @@
-"""One-cell kit pieces: wall, corner, door, window, roof, chimney, plinth.
+"""One-cell kit pieces: wall, corner, door, gate, window, roof, chimney, plinth,
+battlement, turret.
 
 Authored Z-up, footprint centre at the origin. The exterior wall sits on +Y so
 glTF Y-up export maps it to engine -Z, matching Modular's local wall-on-minus-Z
@@ -16,6 +17,10 @@ phantom stacked neighbor (plinth, ground under jetty, wall under roof).
 bakes posts, plates, X-braces, and short overhang corbels into the mesh —
 that is not an attach socket. Corbels may drop a little below `overlap`,
 but only in the overhang strip.
+
+`battlement` is a cap (down seam only in the catalog): merlons on +Y, walk slab
+starting at `overlap`. `gate` is a door through a thick curtain. `turret` is a
+four-sided extra storey with no horizontal seams (tower tops).
 """
 
 from __future__ import annotations
@@ -50,12 +55,31 @@ _KINDS = (
     "wall",
     "corner",
     "door",
+    "gate",
     "window",
     "window_b",
     "roof",
     "chimney",
     "plinth",
+    "battlement",
+    "turret",
 )
+
+_STOREY_KINDS = (
+    "wall",
+    "corner",
+    "door",
+    "gate",
+    "window",
+    "window_b",
+    "turret",
+)
+
+_CAP_KINDS = ("roof", "chimney", "battlement")
+
+# Jambs beside an opening. Thick curtains use this instead of full wall thickness
+# so a gate can be 2–3 m wide.
+_MIN_JAMB = 0.4
 
 _PARAM_KEYS = (
     "kind",
@@ -143,7 +167,7 @@ def _assert_kit_envelope(params: KitParams, boxes: Sequence[KitBox]) -> None:
     """
     h = params.half
     pad = params.overlap + params.jetty + (_TIMBER_PROUD if params.timber else 0.0)
-    storey = params.kind in ("wall", "corner", "door", "window", "window_b")
+    storey = params.kind in _STOREY_KINDS
     for box in boxes:
         lower, upper = box.lower, box.upper
         if storey and upper[2] > params.cell_y + 1e-4:
@@ -282,7 +306,7 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
     detector only watches Z. Do not drop these stack phantoms to silence a fail.
     """
     _assert_no_coplanar_faces(boxes, context=params.kind)
-    storey = params.kind in ("wall", "corner", "door", "window", "window_b")
+    storey = params.kind in _STOREY_KINDS
     if storey:
         below = _collect_layout(replace(params, kind="plinth"))
         _assert_no_coplanar_faces(
@@ -297,9 +321,19 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
                 other=_shift_axis(ground, 2, -params.cell_y),
                 context=f"{params.kind}/ground stack",
             )
-    if params.kind in ("roof", "chimney"):
-        for kind in ("wall", "window", "window_b", "corner"):
+        if params.kind == "turret":
+            for kind in ("corner", "wall", "turret"):
+                support = _collect_layout(replace(params, kind=kind))
+                _assert_no_coplanar_faces(
+                    boxes,
+                    other=_shift_axis(support, 2, -params.cell_y),
+                    context=f"{params.kind}/{kind} stack",
+                )
+    if params.kind in _CAP_KINDS:
+        for kind in ("wall", "window", "window_b", "corner", "door", "gate", "turret"):
             for jetty in (0.0, _STACK_JETTY):
+                if kind == "turret" and jetty > 0.0:
+                    continue
                 support = _collect_layout(replace(params, kind=kind, jetty=jetty))
                 _assert_no_coplanar_faces(
                     boxes,
@@ -314,16 +348,22 @@ def _layout(builder: KitBoxes | BoundsSink, params: KitParams) -> None:
         _plinth(builder, params)
     elif params.kind in ("roof", "chimney"):
         _roof(builder, params, chimney=params.kind == "chimney")
-    elif params.kind in ("wall", "door", "window", "window_b", "corner"):
+    elif params.kind == "battlement":
+        _battlement(builder, params)
+    elif params.kind == "turret":
+        _turret(builder, params)
+    elif params.kind in ("wall", "door", "gate", "window", "window_b", "corner"):
         _floor_slab(
             builder,
             params,
             west_wall=west,
-            door=params.kind == "door",
+            door=params.kind in ("door", "gate"),
         )
         _south_wall(builder, params, shiplap_neg=not west, shiplap_pos=True)
         if west:
             _west_wall(builder, params)
+        if params.kind == "gate":
+            _portcullis(builder, params)
     else:
         raise SpecError(f"params.kind: unhandled {params.kind!r}")
 
@@ -414,14 +454,20 @@ def parse_params(raw: Mapping[str, object]) -> KitParams:
     return params
 
 
+def _face_jamb(params: KitParams) -> float:
+    """Stone beside an opening. Thick curtains keep a minimum jamb, not full thickness."""
+    return min(params.wall_thickness, _MIN_JAMB)
+
+
 def _validate(params: KitParams) -> None:
     if params.wall_thickness >= params.cell_xz * 0.45:
         raise SpecError("params.wall_thickness leaves no interior in the cell.")
-    if params.door_width >= params.cell_xz - params.wall_thickness * 2.0:
+    jamb = _face_jamb(params)
+    if params.door_width >= params.cell_xz - jamb * 2.0:
         raise SpecError("params.door_width leaves no wall beside the door.")
     if params.door_height >= params.cell_y:
         raise SpecError("params.door_height must be below cell_y.")
-    if params.window_width >= params.cell_xz - params.wall_thickness * 2.0:
+    if params.window_width >= params.cell_xz - jamb * 2.0:
         raise SpecError("params.window_width leaves no wall beside the window.")
     if params.window_sill + params.window_height >= params.cell_y:
         raise SpecError("params.window_sill + window_height must be below cell_y.")
@@ -549,7 +595,7 @@ def _south_wythe_y(params: KitParams, wythe: str) -> tuple[float, float]:
 
 
 def _openings(params: KitParams) -> list[Opening]:
-    if params.kind == "door":
+    if params.kind in ("door", "gate"):
         half = params.door_width * 0.5
         return [(-half, half, 0.0, params.door_height)]
     if params.kind == "window":
@@ -979,6 +1025,114 @@ def _west_wall(builder: BoxBuilder, params: KitParams) -> None:
                 )
 
 
+def _battlement(builder: BoxBuilder, params: KitParams) -> None:
+    """Crenellated cap. Walk and merlons start at `overlap`, never on the storey plane."""
+    h = params.half
+    t = params.wall_thickness
+    o = params.overlap
+    walk_z0 = o
+    walk_z1 = o + 0.12
+    builder.add_box_bounds(
+        (-h + o, -h + 0.05, walk_z0),
+        (h - o, h - 0.03, walk_z1),
+        "structure",
+    )
+    rail_z0 = walk_z1 - 0.04
+    rail_z1 = o + 0.58
+    builder.add_box_bounds(
+        (-h + 0.1, -h + 0.05, rail_z0),
+        (h - 0.1, -h + 0.16, rail_z1),
+        "trim",
+    )
+    sill_z0 = o + 0.03
+    sill_z1 = o + 0.46
+    y0_outer = h - min(t * 0.4, 0.55)
+    y1_outer = h
+    builder.add_box_bounds(
+        (-h + o, y0_outer + 0.03, sill_z0),
+        (h - o, y1_outer - 0.03, sill_z1),
+        "structure",
+    )
+    merlon_w = 0.56
+    crenel_w = 0.42
+    merlon_z0 = walk_z1 - 0.05
+    merlon_z1 = o + 1.16
+    x = -h + 0.18
+    while x + merlon_w <= h - 0.18:
+        builder.add_box_bounds(
+            (x, y0_outer, merlon_z0),
+            (x + merlon_w, y1_outer, merlon_z1),
+            "structure",
+        )
+        x += merlon_w + crenel_w
+
+
+def _turret(builder: BoxBuilder, params: KitParams) -> None:
+    """Four-sided extra storey. No horizontal catalog docks; walls stay in-cell."""
+    h = params.half
+    t = params.wall_thickness
+    o = params.overlap
+    cy = params.cell_y
+    builder.add_box_bounds(
+        (-h + t - 0.04, -h + t - 0.04, o + 0.04),
+        (h - t + 0.04, h - t + 0.04, o + 0.13),
+        "structure",
+    )
+    slit_half = params.window_width * 0.5
+    slit_z0 = params.window_sill
+    slit_z1 = params.window_sill + params.window_height
+    openings = [(-slit_half, slit_half, slit_z0, slit_z1)]
+    _wythe_with_openings(
+        builder,
+        x0=-h + o,
+        x1=h - o,
+        y0=h - t,
+        y1=h,
+        z0=o,
+        z1=cy,
+        openings=openings,
+        slot="structure",
+        z_nudge=0.0,
+    )
+    builder.add_box_bounds((-h + o, -h, o + 0.02), (h - o, -h + t, cy - 0.02), "structure")
+    builder.add_box_bounds((-h, -h + o, o + 0.014), (-h + t, h - o, cy - 0.018), "structure")
+    builder.add_box_bounds((h - t, -h + o, o + 0.028), (h, h - o, cy - 0.032), "structure")
+    builder.add_box_bounds(
+        (-h + t - 0.1, h - t - 0.05, cy - 0.16),
+        (h - t + 0.1, h - t + 0.04, cy - 0.055),
+        "trim",
+    )
+
+
+def _portcullis(builder: BoxBuilder, params: KitParams) -> None:
+    """Raised grate baked into the gate mesh so the doorway stays an entrance.
+
+    Not an attach socket. Bars sit in the lintel zone; the walk-through is open.
+    """
+    half = params.door_width * 0.5
+    t = params.wall_thickness
+    h = params.half
+    y0 = h - t + 0.28
+    y1 = h - 0.28
+    if y1 <= y0:
+        return
+    # Stay below the opening-trim lintel (door_height-0.03 .. cell_y) so Z does not butt.
+    bar_z1 = params.door_height - 0.22
+    bar_z0 = bar_z1 - 0.3
+    rail_lo0 = bar_z0 - 0.04
+    rail_lo1 = bar_z0 + 0.05
+    rail_hi0 = bar_z1 - 0.05
+    rail_hi1 = bar_z1 + 0.04
+    builder.add_box_bounds((-half + 0.07, y0, rail_lo0), (half - 0.07, y1, rail_lo1), "trim")
+    builder.add_box_bounds((-half + 0.07, y0, rail_hi0), (half - 0.07, y1, rail_hi1), "trim")
+    bar = 0.055
+    gap = 0.2
+    x = -half + 0.1
+    while x + bar < half - 0.1:
+        builder.add_box_bounds((x, y0, bar_z0), (x + bar, y1, bar_z1), "trim")
+        x += gap
+
+
 def _roof(builder: BoxBuilder, params: KitParams, *, chimney: bool) -> None:
     """Stepped shingle cap. Layers interpenetrate in Z. Chimney stack uses trim.
 
@@ -1085,11 +1239,15 @@ def _mix_rgba(
 
 def _slot_look(params: KitParams, slot: str) -> str:
     if params.kind == "plinth":
+        if params.wall_thickness >= 1.0:
+            return "ashlar" if slot == "structure" else "stone_trim"
         return "stone" if slot == "structure" else "stone_trim"
     if params.kind in ("roof", "chimney"):
         if slot == "structure":
             return "shingle"
         return "brick" if params.kind == "chimney" else "timber"
+    if params.kind in ("battlement", "turret", "gate") or params.wall_thickness >= 1.0:
+        return "ashlar" if slot == "structure" else "stone_trim"
     if slot == "structure":
         return "plaster"
     return "timber"
@@ -1341,9 +1499,46 @@ def _build_look_material(
         bump_height = straw
         bump_strength = 0.85
         rough_base = spec.roughness
+    elif look == "ashlar":
+        tex_coord = nodes.new(type="ShaderNodeTexCoord")
+        tex_coord.location = (-920, 200)
+        mapping = nodes.new(type="ShaderNodeMapping")
+        mapping.location = (-700, 200)
+        mapping.inputs["Scale"].default_value = (1.0, 1.0, 1.0)
+        mapping.inputs["Rotation"].default_value = (0.0, 0.0, 1.5708)
+        mapping.inputs["Location"].default_value = (shift * 0.04, shift * 0.02, 0.0)
+        links.new(tex_coord.outputs["UV"], mapping.inputs["Vector"])
+        brick = nodes.new(type="ShaderNodeTexBrick")
+        brick.location = (-420, 200)
+        brick.offset = 0.5
+        brick.offset_frequency = 2
+        brick.squash = 1.0
+        brick.inputs["Scale"].default_value = 7.0
+        brick.inputs["Mortar Size"].default_value = 0.018
+        brick.inputs["Mortar Smooth"].default_value = 0.04
+        brick.inputs["Bias"].default_value = -0.15
+        brick.inputs["Brick Width"].default_value = 0.55
+        brick.inputs["Row Height"].default_value = 0.28
+        brick.inputs["Color1"].default_value = spec.base_color
+        brick.inputs["Color2"].default_value = (
+            max(0.0, spec.base_color[0] * 0.82),
+            max(0.0, spec.base_color[1] * 0.8),
+            max(0.0, spec.base_color[2] * 0.75),
+            1.0,
+        )
+        brick.inputs["Mortar"].default_value = (0.14, 0.12, 0.1, 1.0)
+        links.new(mapping.outputs["Vector"], brick.inputs["Vector"])
+        color = brick.outputs["Color"]
+        bump_height = brick.outputs["Fac"]
+        bump_strength = 1.1
+        rough_base = spec.roughness
     elif look in ("stone", "stone_trim", "brick"):
-        brick_scale = 4.5 if look == "brick" else 3.2
-        row_scale = 7.0 if look == "brick" else 4.0
+        if look == "brick":
+            brick_scale, row_scale = 4.5, 7.0
+            mortar_lo, mortar_hi = 0.12, 0.28
+        else:
+            brick_scale, row_scale = 3.2, 4.0
+            mortar_lo, mortar_hi = 0.12, 0.28
         mortar_x = _wave(
             nodes,
             links,
@@ -1353,7 +1548,7 @@ def _build_look_material(
             rotation=(0.0, 0.0, 0.0),
             offset=(shift * 0.1, 0.0, 0.0),
             wave_scale=1.0,
-            distortion=0.85,
+            distortion=0.85 if look != "ashlar" else 0.35,
             bands="X",
         )
         mortar_z = _wave(
@@ -1365,7 +1560,7 @@ def _build_look_material(
             rotation=(0.0, 0.0, 0.0),
             offset=(0.0, 0.0, shift * 0.08),
             wave_scale=1.0,
-            distortion=0.7,
+            distortion=0.7 if look != "ashlar" else 0.25,
             bands="Z",
         )
         mortar = nodes.new(type="ShaderNodeMath")
@@ -1375,8 +1570,8 @@ def _build_look_material(
         links.new(mortar_z, mortar.inputs[1])
         mortar_mask = nodes.new(type="ShaderNodeMapRange")
         mortar_mask.location = (-80, 80)
-        mortar_mask.inputs["From Min"].default_value = 0.12
-        mortar_mask.inputs["From Max"].default_value = 0.28
+        mortar_mask.inputs["From Min"].default_value = mortar_lo
+        mortar_mask.inputs["From Max"].default_value = mortar_hi
         mortar_mask.clamp = True
         links.new(mortar.outputs["Value"], mortar_mask.inputs["Value"])
         grit = _noise(
@@ -1399,7 +1594,9 @@ def _build_look_material(
         )
         mortar_rgb = nodes.new(type="ShaderNodeRGB")
         mortar_rgb.location = (80, 40)
-        mortar_rgb.outputs[0].default_value = (0.22, 0.20, 0.17, 1.0)
+        mortar_rgb.outputs[0].default_value = (
+            (0.14, 0.12, 0.1, 1.0) if look == "ashlar" else (0.22, 0.20, 0.17, 1.0)
+        )
         color = _mix_rgba(
             nodes,
             links,
