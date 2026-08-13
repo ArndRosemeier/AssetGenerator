@@ -17,6 +17,8 @@ GENERATORS: Final[dict[str, str]] = {
     "nature.pine": "blender.generators.nature_pine",
     "nature.rock": "blender.generators.nature_rock",
     "nature.grass_tuft": "blender.generators.nature_grass_tuft",
+    "nature.reed": "blender.generators.nature_reed",
+    "nature.bush": "blender.generators.nature_bush",
 }
 
 

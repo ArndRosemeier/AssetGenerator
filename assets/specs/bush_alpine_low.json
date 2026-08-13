@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "bush_alpine_low",
+  "generator": "nature.bush",
+  "params": {
+    "height": 0.58,
+    "spread": 0.74,
+    "stem_count": 5,
+    "stem_radius": 0.022,
+    "lobe_count": 5,
+    "lobe_radius": 0.26,
+    "berry_count": 0,
+    "berry_radius": 0.02,
+    "seed": 101
+  },
+  "materials": {
+    "wood": {
+      "base_color": [0.132, 0.098, 0.062, 1.0],
+      "roughness": 0.97,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [0.118, 0.162, 0.092, 1.0],
+      "roughness": 0.94,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1400,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.6
+  }
+}

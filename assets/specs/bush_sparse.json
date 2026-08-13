@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "bush_sparse",
+  "generator": "nature.bush",
+  "params": {
+    "height": 1.18,
+    "spread": 0.92,
+    "stem_count": 7,
+    "stem_radius": 0.018,
+    "lobe_count": 3,
+    "lobe_radius": 0.30,
+    "berry_count": 0,
+    "berry_radius": 0.02,
+    "seed": 61
+  },
+  "materials": {
+    "wood": {
+      "base_color": [0.156, 0.112, 0.068, 1.0],
+      "roughness": 0.98,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [0.168, 0.172, 0.078, 1.0],
+      "roughness": 0.96,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1400,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.2
+  }
+}

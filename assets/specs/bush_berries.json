@@ -1,0 +1,40 @@
+{
+  "spec_version": 1,
+  "id": "bush_berries",
+  "generator": "nature.bush",
+  "params": {
+    "height": 1.05,
+    "spread": 0.66,
+    "stem_count": 5,
+    "stem_radius": 0.028,
+    "lobe_count": 5,
+    "lobe_radius": 0.38,
+    "berry_count": 14,
+    "berry_radius": 0.035,
+    "seed": 19
+  },
+  "materials": {
+    "wood": {
+      "base_color": [0.118, 0.076, 0.045, 1.0],
+      "roughness": 0.95,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [0.082, 0.212, 0.062, 1.0],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "berries": {
+      "base_color": [0.354, 0.028, 0.048, 1.0],
+      "roughness": 0.42,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1800,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.6
+  }
+}

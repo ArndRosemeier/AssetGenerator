@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "bush_round_lush",
+  "generator": "nature.bush",
+  "params": {
+    "height": 1.35,
+    "spread": 0.72,
+    "stem_count": 4,
+    "stem_radius": 0.035,
+    "lobe_count": 6,
+    "lobe_radius": 0.46,
+    "berry_count": 0,
+    "berry_radius": 0.03,
+    "seed": 5
+  },
+  "materials": {
+    "wood": {
+      "base_color": [0.108, 0.072, 0.042, 1.0],
+      "roughness": 0.95,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [0.055, 0.196, 0.048, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1600,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.0
+  }
+}

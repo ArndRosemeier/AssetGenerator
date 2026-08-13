@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "bush_dry",
+  "generator": "nature.bush",
+  "params": {
+    "height": 0.85,
+    "spread": 0.78,
+    "stem_count": 6,
+    "stem_radius": 0.024,
+    "lobe_count": 4,
+    "lobe_radius": 0.3,
+    "berry_count": 0,
+    "berry_radius": 0.02,
+    "seed": 73
+  },
+  "materials": {
+    "wood": {
+      "base_color": [0.146, 0.108, 0.062, 1.0],
+      "roughness": 0.98,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [0.176, 0.166, 0.072, 1.0],
+      "roughness": 0.96,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1200,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.4
+  }
+}

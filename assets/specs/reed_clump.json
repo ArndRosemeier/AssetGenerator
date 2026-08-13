@@ -1,0 +1,33 @@
+{
+  "spec_version": 1,
+  "id": "reed_clump",
+  "generator": "nature.reed",
+  "params": {
+    "height": 1.15,
+    "stalk_count": 14,
+    "stalk_width": 0.016,
+    "splay": 0.18,
+    "lean": 0.34,
+    "head_length": 0.16,
+    "seed": 47
+  },
+  "materials": {
+    "stalks": {
+      "base_color": [0.118, 0.204, 0.062, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "heads": {
+      "base_color": [0.238, 0.166, 0.071, 1.0],
+      "roughness": 0.95,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1400,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.8
+  }
+}

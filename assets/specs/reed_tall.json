@@ -1,0 +1,33 @@
+{
+  "spec_version": 1,
+  "id": "reed_tall",
+  "generator": "nature.reed",
+  "params": {
+    "height": 1.9,
+    "stalk_count": 7,
+    "stalk_width": 0.02,
+    "splay": 0.09,
+    "lean": 0.13,
+    "head_length": 0.24,
+    "seed": 31
+  },
+  "materials": {
+    "stalks": {
+      "base_color": [0.146, 0.229, 0.079, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "heads": {
+      "base_color": [0.271, 0.184, 0.078, 1.0],
+      "roughness": 0.95,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 800,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.6
+  }
+}

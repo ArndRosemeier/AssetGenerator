@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "bush_tall_open",
+  "generator": "nature.bush",
+  "params": {
+    "height": 2.45,
+    "spread": 0.88,
+    "stem_count": 5,
+    "stem_radius": 0.042,
+    "lobe_count": 7,
+    "lobe_radius": 0.50,
+    "berry_count": 0,
+    "berry_radius": 0.03,
+    "seed": 41
+  },
+  "materials": {
+    "wood": {
+      "base_color": [0.122, 0.082, 0.048, 1.0],
+      "roughness": 0.94,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [0.048, 0.168, 0.052, 1.0],
+      "roughness": 0.9,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2200,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 3.6
+  }
+}
