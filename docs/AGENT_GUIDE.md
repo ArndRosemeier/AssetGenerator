@@ -179,8 +179,9 @@ Conventions:
 - Units are **meters**.
 - Authoring is **Z-up**; glTF export converts to Y-up.
 - Origin is footprint centre, base on Z=0.
-- Materials are Principled BSDF values only (`base_color` RGBA 0–1, `roughness`, `metallic`).
-  No texture maps in this pipeline yet.
+- Materials are Principled BSDF values (`base_color` RGBA 0–1, `roughness`, `metallic`).
+  Procedural detail that must survive glTF is baked to albedo / roughness / normal
+  (`nature.rock`, `hard_surface.kit_cell` when `texture_resolution` is set).
 
 Reference sample: [`assets/specs/crate_small.json`](../assets/specs/crate_small.json).
 
@@ -224,6 +225,16 @@ in every renderer (including our previews).
 
 **Rule:** let structural pieces **interpenetrate** slightly, or sink posts into lids/floors,
 instead of perfectly flush contact on visible surfaces.
+
+**Kit cells:** a wall that extends past `cell_y` occupies the next storey and z-fights
+whatever sits there (floor, jetty, roof). A wall that sits on `z=0` shares a plane
+with the plinth below. `hard_surface.kit_cell` fails the build if either happens.
+Storey pieces occupy `[overlap, cell_y]`. Join-axis shiplap is the only allowed overrun.
+
+The same generator also fails if two boxes share a **Z** face with overlapping area
+(intra-mesh, or a stacked phantom: plinth below, ground under a jetty, wall/window
+under a roof). That is the guard against looking-up flicker. Do not delete it or
+raise the epsilon to get a green generate — offset the box on Z.
 
 ### 2. Green report, wrong-looking asset
 

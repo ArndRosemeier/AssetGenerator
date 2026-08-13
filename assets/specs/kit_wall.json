@@ -10,8 +10,13 @@
     "overlap": 0.02,
     "door_width": 1.1,
     "door_height": 2.1,
+    "window_width": 0.9,
+    "window_height": 1.05,
+    "window_sill": 0.95,
     "roof_height": 0.85,
     "overhang": 0.22,
+    "jetty": 0.0,
+    "timber": false,
     "bevel_width": 0.0
   },
   "materials": {
@@ -30,7 +35,7 @@
     "max_triangles": 4000,
     "require_uvs": true,
     "require_manifold": true,
-    "require_origin_at_base": true,
+    "require_origin_at_base": false,
     "max_dimension_m": 6.0
   }
 }

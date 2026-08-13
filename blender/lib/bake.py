@@ -9,6 +9,7 @@ DIFFUSE COLOR bakes are unreliable for unlit colour extraction in background mod
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,6 +55,18 @@ def _new_image(name: str, resolution: int, *, is_data: bool) -> bpy.types.Image:
     return image
 
 
+def _slot_materials(obj: bpy.types.Object) -> list[bpy.types.Material]:
+    materials: list[bpy.types.Material] = []
+    for slot in obj.material_slots:
+        if slot.material is None:
+            raise RuntimeError(f"Object '{obj.name}' has an empty material slot")
+        if slot.material not in materials:
+            materials.append(slot.material)
+    if not materials:
+        raise RuntimeError(f"Object '{obj.name}' has no material to bake")
+    return materials
+
+
 def _active_image_target(material: bpy.types.Material, image: bpy.types.Image) -> bpy.types.ShaderNodeTexImage:
     nodes = material.node_tree.nodes
     for node in list(nodes):
@@ -67,6 +80,11 @@ def _active_image_target(material: bpy.types.Material, image: bpy.types.Image) -
     return target
 
 
+def _set_bake_targets(materials: Sequence[bpy.types.Material], image: bpy.types.Image) -> None:
+    for material in materials:
+        _active_image_target(material, image)
+
+
 def _principled(material: bpy.types.Material) -> bpy.types.ShaderNode:
     for node in material.node_tree.nodes:
         if node.type == "BSDF_PRINCIPLED":
@@ -74,42 +92,63 @@ def _principled(material: bpy.types.Material) -> bpy.types.ShaderNode:
     raise RuntimeError(f"Material '{material.name}' has no Principled BSDF")
 
 
-def _bake_albedo_via_emit(material: bpy.types.Material, image: bpy.types.Image) -> None:
-    """Route Base Color into Emission, bake EMIT, then restore the shader links."""
-    nodes = material.node_tree.nodes
+@dataclass
+class _EmitRestore:
+    material: bpy.types.Material
+    base_sockets: list[bpy.types.NodeSocket]
+    emit_sockets: list[bpy.types.NodeSocket]
+    strength: float
+
+
+def _prepare_emit_albedo(material: bpy.types.Material) -> _EmitRestore:
+    """Route Base Color into Emission so an EMIT bake captures unlit colour."""
     links = material.node_tree.links
     principled = _principled(material)
     base_input = principled.inputs["Base Color"]
     emit_input = principled.inputs["Emission Color"]
     emit_strength = principled.inputs["Emission Strength"]
-
     previous_base_links = [link.from_socket for link in base_input.links]
     previous_emit_links = [link.from_socket for link in emit_input.links]
     previous_strength = emit_strength.default_value
-
     if not previous_base_links:
-        raise RuntimeError("Base Color has no incoming link to bake")
-
+        raise RuntimeError(f"Material '{material.name}' Base Color has no incoming link to bake")
     for link in list(emit_input.links):
         links.remove(link)
     links.new(previous_base_links[0], emit_input)
     emit_strength.default_value = 1.0
-
-    # Kill BSDF lighting contribution for a clean colour bake.
     for link in list(base_input.links):
         links.remove(link)
     base_input.default_value = (0.0, 0.0, 0.0, 1.0)
+    return _EmitRestore(
+        material=material,
+        base_sockets=previous_base_links,
+        emit_sockets=previous_emit_links,
+        strength=previous_strength,
+    )
 
-    _active_image_target(material, image)
-    bpy.ops.object.bake(type="EMIT")
 
+def _restore_emit_albedo(state: _EmitRestore) -> None:
+    links = state.material.node_tree.links
+    principled = _principled(state.material)
+    base_input = principled.inputs["Base Color"]
+    emit_input = principled.inputs["Emission Color"]
+    emit_strength = principled.inputs["Emission Strength"]
     for link in list(emit_input.links):
         links.remove(link)
-    for socket in previous_emit_links:
+    for socket in state.emit_sockets:
         links.new(socket, emit_input)
-    emit_strength.default_value = previous_strength
-    for socket in previous_base_links:
+    emit_strength.default_value = state.strength
+    for socket in state.base_sockets:
         links.new(socket, base_input)
+
+
+def _bake_albedo_via_emit(materials: Sequence[bpy.types.Material], image: bpy.types.Image) -> None:
+    """Route Base Color into Emission on every slot, bake EMIT, then restore."""
+    _set_bake_targets(materials, image)
+    restored = [_prepare_emit_albedo(material) for material in materials]
+    bpy.ops.object.bake(type="EMIT")
+    for state in restored:
+        _restore_emit_albedo(state)
 
 
 def bake_maps(
@@ -120,12 +159,15 @@ def bake_maps(
     samples: int,
     dump_dir: Path | None = None,
 ) -> BakedMaps:
-    """Bake albedo, roughness and tangent normals from the active material."""
-    if not obj.material_slots or obj.material_slots[0].material is None:
-        raise RuntimeError(f"Object '{obj.name}' has no material to bake")
-    material = obj.material_slots[0].material
-    if not material.use_nodes:
-        raise RuntimeError(f"Material '{material.name}' must use nodes for baking")
+    """Bake albedo, roughness and tangent normals from every material slot.
+
+    Faces keep their own shaders; all slots write into one UV atlas so a
+    two-slot kit cell (plaster + timber) becomes one glTF material.
+    """
+    materials = _slot_materials(obj)
+    for material in materials:
+        if not material.use_nodes:
+            raise RuntimeError(f"Material '{material.name}' must use nodes for baking")
 
     _ensure_uv(obj)
     _configure_cycles_for_bake(samples)
@@ -135,12 +177,12 @@ def bake_maps(
     roughness = _new_image(f"{asset_id}_roughness", resolution, is_data=True)
     normal = _new_image(f"{asset_id}_normal", resolution, is_data=True)
 
-    _bake_albedo_via_emit(material, albedo)
+    _bake_albedo_via_emit(materials, albedo)
 
-    _active_image_target(material, roughness)
+    _set_bake_targets(materials, roughness)
     bpy.ops.object.bake(type="ROUGHNESS")
 
-    _active_image_target(material, normal)
+    _set_bake_targets(materials, normal)
     bpy.ops.object.bake(type="NORMAL")
 
     for image in (albedo, roughness, normal):

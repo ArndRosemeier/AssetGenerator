@@ -1,6 +1,6 @@
 {
   "spec_version": 1,
-  "id": "kit_corner",
+  "id": "med_corner_jetty",
   "generator": "hard_surface.kit_cell",
   "params": {
     "kind": "corner",
@@ -13,21 +13,34 @@
     "window_width": 0.9,
     "window_height": 1.05,
     "window_sill": 0.95,
-    "roof_height": 0.85,
-    "overhang": 0.22,
-    "jetty": 0.0,
-    "timber": false,
-    "bevel_width": 0.0
+    "roof_height": 0.95,
+    "overhang": 0.18,
+    "jetty": 0.3,
+    "timber": true,
+    "bevel_width": 0.0,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "seed": 24
   },
   "materials": {
     "structure": {
-      "base_color": [0.52, 0.5, 0.46, 1.0],
-      "roughness": 0.92,
+      "base_color": [
+        0.82,
+        0.74,
+        0.6,
+        1.0
+      ],
+      "roughness": 0.9,
       "metallic": 0.0
     },
     "trim": {
-      "base_color": [0.25, 0.18, 0.12, 1.0],
-      "roughness": 0.8,
+      "base_color": [
+        0.16,
+        0.08,
+        0.04,
+        1.0
+      ],
+      "roughness": 0.82,
       "metallic": 0.0
     }
   },

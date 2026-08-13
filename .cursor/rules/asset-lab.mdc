@@ -56,6 +56,10 @@ Exit codes: `0` pass, `1` QA/build failed, `2` bad spec or missing toolchain.
 3. Parse `spec.params` with strict helpers from `blender/lib/spec.py`; reject impossible
    values with messages that include the actual numbers.
 4. Prefer parametric primitives; avoid coplanar exterior faces (z-fighting).
+   Kit cells (`hard_surface.kit_cell`) must stay in `z=[overlap, cell_y]` — the
+   generator raises if a wall box sits on the storey plane or occupies the next
+   storey. It also raises if two boxes share a Z face (intra-mesh or stacked
+   neighbor). Shiplap is for plan seams only. Do not weaken those checks.
 5. Apply modifiers / unwrap before export so QA measures the shipped mesh.
 6. Add at least one sample spec under `assets/specs/` and prove
    `generate` + (optionally) that `regenerate` includes it.
