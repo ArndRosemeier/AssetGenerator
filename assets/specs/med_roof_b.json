@@ -1,0 +1,54 @@
+{
+  "spec_version": 1,
+  "id": "med_roof_b",
+  "generator": "hard_surface.kit_cell",
+  "params": {
+    "kind": "roof",
+    "cell_xz": 4.0,
+    "cell_y": 2.7,
+    "wall_thickness": 0.28,
+    "overlap": 0.02,
+    "door_width": 1.1,
+    "door_height": 2.1,
+    "window_width": 0.9,
+    "window_height": 1.05,
+    "window_sill": 0.95,
+    "roof_height": 1.2,
+    "overhang": 0.22,
+    "jetty": 0.0,
+    "timber": true,
+    "bevel_width": 0.0,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "seed": 56
+  },
+  "materials": {
+    "structure": {
+      "base_color": [
+        0.48,
+        0.34,
+        0.18,
+        1.0
+      ],
+      "roughness": 0.94,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [
+        0.22,
+        0.12,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.86,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": false,
+    "max_dimension_m": 6.0
+  }
+}

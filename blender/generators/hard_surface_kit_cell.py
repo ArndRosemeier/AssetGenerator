@@ -18,6 +18,9 @@ bakes posts, plates, X-braces, and short overhang corbels into the mesh —
 that is not an attach socket. Corbels may drop a little below `overlap`,
 but only in the overhang strip.
 
+`wall_b` is close-studded timber (verticals, no X-braces). `window_c` is three
+lights. `door_b` is a door with a transom. Same seams as the base kinds.
+
 `battlement` is a cap (down seam only in the catalog): merlons on +Y, walk slab
 starting at `overlap`. `gate` is a door through a thick curtain. `turret` is a
 four-sided extra storey with no horizontal seams (tower tops).
@@ -53,11 +56,14 @@ MATERIAL_SLOTS: tuple[str, ...] = ("structure", "trim")
 
 _KINDS = (
     "wall",
+    "wall_b",
     "corner",
     "door",
+    "door_b",
     "gate",
     "window",
     "window_b",
+    "window_c",
     "roof",
     "chimney",
     "plinth",
@@ -67,11 +73,14 @@ _KINDS = (
 
 _STOREY_KINDS = (
     "wall",
+    "wall_b",
     "corner",
     "door",
+    "door_b",
     "gate",
     "window",
     "window_b",
+    "window_c",
     "turret",
 )
 
@@ -330,7 +339,18 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
                     context=f"{params.kind}/{kind} stack",
                 )
     if params.kind in _CAP_KINDS:
-        for kind in ("wall", "window", "window_b", "corner", "door", "gate", "turret"):
+        for kind in (
+            "wall",
+            "wall_b",
+            "window",
+            "window_b",
+            "window_c",
+            "corner",
+            "door",
+            "door_b",
+            "gate",
+            "turret",
+        ):
             for jetty in (0.0, _STACK_JETTY):
                 if kind == "turret" and jetty > 0.0:
                     continue
@@ -352,12 +372,22 @@ def _layout(builder: KitBoxes | BoundsSink, params: KitParams) -> None:
         _battlement(builder, params)
     elif params.kind == "turret":
         _turret(builder, params)
-    elif params.kind in ("wall", "door", "gate", "window", "window_b", "corner"):
+    elif params.kind in (
+        "wall",
+        "wall_b",
+        "door",
+        "door_b",
+        "gate",
+        "window",
+        "window_b",
+        "window_c",
+        "corner",
+    ):
         _floor_slab(
             builder,
             params,
             west_wall=west,
-            door=params.kind in ("door", "gate"),
+            door=params.kind in ("door", "door_b", "gate"),
         )
         _south_wall(builder, params, shiplap_neg=not west, shiplap_pos=True)
         if west:
@@ -598,6 +628,19 @@ def _openings(params: KitParams) -> list[Opening]:
     if params.kind in ("door", "gate"):
         half = params.door_width * 0.5
         return [(-half, half, 0.0, params.door_height)]
+    if params.kind == "door_b":
+        half = params.door_width * 0.5
+        # Door lintel and transom sill each grow by `frame` (0.08); keep them apart.
+        gap = 0.20
+        transom_h = 0.30
+        transom_z0 = params.door_height + gap
+        transom_z1 = transom_z0 + transom_h
+        if transom_z1 >= params.cell_y - 0.04:
+            raise SpecError("door_b transom does not fit under cell_y.")
+        return [
+            (-half, half, 0.0, params.door_height),
+            (-half * 0.7, half * 0.7, transom_z0, transom_z1),
+        ]
     if params.kind == "window":
         half = params.window_width * 0.5
         z0 = params.window_sill
@@ -614,7 +657,29 @@ def _openings(params: KitParams) -> list[Opening]:
             (left_c - half, left_c + half, z0, z1),
             (right_c - half, right_c + half, z0, z1),
         ]
+    if params.kind == "window_c":
+        light_half = params.window_width * 0.15
+        # Opening trim reaches `frame` (0.08) into the gap from each side.
+        gap = 0.22
+        z0 = params.window_sill
+        z1 = z0 + params.window_height
+        pitch = light_half * 2.0 + gap
+        outer = pitch + light_half
+        if outer >= params.half - params.wall_thickness:
+            raise SpecError("window_c lights do not fit beside the jambs.")
+        return [
+            (center - light_half, center + light_half, z0, z1)
+            for center in (-pitch, 0.0, pitch)
+        ]
     return []
+
+
+def _wythe_openings(params: KitParams) -> list[Opening]:
+    """Cuts in the plaster. Stacked door_b lights become one hole so lintels do not share Z."""
+    if params.kind != "door_b":
+        return _openings(params)
+    door, transom = _openings(params)
+    return [(door[0], door[1], door[2], transom[3])]
 
 
 def _wythe_with_openings(
@@ -684,7 +749,7 @@ def _south_wall(
     z0_outer = o
     z0_inner = o + 0.015
     inner_y = _south_wythe_y(params, "inner")[0]
-    openings = _openings(params)
+    openings = _wythe_openings(params)
     for wythe, z0, z1, z_nudge in (
         ("outer", z0_outer, z_outer, 0.0),
         ("inner", z0_inner, z_inner, 0.016),
@@ -709,7 +774,7 @@ def _south_wall(
         params, shiplap_neg=shiplap_neg, shiplap_pos=shiplap_pos, wythe="inner"
     )
     _south_cornice(builder, params, x0, x1, inner_y, z_inner - 0.015)
-    _opening_trim(builder, params, openings)
+    _opening_trim(builder, params, _openings(params))
     if params.timber:
         y0, y1 = _south_wythe_y(params, "outer")
         _timber_south(builder, params, x0, x1, y1)
@@ -885,7 +950,7 @@ def _timber_south(
         builder.add_box_bounds((left, y0, post_z0), (left + post, y1, post_z1), "trim")
     builder.add_box_bounds((right - post, y0, post_z0), (right, y1, post_z1), "trim")
     builder.add_box_bounds((plate_x0, y0, plate_z1 - rail), (x1, y1, plate_z1), "trim")
-    if params.kind != "door":
+    if params.kind not in ("door", "door_b"):
         builder.add_box_bounds((plate_x0, y0, plate_z0), (x1, y1, plate_z0 + rail), "trim")
     inner_r = right - post
     mid_z0 = plate_z0 + (plate_z1 - plate_z0) * 0.46
@@ -893,7 +958,8 @@ def _timber_south(
     z_lo = plate_z0 + rail + 0.012
     z_hi = plate_z1 - rail - 0.012
     openings = _openings(params)
-    _horizontal_rail(builder, inner_l, inner_r, y0, y1, mid_z0, mid_z1, openings)
+    timber_gaps = [o for o in openings if o[2] < 0.5] if params.kind == "door_b" else openings
+    _horizontal_rail(builder, inner_l, inner_r, y0, y1, mid_z0, mid_z1, timber_gaps)
     if params.kind == "wall":
         mid = (x0 + x1) * 0.5
         builder.add_box_bounds(
@@ -903,13 +969,37 @@ def _timber_south(
         )
         _bay_x_braces(builder, inner_l, mid - post * 0.5, y0, y1, z_lo, mid_z0, mid_z1, z_hi)
         _bay_x_braces(builder, mid + post * 0.5, inner_r, y0, y1, z_lo, mid_z0, mid_z1, z_hi)
-    elif openings:
+    elif params.kind == "wall_b":
+        _close_studs(builder, inner_l, inner_r, y0, y1, post_z0, post_z1, timber_gaps)
+    elif timber_gaps:
         cursor = inner_l
-        for ox0, ox1, _oz0, _oz1 in openings:
+        for ox0, ox1, _oz0, _oz1 in timber_gaps:
             _bay_x_braces(builder, cursor, ox0 - 0.04, y0, y1, z_lo, mid_z0, mid_z1, z_hi)
             cursor = ox1 + 0.04
         _bay_x_braces(builder, cursor, inner_r, y0, y1, z_lo, mid_z0, mid_z1, z_hi)
     _jetty_supports(builder, params, x0, x1, y_outer)
+
+
+def _close_studs(
+    builder: BoxBuilder,
+    x0: float,
+    x1: float,
+    y0: float,
+    y1: float,
+    z0: float,
+    z1: float,
+    openings: Sequence[Opening],
+) -> None:
+    """Close-studded bay: many verticals, no X-braces. Skip opening spans."""
+    stud = 0.075
+    spacing = 0.30
+    cursor = x0
+    while cursor + stud <= x1 + 0.001:
+        sx1 = cursor + stud
+        blocked = any(ox0 < sx1 and ox1 > cursor for ox0, ox1, _oz0, _oz1 in openings)
+        if not blocked:
+            builder.add_box_bounds((cursor, y0, z0), (sx1, y1, z1), "trim")
+        cursor += spacing
 
 
 def _jetty_supports(
