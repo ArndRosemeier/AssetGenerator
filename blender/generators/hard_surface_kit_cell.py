@@ -1,5 +1,5 @@
 """One-cell kit pieces: wall, corner, door, gate, window, roof, chimney, plinth,
-battlement, turret.
+floor, battlement, turret.
 
 Authored Z-up, footprint centre at the origin. The exterior wall sits on +Y so
 glTF Y-up export maps it to engine -Z, matching Modular's local wall-on-minus-Z
@@ -20,6 +20,9 @@ but only in the overhang strip.
 
 `wall_b` is close-studded timber (verticals, no X-braces). `window_c` is three
 lights. `door_b` is a door with a transom. Same seams as the base kinds.
+
+`floor` is a full-cell interior slab at the same plane as wall floors, for the
+hollow of a ring (a 3×4 hall). No walls; storey seams only.
 
 `battlement` is a cap (down seam only in the catalog): merlons on +Y, walk slab
 starting at `overlap`. `gate` is a door through a thick curtain. `turret` is a
@@ -64,6 +67,7 @@ _KINDS = (
     "window",
     "window_b",
     "window_c",
+    "floor",
     "roof",
     "chimney",
     "plinth",
@@ -81,6 +85,7 @@ _STOREY_KINDS = (
     "window",
     "window_b",
     "window_c",
+    "floor",
     "turret",
 )
 
@@ -349,10 +354,11 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
             "door",
             "door_b",
             "gate",
+            "floor",
             "turret",
         ):
             for jetty in (0.0, _STACK_JETTY):
-                if kind == "turret" and jetty > 0.0:
+                if kind in ("turret", "floor") and jetty > 0.0:
                     continue
                 support = _collect_layout(replace(params, kind=kind, jetty=jetty))
                 _assert_no_coplanar_faces(
@@ -372,6 +378,8 @@ def _layout(builder: KitBoxes | BoundsSink, params: KitParams) -> None:
         _battlement(builder, params)
     elif params.kind == "turret":
         _turret(builder, params)
+    elif params.kind == "floor":
+        _room_floor(builder, params)
     elif params.kind in (
         "wall",
         "wall_b",
@@ -536,6 +544,14 @@ def _storey_floor_z(params: KitParams) -> float:
 def _jetty_soffit_z(params: KitParams) -> float:
     """Overhang underside. Offset from the interior slab so they do not share a plane."""
     return params.overlap + 0.024
+
+
+def _room_floor(builder: BoxBuilder, params: KitParams) -> None:
+    """Full-cell slab at the wall-floor plane, for cells a ring does not occupy."""
+    h = params.half
+    thickness = 0.08
+    z0 = _storey_floor_z(params)
+    builder.add_box_bounds((-h, -h, z0), (h, h, z0 + thickness), "structure")
 
 
 def _floor_slab(
