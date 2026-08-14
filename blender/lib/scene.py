@@ -10,7 +10,7 @@ from collections.abc import Iterable, Mapping, Sequence
 
 import bmesh
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Euler, Matrix, Vector
 
 from blender.lib.spec import MaterialSpec
 
@@ -76,12 +76,15 @@ class BoxBuilder:
         center: tuple[float, float, float],
         size: tuple[float, float, float],
         slot: str,
+        *,
+        rotation: tuple[float, float, float] | None = None,
     ) -> None:
         if any(component <= 0.0 for component in size):
             raise ValueError(f"Box size must be positive in every axis, got {size}")
-        matrix = Matrix.Translation(Vector(center)) @ Matrix.Diagonal(
-            Vector((size[0], size[1], size[2], 1.0))
-        )
+        matrix = Matrix.Translation(Vector(center))
+        if rotation is not None:
+            matrix = matrix @ Euler(rotation).to_matrix().to_4x4()
+        matrix = matrix @ Matrix.Diagonal(Vector((size[0], size[1], size[2], 1.0)))
         created = bmesh.ops.create_cube(self._bmesh, size=1.0, matrix=matrix)
         index = self.slot_index(slot)
         for face in {face for vert in created["verts"] for face in vert.link_faces}:

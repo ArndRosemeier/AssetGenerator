@@ -1,0 +1,21 @@
+---
+description: Always commit and push Asset Lab specs and generators
+alwaysApply: true
+---
+
+# Track and push assets
+
+After creating or changing Asset Lab source (not regenerable products), **commit and push** in the same turn. Do not wait for a separate "please commit" or "please push".
+
+**Always track and push**
+
+- `assets/specs/*.json`
+- `blender/generators/*.py` and the matching `blender/lib/registry.py` entry
+- Shared builder/QA changes required by those assets (for example `blender/lib/scene.py`)
+
+**Never treat as source**
+
+- `assets/out/` stays gitignored (`.glb`, previews, bakes). Rebuild with `python tools/ag.py generate` / `regenerate`.
+- Do not add unrelated dirty files to the asset commit.
+
+This repo rule overrides the general "only commit when asked" habit **for the paths above**. Other work still waits for an explicit commit/push request.

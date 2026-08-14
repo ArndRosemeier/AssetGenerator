@@ -1,0 +1,46 @@
+{
+  "spec_version": 1,
+  "id": "door_plank",
+  "generator": "hard_surface.door",
+  "params": {
+    "style": "plank",
+    "width": 0.92,
+    "height": 2.04,
+    "thickness": 0.044,
+    "hinge_side": "left",
+    "hinge_count": 3,
+    "hinge_length": 0.22,
+    "handle": true,
+    "bevel_width": 0.002,
+    "plank_count": 6,
+    "plank_gap": 0.008,
+    "ledge_count": 3,
+    "ledge_width": 0.11,
+    "ledge_proud": 0.016,
+    "brace": true
+  },
+  "materials": {
+    "planks": {
+      "base_color": [0.5, 0.31, 0.16, 1.0],
+      "roughness": 0.78,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [0.22, 0.12, 0.055, 1.0],
+      "roughness": 0.82,
+      "metallic": 0.0
+    },
+    "hardware": {
+      "base_color": [0.14, 0.13, 0.13, 1.0],
+      "roughness": 0.5,
+      "metallic": 0.72
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": false,
+    "max_dimension_m": 2.5
+  }
+}
