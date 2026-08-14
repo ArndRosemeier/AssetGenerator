@@ -8,11 +8,15 @@ Two constructions share one generator:
   iron edge binding, strapped face with studs, long hinges, heavy furniture.
 
 The origin is the hinge axis (X=0, thickness centred on Y, base on Z=0), not
-the footprint centre. Engines open the door by rotating the glTF node around
-local Y (authoring Z-up becomes glTF Y-up). ``hinge_side`` chooses whether the
-leaf occupies +X (left hinge, default) or −X (right hinge).
+the footprint centre. Hardware faces −Y (preview front). Engines that match
+``hard_surface.kit_cell`` (exterior on +Y → engine −Z) yaw the leaf 180° so
+the decorated face looks at the street, and sit the pivot on the +X jamb.
+Open later by rotating the glTF node around local Y. ``hinge_side`` chooses
+whether the leaf occupies +X (left hinge, default) or −X (right hinge).
 
 Kit wall openings already supply a jamb; this mesh is the moving leaf only.
+Medieval / house kit openings are 1.10 × 2.10 m; size the leaf to sit on the
+threshold with jamb clearance (see ``door_plank`` / ``door_sturdy``).
 """
 
 from __future__ import annotations

@@ -4,8 +4,8 @@
   "generator": "hard_surface.door",
   "params": {
     "style": "plank",
-    "width": 0.92,
-    "height": 2.04,
+    "width": 1.02,
+    "height": 1.92,
     "thickness": 0.044,
     "hinge_side": "left",
     "hinge_count": 3,
