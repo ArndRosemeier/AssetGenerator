@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 
 _OUT = Path(__file__).resolve().parents[1] / "assets" / "out"
+_CELL_XZ = 5.0
+_PROFILE_STEPS = 9
 
 
 def positions(path: Path) -> list[tuple[float, float, float]]:
@@ -33,7 +35,8 @@ def main() -> None:
         raise SystemExit(__doc__)
     asset = sys.argv[1]
     points = positions(_OUT / f"{asset}.glb")
-    steps = [index * 0.5 - 2.0 for index in range(9)]
+    spacing = _CELL_XZ / (_PROFILE_STEPS - 1)
+    steps = [index * spacing - _CELL_XZ * 0.5 for index in range(_PROFILE_STEPS)]
     print(f"{asset}: {len(points)} verts")
     for label, pick in (("ceiling", min), ("floor", max)):
         print(f"-- {label} (rows are z, columns x, metres)")
@@ -44,7 +47,9 @@ def main() -> None:
                 near = [
                     y
                     for px, y, pz in points
-                    if abs(px - x) < 0.26 and abs(pz - z) < 0.26 and (y > 1.0) == (label == "ceiling")
+                    if abs(px - x) < spacing * 0.52
+                    and abs(pz - z) < spacing * 0.52
+                    and (y > 1.0) == (label == "ceiling")
                 ]
                 if near:
                     seen.append(pick(near))

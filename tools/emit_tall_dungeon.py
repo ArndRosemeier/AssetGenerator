@@ -122,8 +122,8 @@ def _spec(style: str, topo: str, role: str) -> dict[str, object]:
         "generator": "hard_surface.kit_cell",
         "params": {
             "kind": _KIND[topo],
-            "cell_xz": 4.0,
-            "cell_y": 2.7,
+            "cell_xz": 5.0,
+            "cell_y": 3.5,
             "wall_thickness": 0.5 if cave else 0.38,
             # Cave rise/vault slices sit over another rock slice, not a plinth.
             # A millimetre keeps the storey planes distinct without opening a
@@ -148,12 +148,16 @@ def _spec(style: str, topo: str, role: str) -> dict[str, object]:
         },
         "materials": {
             "structure": {
-                "base_color": [0.18, 0.16, 0.135, 1.0] if cave else [0.64, 0.58, 0.49, 1.0],
+                "base_color": [0.18, 0.16, 0.135, 1.0]
+                if cave
+                else [0.105, 0.115, 0.105, 1.0],
                 "roughness": 0.93 if cave else 0.94,
                 "metallic": 0.0,
             },
             "trim": {
-                "base_color": [0.225, 0.205, 0.175, 1.0] if cave else [0.4, 0.34, 0.26, 1.0],
+                "base_color": [0.225, 0.205, 0.175, 1.0]
+                if cave
+                else [0.035, 0.028, 0.02, 1.0],
                 "roughness": 0.72 if cave else 0.9,
                 "metallic": 0.0,
             },
@@ -181,12 +185,12 @@ def main() -> None:
     catalog = json.loads(raw)
     if "storey_void" not in raw:
         raw = raw.replace(
-            '      "id": "storey",\n      "width": 4.0,\n      "height": 4.0,\n'
-            '      "thickness": 0.4,\n      "floor_y": 0.0\n    }\n  ],',
-            '      "id": "storey",\n      "width": 4.0,\n      "height": 4.0,\n'
-            '      "thickness": 0.4,\n      "floor_y": 0.0\n    },\n    {\n'
-            '      "id": "storey_void",\n      "width": 4.0,\n      "height": 4.0,\n'
-            '      "thickness": 0.4,\n      "floor_y": 0.0\n    }\n  ],',
+            '      "id": "storey",\n      "width": 5.0,\n      "height": 5.0,\n'
+            '      "thickness": 0.5,\n      "floor_y": 0.0\n    }\n  ],',
+            '      "id": "storey",\n      "width": 5.0,\n      "height": 5.0,\n'
+            '      "thickness": 0.5,\n      "floor_y": 0.0\n    },\n    {\n'
+            '      "id": "storey_void",\n      "width": 5.0,\n      "height": 5.0,\n'
+            '      "thickness": 0.5,\n      "floor_y": 0.0\n    }\n  ],',
             1,
         )
     have = {piece["id"] for piece in catalog["pieces"]}

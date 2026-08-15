@@ -69,6 +69,8 @@ from blender.lib.spec import (
 )
 
 MATERIAL_SLOTS: tuple[str, ...] = ("structure", "trim")
+_DUNGEON_CANONICAL_XZ = 4.0
+_DUNGEON_CANONICAL_Y = 2.7
 
 _KINDS = (
     "wall",
@@ -328,7 +330,14 @@ def _assert_kit_envelope(params: KitParams, boxes: Sequence[KitBox]) -> None:
     z below `overlap` or past `cell_y` is a kit bug, not a closed joint.
     """
     h = params.half
-    pad = params.overlap + params.jetty + (_TIMBER_PROUD if params.timber else 0.0)
+    dungeon = params.kind.startswith("dungeon_")
+    plan_scale = _dungeon_plan_scale(params) if dungeon else 1.0
+    height_scale = _dungeon_height_scale(params) if dungeon else 1.0
+    plan_overlap = params.overlap * plan_scale
+    height_overlap = params.overlap * height_scale
+    pad = plan_overlap + params.jetty * plan_scale + (
+        _TIMBER_PROUD * plan_scale if params.timber else 0.0
+    )
     storey = params.kind in _STOREY_KINDS
     for box in boxes:
         lower, upper = box.lower, box.upper
@@ -338,11 +347,11 @@ def _assert_kit_envelope(params: KitParams, boxes: Sequence[KitBox]) -> None:
                 "Walls must stay in z=[overlap, cell_y]; extending into the next "
                 "cell z-fights the floor/wall/roof above."
             )
-        if storey and lower[2] < params.overlap - 1e-4:
-            drop = params.overlap - 0.42
+        if storey and lower[2] < height_overlap - 1e-4:
+            drop = height_overlap - 0.42 * height_scale
             if not (_overhang_only(params, lower, upper) and lower[2] >= drop - 1e-4):
                 raise SpecError(
-                    f"storey underrun: box z {lower[2]:.4f} < overlap {params.overlap}. "
+                    f"storey underrun: box z {lower[2]:.4f} < overlap {height_overlap}. "
                     "Walls start at overlap so they do not share the storey plane "
                     "with the plinth or floor below."
                 )
@@ -365,7 +374,7 @@ def _assert_kit_envelope(params: KitParams, boxes: Sequence[KitBox]) -> None:
                 raise SpecError(
                     f"plan overrun X {lower[0]:.4f}..{upper[0]:.4f} (limit {h + pad:.4f})."
                 )
-            span = params.cell_xz + params.overlap
+            span = params.cell_xz + plan_overlap
             if abs(lower[1]) > span + 1e-3 or abs(upper[1]) > span + 1e-3:
                 raise SpecError(
                     f"{params.kind} plan overrun Y {lower[1]:.4f}..{upper[1]:.4f} (limit {span:.4f})."
@@ -474,10 +483,39 @@ def _shift_axis(boxes: Sequence[KitBox], axis: int, delta: float) -> list[KitBox
     return out
 
 
-def _collect_layout(params: KitParams) -> list[KitBox]:
+def _dungeon_plan_scale(params: KitParams) -> float:
+    return params.cell_xz / _DUNGEON_CANONICAL_XZ
+
+
+def _dungeon_height_scale(params: KitParams) -> float:
+    return params.cell_y / _DUNGEON_CANONICAL_Y
+
+
+def _canonical_dungeon_params(params: KitParams) -> KitParams:
+    return replace(
+        params,
+        cell_xz=_DUNGEON_CANONICAL_XZ,
+        cell_y=_DUNGEON_CANONICAL_Y,
+    )
+
+
+def _scale_dungeon_boxes(boxes: Sequence[KitBox], params: KitParams) -> list[KitBox]:
+    plan = _dungeon_plan_scale(params)
+    height = _dungeon_height_scale(params)
+    return [
+        KitBox(
+            (box.lower[0] * plan, box.lower[1] * plan, box.lower[2] * height),
+            (box.upper[0] * plan, box.upper[1] * plan, box.upper[2] * height),
+            box.slot,
+        )
+        for box in boxes
+    ]
+
+
+def _collect_layout(params: KitParams, *, dungeon_scale: bool = False) -> list[KitBox]:
     sink = BoundsSink()
-    _layout(sink, params)
-    return sink.boxes
+    _layout(sink, _canonical_dungeon_params(params) if dungeon_scale else params)
+    return _scale_dungeon_boxes(sink.boxes, params) if dungeon_scale else sink.boxes
 
 
 def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
@@ -490,7 +528,10 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
     _assert_no_coplanar_faces(boxes, context=params.kind)
     if params.kind in _DUNGEON_STOREY:
         for kind in ("plinth", "dungeon_plinth"):
-            below = _collect_layout(replace(params, kind=kind, jagged=False))
+            below = _collect_layout(
+                replace(params, kind=kind, jagged=False),
+                dungeon_scale=True,
+            )
             _assert_no_coplanar_faces(
                 boxes,
                 other=_shift_axis(below, 2, -params.cell_y),
@@ -499,7 +540,7 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
         return
     if params.kind in _DUNGEON_CAP:
         for kind in _DUNGEON_STOREY:
-            support = _collect_layout(replace(params, kind=kind))
+            support = _collect_layout(replace(params, kind=kind), dungeon_scale=True)
             _assert_no_coplanar_faces(
                 boxes,
                 other=_shift_axis(support, 2, -params.cell_y),
@@ -507,7 +548,10 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
             )
         return
     if params.kind in _DUNGEON_RUN or params.kind in _DUNGEON_COLUMN:
-        below = _collect_layout(replace(params, kind="dungeon_plinth", jagged=False))
+        below = _collect_layout(
+            replace(params, kind="dungeon_plinth", jagged=False),
+            dungeon_scale=True,
+        )
         _assert_no_coplanar_faces(
             boxes,
             other=_shift_axis(below, 2, -params.cell_y),
@@ -1653,22 +1697,23 @@ def _dungeon_floor(
         _dungeon_lumps(builder, params, x0, x1, y0, y1, z0, z1, 5)
 
 
-def _dungeon_rise_posts(builder: BoxBuilder, params: KitParams) -> None:
-    """Corner posts so an open rise/vault slice is not an empty mesh."""
+def _dungeon_rise_beams(builder: BoxBuilder, params: KitParams) -> None:
+    """Overhead beams keep an open tall slice non-empty without cluttering its floor."""
     h = params.half
     o = params.overlap
-    post = 0.16
-    inset = 1.05
-    for index, (sx, sy) in enumerate(((-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0))):
-        z0 = o + 0.01 + index * 0.004
-        z1 = params.cell_y - 0.02 - index * 0.004
-        cx = inset * sx
-        cy = inset * sy
-        builder.add_box_bounds(
-            (cx - post * 0.5, cy - post * 0.5, z0),
-            (cx + post * 0.5, cy + post * 0.5, z1),
-            "trim",
-        )
+    z1 = params.cell_y - 0.04
+    reach = h + o
+    half_width = 0.07
+    builder.add_box_bounds(
+        (-reach, -half_width, z1 - 0.12),
+        (reach, half_width, z1),
+        "trim",
+    )
+    builder.add_box_bounds(
+        (-half_width, -reach, z1 - 0.16),
+        (half_width, reach, z1 - 0.02),
+        "trim",
+    )
 
 
 def _dungeon_lumps(
@@ -1933,7 +1978,7 @@ def _dungeon_layout(builder: BoxBuilder, params: KitParams) -> None:
     if params.storey_role in ("cell", "floor"):
         _dungeon_floor(builder, params, closed, hole=hole)
     if params.storey_role in ("rise", "vault"):
-        _dungeon_rise_posts(builder, params)
+        _dungeon_rise_beams(builder, params)
     if "s" in closed:
         _south_wall(builder, params, shiplap_neg="w" not in closed, shiplap_pos="e" not in closed)
     if "w" in closed:
@@ -1942,8 +1987,6 @@ def _dungeon_layout(builder: BoxBuilder, params: KitParams) -> None:
         _dungeon_north_wall(builder, params)
     if "e" in closed:
         _dungeon_east_wall(builder, params)
-    if closed:
-        _dungeon_opening_frames(builder, params, closed)
 
 
 class _CaveSculpt:
@@ -2787,66 +2830,6 @@ def _dungeon_cave_cap(builder: BoxBuilder, params: KitParams, *, mouth: bool) ->
             sculpt.box(x0, y0, x1, y1, 0.28 + index * 0.04, "trim")
 
 
-def _dungeon_opening_frames(
-    builder: BoxBuilder, params: KitParams, closed: set[str]
-) -> None:
-    """Stone lintel and jambs on every open side so a connection reads as an exit.
-
-    Frames sit inside the cell (not on the seam) so two neighbors cannot share a
-    storey-axis face.
-    """
-    h = params.half
-    o = params.overlap
-    cy = params.cell_y
-    inset = 0.42
-    half_gap = 0.95
-    jamb = 0.14
-    lintel_z0 = cy - 0.32
-    lintel_z1 = cy - 0.05
-    jamb_z0 = o + 0.04
-    faces = (
-        ("s", 0.0, h - inset, True),
-        ("n", 0.0, -h + inset, True),
-        ("e", h - inset, 0.0, False),
-        ("w", -h + inset, 0.0, False),
-    )
-    for name, cx, cy_face, along_x in faces:
-        if name in closed:
-            continue
-        if along_x:
-            builder.add_box_bounds(
-                (-half_gap - jamb, cy_face - 0.05, lintel_z0),
-                (half_gap + jamb, cy_face + 0.05, lintel_z1),
-                "trim",
-            )
-            builder.add_box_bounds(
-                (-half_gap - jamb, cy_face - 0.04, jamb_z0),
-                (-half_gap, cy_face + 0.04, lintel_z0 - 0.02),
-                "trim",
-            )
-            builder.add_box_bounds(
-                (half_gap, cy_face - 0.04, jamb_z0 + 0.012),
-                (half_gap + jamb, cy_face + 0.04, lintel_z0 - 0.03),
-                "trim",
-            )
-        else:
-            builder.add_box_bounds(
-                (cx - 0.05, -half_gap - jamb, lintel_z0 + 0.01),
-                (cx + 0.05, half_gap + jamb, lintel_z1 - 0.01),
-                "trim",
-            )
-            builder.add_box_bounds(
-                (cx - 0.04, -half_gap - jamb, jamb_z0 + 0.008),
-                (cx + 0.04, -half_gap, lintel_z0 - 0.018),
-                "trim",
-            )
-            builder.add_box_bounds(
-                (cx - 0.04, half_gap, jamb_z0 + 0.02),
-                (cx + 0.04, half_gap + jamb, lintel_z0 - 0.028),
-                "trim",
-            )
-
-
 def _dungeon_face_lumps(builder: BoxBuilder, params: KitParams, closed: set[str]) -> None:
     """Proud stones on closed faces. Unique Z so they do not share a storey plane."""
     h = params.half
@@ -2916,7 +2899,7 @@ def _slot_look(params: KitParams, slot: str) -> str:
     if params.kind.startswith("dungeon_"):
         if params.jagged:
             return "cave_rock" if slot == "structure" else "cave_calcite"
-        return "ashlar" if slot == "structure" else "stone_trim"
+        return "dungeon_ashlar" if slot == "structure" else "stone_trim"
     if params.kind in ("battlement", "turret", "gate") or params.wall_thickness >= 1.0:
         return "ashlar" if slot == "structure" else "stone_trim"
     if slot == "structure":
@@ -3254,26 +3237,32 @@ def build_look_material(
         bump_height = straw
         bump_strength = 0.85
         rough_base = spec.roughness
-    elif look == "ashlar":
-        tex_coord = nodes.new(type="ShaderNodeTexCoord")
-        tex_coord.location = (-920, 200)
+    elif look in ("ashlar", "dungeon_ashlar"):
         mapping = nodes.new(type="ShaderNodeMapping")
         mapping.location = (-700, 200)
         mapping.inputs["Scale"].default_value = (1.0, 1.0, 1.0)
-        mapping.inputs["Rotation"].default_value = (0.0, 0.0, 1.5708)
-        mapping.inputs["Location"].default_value = (shift * 0.04, shift * 0.02, 0.0)
-        links.new(tex_coord.outputs["UV"], mapping.inputs["Vector"])
+        if look == "dungeon_ashlar":
+            material_uv = nodes.new(type="ShaderNodeUVMap")
+            material_uv.location = (-920, 200)
+            material_uv.uv_map = "DungeonMaterialUV"
+            links.new(material_uv.outputs["UV"], mapping.inputs["Vector"])
+        else:
+            tex_coord = nodes.new(type="ShaderNodeTexCoord")
+            tex_coord.location = (-920, 200)
+            mapping.inputs["Rotation"].default_value = (0.0, 0.0, 1.5708)
+            mapping.inputs["Location"].default_value = (shift * 0.04, shift * 0.02, 0.0)
+            links.new(tex_coord.outputs["UV"], mapping.inputs["Vector"])
         brick = nodes.new(type="ShaderNodeTexBrick")
         brick.location = (-420, 200)
         brick.offset = 0.5
         brick.offset_frequency = 2
         brick.squash = 1.0
-        brick.inputs["Scale"].default_value = 7.0
-        brick.inputs["Mortar Size"].default_value = 0.018
+        brick.inputs["Scale"].default_value = 1.0 if look == "dungeon_ashlar" else 7.0
+        brick.inputs["Mortar Size"].default_value = 0.023 if look == "dungeon_ashlar" else 0.018
         brick.inputs["Mortar Smooth"].default_value = 0.04
         brick.inputs["Bias"].default_value = -0.15
-        brick.inputs["Brick Width"].default_value = 0.55
-        brick.inputs["Row Height"].default_value = 0.28
+        brick.inputs["Brick Width"].default_value = 1.0 if look == "dungeon_ashlar" else 0.55
+        brick.inputs["Row Height"].default_value = 3.5 / 9.0 if look == "dungeon_ashlar" else 0.28
         brick.inputs["Color1"].default_value = spec.base_color
         brick.inputs["Color2"].default_value = (
             max(0.0, spec.base_color[0] * 0.82),
@@ -3281,7 +3270,16 @@ def build_look_material(
             max(0.0, spec.base_color[2] * 0.75),
             1.0,
         )
-        brick.inputs["Mortar"].default_value = (0.14, 0.12, 0.1, 1.0)
+        brick.inputs["Mortar"].default_value = (
+            (
+                spec.base_color[0] * 0.24,
+                spec.base_color[1] * 0.20,
+                spec.base_color[2] * 0.16,
+                1.0,
+            )
+            if look == "dungeon_ashlar"
+            else (0.14, 0.12, 0.1, 1.0)
+        )
         links.new(mapping.outputs["Vector"], brick.inputs["Vector"])
         color = brick.outputs["Color"]
         bump_height = brick.outputs["Fac"]
@@ -4082,6 +4080,29 @@ def build_look_material(
     return material
 
 
+def _add_dungeon_material_uv(obj: bpy.types.Object) -> None:
+    """Project masonry in local metres while preserving the packed bake UV."""
+    mesh = obj.data
+    atlas = mesh.uv_layers.active
+    if atlas is None:
+        raise SpecError(f"{obj.name} needs a packed UV before dungeon material projection.")
+    material_uv = mesh.uv_layers.new(name="DungeonMaterialUV")
+    for polygon in mesh.polygons:
+        normal = polygon.normal
+        for loop_index in polygon.loop_indices:
+            vertex = mesh.vertices[mesh.loops[loop_index].vertex_index].co
+            if abs(normal.z) >= max(abs(normal.x), abs(normal.y)):
+                uv = (vertex.x, vertex.y)
+            elif abs(normal.y) >= abs(normal.x):
+                uv = (vertex.x, vertex.z)
+            else:
+                uv = (vertex.y, vertex.z)
+            material_uv.data[loop_index].uv = uv
+    material_uv.active_render = False
+    atlas.active_render = True
+    mesh.uv_layers.active_index = mesh.uv_layers.find(atlas.name)
+
+
 def _apply_procedural_slots(obj: bpy.types.Object, spec: AssetSpec, params: KitParams) -> None:
     mesh = obj.data
     if len(mesh.materials) != len(MATERIAL_SLOTS):
@@ -4089,6 +4110,8 @@ def _apply_procedural_slots(obj: bpy.types.Object, spec: AssetSpec, params: KitP
             f"{spec.asset_id} has {len(mesh.materials)} material slots, "
             f"expected {len(MATERIAL_SLOTS)}."
         )
+    if not params.jagged and params.kind.startswith("dungeon_"):
+        _add_dungeon_material_uv(obj)
     for index, slot in enumerate(MATERIAL_SLOTS):
         look = _slot_look(params, slot)
         mesh.materials[index] = build_look_material(
@@ -4114,16 +4137,31 @@ def _bake_kit_textures(obj: bpy.types.Object, spec: AssetSpec, params: KitParams
     apply_baked_principled(obj, maps, metallic=spec.materials["structure"].metallic)
 
 
+def _scale_dungeon_object(obj: bpy.types.Object, params: KitParams) -> None:
+    """Scale canonical dungeon geometry without scaling its object transform."""
+    plan = _dungeon_plan_scale(params)
+    height = _dungeon_height_scale(params)
+    for vertex in obj.data.vertices:
+        vertex.co.x *= plan
+        vertex.co.y *= plan
+        vertex.co.z *= height
+    obj.data.update()
+
+
 def build(spec: AssetSpec) -> list[bpy.types.Object]:
     require_materials(spec.materials, MATERIAL_SLOTS, spec.generator)
     params = parse_params(spec.params)
+    dungeon = params.kind.startswith("dungeon_")
     builder = KitBoxes()
-    _layout(builder, params)
-    _assert_kit_envelope(params, builder.boxes)
-    _assert_neighbor_planes(params, builder.boxes)
+    _layout(builder, _canonical_dungeon_params(params) if dungeon else params)
+    boxes = _scale_dungeon_boxes(builder.boxes, params) if dungeon else builder.boxes
+    _assert_kit_envelope(params, boxes)
+    _assert_neighbor_planes(params, boxes)
     obj = builder.to_object(spec.asset_id, spec.materials)
     if params.bevel_width > 0.0:
         apply_bevel(obj, width=params.bevel_width, segments=1, angle_deg=30.0)
+    if dungeon:
+        _scale_dungeon_object(obj, params)
     shade_flat(obj)
     if params.jagged:
         # A displaced rock shell has a sharp angle at nearly every quad, so the

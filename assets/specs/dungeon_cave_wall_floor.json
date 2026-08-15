@@ -4,8 +4,8 @@
   "generator": "hard_surface.kit_cell",
   "params": {
     "kind": "dungeon_wall",
-    "cell_xz": 4.0,
-    "cell_y": 2.7,
+    "cell_xz": 5.0,
+    "cell_y": 3.5,
     "wall_thickness": 0.5,
     "overlap": 0.02,
     "door_width": 1.2,
