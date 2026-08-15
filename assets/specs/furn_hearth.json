@@ -1,0 +1,32 @@
+{
+  "spec_version": 1,
+  "id": "furn_hearth",
+  "generator": "hard_surface.furniture",
+  "params": {
+    "kind": "hearth",
+    "width": 1.42,
+    "depth": 0.62,
+    "height": 1.28,
+    "bevel_width": 0.004,
+    "texture_resolution": 512,
+    "bake_samples": 16,
+    "seed": 233,
+    "opening_width": 0.72,
+    "opening_height": 0.62,
+    "mantel_depth": 0.28,
+    "hearth_slab": 0.10
+  },
+  "materials": {
+    "wood": { "base_color": [0.34, 0.20, 0.10, 1.0], "roughness": 0.76, "metallic": 0.0 },
+    "accent": { "base_color": [0.08, 0.07, 0.06, 1.0], "roughness": 0.70, "metallic": 0.15 },
+    "cloth": { "base_color": [0.55, 0.42, 0.28, 1.0], "roughness": 0.90, "metallic": 0.0 },
+    "stone": { "base_color": [0.34, 0.31, 0.28, 1.0], "roughness": 0.90, "metallic": 0.0 }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.8
+  }
+}

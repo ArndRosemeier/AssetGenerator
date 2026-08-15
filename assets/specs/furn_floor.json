@@ -1,0 +1,31 @@
+{
+  "spec_version": 1,
+  "id": "furn_floor",
+  "generator": "hard_surface.furniture",
+  "params": {
+    "kind": "floor",
+    "width": 4.0,
+    "depth": 4.0,
+    "height": 0.08,
+    "bevel_width": 0.002,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "seed": 211,
+    "plank_count": 14,
+    "plank_gap": 0.006,
+    "joist_count": 5
+  },
+  "materials": {
+    "wood": { "base_color": [0.38, 0.22, 0.10, 1.0], "roughness": 0.78, "metallic": 0.0 },
+    "accent": { "base_color": [0.16, 0.09, 0.04, 1.0], "roughness": 0.86, "metallic": 0.0 },
+    "cloth": { "base_color": [0.55, 0.42, 0.28, 1.0], "roughness": 0.90, "metallic": 0.0 },
+    "stone": { "base_color": [0.28, 0.26, 0.24, 1.0], "roughness": 0.92, "metallic": 0.0 }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 4.2
+  }
+}

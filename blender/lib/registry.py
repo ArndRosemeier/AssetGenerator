@@ -11,6 +11,7 @@ from typing import Final
 GENERATORS: Final[dict[str, str]] = {
     "hard_surface.crate": "blender.generators.hard_surface_crate",
     "hard_surface.door": "blender.generators.hard_surface_door",
+    "hard_surface.furniture": "blender.generators.hard_surface_furniture",
     "hard_surface.bridge_span": "blender.generators.hard_surface_bridge_span",
     "hard_surface.bridge_abutment": "blender.generators.hard_surface_bridge_abutment",
     "hard_surface.cabin": "blender.generators.hard_surface_cabin",

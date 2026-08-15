@@ -1,0 +1,31 @@
+{
+  "spec_version": 1,
+  "id": "furn_cupboard",
+  "generator": "hard_surface.furniture",
+  "params": {
+    "kind": "cupboard",
+    "width": 1.02,
+    "depth": 0.42,
+    "height": 1.82,
+    "bevel_width": 0.003,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "seed": 241,
+    "plank_count": 5,
+    "door_gap": 0.012,
+    "cornice": 0.07
+  },
+  "materials": {
+    "wood": { "base_color": [0.30, 0.17, 0.08, 1.0], "roughness": 0.76, "metallic": 0.0 },
+    "accent": { "base_color": [0.16, 0.09, 0.04, 1.0], "roughness": 0.70, "metallic": 0.05 },
+    "cloth": { "base_color": [0.55, 0.42, 0.28, 1.0], "roughness": 0.90, "metallic": 0.0 },
+    "stone": { "base_color": [0.28, 0.26, 0.24, 1.0], "roughness": 0.92, "metallic": 0.0 }
+  },
+  "qa": {
+    "max_triangles": 5000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.1
+  }
+}

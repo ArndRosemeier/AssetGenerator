@@ -1,0 +1,32 @@
+{
+  "spec_version": 1,
+  "id": "furn_bed",
+  "generator": "hard_surface.furniture",
+  "params": {
+    "kind": "bed",
+    "width": 2.05,
+    "depth": 1.18,
+    "height": 0.92,
+    "bevel_width": 0.004,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "seed": 227,
+    "post_size": 0.08,
+    "rail_height": 0.38,
+    "mattress_inset": 0.07,
+    "plank_count": 8
+  },
+  "materials": {
+    "wood": { "base_color": [0.32, 0.18, 0.09, 1.0], "roughness": 0.76, "metallic": 0.0 },
+    "accent": { "base_color": [0.14, 0.08, 0.04, 1.0], "roughness": 0.82, "metallic": 0.0 },
+    "cloth": { "base_color": [0.62, 0.52, 0.38, 1.0], "roughness": 0.88, "metallic": 0.0 },
+    "stone": { "base_color": [0.28, 0.26, 0.24, 1.0], "roughness": 0.92, "metallic": 0.0 }
+  },
+  "qa": {
+    "max_triangles": 5000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.3
+  }
+}
