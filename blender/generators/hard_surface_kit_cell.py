@@ -80,6 +80,9 @@ _KINDS = (
     "window",
     "window_b",
     "window_c",
+    "stair",
+    "ladder",
+    "hatch",
     "floor",
     "roof",
     "chimney",
@@ -109,6 +112,9 @@ _STOREY_KINDS = (
     "window",
     "window_b",
     "window_c",
+    "stair",
+    "ladder",
+    "hatch",
     "floor",
     "turret",
     "dungeon_open",
@@ -135,6 +141,19 @@ _DUNGEON_CAP = ("dungeon_cap", "dungeon_mouth")
 # Jambs beside an opening. Thick curtains use this instead of full wall thickness
 # so a gate can be 2–3 m wide.
 _MIN_JAMB = 0.4
+
+# The stairwell, in the authored frame that a riser and the piece above it share.
+#
+# One rectangle, used by `stair`, `ladder` and the `hatch` that roofs them, so a
+# flight cannot land under a slab. It runs from the inner face of the outward
+# wall back past `_HATCH_Y0`: a flight climbing a full storey is already at head
+# height well before the top, so a hole sized to the landing alone would have
+# the climber walk into the floor above.
+_HATCH_HALF_X = 0.6
+_HATCH_Y0 = -0.9
+# Thirteen treads and the floor above makes fourteen risers over one storey:
+# 193 mm up, 286 mm going. Steep for a modern code, ordinary for a townhouse.
+_STAIR_TREADS = 13
 
 _PARAM_KEYS = (
     "kind",
@@ -557,18 +576,26 @@ def _layout(builder: KitBoxes | BoundsSink, params: KitParams) -> None:
         "window_b",
         "window_c",
         "corner",
+        "stair",
+        "ladder",
+        "hatch",
     ):
         _floor_slab(
             builder,
             params,
             west_wall=west,
             door=params.kind in ("door", "door_b", "gate"),
+            hatch=params.kind == "hatch",
         )
         _south_wall(builder, params, shiplap_neg=not west, shiplap_pos=True)
         if west:
             _west_wall(builder, params)
         if params.kind == "gate":
             _portcullis(builder, params)
+        elif params.kind == "stair":
+            _stair_flight(builder, params)
+        elif params.kind == "ladder":
+            _loft_ladder(builder, params)
     else:
         raise SpecError(f"params.kind: unhandled {params.kind!r}")
 
@@ -740,12 +767,18 @@ def _room_floor(builder: BoxBuilder, params: KitParams) -> None:
     builder.add_box_bounds((-h, -h, z0), (h, h, z0 + thickness), "structure")
 
 
+def _hatch_rect(params: KitParams) -> tuple[float, float, float, float]:
+    """Stairwell footprint: `(x0, x1, y0, y1)` in the authored frame."""
+    return (-_HATCH_HALF_X, _HATCH_HALF_X, _HATCH_Y0, params.half - params.wall_thickness)
+
+
 def _floor_slab(
     builder: BoxBuilder,
     params: KitParams,
     *,
     west_wall: bool,
     door: bool,
+    hatch: bool = False,
 ) -> None:
     """Interior slab. Stops inside the walls so it does not share an exterior face."""
     h = params.half
@@ -757,7 +790,16 @@ def _floor_slab(
     x1 = h
     y0 = -h
     y1 = h - t + sink
-    builder.add_box_bounds((x0, y0, z0), (x1, y1, z0 + thickness), "structure")
+    if hatch:
+        # Three boards around the well rather than one slab with a hole. The
+        # pieces are disjoint in plan, so sharing the deck planes is not a
+        # coplanar miss, and the stair below now has somewhere to arrive.
+        hx0, hx1, _hy0, _hy1 = _hatch_rect(params)
+        builder.add_box_bounds((x0, y0, z0), (x1, _HATCH_Y0, z0 + thickness), "structure")
+        builder.add_box_bounds((x0, _HATCH_Y0, z0), (hx0, y1, z0 + thickness), "structure")
+        builder.add_box_bounds((hx1, _HATCH_Y0, z0), (x1, y1, z0 + thickness), "structure")
+    else:
+        builder.add_box_bounds((x0, y0, z0), (x1, y1, z0 + thickness), "structure")
     if door:
         door_half = params.door_width * 0.5
         builder.add_box_bounds(
@@ -779,6 +821,58 @@ def _floor_slab(
                 (-h + t - 0.01, y1, west_soffit + thickness),
                 "structure",
             )
+
+
+def _deck_z(params: KitParams) -> float:
+    """Top of a storey's own floor slab: what a boot stands on."""
+    return _storey_floor_z(params) + 0.08
+
+
+def _stair_flight(builder: BoxBuilder, params: KitParams) -> None:
+    """Straight flight climbing the full storey, from the room to the outward wall.
+
+    Solid blocks, not open risers: this is boxed-in joinery, and a solid mass
+    keeps the space under the stair out of the enclosure flood entirely. Oak,
+    not plaster — a stair the colour of the wall behind it is unreadable in a
+    room this evenly lit.
+    """
+    h = params.half
+    t = params.wall_thickness
+    hx0, hx1, _hy0, _hy1 = _hatch_rect(params)
+    x0 = hx0 + 0.06
+    x1 = hx1 - 0.06
+    y0 = -h
+    # Bite into the wall so the top tread does not butt its inner face.
+    y1 = h - t + 0.04
+    run = (y1 - y0) / _STAIR_TREADS
+    deck = _deck_z(params)
+    # The last riser is the floor above, so divide the storey by treads + 1.
+    rise = params.cell_y / (_STAIR_TREADS + 1)
+    # Under the slab top and over its underside: the flight interpenetrates the
+    # deck instead of sharing a plane with it.
+    base = _storey_floor_z(params) + 0.044
+    for index in range(_STAIR_TREADS):
+        ys = y0 + index * run
+        builder.add_box_bounds((x0, ys, base), (x1, ys + run, deck + (index + 1) * rise), "trim")
+
+
+def _loft_ladder(builder: BoxBuilder, params: KitParams) -> None:
+    """Two stiles and rungs, stood against the outward wall under the same well."""
+    h = params.half
+    t = params.wall_thickness
+    stile = 0.07
+    half_w = 0.28
+    y0 = h - t - 0.17
+    y1 = y0 + 0.11
+    deck = _deck_z(params)
+    top = params.cell_y - 0.02
+    builder.add_box_bounds((-half_w, y0, _storey_floor_z(params) + 0.03), (-half_w + stile, y1, top), "trim")
+    builder.add_box_bounds((half_w - stile, y0, _storey_floor_z(params) + 0.03), (half_w, y1, top), "trim")
+    rungs = 12
+    pitch = params.cell_y / (rungs + 1)
+    for index in range(rungs):
+        z0 = deck + (index + 1) * pitch
+        builder.add_box_bounds((-half_w + 0.01, y0 + 0.02, z0), (half_w - 0.01, y1 - 0.02, z0 + 0.045), "trim")
 
 
 def _west_join_y(params: KitParams) -> float:
@@ -1171,7 +1265,7 @@ def _timber_south(
         )
         _bay_x_braces(builder, inner_l, mid - post * 0.5, y0, y1, z_lo, mid_z0, mid_z1, z_hi)
         _bay_x_braces(builder, mid + post * 0.5, inner_r, y0, y1, z_lo, mid_z0, mid_z1, z_hi)
-    elif params.kind == "wall_b":
+    elif params.kind in ("wall_b", "stair", "ladder", "hatch"):
         _close_studs(builder, inner_l, inner_r, y0, y1, post_z0, post_z1, timber_gaps)
     elif timber_gaps:
         cursor = inner_l
