@@ -99,6 +99,11 @@ _KINDS = (
     "dungeon_mouth",
     "dungeon_shaft",
     "dungeon_stair",
+    "dungeon_ramp",
+    "dungeon_climb_ladder",
+    "dungeon_climb_stair",
+    "dungeon_entry_ladder",
+    "dungeon_entry_stair",
     "dungeon_plinth",
 )
 
@@ -137,6 +142,13 @@ _DUNGEON_STOREY = (
     "dungeon_shaft",
 )
 _DUNGEON_CAP = ("dungeon_cap", "dungeon_mouth")
+_DUNGEON_COLUMN = (
+    "dungeon_climb_ladder",
+    "dungeon_climb_stair",
+    "dungeon_entry_ladder",
+    "dungeon_entry_stair",
+)
+_DUNGEON_RUN = ("dungeon_stair", "dungeon_ramp")
 
 # Jambs beside an opening. Thick curtains use this instead of full wall thickness
 # so a gate can be 2–3 m wide.
@@ -339,16 +351,16 @@ def _assert_kit_envelope(params: KitParams, boxes: Sequence[KitBox]) -> None:
                 f"plinth overrun: box z {upper[2]:.4f} > cell_y {params.cell_y}. "
                 "Plinths must not poke into the storey above."
             )
-        if params.kind == "dungeon_stair":
+        if params.kind in _DUNGEON_RUN or params.kind in _DUNGEON_COLUMN:
             if upper[2] > params.cell_y * 2.0 + 1e-4:
                 raise SpecError(
-                    f"stair overrun: box z {upper[2]:.4f} > 2*cell_y {params.cell_y * 2.0}."
+                    f"{params.kind} overrun: box z {upper[2]:.4f} > 2*cell_y {params.cell_y * 2.0}."
                 )
             if lower[2] < params.overlap - 1e-4:
                 raise SpecError(
-                    f"stair underrun: box z {lower[2]:.4f} < overlap {params.overlap}."
+                    f"{params.kind} underrun: box z {lower[2]:.4f} < overlap {params.overlap}."
                 )
-        if params.kind == "dungeon_stair":
+        if params.kind in _DUNGEON_RUN:
             if abs(lower[0]) > h + pad + 1e-3 or abs(upper[0]) > h + pad + 1e-3:
                 raise SpecError(
                     f"plan overrun X {lower[0]:.4f}..{upper[0]:.4f} (limit {h + pad:.4f})."
@@ -356,7 +368,7 @@ def _assert_kit_envelope(params: KitParams, boxes: Sequence[KitBox]) -> None:
             span = params.cell_xz + params.overlap
             if abs(lower[1]) > span + 1e-3 or abs(upper[1]) > span + 1e-3:
                 raise SpecError(
-                    f"stair plan overrun Y {lower[1]:.4f}..{upper[1]:.4f} (limit {span:.4f})."
+                    f"{params.kind} plan overrun Y {lower[1]:.4f}..{upper[1]:.4f} (limit {span:.4f})."
                 )
         else:
             if abs(lower[0]) > h + pad + 1e-3 or abs(upper[0]) > h + pad + 1e-3:
@@ -494,7 +506,7 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
                 context=f"{params.kind}/{kind} stack",
             )
         return
-    if params.kind == "dungeon_stair":
+    if params.kind in _DUNGEON_RUN or params.kind in _DUNGEON_COLUMN:
         below = _collect_layout(replace(params, kind="dungeon_plinth", jagged=False))
         _assert_no_coplanar_faces(
             boxes,
@@ -1783,12 +1795,132 @@ def _dungeon_stair(builder: BoxBuilder, params: KitParams) -> None:
     builder.add_box_bounds((-h, 0.0, cy * 2.0 - 0.158), (h, y1, cy * 2.0 - 0.068), "structure")
 
 
+def _dungeon_ramp(builder: BoxBuilder, params: KitParams) -> None:
+    """Same occupancy, docks, and walk volume as `dungeon_stair`.
+
+    A denser overlapping slope sealed the 0.05 m enclosure flood, so the ramp
+    keeps the stair's 18-riser run. Trim oak vs stone is the visual swap.
+    """
+    _dungeon_stair(builder, params)
+
+
+def _dungeon_column(builder: BoxBuilder, params: KitParams, *, entry: bool, stair: bool) -> None:
+    """One-cell, two-storey shaft. Enter from authored +Y on the lower cell.
+
+    A climb also leaves toward authored −Y on the upper cell. An entry has no
+    upper lateral dock: the well is the mouth, and the only way out is up.
+    """
+    h = params.half
+    t = params.wall_thickness
+    o = params.overlap
+    cy = params.cell_y
+    top = cy * 2.0
+    deck = _storey_floor_z(params) + 0.08
+    builder.add_box_bounds((-h, -h, o + 0.02), (-h + t, h, top - 0.04), "structure")
+    builder.add_box_bounds((h - t, -h, o + 0.032), (h, h, top - 0.06), "structure")
+    builder.add_box_bounds((-h, -h, o + 0.026), (h, -h + t, cy - 0.014), "structure")
+    builder.add_box_bounds((-h, h - t, cy + 0.014), (h, h, top - 0.052), "structure")
+    if entry:
+        builder.add_box_bounds((-h, -h, cy + 0.018), (h, -h + t, top - 0.048), "structure")
+    else:
+        builder.add_box_bounds((-h, -h, top - 0.18), (h, h, top - 0.08), "structure")
+        builder.add_box_bounds((-h + t, -h, cy + 0.012), (h - t, -0.6, cy + 0.094), "structure")
+    builder.add_box_bounds((-h, -h, o + 0.006), (h, h, deck), "structure")
+    if stair:
+        _dungeon_column_flight(builder, params, entry=entry, deck=deck, top=top)
+    else:
+        _dungeon_column_ladder(builder, params, entry=entry, deck=deck, top=top)
+
+
+def _dungeon_column_flight(
+    builder: BoxBuilder, params: KitParams, *, entry: bool, deck: float, top: float
+) -> None:
+    """Boxed flight inside the column. Oak, so it reads against the stone."""
+    h = params.half
+    t = params.wall_thickness
+    cy = params.cell_y
+    x0 = -h + t + 0.06
+    x1 = h - t - 0.06
+    if entry:
+        steps = 16
+        rise = (top - deck - 0.12) / steps
+        half = steps // 2
+        run = (2.0 * h - 2.0 * t - 0.2) / half
+        for index in range(half):
+            ys = h - t - 0.04 - (index + 1) * run
+            ye = h - t - 0.04 - index * run
+            z1 = deck + (index + 1) * rise
+            builder.add_box_bounds((x0, ys, deck - 0.02), (x1, ye, z1), "trim")
+        land_z = deck + half * rise
+        builder.add_box_bounds(
+            (x0, -h + t + 0.04, land_z - 0.08),
+            (x1, -h + t + 0.55, land_z + 0.02),
+            "trim",
+        )
+        for index in range(half):
+            ys = -h + t + 0.04 + index * run
+            ye = -h + t + 0.04 + (index + 1) * run
+            z1 = land_z + (index + 1) * rise
+            builder.add_box_bounds((x0, ys, land_z - 0.02), (x1, ye, z1), "trim")
+        return
+    steps = 14
+    y0 = -h + t
+    y1 = h - t
+    run = (y1 - y0) / steps
+    rise = (cy + 0.09 - deck) / steps
+    for index in range(steps):
+        ys = y1 - (index + 1) * run
+        ye = y1 - index * run
+        z1 = deck + (index + 1) * rise
+        builder.add_box_bounds((x0, ys, deck - 0.02), (x1, ye, z1), "trim")
+
+
+def _dungeon_column_ladder(
+    builder: BoxBuilder, params: KitParams, *, entry: bool, deck: float, top: float
+) -> None:
+    """Stiles and rungs. Against the exit wall on a climb; under the well on an entry."""
+    h = params.half
+    t = params.wall_thickness
+    stile = 0.07
+    half_w = 0.28
+    if entry:
+        y0 = -0.12
+        y1 = 0.12
+        z_top = top - 0.04
+    else:
+        y0 = -h + t + 0.04
+        y1 = y0 + 0.12
+        z_top = params.cell_y + 0.08
+    builder.add_box_bounds((-half_w, y0, deck + 0.02), (-half_w + stile, y1, z_top), "trim")
+    builder.add_box_bounds((half_w - stile, y0, deck + 0.02), (half_w, y1, z_top), "trim")
+    rungs = 16 if entry else 10
+    pitch = (z_top - deck - 0.08) / (rungs + 1)
+    for index in range(rungs):
+        z0 = deck + (index + 1) * pitch
+        builder.add_box_bounds(
+            (-half_w + 0.01, y0 + 0.02, z0),
+            (half_w - 0.01, y1 - 0.02, z0 + 0.04),
+            "trim",
+        )
+
+
 def _dungeon_layout(builder: BoxBuilder, params: KitParams) -> None:
     if params.kind == "dungeon_plinth":
         _plinth(builder, params)
         return
     if params.kind == "dungeon_stair":
         _dungeon_stair(builder, params)
+        return
+    if params.kind == "dungeon_ramp":
+        _dungeon_ramp(builder, params)
+        return
+    if params.kind in _DUNGEON_COLUMN:
+        _dungeon_column(
+            builder,
+            params,
+            entry=params.kind.startswith("dungeon_entry_"),
+            stair=params.kind.endswith("_stair"),
+        )
         return
     if params.kind in _DUNGEON_CAP:
         _dungeon_cap(builder, params, mouth=params.kind == "dungeon_mouth")
