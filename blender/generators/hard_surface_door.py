@@ -24,14 +24,17 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 import bpy
 
+from blender.lib.bake import apply_baked_principled, bake_maps
 from blender.lib.scene import BoxBuilder, apply_bevel, shade_flat, unwrap
 from blender.lib.spec import (
     AssetSpec,
     SpecError,
     as_bool,
+    as_int,
     as_str,
     positive_float,
     positive_int,
@@ -39,6 +42,7 @@ from blender.lib.spec import (
     require_key,
     require_materials,
 )
+from blender.generators.hard_surface_kit_cell import build_look_material
 
 MATERIAL_SLOTS: tuple[str, ...] = ("planks", "trim", "hardware")
 
@@ -55,6 +59,9 @@ _SHARED_KEYS = (
     "hinge_length",
     "handle",
     "bevel_width",
+    "texture_resolution",
+    "bake_samples",
+    "seed",
 )
 
 _PLANK_KEYS = (
@@ -95,6 +102,9 @@ class DoorParams:
     hinge_length: float
     handle: bool
     bevel_width: float
+    texture_resolution: int
+    bake_samples: int
+    seed: int
     plank_count: int
     plank_gap: float
     ledge_count: int
@@ -146,6 +156,13 @@ def parse_params(raw: Mapping[str, object]) -> DoorParams:
         bevel_width=positive_float(
             require_key(raw, "bevel_width", path), f"{path}.bevel_width"
         ),
+        texture_resolution=positive_int(
+            require_key(raw, "texture_resolution", path), f"{path}.texture_resolution"
+        ),
+        bake_samples=positive_int(
+            require_key(raw, "bake_samples", path), f"{path}.bake_samples"
+        ),
+        seed=as_int(require_key(raw, "seed", path), f"{path}.seed"),
     )
     if style == "plank":
         params = DoorParams(
@@ -242,6 +259,13 @@ def _validate(params: DoorParams) -> None:
             f"params.bevel_width ({params.bevel_width}) must stay below half the "
             f"smallest feature ({smallest * 0.5:.4f} m)."
         )
+    if params.texture_resolution not in {256, 512, 1024, 2048}:
+        raise SpecError(
+            f"params.texture_resolution ({params.texture_resolution}) "
+            "must be 256, 512, 1024 or 2048"
+        )
+    if params.bake_samples > 128:
+        raise SpecError(f"params.bake_samples ({params.bake_samples}) must be <= 128")
 
 
 def _validate_plank(params: DoorParams) -> None:
@@ -406,6 +430,23 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     apply_bevel(obj, width=params.bevel_width, segments=1, angle_deg=30.0)
     shade_flat(obj)
     unwrap(obj)
+    for index, slot in enumerate(MATERIAL_SLOTS):
+        look = "iron" if slot == "hardware" else "timber"
+        obj.data.materials[index] = build_look_material(
+            f"{spec.asset_id}_{slot}_{look}",
+            spec.materials[slot],
+            look,
+            params.seed + index * 101,
+        )
+    texture_dump = Path(__file__).resolve().parents[2] / "assets" / "out" / "textures"
+    maps = bake_maps(
+        obj,
+        asset_id=spec.asset_id,
+        resolution=params.texture_resolution,
+        samples=params.bake_samples,
+        dump_dir=texture_dump,
+    )
+    apply_baked_principled(obj, maps, metallic=0.0)
     return [obj]
 
 
