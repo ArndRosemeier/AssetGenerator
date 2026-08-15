@@ -123,6 +123,8 @@ pins and prefers the managed 4.5.12 LTS under `tools/blender-bin/` for reproduci
 | `python tools/ag.py validate <id>` | Re-check the shipped `.glb` against its spec |
 | `python tools/ag.py specs` / `generators` | Discover what exists |
 | `... --json` | Machine-readable report |
+| `python tools/cave_profile.py <id>` | Read floor/ceiling heights out of a shipped cave `.glb`: flat rows mean flat rock |
+| `python tools/texel_detail.py <id>` | Check a baked albedo really carries grain, not just large blotches |
 
 Exit codes:
 
@@ -158,6 +160,11 @@ the feedback loop.
 
 Do not declare success from a green report alone.
 
+Interior pieces (cave tiles, rooms) are the exception to step 4: the fixed preview
+cameras only see them from outside, where they are a box by design. Measure the
+inside instead (`cave_profile.py`, `texel_detail.py`) and take an engine
+screenshot from a first-person position before believing a shape or a texture.
+
 ---
 
 ## Writing specs
@@ -178,6 +185,7 @@ Conventions:
 
 - Units are **meters**.
 - Authoring is **Z-up**; glTF export converts to Y-up.
+- Dungeon `storey_role` (`cell` / `floor` / `rise` / `vault`) only changes the mesh. Vertical openness is a catalog profile (`storey_void`), not this flag.
 - Origin is footprint centre, base on Z=0.
 - Materials are Principled BSDF values (`base_color` RGBA 0–1, `roughness`, `metallic`).
   Procedural detail that must survive glTF is baked to albedo / roughness / normal

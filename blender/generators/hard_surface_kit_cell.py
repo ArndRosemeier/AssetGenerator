@@ -1,5 +1,5 @@
 """One-cell kit pieces: wall, corner, door, gate, window, roof, chimney, plinth,
-floor, battlement, turret.
+floor, battlement, turret, plus dungeon tiles (open/wall/passage/end/cap/mouth/shaft/stair).
 
 Authored Z-up, footprint centre at the origin. The exterior wall sits on +Y so
 glTF Y-up export maps it to engine -Z, matching Modular's local wall-on-minus-Z
@@ -27,14 +27,27 @@ hollow of a ring (a 3×4 hall). No walls; storey seams only.
 `battlement` is a cap (down seam only in the catalog): merlons on +Y, walk slab
 starting at `overlap`. `gate` is a door through a thick curtain. `turret` is a
 four-sided extra storey with no horizontal seams (tower tops).
+
+`jagged` switches the dungeon kinds from dressed stone to a cave shell: two
+displaced rock masses (floor sweeping up into the walls, vault doming over the
+middle) plus dripstone spindles, instead of axis-aligned boxes. See the
+`_CAVE_*` constants for the walk corridor those masses must leave clear.
+
+`storey_role` splits a dungeon storey into slices so a chamber can be many
+cells high: `cell` is the single-storey default, `floor` omits the vault,
+`rise` is banks only, `vault` omits the floor. Vertical seams use a different
+catalog profile (`storey_void`); this param only changes the mesh.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+import math
+import random
 
 import bpy
+from mathutils import Euler, Vector
 
 from pathlib import Path
 
@@ -73,6 +86,17 @@ _KINDS = (
     "plinth",
     "battlement",
     "turret",
+    "dungeon_open",
+    "dungeon_wall",
+    "dungeon_arch",
+    "dungeon_corner",
+    "dungeon_passage",
+    "dungeon_end",
+    "dungeon_cap",
+    "dungeon_mouth",
+    "dungeon_shaft",
+    "dungeon_stair",
+    "dungeon_plinth",
 )
 
 _STOREY_KINDS = (
@@ -87,9 +111,26 @@ _STOREY_KINDS = (
     "window_c",
     "floor",
     "turret",
+    "dungeon_open",
+    "dungeon_wall",
+    "dungeon_arch",
+    "dungeon_corner",
+    "dungeon_passage",
+    "dungeon_end",
+    "dungeon_shaft",
 )
 
-_CAP_KINDS = ("roof", "chimney", "battlement")
+_CAP_KINDS = ("roof", "chimney", "battlement", "dungeon_cap", "dungeon_mouth")
+_DUNGEON_STOREY = (
+    "dungeon_open",
+    "dungeon_wall",
+    "dungeon_arch",
+    "dungeon_corner",
+    "dungeon_passage",
+    "dungeon_end",
+    "dungeon_shaft",
+)
+_DUNGEON_CAP = ("dungeon_cap", "dungeon_mouth")
 
 # Jambs beside an opening. Thick curtains use this instead of full wall thickness
 # so a gate can be 2–3 m wide.
@@ -111,6 +152,8 @@ _PARAM_KEYS = (
     "jetty",
     "timber",
     "bevel_width",
+    "jagged",
+    "storey_role",
     "texture_resolution",
     "bake_samples",
     "seed",
@@ -146,6 +189,33 @@ def _sorted_bounds(lower: Vec3, upper: Vec3) -> tuple[Vec3, Vec3]:
     return lo, hi
 
 
+def _rotated_aabb(
+    center: Vec3, size: Vec3, rotation: tuple[float, float, float]
+) -> tuple[Vec3, Vec3]:
+    hx, hy, hz = size[0] * 0.5, size[1] * 0.5, size[2] * 0.5
+    matrix = Euler(rotation).to_matrix()
+    xs: list[float] = []
+    ys: list[float] = []
+    zs: list[float] = []
+    for sx in (-hx, hx):
+        for sy in (-hy, hy):
+            for sz in (-hz, hz):
+                corner = matrix @ Vector((sx, sy, sz))
+                xs.append(center[0] + corner.x)
+                ys.append(center[1] + corner.y)
+                zs.append(center[2] + corner.z)
+    return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))
+
+
+def _mesh_aabb(vertices: Sequence[Vec3]) -> tuple[Vec3, Vec3]:
+    if not vertices:
+        raise SpecError("mesh shell has no vertices")
+    xs = [vertex[0] for vertex in vertices]
+    ys = [vertex[1] for vertex in vertices]
+    zs = [vertex[2] for vertex in vertices]
+    return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs))
+
+
 class BoundsSink:
     """Records boxes without building a mesh. Used for neighbor z-fight checks."""
 
@@ -155,6 +225,25 @@ class BoundsSink:
     def add_box_bounds(self, lower: Vec3, upper: Vec3, slot: str) -> None:
         lo, hi = _sorted_bounds(lower, upper)
         self.boxes.append(KitBox(lo, hi, slot))
+
+    def add_rotated_box(
+        self,
+        center: Vec3,
+        size: Vec3,
+        slot: str,
+        rotation: tuple[float, float, float],
+    ) -> None:
+        lo, hi = _rotated_aabb(center, size, rotation)
+        self.add_box_bounds(lo, hi, slot)
+
+    def add_mesh(
+        self,
+        vertices: Sequence[Vec3],
+        faces: Sequence[Sequence[int]],
+        slot: str,
+    ) -> None:
+        lo, hi = _mesh_aabb(vertices)
+        self.add_box_bounds(lo, hi, slot)
 
 
 class KitBoxes:
@@ -168,6 +257,34 @@ class KitBoxes:
         lo, hi = _sorted_bounds(lower, upper)
         self.boxes.append(KitBox(lo, hi, slot))
         self._builder.add_box_bounds(lo, hi, slot)
+
+    def add_rotated_box(
+        self,
+        center: Vec3,
+        size: Vec3,
+        slot: str,
+        rotation: tuple[float, float, float],
+    ) -> None:
+        lo, hi = _rotated_aabb(center, size, rotation)
+        lo, hi = _sorted_bounds(lo, hi)
+        self.boxes.append(KitBox(lo, hi, slot))
+        self._builder.add_box(center, size, slot, rotation=rotation)
+
+    def add_mesh(
+        self,
+        vertices: Sequence[Vec3],
+        faces: Sequence[Sequence[int]],
+        slot: str,
+    ) -> None:
+        """Displaced shell. The envelope and coplanar gates see its bounding box.
+
+        A displaced surface has no coplanar outer face except its flat cap, so
+        reporting the AABB is conservative: the gate can only over-report, never
+        miss a real shared plane.
+        """
+        lo, hi = _sorted_bounds(*_mesh_aabb(vertices))
+        self.boxes.append(KitBox(lo, hi, slot))
+        self._builder.add_mesh(vertices, faces, slot)
 
     def to_object(self, name: str, materials: Mapping[str, MaterialSpec]) -> bpy.types.Object:
         return self._builder.to_object(name, materials)
@@ -198,19 +315,39 @@ def _assert_kit_envelope(params: KitParams, boxes: Sequence[KitBox]) -> None:
                     "Walls start at overlap so they do not share the storey plane "
                     "with the plinth or floor below."
                 )
-        if params.kind == "plinth" and upper[2] > params.cell_y + 1e-4:
+        if params.kind in ("plinth", "dungeon_plinth") and upper[2] > params.cell_y + 1e-4:
             raise SpecError(
                 f"plinth overrun: box z {upper[2]:.4f} > cell_y {params.cell_y}. "
                 "Plinths must not poke into the storey above."
             )
-        if abs(lower[0]) > h + pad + 1e-3 or abs(upper[0]) > h + pad + 1e-3:
-            raise SpecError(
-                f"plan overrun X {lower[0]:.4f}..{upper[0]:.4f} (limit {h + pad:.4f})."
-            )
-        if abs(lower[1]) > h + pad + 1e-3 or abs(upper[1]) > h + pad + 1e-3:
-            raise SpecError(
-                f"plan overrun Y {lower[1]:.4f}..{upper[1]:.4f} (limit {h + pad:.4f})."
-            )
+        if params.kind == "dungeon_stair":
+            if upper[2] > params.cell_y * 2.0 + 1e-4:
+                raise SpecError(
+                    f"stair overrun: box z {upper[2]:.4f} > 2*cell_y {params.cell_y * 2.0}."
+                )
+            if lower[2] < params.overlap - 1e-4:
+                raise SpecError(
+                    f"stair underrun: box z {lower[2]:.4f} < overlap {params.overlap}."
+                )
+        if params.kind == "dungeon_stair":
+            if abs(lower[0]) > h + pad + 1e-3 or abs(upper[0]) > h + pad + 1e-3:
+                raise SpecError(
+                    f"plan overrun X {lower[0]:.4f}..{upper[0]:.4f} (limit {h + pad:.4f})."
+                )
+            span = params.cell_xz + params.overlap
+            if abs(lower[1]) > span + 1e-3 or abs(upper[1]) > span + 1e-3:
+                raise SpecError(
+                    f"stair plan overrun Y {lower[1]:.4f}..{upper[1]:.4f} (limit {span:.4f})."
+                )
+        else:
+            if abs(lower[0]) > h + pad + 1e-3 or abs(upper[0]) > h + pad + 1e-3:
+                raise SpecError(
+                    f"plan overrun X {lower[0]:.4f}..{upper[0]:.4f} (limit {h + pad:.4f})."
+                )
+            if abs(lower[1]) > h + pad + 1e-3 or abs(upper[1]) > h + pad + 1e-3:
+                raise SpecError(
+                    f"plan overrun Y {lower[1]:.4f}..{upper[1]:.4f} (limit {h + pad:.4f})."
+                )
 
 
 def _overhang_only(
@@ -320,6 +457,34 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
     detector only watches Z. Do not drop these stack phantoms to silence a fail.
     """
     _assert_no_coplanar_faces(boxes, context=params.kind)
+    if params.kind in _DUNGEON_STOREY:
+        for kind in ("plinth", "dungeon_plinth"):
+            below = _collect_layout(replace(params, kind=kind, jagged=False))
+            _assert_no_coplanar_faces(
+                boxes,
+                other=_shift_axis(below, 2, -params.cell_y),
+                context=f"{params.kind}/{kind} stack",
+            )
+        return
+    if params.kind in _DUNGEON_CAP:
+        for kind in _DUNGEON_STOREY:
+            support = _collect_layout(replace(params, kind=kind))
+            _assert_no_coplanar_faces(
+                boxes,
+                other=_shift_axis(support, 2, -params.cell_y),
+                context=f"{params.kind}/{kind} stack",
+            )
+        return
+    if params.kind == "dungeon_stair":
+        below = _collect_layout(replace(params, kind="dungeon_plinth", jagged=False))
+        _assert_no_coplanar_faces(
+            boxes,
+            other=_shift_axis(below, 2, -params.cell_y),
+            context=f"{params.kind}/dungeon_plinth stack",
+        )
+        return
+    if params.kind == "dungeon_plinth":
+        return
     storey = params.kind in _STOREY_KINDS
     if storey:
         below = _collect_layout(replace(params, kind="plinth"))
@@ -380,6 +545,8 @@ def _layout(builder: KitBoxes | BoundsSink, params: KitParams) -> None:
         _turret(builder, params)
     elif params.kind == "floor":
         _room_floor(builder, params)
+    elif params.kind.startswith("dungeon_"):
+        _dungeon_layout(builder, params)
     elif params.kind in (
         "wall",
         "wall_b",
@@ -423,6 +590,8 @@ class KitParams:
     jetty: float
     timber: bool
     bevel_width: float
+    jagged: bool
+    storey_role: str
     texture_resolution: int | None
     bake_samples: int
     seed: int
@@ -484,6 +653,10 @@ def parse_params(raw: Mapping[str, object]) -> KitParams:
         jetty=as_float(require_key(raw, "jetty", path), f"{path}.jetty"),
         timber=as_bool(require_key(raw, "timber", path), f"{path}.timber"),
         bevel_width=as_float(require_key(raw, "bevel_width", path), f"{path}.bevel_width"),
+        jagged=as_bool(raw["jagged"], f"{path}.jagged") if "jagged" in raw else False,
+        storey_role=(
+            as_str(raw["storey_role"], f"{path}.storey_role") if "storey_role" in raw else "cell"
+        ),
         texture_resolution=texture_resolution,
         bake_samples=bake_samples,
         seed=seed,
@@ -535,9 +708,22 @@ def _validate(params: KitParams) -> None:
             raise SpecError(f"params.bake_samples ({params.bake_samples}) must be <= 128")
         if params.seed < 0:
             raise SpecError(f"params.seed ({params.seed}) must be >= 0")
+    if params.storey_role not in ("cell", "floor", "rise", "vault"):
+        raise SpecError(
+            f"params.storey_role: expected cell, floor, rise or vault, got {params.storey_role!r}"
+        )
+    if params.storey_role != "cell" and params.kind not in _DUNGEON_STOREY:
+        raise SpecError(
+            f"params.storey_role {params.storey_role!r} is only for dungeon storey kinds."
+        )
 
 
 def _storey_floor_z(params: KitParams) -> float:
+    if params.jagged and params.storey_role in ("rise", "vault"):
+        # A tall slice has rock below it, not a walk floor or plinth. Keep a
+        # deliberate non-coplanar clearance, but do not turn that clearance into
+        # a visible horizontal slot between two parts of the same cave wall.
+        return params.overlap + 0.002
     return params.overlap + 0.012
 
 
@@ -1325,6 +1511,1155 @@ def _plinth(builder: BoxBuilder, params: KitParams) -> None:
                 builder.add_box_bounds((x0, y0, z0), (x1, y1, z1), "trim")
 
 
+def _dungeon_closed(kind: str) -> set[str]:
+    return {
+        "dungeon_open": set(),
+        "dungeon_wall": {"s"},
+        "dungeon_arch": {"s"},
+        "dungeon_corner": {"s", "w"},
+        "dungeon_passage": {"s", "n"},
+        "dungeon_end": {"s", "n", "w"},
+        "dungeon_shaft": {"s", "n", "w", "e"},
+    }.get(kind, set())
+
+
+def _dungeon_floor(
+    builder: BoxBuilder, params: KitParams, closed: set[str], *, hole: bool
+) -> None:
+    h = params.half
+    t = params.wall_thickness
+    sink = 0.03
+    z0 = _storey_floor_z(params)
+    z1 = z0 + (0.11 if params.jagged else 0.08)
+    x0 = -h + (t - sink if "w" in closed else 0.0)
+    x1 = h - (t - sink if "e" in closed else 0.0)
+    y0 = -h + (t - sink if "n" in closed else 0.0)
+    y1 = h - (t - sink if "s" in closed else 0.0)
+    if hole:
+        well = 0.55
+        builder.add_box_bounds((x0, y0, z0 + 0.01), (-well, y1, z1 + 0.01), "structure")
+        builder.add_box_bounds((well, y0, z0 + 0.014), (x1, y1, z1 + 0.014), "structure")
+        builder.add_box_bounds((-well, y0, z0 + 0.018), (well, -well, z1 + 0.018), "structure")
+        builder.add_box_bounds((-well, well, z0 + 0.022), (well, y1, z1 + 0.022), "structure")
+        return
+    builder.add_box_bounds((x0, y0, z0), (x1, y1, z1), "structure")
+    if params.jagged:
+        _dungeon_lumps(builder, params, x0, x1, y0, y1, z0, z1, 5)
+
+
+def _dungeon_rise_posts(builder: BoxBuilder, params: KitParams) -> None:
+    """Corner posts so an open rise/vault slice is not an empty mesh."""
+    h = params.half
+    o = params.overlap
+    post = 0.16
+    inset = 1.05
+    for index, (sx, sy) in enumerate(((-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0))):
+        z0 = o + 0.01 + index * 0.004
+        z1 = params.cell_y - 0.02 - index * 0.004
+        cx = inset * sx
+        cy = inset * sy
+        builder.add_box_bounds(
+            (cx - post * 0.5, cy - post * 0.5, z0),
+            (cx + post * 0.5, cy + post * 0.5, z1),
+            "trim",
+        )
+
+
+def _dungeon_lumps(
+    builder: BoxBuilder,
+    params: KitParams,
+    x0: float,
+    x1: float,
+    y0: float,
+    y1: float,
+    z0: float,
+    z1: float,
+    count: int,
+) -> None:
+    rng = random.Random(params.seed + 17)
+    limit = params.half - 0.06
+    ix0, ix1 = max(x0, -limit), min(x1, limit)
+    iy0, iy1 = max(y0, -limit), min(y1, limit)
+    if ix1 - ix0 < 0.5 or iy1 - iy0 < 0.5:
+        return
+    for index in range(count):
+        span_x = min(0.45, (ix1 - ix0) * 0.2)
+        span_y = min(0.45, (iy1 - iy0) * 0.2)
+        cx = rng.uniform(ix0 + span_x * 0.5, ix1 - span_x * 0.5)
+        cy = rng.uniform(iy0 + span_y * 0.5, iy1 - span_y * 0.5)
+        z_lo = z0 + 0.008 + index * 0.011
+        z_hi = z1 + 0.018 + index * 0.009
+        builder.add_box_bounds(
+            (cx - span_x * 0.5, cy - span_y * 0.5, z_lo),
+            (cx + span_x * 0.5, cy + span_y * 0.5, z_hi),
+            "trim" if index % 2 else "structure",
+        )
+
+
+def _dungeon_north_wall(builder: BoxBuilder, params: KitParams) -> None:
+    h = params.half
+    t = params.wall_thickness
+    o = params.overlap
+    half_t = t * 0.5
+    builder.add_box_bounds((-h + o, -h, o + 0.01), (h - o, -h + half_t, params.cell_y - 0.012), "structure")
+    builder.add_box_bounds(
+        (-h - o, -h + half_t - 0.02, o + 0.028),
+        (h + o, -h + t, params.cell_y - 0.034),
+        "structure",
+    )
+
+
+def _dungeon_east_wall(builder: BoxBuilder, params: KitParams) -> None:
+    h = params.half
+    t = params.wall_thickness
+    o = params.overlap
+    half_t = t * 0.5
+    builder.add_box_bounds((h - half_t, -h + o, o + 0.016), (h, h - o, params.cell_y - 0.02), "structure")
+    builder.add_box_bounds(
+        (h - t, -h - o, o + 0.036),
+        (h - half_t + 0.02, h + o, params.cell_y - 0.044),
+        "structure",
+    )
+
+
+def _dungeon_cap(builder: BoxBuilder, params: KitParams, *, mouth: bool) -> None:
+    if params.jagged:
+        _dungeon_cave_cap(builder, params, mouth=mouth)
+        return
+    h = params.half
+    o = params.overlap
+    z0 = o
+    z1 = o + 0.16
+    if mouth:
+        well = 0.9
+        builder.add_box_bounds((-h, -h, z0), (h, -well, z1), "structure")
+        builder.add_box_bounds((-h, well, z0 + 0.012), (h, h, z1 + 0.012), "structure")
+        builder.add_box_bounds((-h, -well, z0 + 0.024), (-well, well, z1 + 0.024), "structure")
+        builder.add_box_bounds((well, -well, z0 + 0.036), (h, well, z1 + 0.036), "structure")
+        # Raised curb: four boxes, never one solid square over the opening.
+        # The old full lip hid the entrance even though the seam was a mouth.
+        lip = 0.16
+        outer = well + lip
+        curb_z0 = z1 - 0.025
+        curb_z1 = z1 + 0.38
+        builder.add_box_bounds(
+            (-outer, -outer, curb_z0),
+            (outer, -well, curb_z1),
+            "trim",
+        )
+        builder.add_box_bounds((-outer, well, curb_z0), (outer, outer, curb_z1), "trim")
+        builder.add_box_bounds((-outer, -well, curb_z0), (-well, well, curb_z1), "trim")
+        builder.add_box_bounds((well, -well, curb_z0), (outer, well, curb_z1), "trim")
+        return
+    builder.add_box_bounds((-h, -h, z0), (h, h, z1), "structure")
+
+
+def _dungeon_stair(builder: BoxBuilder, params: KitParams) -> None:
+    """Lower cell toward +Y, rise toward -Y. Two storeys, enter from authored +Y."""
+    h = params.half
+    t = params.wall_thickness
+    o = params.overlap
+    cy = params.cell_y
+    # Player step height is 0.45 m. Eighteen risers keep this two-storey
+    # connector comfortably below that while preserving the 8 m run.
+    steps = 18
+    y0 = -params.cell_xz
+    y1 = params.cell_xz
+    run = (y1 - y0) / steps
+    rise = (cy * 2.0 - o - 0.08) / steps
+    for index in range(steps):
+        ys = y1 - (index + 1) * run
+        ye = y1 - index * run
+        z0 = o + 0.012 + index * rise
+        z1 = z0 + 0.1 + (0.02 if index % 2 else 0.0)
+        builder.add_box_bounds((-h + t, ys, z0), (h - t, ye, z1), "structure")
+    # Side walls run the full length. Stopping short of a dock leaves a slit at
+    # the corner that neither this piece nor its neighbour covers.
+    builder.add_box_bounds((-h, y0, o + 0.02), (-h + t, y1, cy * 2.0 - 0.04), "structure")
+    builder.add_box_bounds((h - t, y0, o + 0.032), (h, y1, cy * 2.0 - 0.06), "structure")
+    # A diagonal run sweeps four cells, not two: the void under the top landing
+    # and the void over the bottom one. Both are occupancy this piece claims, so
+    # both need stone or the enclosure check finds daylight under the stairs.
+    # The two open ends are the docks: lower cell toward +Y, upper cell toward -Y.
+    builder.add_box_bounds((-h, y0, o + 0.026), (h, y0 + t, cy - 0.014), "structure")
+    builder.add_box_bounds((-h, y1 - t, cy + 0.014), (h, y1, cy * 2.0 - 0.052), "structure")
+    # The lower deck is a storey floor and lines up with one, minus a hair on the
+    # underside so the bottom tread does not share a plane with it.
+    builder.add_box_bounds((-h, y0, o + 0.006), (h, y1, _storey_floor_z(params) + 0.08), "structure")
+    builder.add_box_bounds((-h, 0.0, cy * 2.0 - 0.158), (h, y1, cy * 2.0 - 0.068), "structure")
+
+
+def _dungeon_layout(builder: BoxBuilder, params: KitParams) -> None:
+    if params.kind == "dungeon_plinth":
+        _plinth(builder, params)
+        return
+    if params.kind == "dungeon_stair":
+        _dungeon_stair(builder, params)
+        return
+    if params.kind in _DUNGEON_CAP:
+        _dungeon_cap(builder, params, mouth=params.kind == "dungeon_mouth")
+        return
+    closed = _dungeon_closed(params.kind)
+    hole = params.kind == "dungeon_shaft"
+    if params.jagged:
+        _dungeon_cave_cell(builder, params, closed, hole=hole)
+        return
+    if params.storey_role in ("cell", "floor"):
+        _dungeon_floor(builder, params, closed, hole=hole)
+    if params.storey_role in ("rise", "vault"):
+        _dungeon_rise_posts(builder, params)
+    if "s" in closed:
+        _south_wall(builder, params, shiplap_neg="w" not in closed, shiplap_pos="e" not in closed)
+    if "w" in closed:
+        _west_wall(builder, params)
+    if "n" in closed:
+        _dungeon_north_wall(builder, params)
+    if "e" in closed:
+        _dungeon_east_wall(builder, params)
+    if closed:
+        _dungeon_opening_frames(builder, params, closed)
+
+
+class _CaveSculpt:
+    """Many irregular boxes with unique storey-axis planes so the Z detector stays loud."""
+
+    def __init__(self, builder: BoxBuilder, params: KitParams) -> None:
+        self.builder = builder
+        self.params = params
+        self.used: set[float] = set()
+        self.n = 0
+        self.limit = params.half - 0.012
+
+    def span(self, height: float) -> tuple[float, float]:
+        o = self.params.overlap + 0.016
+        top = self.params.cell_y - 0.05
+        height = min(max(height, 0.05), top - o - 0.04)
+        for _ in range(80):
+            stride = 0.006 + (self.n % 17) * 0.0004
+            z0 = o + (self.n * stride) % (top - o - height - 0.03)
+            z1 = z0 + height
+            self.n += 1
+            if self._free(z0) and self._free(z1):
+                self.used.add(round(z0, 5))
+                self.used.add(round(z1, 5))
+                return z0, z1
+        raise SpecError("cave sculpt exhausted unique Z planes.")
+
+    def _free(self, z: float) -> bool:
+        return all(abs(z - other) > 0.0014 for other in self.used)
+
+    def box(
+        self,
+        x0: float,
+        y0: float,
+        x1: float,
+        y1: float,
+        height: float,
+        slot: str,
+    ) -> None:
+        lim = self.limit
+        ax0, ax1 = sorted((max(-lim, min(lim, x0)), max(-lim, min(lim, x1))))
+        ay0, ay1 = sorted((max(-lim, min(lim, y0)), max(-lim, min(lim, y1))))
+        if ax1 - ax0 < 0.06 or ay1 - ay0 < 0.06:
+            return
+        z0, z1 = self.span(height)
+        self.builder.add_box_bounds((ax0, ay0, z0), (ax1, ay1, z1), slot)
+
+    def rock(
+        self,
+        cx: float,
+        cy: float,
+        sx: float,
+        sy: float,
+        height: float,
+        slot: str,
+        tilt: tuple[float, float, float],
+    ) -> None:
+        z0, z1 = self.span(height)
+        cz = (z0 + z1) * 0.5
+        sz = z1 - z0
+        lo, hi = _rotated_aabb((cx, cy, cz), (sx, sy, sz), tilt)
+        lim = self.limit
+        if (
+            lo[0] < -lim
+            or hi[0] > lim
+            or lo[1] < -lim
+            or hi[1] > lim
+            or lo[2] < self.params.overlap
+            or hi[2] > self.params.cell_y
+            or not self._free(lo[2])
+            or not self._free(hi[2])
+        ):
+            self.box(cx - sx * 0.4, cy - sy * 0.4, cx + sx * 0.4, cy + sy * 0.4, height, slot)
+            return
+        self.used.add(round(lo[2], 5))
+        self.used.add(round(hi[2], 5))
+        self.builder.add_rotated_box((cx, cy, cz), (sx, sy, sz), slot, tilt)
+
+
+def _cave_tilt(rng: random.Random) -> tuple[float, float, float]:
+    return (
+        rng.uniform(-0.62, 0.62),
+        rng.uniform(-0.45, 0.45),
+        rng.uniform(-0.85, 0.85),
+    )
+
+
+# --- Cave shell ------------------------------------------------------------
+#
+# A cave tile is not a box of rocks. It is two displaced rock masses: a floor
+# that sweeps up into the walls and a ceiling that domes over the middle and
+# drops into the corners. They interpenetrate in the outer band, so that band
+# is solid stone; what is left is a plus-shaped walk corridor with arms only
+# through the open (docked) sides.
+#
+# The corridor numbers are a contract with the collision proxy in
+# examples/dungeon_kit/src/physics.rs. Rock must never grow into the clear
+# volume, because the proxy has no geometry there:
+#   * floor stays at or below _CAVE_WALK_Z inside _CAVE_CORRIDOR
+#   * ceiling stays at or above _CAVE_HEAD inside _CAVE_HEAD_CLEAR
+#   * nothing at all inside _CAVE_WELL: that is the drop column under a mouth
+#     and the shaft, and a falling player passes through it. The vault is built
+#     as four rings around that column, so the column is a real hole rather than
+#     a thin lid the player would fall through.
+_CAVE_CORRIDOR = 1.05
+_CAVE_BANK = 1.55
+_CAVE_HEAD_CLEAR = 1.25
+# Just clear of a 1.8 m player: rock this low reads as a duck-under, and the eye
+# still passes under it.
+_CAVE_HEAD = 1.95
+_CAVE_WELL = 0.95
+_CAVE_WALK_Z = 0.185
+_CAVE_SHAFT_WELL = 0.55
+# Rock left above the vault where it sweeps up into the drop column, and the room
+# `_CavePlanes` needs below `cell_y` to nudge four ring caps onto free planes.
+_CAVE_RIM = 0.06
+# Seam profiles are seed-free functions of |distance along the seam|, so two
+# mated tiles agree on the rock height at the shared border in any rotation.
+_CAVE_SEAM_CORNER_FLOOR = 2.52
+_CAVE_SEAM_CORNER_CEIL = 1.05
+_CAVE_SEAM_BLEND = 0.5
+# The mass runs `overlap` past the cell and drops a hair on the way out, so two
+# neighbours cross in a shallow crease instead of presenting coplanar faces.
+_CAVE_LIP = 0.02
+
+
+def _smoothstep(t: float) -> float:
+    t = min(1.0, max(0.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+
+class _CaveNoise:
+    """Deterministic value noise. Same seed, same rock, build after build."""
+
+    def __init__(self, seed: int) -> None:
+        self._seed = (seed * 2654435761) & 0xFFFFFFFF
+
+    def _lattice(self, ix: int, iy: int, octave: int) -> float:
+        n = (ix * 73856093) ^ (iy * 19349663) ^ (octave * 83492791) ^ self._seed
+        n &= 0xFFFFFFFF
+        n = ((n ^ (n >> 15)) * 2246822519) & 0xFFFFFFFF
+        n = ((n ^ (n >> 13)) * 3266489917) & 0xFFFFFFFF
+        return float((n ^ (n >> 16)) & 0xFFFFFF) / float(0xFFFFFF)
+
+    def _octave(self, x: float, y: float, octave: int) -> float:
+        ix, iy = math.floor(x), math.floor(y)
+        fx, fy = _smoothstep(x - ix), _smoothstep(y - iy)
+        c00 = self._lattice(ix, iy, octave)
+        c10 = self._lattice(ix + 1, iy, octave)
+        c01 = self._lattice(ix, iy + 1, octave)
+        c11 = self._lattice(ix + 1, iy + 1, octave)
+        return (c00 * (1.0 - fx) + c10 * fx) * (1.0 - fy) + (c01 * (1.0 - fx) + c11 * fx) * fy
+
+    def at(self, x: float, y: float, *, frequency: float, octaves: int = 3) -> float:
+        total = 0.0
+        weight = 0.0
+        amplitude = 1.0
+        for octave in range(octaves):
+            total += amplitude * self._octave(x * frequency, y * frequency, octave)
+            weight += amplitude
+            amplitude *= 0.52
+            frequency *= 2.13
+        return total / weight
+
+
+class _CavePlanes:
+    """Keeps every storey-axis face on its own plane.
+
+    Displaced surfaces present no shared plane, but the coplanar gate sees
+    bounding boxes, so two shells whose extents happen to land within
+    `_PLANE_EPS` would fail the build. Requested heights are nudged by
+    millimetres, never by enough to change the shape.
+    """
+
+    def __init__(self) -> None:
+        self._used: list[float] = []
+
+    def claim(self, z: float) -> float:
+        for step in range(400):
+            for direction in (1.0, -1.0):
+                candidate = round(z + direction * step * 0.0017, 5)
+                if all(abs(candidate - other) > 0.0018 for other in self._used):
+                    self._used.append(candidate)
+                    return candidate
+        raise SpecError("cave shell exhausted unique storey planes.")
+
+    def reserve(self, z: float) -> None:
+        self._used.append(round(z, 5))
+
+
+@dataclass(frozen=True)
+class _CaveShape:
+    """Floor and ceiling height fields for one cave tile."""
+
+    params: KitParams
+    closed: frozenset[str]
+    floor_noise: _CaveNoise
+    ceiling_noise: _CaveNoise
+
+    def openness(
+        self,
+        x: float,
+        y: float,
+        *,
+        corridor: float,
+        bank: float,
+        noise: _CaveNoise,
+    ) -> float:
+        """1 in the walk corridor, 0 in the solid band, smooth across the slope.
+
+        The boundary wanders in plan so the wall is not an extruded ramp. It only
+        ever wanders *outward*: rock must never grow inside `corridor`.
+        """
+        distance = max(abs(x), abs(y)) - corridor
+        for face, (axis, sign) in (
+            ("s", (1, 1.0)),
+            ("n", (1, -1.0)),
+            ("e", (0, 1.0)),
+            ("w", (0, -1.0)),
+        ):
+            if face in self.closed:
+                continue
+            across = abs(y) if axis == 0 else abs(x)
+            along = (x if axis == 0 else y) * sign
+            distance = min(distance, max(across - corridor, corridor - along))
+        distance -= 0.36 * noise.at(x + 3.0, y - 2.0, frequency=1.45)
+        return 1.0 - _smoothstep(distance / (bank - corridor))
+
+    def _seam(self, x: float, y: float) -> tuple[float, float, bool]:
+        """Border weight, distance along the owning seam, and whether it is open."""
+        h = self.params.half
+        if abs(x) >= abs(y):
+            reach, along, face = abs(x), y, "e" if x > 0.0 else "w"
+        else:
+            reach, along, face = abs(y), x, "s" if y > 0.0 else "n"
+        weight = _smoothstep((reach - (h - _CAVE_SEAM_BLEND)) / _CAVE_SEAM_BLEND)
+        return weight, along, face not in self.closed
+
+    def _lip(self, x: float, y: float) -> float:
+        overshoot = max(abs(x), abs(y)) - self.params.half
+        return _CAVE_LIP * min(1.0, max(0.0, overshoot / max(self.params.overlap, 1e-6)))
+
+    def floor(self, x: float, y: float) -> float:
+        rough = self.floor_noise.at(x - 4.0, y + 6.0, frequency=3.9)
+        # Rubble relief on the walk floor. The collision proxy is a flat slab at
+        # `_CAVE_WALK_Z`, so this has to stay small enough that a boot sinking
+        # into a bump does not read as a bug.
+        low = 0.105 + 0.06 * self.floor_noise.at(x, y, frequency=1.7) + 0.032 * rough
+        bank = 1.5 + 0.75 * self.floor_noise.at(x + 11.0, y - 7.0, frequency=0.85) + 0.22 * rough
+        openness = self.openness(
+            x, y, corridor=_CAVE_CORRIDOR, bank=_CAVE_BANK, noise=self.floor_noise
+        )
+        interior = low + (bank - low) * (1.0 - openness)
+        weight, along, open_face = self._seam(x, y)
+        seam = _cave_seam_floor(self.params, along, open_face=open_face)
+        return interior + (seam - interior) * weight - self._lip(x, y)
+
+    def ceiling(self, x: float, y: float) -> float:
+        rough = self.ceiling_noise.at(x + 8.0, y + 2.0, frequency=4.2)
+        # Keep the top of the vault clear of `_CAVE_HEAD` on its own: the sag
+        # below does the descending, and a base that already dips under head
+        # height would flatten onto the contract plane.
+        high = 2.66 - 0.44 * self.ceiling_noise.at(x, y, frequency=1.15) - 0.1 * rough
+        low = 1.4 - 0.42 * self.ceiling_noise.at(x - 5.0, y + 9.0, frequency=0.95) - 0.12 * rough
+        openness = self.openness(
+            x,
+            y,
+            corridor=_CAVE_HEAD_CLEAR,
+            bank=self.params.half - 0.15,
+            noise=self.ceiling_noise,
+        )
+        interior = low + (high - low) * openness
+        weight, along, open_face = self._seam(x, y)
+        seam = _cave_seam_ceiling(self.params, along, open_face=open_face)
+        vault = self._sag(x, y, vault=interior + (seam - interior) * weight + self._lip(x, y))
+        # Sweep up into the drop column so its rim is a lip a few centimetres
+        # thick. Left alone, the four vault rings meet the column in half-metre
+        # vertical walls and the hole reads as a hatch cut in a ceiling.
+        funnel = 1.0 - _smoothstep((max(abs(x), abs(y)) - _CAVE_WELL) / 0.55)
+        chimney = self.params.cell_y - _CAVE_RIM
+        return vault + (chimney - vault) * funnel
+
+    def _sag(self, x: float, y: float, *, vault: float) -> float:
+        """Pull the vault down in blobs, scaled by the head room available here.
+
+        The sag is a *fraction* of the room down to the lowest legal ceiling, not
+        an absolute drop clamped against it: clamping flattens every blob onto the
+        same plane and the tile reads as a lid again. Over the walk corridor that
+        floor is `_CAVE_HEAD`, a contract with the collision proxy; over the rock
+        bank it is the bank itself, so the vault can come down and nearly close.
+        """
+        # Rare and deep beats constant and shallow: a threshold well above the
+        # mean leaves most of the vault high and drops a few pendants far down.
+        blob = self.ceiling_noise.at(x + 21.0, y - 13.0, frequency=0.62)
+        knuckle = self.ceiling_noise.at(x - 17.0, y + 29.0, frequency=1.85)
+        sag = min(1.0, max(0.0, blob - 0.56) * 3.4 + max(0.0, knuckle - 0.63) * 1.2)
+        walk = self.openness(
+            x, y, corridor=_CAVE_CORRIDOR, bank=_CAVE_BANK, noise=self.floor_noise
+        )
+        # Over solid rock the vault has to sink *into* the bank, not stop above
+        # it. A positive clearance here reads as care and is in fact a slot: at a
+        # closed seam the floor tops out around 1.76 m and this floor pinned the
+        # vault at 1.88 m, leaving 12 cm of daylight the length of every wall.
+        bank_floor = self.floor(x, y) - 0.12
+        lowest = bank_floor + (_CAVE_HEAD + 0.06 - bank_floor) * walk
+        return max(vault - max(0.0, vault - lowest) * sag, lowest)
+
+    def walkable(self, x: float, y: float) -> bool:
+        return (
+            self.openness(
+                x, y, corridor=_CAVE_CORRIDOR, bank=_CAVE_BANK, noise=self.floor_noise
+            )
+            > 0.02
+        )
+
+    def tall_floor(self, x: float, y: float) -> float:
+        """Walk floor in the clear plus; full-height rock everywhere else.
+
+        A normal one-storey cave can stop its bank halfway up because the vault
+        descends to meet it. A floor slice has no vault, so that same bank leaves
+        daylight between it and the rise slice above. Use the exact same plan
+        rectangles as `rise`; a separately-noised boundary would leave a gap
+        wherever the two seeds disagreed.
+        """
+        floor = self.floor(x, y)
+        reach = self.params.half + self.params.overlap
+        solid = any(
+            x0 <= x <= x1 and y0 <= y <= y1
+            for x0, x1, y0, y1 in _cave_solid_rects(
+                reach, _CAVE_CORRIDOR, self.closed
+            )
+        )
+        return self.rise_top(x, y) if solid else floor
+
+    def rise_top(self, x: float, y: float) -> float:
+        """Top of a sliced bank, millimetres under the storey envelope."""
+        wobble = self.ceiling_noise.at(x + 4.0, y - 3.0, frequency=2.4)
+        return self.params.cell_y - 0.0005 - 0.0005 * wobble
+
+
+def _cave_wobble(a: float) -> float:
+    """Seed-free 0..1 ripple along a seam, so both sides of a join agree."""
+    return 0.5 + 0.5 * math.sin(a * 7.7 + 0.6) * math.cos(a * 3.1 - 1.2)
+
+
+def _cave_seam_floor(params: KitParams, along: float, *, open_face: bool) -> float:
+    h = params.half
+    reach = min(abs(along), h)
+    a = reach / h
+    wobble = _cave_wobble(a)
+    if open_face:
+        rise = _smoothstep((reach - _CAVE_CORRIDOR) / (h - _CAVE_CORRIDOR))
+        low = 0.13 + 0.045 * wobble
+        return low + (_CAVE_SEAM_CORNER_FLOOR - low) * rise
+    return _CAVE_SEAM_CORNER_FLOOR - (0.55 + 0.35 * wobble) * (1.0 - a) ** 1.4
+
+
+def _cave_seam_ceiling(params: KitParams, along: float, *, open_face: bool) -> float:
+    h = params.half
+    reach = min(abs(along), h)
+    a = reach / h
+    wobble = _cave_wobble(a + 0.37)
+    if open_face:
+        fall = _smoothstep((reach - _CAVE_HEAD_CLEAR) / (h - _CAVE_HEAD_CLEAR))
+        high = 2.5 - 0.52 * wobble
+        return high + (_CAVE_SEAM_CORNER_CEIL - high) * fall
+    return _CAVE_SEAM_CORNER_CEIL - 0.16 + 0.3 * wobble * (1.0 - a)
+
+
+def _cave_axis(lo: float, hi: float) -> list[float]:
+    """Ascending samples, dense where the rock turns up into the wall."""
+    step_fine = 0.072
+    step_coarse = 0.118
+    out = [lo]
+    position = lo
+    while position < hi - 1e-6:
+        near_wall = abs(position) > _CAVE_CORRIDOR - 0.25
+        position = min(hi, position + (step_fine if near_wall else step_coarse))
+        out.append(position)
+    return out
+
+
+def _cave_ring_rects(reach: float, well: float) -> tuple[tuple[float, float, float, float], ...]:
+    """Four rectangles that surround a clear square column of half-width `well`."""
+    return (
+        (-reach, reach, -reach, -well),
+        (-reach, reach, well, reach),
+        (-reach, -well - 0.03, -well, well),
+        (well + 0.03, reach, -well, well),
+    )
+
+
+def _cave_solid_rects(
+    reach: float, corridor: float, closed: frozenset[str]
+) -> tuple[tuple[float, float, float, float], ...]:
+    """Rock that stays in a rise slice: four corners, plus a bank on each closed face.
+
+    The walk plus is omitted. Open arms stay empty so a mid-storey passage continues
+    the chamber; closed faces keep a full-height bank.
+
+    Face names follow `_CaveShape._seam`: `s` is +y, `n` is -y, `e` is +x, `w` is
+    -x. Getting `n`/`s` backwards banks the rock across the passage and leaves the
+    exterior wall as an open arm, which is a hole with a dock contract that still
+    says everything is fine.
+    """
+    c = corridor
+    rects: list[tuple[float, float, float, float]] = [
+        (-reach, -c, -reach, -c),
+        (-reach, -c, c, reach),
+        (c, reach, -reach, -c),
+        (c, reach, c, reach),
+    ]
+    if "s" in closed:
+        rects.append((-c, c, c, reach))
+    if "n" in closed:
+        rects.append((-c, c, -reach, -c))
+    if "w" in closed:
+        rects.append((-reach, -c, -c, c))
+    if "e" in closed:
+        rects.append((c, reach, -c, c))
+    return tuple(rects)
+
+
+def _cave_field(
+    builder: BoxBuilder,
+    shape: _CaveShape,
+    planes: _CavePlanes,
+    *,
+    x_lo: float,
+    x_hi: float,
+    y_lo: float,
+    y_hi: float,
+    upward: bool,
+    slot: str,
+    height_fn: Callable[[float, float], float] | None = None,
+    cap_z_override: float | None = None,
+) -> None:
+    """One displaced rock mass: noisy surface, vertical skirt, flat back cap."""
+    params = shape.params
+    xs = _cave_axis(x_lo, x_hi)
+    ys = _cave_axis(y_lo, y_hi)
+    height = height_fn or (shape.floor if upward else shape.ceiling)
+    jitter = _CaveNoise(params.seed + (17 if upward else 53))
+    nx, ny = len(xs), len(ys)
+    vertices: list[Vec3] = []
+    for ix, x in enumerate(xs):
+        for iy, y in enumerate(ys):
+            px, py = x, y
+            if 0 < ix < nx - 1 and 0 < iy < ny - 1:
+                span_x = min(x - xs[ix - 1], xs[ix + 1] - x)
+                span_y = min(y - ys[iy - 1], ys[iy + 1] - y)
+                px += (jitter.at(x * 3.1, y * 3.1, frequency=1.0, octaves=1) - 0.5) * span_x * 0.8
+                py += (jitter.at(x * 2.7 + 31.0, y * 2.7, frequency=1.0, octaves=1) - 0.5) * span_y * 0.8
+            vertices.append((px, py, height(px, py)))
+
+    faces: list[list[int]] = []
+    for ix in range(nx - 1):
+        for iy in range(ny - 1):
+            a = ix * ny + iy
+            b = (ix + 1) * ny + iy
+            quad = [a, b, b + 1, a + 1]
+            faces.append(quad if upward else list(reversed(quad)))
+
+    ring: list[int] = []
+    ring.extend(ix * ny for ix in range(nx))
+    ring.extend((nx - 1) * ny + iy for iy in range(1, ny))
+    ring.extend(ix * ny + (ny - 1) for ix in range(nx - 2, -1, -1))
+    ring.extend(iy for iy in range(ny - 2, 0, -1))
+    surface_extreme = max(vertex[2] for vertex in vertices) if upward else min(
+        vertex[2] for vertex in vertices
+    )
+    planes.reserve(surface_extreme)
+    # Leave room under `cell_y` for `_CavePlanes` to nudge: the vault is built
+    # from four rings, and a nudge past the cell top is an envelope failure.
+    cap_z = (
+        cap_z_override
+        if cap_z_override is not None
+        else planes.claim(_storey_floor_z(params) if upward else params.cell_y - _CAVE_RIM * 0.34)
+    )
+    cap_start = len(vertices)
+    for index in ring:
+        x, y, _ = vertices[index]
+        vertices.append((x, y, cap_z))
+    for step, index in enumerate(ring):
+        next_index = ring[(step + 1) % len(ring)]
+        a_cap = cap_start + step
+        b_cap = cap_start + (step + 1) % len(ring)
+        if upward:
+            faces.append([index, a_cap, b_cap, next_index])
+        else:
+            faces.append([index, next_index, b_cap, a_cap])
+    cap = [cap_start + step for step in range(len(ring))]
+    faces.append(cap if not upward else list(reversed(cap)))
+    builder.add_mesh(vertices, faces, slot)
+
+
+def _cave_rings(
+    x: float,
+    y: float,
+    z0: float,
+    z1: float,
+    radius: float,
+    waist: float,
+    sides: int,
+    rings: int,
+    noise: _CaveNoise,
+) -> list[list[Vec3]]:
+    """Lumpy rings from z0 to z1. `waist` < 1 is fat low, > 1 is fat high."""
+    out: list[list[Vec3]] = []
+    span = z1 - z0
+    for ring in range(rings):
+        t = (ring + 1.0) / (rings + 1.0)
+        profile = (t**waist) * (1.0 - t) ** 0.3
+        scale = profile / (0.5**waist * 0.5**0.3)
+        loop: list[Vec3] = []
+        for side in range(sides):
+            angle = 2.0 * math.pi * side / sides
+            lump = 0.6 + 0.8 * noise.at(
+                math.cos(angle) * 2.0 + x * 3.0,
+                math.sin(angle) * 2.0 + y * 3.0 + t * 4.0,
+                frequency=1.4,
+            )
+            r = radius * scale * lump
+            loop.append((x + math.cos(angle) * r, y + math.sin(angle) * r, z0 + span * t))
+        out.append(loop)
+    return out
+
+
+def _cave_hull(
+    builder: BoxBuilder,
+    loops: Sequence[Sequence[Vec3]],
+    *,
+    bottom: Vec3 | None,
+    top: Vec3 | None,
+    slot: str,
+) -> None:
+    """Close a stack of rings with a tip or a flat cap at each end."""
+    sides = len(loops[0])
+    vertices: list[Vec3] = []
+    faces: list[list[int]] = []
+    if bottom is not None:
+        vertices.append(bottom)
+    first = len(vertices)
+    for loop in loops:
+        vertices.extend(loop)
+    if bottom is None:
+        faces.append([first + side for side in range(sides - 1, -1, -1)])
+    else:
+        for side in range(sides):
+            faces.append([0, first + (side + 1) % sides, first + side])
+    for ring in range(len(loops) - 1):
+        base = first + ring * sides
+        above = base + sides
+        for side in range(sides):
+            nxt = (side + 1) % sides
+            faces.append([base + side, base + nxt, above + nxt, above + side])
+    last = first + (len(loops) - 1) * sides
+    if top is None:
+        faces.append([last + side for side in range(sides)])
+    else:
+        vertices.append(top)
+        apex = len(vertices) - 1
+        for side in range(sides):
+            faces.append([last + side, last + (side + 1) % sides, apex])
+    builder.add_mesh(vertices, faces, slot)
+
+
+def _cave_spindle(
+    builder: BoxBuilder,
+    planes: _CavePlanes,
+    *,
+    x: float,
+    y: float,
+    z0: float,
+    z1: float,
+    radius: float,
+    waist: float,
+    sides: int,
+    rings: int,
+    noise: _CaveNoise,
+    slot: str,
+) -> None:
+    """Boulder or stalagmite: pointed at both ends, base buried in the floor."""
+    low = planes.claim(z0)
+    high = planes.claim(z1)
+    if high - low < 0.12:
+        return
+    loops = _cave_rings(x, y, low, high, radius, waist, sides, rings, noise)
+    _cave_hull(builder, loops, bottom=(x, y, low), top=(x, y, high), slot=slot)
+
+
+def _cave_stalactite(
+    builder: BoxBuilder,
+    planes: _CavePlanes,
+    *,
+    x: float,
+    y: float,
+    tip_z: float,
+    root_z: float,
+    radius: float,
+    sides: int,
+    rings: int,
+    noise: _CaveNoise,
+    slot: str,
+) -> None:
+    """Hanging stone: widest at the flat root that sits inside the vault."""
+    tip = planes.claim(tip_z)
+    root = planes.claim(root_z)
+    if root - tip < 0.15:
+        return
+    loops = _cave_rings(x, y, tip, root, radius, 1.0, sides, rings, noise)
+    widest = [
+        [(vx, vy, root) for vx, vy, _ in loops[-1]],
+    ]
+    _cave_hull(builder, loops + widest, bottom=(x, y, tip), top=None, slot=slot)
+
+
+def _dungeon_cave_cell(
+    builder: BoxBuilder, params: KitParams, closed: set[str], *, hole: bool
+) -> None:
+    """Natural cave volume: rock sweeps up into the walls and domes overhead.
+
+    `storey_role` splits that into slices so a chamber can be many cells high:
+    floor is the walk slab and banks, rise is banks only, vault is the dome.
+    """
+    shape = _CaveShape(
+        params=params,
+        closed=frozenset(closed),
+        floor_noise=_CaveNoise(params.seed + 311),
+        ceiling_noise=_CaveNoise(params.seed + 977),
+    )
+    planes = _CavePlanes()
+    planes.reserve(params.overlap)
+    planes.reserve(0.0)
+    reach = params.half + params.overlap
+    role = params.storey_role
+    if role == "rise":
+        bank_base = planes.claim(_storey_floor_z(params))
+        for x_lo, x_hi, y_lo, y_hi in _cave_solid_rects(reach, _CAVE_CORRIDOR, frozenset(closed)):
+            _cave_field(
+                builder,
+                shape,
+                planes,
+                x_lo=x_lo,
+                x_hi=x_hi,
+                y_lo=y_lo,
+                y_hi=y_hi,
+                upward=True,
+                slot="structure",
+                height_fn=shape.rise_top,
+                cap_z_override=bank_base,
+            )
+        return
+    if role in ("cell", "floor"):
+        floor_rects = (
+            _cave_ring_rects(reach, _CAVE_SHAFT_WELL) if hole else ((-reach, reach, -reach, reach),)
+        )
+        for x_lo, x_hi, y_lo, y_hi in floor_rects:
+            _cave_field(
+                builder,
+                shape,
+                planes,
+                x_lo=x_lo,
+                x_hi=x_hi,
+                y_lo=y_lo,
+                y_hi=y_hi,
+                upward=True,
+                slot="structure",
+                height_fn=shape.tall_floor if role == "floor" else None,
+            )
+    if role in ("cell", "vault"):
+        if role == "vault":
+            # The dome only occupies the upper part of this slice. Continue the
+            # perimeter banks from the void seam to meet it; otherwise the lower
+            # half of the vault slice is open to the terrain.
+            bank_base = planes.claim(_storey_floor_z(params))
+            for x_lo, x_hi, y_lo, y_hi in _cave_solid_rects(
+                reach, _CAVE_CORRIDOR, frozenset(closed)
+            ):
+                _cave_field(
+                    builder,
+                    shape,
+                    planes,
+                    x_lo=x_lo,
+                    x_hi=x_hi,
+                    y_lo=y_lo,
+                    y_hi=y_hi,
+                    upward=True,
+                    slot="structure",
+                    height_fn=shape.rise_top,
+                    cap_z_override=bank_base,
+                )
+        # Every vault keeps a hole over its middle. The `up` seam is terminated
+        # by a cap or by the mouth, so there is always rock overhead; the hole is
+        # what lets the mouth drop through and what frees the vault to dome.
+        for x_lo, x_hi, y_lo, y_hi in _cave_ring_rects(reach, _CAVE_WELL):
+            _cave_field(
+                builder,
+                shape,
+                planes,
+                x_lo=x_lo,
+                x_hi=x_hi,
+                y_lo=y_lo,
+                y_hi=y_hi,
+                upward=False,
+                slot="structure",
+            )
+    _cave_dripstone(builder, shape, planes)
+
+
+def _cave_dripstone(builder: BoxBuilder, shape: _CaveShape, planes: _CavePlanes) -> None:
+    """Stalactites overhead, stalagmites and boulders on the banks."""
+    params = shape.params
+    rng = random.Random(params.seed + 1531)
+    noise = _CaveNoise(params.seed + 4409)
+    reach = params.half + params.overlap - 0.02
+    placed = 0
+    for _ in range(640):
+        if placed >= 68:
+            break
+        x = rng.uniform(-reach, reach)
+        y = rng.uniform(-reach, reach)
+        if max(abs(x), abs(y)) < _CAVE_WELL + 0.1:
+            continue
+        radius = min(0.055 + rng.random() * 0.135, (reach - max(abs(x), abs(y))) / 2.2)
+        if radius < 0.05:
+            continue
+        floor_z = shape.floor(x, y)
+        ceiling_z = shape.ceiling(x, y)
+        walkable = shape.walkable(x, y)
+        # Calcite is the exception, not the rule: pale dripstone everywhere turns
+        # the middle distance into milk.
+        slot = "trim" if placed % 5 == 0 else "structure"
+        roll = rng.random()
+        if roll < 0.46:
+            if params.storey_role == "floor":
+                continue
+            # A stalactite roots *inside* the vault, so there has to be vault
+            # above it. Where the rock has already swept up to the cell top —
+            # the chimney funnel — there is none, and a root there would either
+            # overrun the envelope or hang its flat cap in open air.
+            if ceiling_z > params.cell_y - 0.25:
+                continue
+            tip = ceiling_z - (0.3 + rng.random() * 1.5)
+            if walkable:
+                tip = max(tip, _CAVE_HEAD + 0.05)
+            if ceiling_z - tip < 0.18 or tip < floor_z + 0.2:
+                continue
+            _cave_stalactite(
+                builder,
+                planes,
+                x=x,
+                y=y,
+                tip_z=tip,
+                root_z=ceiling_z + 0.12,
+                radius=radius,
+                sides=8,
+                rings=4,
+                noise=noise,
+                slot=slot,
+            )
+        elif params.storey_role == "vault" or walkable or ceiling_z - floor_z < 0.35:
+            continue
+        elif roll < 0.82:
+            rise = 0.3 + rng.random() * 1.4
+            _cave_spindle(
+                builder,
+                planes,
+                x=x,
+                y=y,
+                z0=max(floor_z - 0.3, params.overlap + 0.05),
+                z1=min(floor_z + rise, ceiling_z + 0.1, params.cell_y - 0.015),
+                radius=radius,
+                waist=0.5,
+                sides=8,
+                rings=4,
+                noise=noise,
+                slot=slot,
+            )
+        else:
+            _cave_spindle(
+                builder,
+                planes,
+                x=x,
+                y=y,
+                z0=max(floor_z - 0.35, params.overlap + 0.05),
+                z1=min(floor_z + 0.2 + rng.random() * 0.4, params.cell_y - 0.015),
+                radius=min(radius * 1.9, (reach - max(abs(x), abs(y))) / 2.2),
+                waist=0.9,
+                sides=9,
+                rings=3,
+                noise=noise,
+                slot=slot,
+            )
+        placed += 1
+
+
+def _dungeon_cave_cap(builder: BoxBuilder, params: KitParams, *, mouth: bool) -> None:
+    """Broken ceiling mass. Underside is uneven so the room below is not a lid."""
+    sculpt = _CaveSculpt(builder, params)
+    rng = random.Random(params.seed + 709)
+    h = params.half
+    well = 0.9 if mouth else 0.0
+    steps = 6
+    span = (2.0 * h) / steps
+    for iz in range(steps):
+        for ix in range(steps):
+            x0 = -h + ix * span
+            y0 = -h + iz * span
+            x1 = x0 + span + 0.05
+            y1 = y0 + span + 0.05
+            if mouth and abs((x0 + x1) * 0.5) < well and abs((y0 + y1) * 0.5) < well:
+                continue
+            sculpt.box(x0, y0, x1, y1, 0.18 + rng.random() * 0.7, "structure")
+    for index in range(20):
+        r = 0.08 + rng.random() * 0.22
+        cx = rng.uniform(-h + 0.25, h - 0.25)
+        cy = rng.uniform(-h + 0.25, h - 0.25)
+        if mouth and abs(cx) < well + 0.1 and abs(cy) < well + 0.1:
+            continue
+        sculpt.rock(
+            cx,
+            cy,
+            r * 2.0,
+            r * 2.0,
+            0.35 + rng.random() * 0.95,
+            "trim" if index % 2 else "structure",
+            _cave_tilt(rng),
+        )
+    if mouth:
+        lip = 0.18
+        outer = well + lip
+        for index, (x0, y0, x1, y1) in enumerate(
+            (
+                (-outer, -outer, outer, -well),
+                (-outer, well, outer, outer),
+                (-outer, -well, -well, well),
+                (well, -well, outer, well),
+            )
+        ):
+            sculpt.box(x0, y0, x1, y1, 0.28 + index * 0.04, "trim")
+
+
+def _dungeon_opening_frames(
+    builder: BoxBuilder, params: KitParams, closed: set[str]
+) -> None:
+    """Stone lintel and jambs on every open side so a connection reads as an exit.
+
+    Frames sit inside the cell (not on the seam) so two neighbors cannot share a
+    storey-axis face.
+    """
+    h = params.half
+    o = params.overlap
+    cy = params.cell_y
+    inset = 0.42
+    half_gap = 0.95
+    jamb = 0.14
+    lintel_z0 = cy - 0.32
+    lintel_z1 = cy - 0.05
+    jamb_z0 = o + 0.04
+    faces = (
+        ("s", 0.0, h - inset, True),
+        ("n", 0.0, -h + inset, True),
+        ("e", h - inset, 0.0, False),
+        ("w", -h + inset, 0.0, False),
+    )
+    for name, cx, cy_face, along_x in faces:
+        if name in closed:
+            continue
+        if along_x:
+            builder.add_box_bounds(
+                (-half_gap - jamb, cy_face - 0.05, lintel_z0),
+                (half_gap + jamb, cy_face + 0.05, lintel_z1),
+                "trim",
+            )
+            builder.add_box_bounds(
+                (-half_gap - jamb, cy_face - 0.04, jamb_z0),
+                (-half_gap, cy_face + 0.04, lintel_z0 - 0.02),
+                "trim",
+            )
+            builder.add_box_bounds(
+                (half_gap, cy_face - 0.04, jamb_z0 + 0.012),
+                (half_gap + jamb, cy_face + 0.04, lintel_z0 - 0.03),
+                "trim",
+            )
+        else:
+            builder.add_box_bounds(
+                (cx - 0.05, -half_gap - jamb, lintel_z0 + 0.01),
+                (cx + 0.05, half_gap + jamb, lintel_z1 - 0.01),
+                "trim",
+            )
+            builder.add_box_bounds(
+                (cx - 0.04, -half_gap - jamb, jamb_z0 + 0.008),
+                (cx + 0.04, -half_gap, lintel_z0 - 0.018),
+                "trim",
+            )
+            builder.add_box_bounds(
+                (cx - 0.04, half_gap, jamb_z0 + 0.02),
+                (cx + 0.04, half_gap + jamb, lintel_z0 - 0.028),
+                "trim",
+            )
+
+
+def _dungeon_face_lumps(builder: BoxBuilder, params: KitParams, closed: set[str]) -> None:
+    """Proud stones on closed faces. Unique Z so they do not share a storey plane."""
+    h = params.half
+    t = params.wall_thickness
+    o = params.overlap
+    cy = params.cell_y
+    rng = random.Random(params.seed + 91)
+    if "s" in closed:
+        for index in range(4):
+            x = rng.uniform(-h + t + 0.2, h - t - 0.2)
+            z0 = o + 0.22 + index * 0.41
+            z1 = min(cy - 0.1, z0 + 0.28 + index * 0.02)
+            builder.add_box_bounds(
+                (x - 0.2, h - t - 0.14, z0),
+                (x + 0.2, h - t + 0.05, z1),
+                "trim",
+            )
+    if "n" in closed:
+        for index in range(3):
+            x = rng.uniform(-h + t + 0.2, h - t - 0.2)
+            z0 = o + 0.28 + index * 0.47
+            z1 = min(cy - 0.12, z0 + 0.24 + index * 0.025)
+            builder.add_box_bounds(
+                (x - 0.18, -h + t - 0.05, z0),
+                (x + 0.18, -h + t + 0.12, z1),
+                "trim",
+            )
+    if "w" in closed:
+        for index in range(3):
+            y = rng.uniform(-h + t + 0.2, h - t - 0.2)
+            z0 = o + 0.31 + index * 0.44
+            z1 = min(cy - 0.11, z0 + 0.26 + index * 0.02)
+            builder.add_box_bounds(
+                (-h + t - 0.05, y - 0.16, z0),
+                (-h + t + 0.12, y + 0.16, z1),
+                "trim",
+            )
+
+
 def _mix_rgba(
     nodes: bpy.types.Nodes,
     links: bpy.types.NodeLinks,
@@ -1352,6 +2687,10 @@ def _slot_look(params: KitParams, slot: str) -> str:
         if slot == "structure":
             return "shingle"
         return "brick" if params.kind == "chimney" else "timber"
+    if params.kind.startswith("dungeon_"):
+        if params.jagged:
+            return "cave_rock" if slot == "structure" else "cave_calcite"
+        return "ashlar" if slot == "structure" else "stone_trim"
     if params.kind in ("battlement", "turret", "gate") or params.wall_thickness >= 1.0:
         return "ashlar" if slot == "structure" else "stone_trim"
     if slot == "structure":
@@ -1382,6 +2721,104 @@ def _noise(
     noise.inputs["Roughness"].default_value = roughness
     links.new(mapping.outputs["Vector"], noise.inputs["Vector"])
     return noise.outputs["Fac"]
+
+
+def _voronoi_edges(
+    nodes: bpy.types.Nodes,
+    links: bpy.types.NodeLinks,
+    generated: bpy.types.NodeSocket,
+    *,
+    location: tuple[float, float],
+    scale: tuple[float, float, float],
+    offset: tuple[float, float, float],
+    randomness: float,
+) -> bpy.types.NodeSocket:
+    """Distance to the nearest cell edge: the crack network in broken rock."""
+    mapping = nodes.new(type="ShaderNodeMapping")
+    mapping.location = location
+    mapping.inputs["Scale"].default_value = scale
+    mapping.inputs["Location"].default_value = offset
+    links.new(generated, mapping.inputs["Vector"])
+    voronoi = nodes.new(type="ShaderNodeTexVoronoi")
+    voronoi.location = (location[0] + 200.0, location[1])
+    voronoi.voronoi_dimensions = "3D"
+    voronoi.feature = "DISTANCE_TO_EDGE"
+    voronoi.inputs["Scale"].default_value = 1.0
+    voronoi.inputs["Randomness"].default_value = randomness
+    links.new(mapping.outputs["Vector"], voronoi.inputs["Vector"])
+    return voronoi.outputs["Distance"]
+
+
+def _height_mask(
+    nodes: bpy.types.Nodes,
+    links: bpy.types.NodeLinks,
+    generated: bpy.types.NodeSocket,
+    *,
+    location: tuple[float, float],
+    from_min: float,
+    from_max: float,
+) -> bpy.types.NodeSocket:
+    """0 low in the object, 1 high. Drives damp floors and dry vaults."""
+    separate = nodes.new(type="ShaderNodeSeparateXYZ")
+    separate.location = location
+    links.new(generated, separate.inputs["Vector"])
+    ramp = nodes.new(type="ShaderNodeMapRange")
+    ramp.location = (location[0] + 190.0, location[1])
+    ramp.inputs["From Min"].default_value = from_min
+    ramp.inputs["From Max"].default_value = from_max
+    ramp.clamp = True
+    links.new(separate.outputs["Z"], ramp.inputs["Value"])
+    return ramp.outputs["Result"]
+
+
+def _remap(
+    nodes: bpy.types.Nodes,
+    links: bpy.types.NodeLinks,
+    value: bpy.types.NodeSocket,
+    *,
+    location: tuple[float, float],
+    from_min: float,
+    from_max: float,
+    to_min: float,
+    to_max: float,
+) -> bpy.types.NodeSocket:
+    ramp = nodes.new(type="ShaderNodeMapRange")
+    ramp.location = location
+    ramp.inputs["From Min"].default_value = from_min
+    ramp.inputs["From Max"].default_value = from_max
+    ramp.inputs["To Min"].default_value = to_min
+    ramp.inputs["To Max"].default_value = to_max
+    ramp.clamp = True
+    links.new(value, ramp.inputs["Value"])
+    return ramp.outputs["Result"]
+
+
+def _multiply(
+    nodes: bpy.types.Nodes,
+    links: bpy.types.NodeLinks,
+    first: bpy.types.NodeSocket,
+    second: bpy.types.NodeSocket,
+    *,
+    location: tuple[float, float],
+) -> bpy.types.NodeSocket:
+    node = nodes.new(type="ShaderNodeMath")
+    node.location = location
+    node.operation = "MULTIPLY"
+    links.new(first, node.inputs[0])
+    links.new(second, node.inputs[1])
+    return node.outputs["Value"]
+
+
+def _rgb(
+    nodes: bpy.types.Nodes,
+    color: tuple[float, float, float],
+    *,
+    location: tuple[float, float],
+) -> bpy.types.NodeSocket:
+    node = nodes.new(type="ShaderNodeRGB")
+    node.location = location
+    node.outputs[0].default_value = (color[0], color[1], color[2], 1.0)
+    return node.outputs[0]
 
 
 def _wave(
@@ -1415,7 +2852,7 @@ def _wave(
     return wave.outputs["Fac"]
 
 
-def _build_look_material(
+def build_look_material(
     name: str,
     spec: MaterialSpec,
     look: str,
@@ -1445,17 +2882,17 @@ def _build_look_material(
     dark_rgb = nodes.new(type="ShaderNodeRGB")
     dark_rgb.location = (-200, 560)
     dark_rgb.outputs[0].default_value = (
-        max(0.0, spec.base_color[0] * 0.28),
-        max(0.0, spec.base_color[1] * 0.28),
-        max(0.0, spec.base_color[2] * 0.24),
+        max(0.0, spec.base_color[0] * 0.58),
+        max(0.0, spec.base_color[1] * 0.54),
+        max(0.0, spec.base_color[2] * 0.48),
         1.0,
     )
     lift_rgb = nodes.new(type="ShaderNodeRGB")
     lift_rgb.location = (-200, 280)
     lift_rgb.outputs[0].default_value = (
-        min(1.0, spec.base_color[0] * 1.18 + 0.04),
-        min(1.0, spec.base_color[1] * 1.12 + 0.03),
-        min(1.0, spec.base_color[2] * 1.05 + 0.02),
+        min(1.0, spec.base_color[0] * 1.12 + 0.035),
+        min(1.0, spec.base_color[1] * 1.09 + 0.025),
+        min(1.0, spec.base_color[2] * 1.06 + 0.018),
         1.0,
     )
 
@@ -1502,66 +2939,52 @@ def _build_look_material(
         bump_strength = 0.55
         rough_base = spec.roughness
     elif look == "shingle":
-        grit = _noise(
+        coarse = _noise(
             nodes,
             links,
             generated,
             location=(-700, 200),
-            scale=(3.2, 3.2, 1.4),
+            scale=(1.4, 1.4, 2.0),
             offset=(shift, shift * 0.4, 0.0),
-            detail=4.0,
-            roughness=0.45,
+            detail=6.0,
+            roughness=0.58,
         )
-        rows = _wave(
+        fibre = _noise(
             nodes,
             links,
             generated,
             location=(-700, -80),
-            scale=(1.0, 1.0, 5.5),
-            rotation=(0.0, 0.0, 0.04),
-            offset=(0.0, 0.0, shift * 0.08),
-            wave_scale=2.4,
-            distortion=0.35,
-            bands="Z",
-        )
-        cols = _wave(
-            nodes,
-            links,
-            generated,
-            location=(-700, -280),
-            scale=(4.2, 1.0, 1.0),
-            rotation=(0.0, 0.0, 0.0),
-            offset=(shift * 0.12, 0.0, 0.0),
-            wave_scale=1.6,
-            distortion=0.2,
-            bands="X",
+            scale=(7.0, 2.2, 1.3),
+            offset=(shift * 0.12, shift * 0.2, shift * 0.05),
+            detail=8.0,
+            roughness=0.7,
         )
         color = _mix_rgba(
             nodes,
             links,
             location=(80, 200),
-            factor=rows,
+            factor=coarse,
             color_a=dark_rgb.outputs[0],
-            color_b=base_rgb.outputs[0],
+            color_b=lift_rgb.outputs[0],
         )
+        fibre_mask = nodes.new(type="ShaderNodeMapRange")
+        fibre_mask.location = (80, -40)
+        fibre_mask.inputs["From Min"].default_value = 0.35
+        fibre_mask.inputs["From Max"].default_value = 0.78
+        fibre_mask.inputs["To Min"].default_value = 0.0
+        fibre_mask.inputs["To Max"].default_value = 0.32
+        fibre_mask.clamp = True
+        links.new(fibre, fibre_mask.inputs["Value"])
         color = _mix_rgba(
             nodes,
             links,
             location=(280, 80),
-            factor=cols,
-            color_a=color,
-            color_b=lift_rgb.outputs[0],
-        )
-        color = _mix_rgba(
-            nodes,
-            links,
-            location=(460, 40),
-            factor=grit,
+            factor=fibre_mask.outputs["Result"],
             color_a=color,
             color_b=base_rgb.outputs[0],
         )
-        bump_height = rows
-        bump_strength = 0.4
+        bump_height = fibre
+        bump_strength = 0.28
         rough_base = spec.roughness
     elif look == "thatch":
         grit = _noise(
@@ -1638,111 +3061,689 @@ def _build_look_material(
         bump_height = brick.outputs["Fac"]
         bump_strength = 1.1
         rough_base = spec.roughness
-    elif look in ("stone", "stone_trim", "brick"):
-        if look == "brick":
-            brick_scale, row_scale = 4.5, 7.0
-            mortar_lo, mortar_hi = 0.12, 0.28
-        else:
-            brick_scale, row_scale = 3.2, 4.0
-            mortar_lo, mortar_hi = 0.12, 0.28
-        mortar_x = _wave(
+    elif look == "brick":
+        mapping = nodes.new(type="ShaderNodeMapping")
+        mapping.location = (-700, 180)
+        mapping.inputs["Scale"].default_value = (1.0, 1.0, 1.0)
+        mapping.inputs["Location"].default_value = (shift * 0.03, shift * 0.02, 0.0)
+        links.new(generated, mapping.inputs["Vector"])
+        brick = nodes.new(type="ShaderNodeTexBrick")
+        brick.location = (-420, 180)
+        brick.offset = 0.5
+        brick.offset_frequency = 2
+        brick.inputs["Scale"].default_value = 8.0
+        brick.inputs["Mortar Size"].default_value = 0.028
+        brick.inputs["Mortar Smooth"].default_value = 0.06
+        brick.inputs["Brick Width"].default_value = 0.58
+        brick.inputs["Row Height"].default_value = 0.24
+        brick.inputs["Color1"].default_value = spec.base_color
+        brick.inputs["Color2"].default_value = (
+            spec.base_color[0] * 0.68,
+            spec.base_color[1] * 0.62,
+            spec.base_color[2] * 0.58,
+            1.0,
+        )
+        brick.inputs["Mortar"].default_value = (0.18, 0.15, 0.12, 1.0)
+        links.new(mapping.outputs["Vector"], brick.inputs["Vector"])
+        color = brick.outputs["Color"]
+        bump_height = brick.outputs["Fac"]
+        bump_strength = 0.65
+        rough_base = spec.roughness
+    elif look in ("cave_rock", "cave_calcite"):
+        # The engine samples base colour only, so every bit of rock read has to
+        # end up in the albedo: strata, mineral stain, grit, crack shadow and a
+        # damp floor. Roughness and bump still drive the preview renders.
+        calcite = look == "cave_calcite"
+        base = spec.base_color
+        # Texture space is Generated (0..1 over the 4 m cell), so a scale of N
+        # means features about 4/N metres across.
+        # Bedding planes as a vertically squashed noise, not a wave: a wave in Z
+        # draws contour rings on every near-horizontal face.
+        strata = _noise(
             nodes,
             links,
             generated,
-            location=(-700, 200),
-            scale=(brick_scale, 1.0, 1.0),
-            rotation=(0.0, 0.0, 0.0),
-            offset=(shift * 0.1, 0.0, 0.0),
-            wave_scale=1.0,
-            distortion=0.85 if look != "ashlar" else 0.35,
-            bands="X",
+            location=(-1180, 640),
+            scale=(2.1, 2.1, 11.0 if calcite else 8.0),
+            offset=(shift * 0.05, shift * 0.03, shift * 0.02),
+            detail=4.0,
+            roughness=0.55,
         )
-        mortar_z = _wave(
+        blotch = _noise(
             nodes,
             links,
             generated,
-            location=(-700, -40),
-            scale=(1.0, 1.0, row_scale),
-            rotation=(0.0, 0.0, 0.0),
-            offset=(0.0, 0.0, shift * 0.08),
-            wave_scale=1.0,
-            distortion=0.7 if look != "ashlar" else 0.25,
-            bands="Z",
+            location=(-1180, 520),
+            scale=(3.4, 3.4, 2.6),
+            offset=(shift * 0.29, shift * 0.07, shift * 0.19),
+            detail=4.0,
+            roughness=0.55,
         )
-        mortar = nodes.new(type="ShaderNodeMath")
-        mortar.location = (-280, 80)
-        mortar.operation = "MULTIPLY"
-        links.new(mortar_x, mortar.inputs[0])
-        links.new(mortar_z, mortar.inputs[1])
-        mortar_mask = nodes.new(type="ShaderNodeMapRange")
-        mortar_mask.location = (-80, 80)
-        mortar_mask.inputs["From Min"].default_value = mortar_lo
-        mortar_mask.inputs["From Max"].default_value = mortar_hi
-        mortar_mask.clamp = True
-        links.new(mortar.outputs["Value"], mortar_mask.inputs["Value"])
+        patches = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-1180, 420),
+            scale=(6.2, 6.2, 4.4),
+            offset=(shift * 0.11, shift * 0.17, shift * 0.07),
+            detail=6.0,
+            roughness=0.62,
+        )
+        mottle = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-1180, 200),
+            scale=(19.0, 19.0, 19.0),
+            offset=(shift * 0.19, shift * 0.23, shift * 0.13),
+            detail=8.0,
+            roughness=0.68,
+        )
+        speckle = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-1180, -20),
+            scale=(74.0, 74.0, 74.0),
+            offset=(shift * 0.31, shift * 0.13, shift * 0.23),
+            detail=10.0,
+            roughness=0.78,
+        )
+        # Centimetre grit. Rock reads as rock at arm's length because of this,
+        # not because of the crack net.
         grit = _noise(
             nodes,
             links,
             generated,
-            location=(-700, 420),
-            scale=(4.5, 4.5, 4.5),
-            offset=(shift * 0.4, shift * 0.2, shift * 0.1),
-            detail=7.0,
-            roughness=0.62,
+            location=(-1180, 100),
+            scale=(210.0, 210.0, 210.0),
+            offset=(shift * 0.43, shift * 0.37, shift * 0.41),
+            detail=12.0,
+            roughness=0.82,
+        )
+        cracks = _voronoi_edges(
+            nodes,
+            links,
+            generated,
+            location=(-1180, -240),
+            scale=(46.0, 46.0, 46.0),
+            offset=(shift * 0.07, shift * 0.19, shift * 0.05),
+            randomness=1.0,
+        )
+        seams = _voronoi_edges(
+            nodes,
+            links,
+            generated,
+            location=(-1180, -460),
+            scale=(62.0, 62.0, 62.0),
+            offset=(shift * 0.23, shift * 0.09, shift * 0.29),
+            randomness=0.95,
+        )
+        # Rock is fractured in patches, not everywhere at one strength. Without
+        # this gate the crack net reads as reptile skin. It bottoms out at zero
+        # on purpose: most of a wall shows no crack at all.
+        fracture = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-1180, -900),
+            scale=(2.4, 2.4, 1.8),
+            offset=(shift * 0.37, shift * 0.29, shift * 0.11),
+            detail=3.0,
+            roughness=0.5,
+        )
+        fracture_gate = _remap(
+            nodes,
+            links,
+            fracture,
+            location=(-820, -900),
+            from_min=0.5,
+            from_max=0.63,
+            to_min=0.0,
+            to_max=1.0,
+        )
+        streaks = (
+            _wave(
+                nodes,
+                links,
+                generated,
+                location=(-1180, -1120),
+                scale=(1.0, 1.0, 0.22),
+                rotation=(0.0, 0.0, 0.4),
+                offset=(shift * 0.13, shift * 0.07, 0.0),
+                wave_scale=3.5,
+                distortion=18.0,
+                bands="X",
+            )
+            if calcite
+            else None
+        )
+        high = _height_mask(
+            nodes,
+            links,
+            generated,
+            location=(-1180, -680),
+            from_min=0.03,
+            from_max=0.4,
+        )
+
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(-620, 640),
+            # Noise Fac clusters hard around 0.5, so every window below is narrow
+            # on purpose. Widen one and that layer stops showing up in the bake.
+            factor=_remap(
+                nodes,
+                links,
+                strata,
+                location=(-820, 640),
+                from_min=0.42,
+                from_max=0.58,
+                to_min=0.0,
+                to_max=1.0,
+            ),
+            color_a=_rgb(
+                nodes,
+                (base[0] * 0.72, base[1] * 0.7, base[2] * 0.68),
+                location=(-820, 820),
+            ),
+            color_b=_rgb(
+                nodes,
+                (
+                    min(1.0, base[0] * 1.2 + 0.014),
+                    min(1.0, base[1] * 1.17 + 0.012),
+                    min(1.0, base[2] * 1.12 + 0.01),
+                ),
+                location=(-820, 960),
+            ),
+        )
+        # Metre-scale value blotches. Without these the wall is one flat tone no
+        # matter how much fine detail sits on top of it.
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(-500, 600),
+            factor=_remap(
+                nodes,
+                links,
+                blotch,
+                location=(-620, 520),
+                from_min=0.43,
+                from_max=0.6,
+                to_min=0.0,
+                to_max=0.62,
+            ),
+            color_a=color,
+            color_b=_rgb(
+                nodes,
+                (base[0] * 0.5, base[1] * 0.5, base[2] * 0.52),
+                location=(-620, 660),
+            ),
+        )
+        # Iron stain on rock, cream flowstone on calcite: the hue break that
+        # stops grey rock reading as concrete.
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(-380, 520),
+            factor=_remap(
+                nodes,
+                links,
+                patches,
+                location=(-620, 420),
+                from_min=0.53,
+                from_max=0.64,
+                to_min=0.0,
+                to_max=0.55,
+            ),
+            color_a=color,
+            color_b=_rgb(
+                nodes,
+                (min(1.0, base[0] * 1.15 + 0.02), base[1] * 0.72, base[2] * 0.42)
+                if not calcite
+                else (base[0] * 1.28 + 0.03, base[1] * 1.24 + 0.03, base[2] * 1.16 + 0.02),
+                location=(-620, 300),
+            ),
         )
         color = _mix_rgba(
             nodes,
             links,
-            location=(80, 280),
-            factor=grit,
+            location=(-140, 400),
+            factor=_remap(
+                nodes,
+                links,
+                patches,
+                location=(-380, 300),
+                from_min=0.36,
+                from_max=0.47,
+                to_min=0.38,
+                to_max=0.0,
+            ),
+            color_a=color,
+            color_b=_rgb(
+                nodes,
+                (
+                    min(1.0, base[0] * 1.3 + 0.05),
+                    min(1.0, base[1] * 1.27 + 0.05),
+                    min(1.0, base[2] * 1.2 + 0.04),
+                ),
+                location=(-380, 180),
+            ),
+        )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(100, 340),
+            factor=_remap(
+                nodes,
+                links,
+                mottle,
+                location=(-140, 200),
+                from_min=0.42,
+                from_max=0.6,
+                to_min=0.0,
+                to_max=0.55,
+            ),
+            color_a=color,
+            color_b=_rgb(
+                nodes,
+                (base[0] * 0.38, base[1] * 0.38, base[2] * 0.39),
+                location=(-140, 80),
+            ),
+        )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(340, 300),
+            factor=_remap(
+                nodes,
+                links,
+                speckle,
+                location=(100, -20),
+                from_min=0.48,
+                from_max=0.62,
+                to_min=0.0,
+                to_max=0.24,
+            ),
+            color_a=color,
+            color_b=_rgb(
+                nodes,
+                (
+                    min(1.0, base[0] * 1.6 + 0.04),
+                    min(1.0, base[1] * 1.54 + 0.04),
+                    min(1.0, base[2] * 1.45 + 0.03),
+                ),
+                location=(100, -140),
+            ),
+        )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(440, 340),
+            factor=_remap(
+                nodes,
+                links,
+                grit,
+                location=(100, 100),
+                from_min=0.44,
+                from_max=0.58,
+                to_min=0.0,
+                to_max=0.34,
+            ),
+            color_a=color,
+            color_b=_rgb(
+                nodes,
+                (base[0] * 0.45, base[1] * 0.44, base[2] * 0.44),
+                location=(100, 220),
+            ),
+        )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(580, 260),
+            factor=_multiply(
+                nodes,
+                links,
+                _remap(
+                    nodes,
+                    links,
+                    cracks,
+                    location=(100, -240),
+                    from_min=0.0,
+                    from_max=0.055,
+                    to_min=0.3,
+                    to_max=0.0,
+                ),
+                fracture_gate,
+                location=(340, -180),
+            ),
+            color_a=color,
+            color_b=_rgb(nodes, (0.05, 0.043, 0.038), location=(340, -300)),
+        )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(580, 80),
+            factor=_multiply(
+                nodes,
+                links,
+                _remap(
+                    nodes,
+                    links,
+                    seams,
+                    location=(100, -460),
+                    from_min=0.0,
+                    from_max=0.06,
+                    to_min=0.28,
+                    to_max=0.0,
+                ),
+                fracture_gate,
+                location=(340, -400),
+            ),
+            color_a=color,
+            color_b=_rgb(nodes, (0.09, 0.08, 0.07), location=(340, -520)),
+        )
+        if streaks is not None:
+            color = _mix_rgba(
+                nodes,
+                links,
+                location=(580, -100),
+                factor=_multiply(
+                    nodes,
+                    links,
+                    _remap(
+                        nodes,
+                        links,
+                        streaks,
+                        location=(100, -1120),
+                        from_min=0.58,
+                        from_max=0.97,
+                        to_min=0.0,
+                        to_max=0.4,
+                    ),
+                    high,
+                    location=(340, -1060),
+                ),
+                color_a=color,
+                color_b=_rgb(
+                    nodes,
+                    (
+                        min(1.0, base[0] * 1.9 + 0.1),
+                        min(1.0, base[1] * 1.85 + 0.1),
+                        min(1.0, base[2] * 1.75 + 0.09),
+                    ),
+                    location=(340, -1180),
+                ),
+            )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(700, 200),
+            factor=_remap(
+                nodes,
+                links,
+                high,
+                location=(-820, -680),
+                from_min=0.0,
+                from_max=1.0,
+                to_min=0.4,
+                to_max=0.0,
+            ),
+            color_a=color,
+            color_b=_rgb(
+                nodes,
+                (0.11, 0.115, 0.105) if not calcite else (0.22, 0.24, 0.23),
+                location=(340, -680),
+            ),
+        )
+        bump_mix = nodes.new(type="ShaderNodeMath")
+        bump_mix.location = (340, -580)
+        bump_mix.operation = "MULTIPLY"
+        links.new(cracks, bump_mix.inputs[0])
+        links.new(grit, bump_mix.inputs[1])
+        bump_height = bump_mix.outputs["Value"]
+        bump_strength = 0.95 if not calcite else 0.55
+        rough_base = spec.roughness
+    elif look in ("stone", "stone_trim"):
+        coarse = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, 260),
+            scale=(2.0, 2.0, 2.0),
+            offset=(shift * 0.15, shift * 0.21, shift * 0.08),
+            detail=5.0,
+            roughness=0.62,
+        )
+        grain = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, -40),
+            scale=(11.0, 11.0, 11.0),
+            offset=(shift * 0.4, shift * 0.2, shift * 0.1),
+            detail=8.0,
+            roughness=0.72,
+        )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(80, 240),
+            factor=coarse,
             color_a=dark_rgb.outputs[0],
+            color_b=lift_rgb.outputs[0],
+        )
+        grain_mask = nodes.new(type="ShaderNodeMapRange")
+        grain_mask.location = (70, 0)
+        grain_mask.inputs["From Min"].default_value = 0.38
+        grain_mask.inputs["From Max"].default_value = 0.76
+        grain_mask.inputs["To Min"].default_value = 0.0
+        grain_mask.inputs["To Max"].default_value = 0.28
+        grain_mask.clamp = True
+        links.new(grain, grain_mask.inputs["Value"])
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(300, 90),
+            factor=grain_mask.outputs["Result"],
+            color_a=color,
             color_b=base_rgb.outputs[0],
         )
-        mortar_rgb = nodes.new(type="ShaderNodeRGB")
-        mortar_rgb.location = (80, 40)
-        mortar_rgb.outputs[0].default_value = (
-            (0.14, 0.12, 0.1, 1.0) if look == "ashlar" else (0.22, 0.20, 0.17, 1.0)
+        bump_height = grain
+        bump_strength = 0.52 if look == "stone" else 0.32
+        rough_base = spec.roughness
+    elif look == "linen":
+        weave_x = _wave(
+            nodes,
+            links,
+            generated,
+            location=(-700, 220),
+            scale=(22.0, 1.0, 1.0),
+            rotation=(0.0, 0.0, 0.0),
+            offset=(shift * 0.02, 0.0, 0.0),
+            wave_scale=4.0,
+            distortion=0.15,
+            bands="X",
+        )
+        weave_z = _wave(
+            nodes,
+            links,
+            generated,
+            location=(-700, -60),
+            scale=(1.0, 1.0, 22.0),
+            rotation=(0.0, 0.0, 0.0),
+            offset=(0.0, 0.0, shift * 0.02),
+            wave_scale=4.0,
+            distortion=0.15,
+            bands="Z",
+        )
+        weave = nodes.new(type="ShaderNodeMath")
+        weave.location = (-250, 100)
+        weave.operation = "MULTIPLY"
+        links.new(weave_x, weave.inputs[0])
+        links.new(weave_z, weave.inputs[1])
+        mottling = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, 430),
+            scale=(2.0, 2.0, 2.0),
+            offset=(shift, shift * 0.4, shift * 0.2),
+            detail=4.0,
+            roughness=0.55,
+        )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(80, 220),
+            factor=mottling,
+            color_a=base_rgb.outputs[0],
+            color_b=lift_rgb.outputs[0],
         )
         color = _mix_rgba(
             nodes,
             links,
             location=(300, 80),
-            factor=mortar_mask.outputs["Result"],
+            factor=weave.outputs["Value"],
             color_a=color,
-            color_b=mortar_rgb.outputs[0],
+            color_b=dark_rgb.outputs[0],
         )
-        bump_height = grit
-        bump_strength = 0.7 if look != "stone_trim" else 0.45
-        rough_base = spec.roughness
-    elif look == "plaster":
-        grit = _noise(
+        bump_height = weave.outputs["Value"]
+        bump_strength = 0.22
+        rough_base = max(spec.roughness, 0.82)
+    elif look == "iron":
+        pitting = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, 220),
+            scale=(8.0, 8.0, 8.0),
+            offset=(shift, shift * 0.7, shift * 0.3),
+            detail=7.0,
+            roughness=0.68,
+        )
+        rust = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, -80),
+            scale=(2.2, 2.2, 2.2),
+            offset=(shift * 0.1, shift * 0.4, shift * 0.2),
+            detail=5.0,
+            roughness=0.58,
+        )
+        rust_rgb = nodes.new(type="ShaderNodeRGB")
+        rust_rgb.location = (-80, -120)
+        rust_rgb.outputs[0].default_value = (0.19, 0.065, 0.025, 1.0)
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(80, 220),
+            factor=pitting,
+            color_a=dark_rgb.outputs[0],
+            color_b=lift_rgb.outputs[0],
+        )
+        rust_mask = nodes.new(type="ShaderNodeMapRange")
+        rust_mask.location = (60, -60)
+        rust_mask.inputs["From Min"].default_value = 0.62
+        rust_mask.inputs["From Max"].default_value = 0.84
+        rust_mask.inputs["To Min"].default_value = 0.0
+        rust_mask.inputs["To Max"].default_value = 0.72
+        rust_mask.clamp = True
+        links.new(rust, rust_mask.inputs["Value"])
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(300, 80),
+            factor=rust_mask.outputs["Result"],
+            color_a=color,
+            color_b=rust_rgb.outputs[0],
+        )
+        bump_height = pitting
+        bump_strength = 0.3
+        rough_base = max(spec.roughness, 0.58)
+        principled.inputs["Metallic"].default_value = max(spec.metallic, 0.55)
+    elif look == "soot":
+        soot = _noise(
             nodes,
             links,
             generated,
             location=(-700, 200),
-            scale=(1.4, 1.4, 1.4),
-            offset=(shift, shift * 0.6, shift * 0.3),
-            detail=3.0,
-            roughness=0.35,
+            scale=(3.0, 3.0, 5.0),
+            offset=(shift, shift * 0.6, shift * 0.2),
+            detail=8.0,
+            roughness=0.72,
         )
-        grit_mask = nodes.new(type="ShaderNodeMapRange")
-        grit_mask.location = (-280, 200)
-        grit_mask.inputs["From Min"].default_value = 0.35
-        grit_mask.inputs["From Max"].default_value = 0.72
-        grit_mask.inputs["To Min"].default_value = 0.0
-        grit_mask.inputs["To Max"].default_value = 0.18
-        grit_mask.clamp = True
-        links.new(grit, grit_mask.inputs["Value"])
+        ember_rgb = nodes.new(type="ShaderNodeRGB")
+        ember_rgb.location = (-180, 300)
+        ember_rgb.outputs[0].default_value = (0.24, 0.045, 0.012, 1.0)
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(100, 160),
+            factor=soot,
+            color_a=dark_rgb.outputs[0],
+            color_b=ember_rgb.outputs[0],
+        )
+        bump_height = soot
+        bump_strength = 0.18
+        rough_base = 0.96
+    elif look == "plaster":
+        coarse = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, 200),
+            scale=(1.1, 1.1, 1.1),
+            offset=(shift, shift * 0.6, shift * 0.3),
+            detail=5.0,
+            roughness=0.58,
+        )
+        pores = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, -80),
+            scale=(14.0, 14.0, 14.0),
+            offset=(shift * 0.2, shift * 0.4, shift * 0.1),
+            detail=7.0,
+            roughness=0.7,
+        )
+        warm_rgb = nodes.new(type="ShaderNodeRGB")
+        warm_rgb.location = (-120, 360)
+        warm_rgb.outputs[0].default_value = (
+            spec.base_color[0] * 0.72,
+            spec.base_color[1] * 0.67,
+            spec.base_color[2] * 0.58,
+            1.0,
+        )
         color = _mix_rgba(
             nodes,
             links,
             location=(80, 200),
-            factor=grit_mask.outputs["Result"],
-            color_a=base_rgb.outputs[0],
+            factor=coarse,
+            color_a=warm_rgb.outputs[0],
             color_b=lift_rgb.outputs[0],
         )
-        bump_height = grit
-        bump_strength = 0.12
+        pore_mask = nodes.new(type="ShaderNodeMapRange")
+        pore_mask.location = (80, -50)
+        pore_mask.inputs["From Min"].default_value = 0.42
+        pore_mask.inputs["From Max"].default_value = 0.78
+        pore_mask.inputs["To Min"].default_value = 0.0
+        pore_mask.inputs["To Max"].default_value = 0.18
+        pore_mask.clamp = True
+        links.new(pores, pore_mask.inputs["Value"])
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(300, 70),
+            factor=pore_mask.outputs["Result"],
+            color_a=color,
+            color_b=base_rgb.outputs[0],
+        )
+        bump_height = pores
+        bump_strength = 0.18
         rough_base = spec.roughness
     else:
         grit = _noise(
@@ -1791,6 +3792,48 @@ def _build_look_material(
         bump_strength = 0.35
         rough_base = spec.roughness
 
+    weather_colors = {
+        "timber": (0.075, 0.043, 0.022, 1.0),
+        "shingle": (0.12, 0.15, 0.105, 1.0),
+        "thatch": (0.19, 0.145, 0.07, 1.0),
+        "ashlar": (0.18, 0.16, 0.125, 1.0),
+        "stone": (0.17, 0.15, 0.12, 1.0),
+        "stone_trim": (0.16, 0.14, 0.115, 1.0),
+        "brick": (0.17, 0.075, 0.04, 1.0),
+        "plaster": (0.34, 0.27, 0.17, 1.0),
+    }
+    weather_color = weather_colors.get(look)
+    if weather_color is not None:
+        age = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-720, 650),
+            scale=(0.65, 0.65, 0.9),
+            offset=(shift * 0.08, shift * 0.11, shift * 0.05),
+            detail=5.0,
+            roughness=0.64,
+        )
+        age_mask = nodes.new(type="ShaderNodeMapRange")
+        age_mask.location = (60, 500)
+        age_mask.inputs["From Min"].default_value = 0.48
+        age_mask.inputs["From Max"].default_value = 0.82
+        age_mask.inputs["To Min"].default_value = 0.0
+        age_mask.inputs["To Max"].default_value = 0.24 if look == "plaster" else 0.17
+        age_mask.clamp = True
+        links.new(age, age_mask.inputs["Value"])
+        age_rgb = nodes.new(type="ShaderNodeRGB")
+        age_rgb.location = (260, 500)
+        age_rgb.outputs[0].default_value = weather_color
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(490, 330),
+            factor=age_mask.outputs["Result"],
+            color_a=color,
+            color_b=age_rgb.outputs[0],
+        )
+
     links.new(color, principled.inputs["Base Color"])
     rough_math = nodes.new(type="ShaderNodeMath")
     rough_math.location = (520, -160)
@@ -1822,7 +3865,7 @@ def _apply_procedural_slots(obj: bpy.types.Object, spec: AssetSpec, params: KitP
         )
     for index, slot in enumerate(MATERIAL_SLOTS):
         look = _slot_look(params, slot)
-        mesh.materials[index] = _build_look_material(
+        mesh.materials[index] = build_look_material(
             f"{spec.asset_id}_{slot}_{look}",
             spec.materials[slot],
             look,
@@ -1856,6 +3899,13 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     if params.bevel_width > 0.0:
         apply_bevel(obj, width=params.bevel_width, segments=1, angle_deg=30.0)
     shade_flat(obj)
-    unwrap(obj)
+    if params.jagged:
+        # A displaced rock shell has a sharp angle at nearly every quad, so the
+        # default 66 degree limit shreds it into thousands of islands whose
+        # margins eat the atlas. One island per shell keeps the texel density
+        # that the baked rock detail needs.
+        unwrap(obj, angle_limit_deg=87.0, island_margin=0.0015)
+    else:
+        unwrap(obj)
     _bake_kit_textures(obj, spec, params)
     return [obj]

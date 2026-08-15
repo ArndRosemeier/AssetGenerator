@@ -100,6 +100,28 @@ class BoxBuilder:
         size = tuple(high - low for low, high in zip(lower, upper))
         self.add_box((center[0], center[1], center[2]), (size[0], size[1], size[2]), slot)
 
+    def add_mesh(
+        self,
+        vertices: Sequence[tuple[float, float, float]],
+        faces: Sequence[Sequence[int]],
+        slot: str,
+    ) -> None:
+        """Add one closed hand-built shell (displaced rock, spindles).
+
+        Faces must wind counter-clockwise seen from outside and the shell must be
+        watertight: QA gates manifoldness and signed volume, so a hole or an
+        inverted face fails the build instead of shipping.
+        """
+        if len(vertices) < 4 or len(faces) < 4:
+            raise ValueError(f"A closed shell needs 4+ verts and 4+ faces, got {len(vertices)}/{len(faces)}")
+        index = self.slot_index(slot)
+        created = [self._bmesh.verts.new(Vector(vertex)) for vertex in vertices]
+        for corners in faces:
+            if len(corners) < 3:
+                raise ValueError(f"Face needs 3+ corners, got {list(corners)}")
+            face = self._bmesh.faces.new([created[corner] for corner in corners])
+            face.material_index = index
+
     def to_object(self, name: str, materials: Mapping[str, MaterialSpec]) -> bpy.types.Object:
         if not self._bmesh.faces:
             raise RuntimeError(f"Generator produced no geometry for '{name}'")

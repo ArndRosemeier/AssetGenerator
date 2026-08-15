@@ -1,0 +1,56 @@
+{
+  "spec_version": 1,
+  "id": "dungeon_room_corner_vault",
+  "generator": "hard_surface.kit_cell",
+  "params": {
+    "kind": "dungeon_corner",
+    "cell_xz": 4.0,
+    "cell_y": 2.7,
+    "wall_thickness": 0.38,
+    "overlap": 0.02,
+    "door_width": 1.2,
+    "door_height": 2.15,
+    "window_width": 0.7,
+    "window_height": 0.9,
+    "window_sill": 1.0,
+    "roof_height": 0.85,
+    "overhang": 0.18,
+    "jetty": 0.0,
+    "timber": false,
+    "bevel_width": 0.0,
+    "jagged": false,
+    "storey_role": "vault",
+    "texture_resolution": 1024,
+    "bake_samples": 8,
+    "seed": 123
+  },
+  "materials": {
+    "structure": {
+      "base_color": [
+        0.64,
+        0.58,
+        0.49,
+        1.0
+      ],
+      "roughness": 0.94,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [
+        0.4,
+        0.34,
+        0.26,
+        1.0
+      ],
+      "roughness": 0.9,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": false,
+    "max_dimension_m": 6.0
+  }
+}

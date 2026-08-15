@@ -1,0 +1,45 @@
+{
+  "spec_version": 1,
+  "id": "dungeon_plinth_b",
+  "generator": "hard_surface.kit_cell",
+  "params": {
+    "kind": "dungeon_plinth",
+    "cell_xz": 4.0,
+    "cell_y": 2.7,
+    "wall_thickness": 0.5,
+    "overlap": 0.02,
+    "door_width": 1.2,
+    "door_height": 2.15,
+    "window_width": 0.7,
+    "window_height": 0.9,
+    "window_sill": 1.0,
+    "roof_height": 0.85,
+    "overhang": 0.18,
+    "jetty": 0.0,
+    "timber": false,
+    "bevel_width": 0.0,
+    "jagged": true,
+    "texture_resolution": 1024,
+    "bake_samples": 12,
+    "seed": 83
+  },
+  "materials": {
+    "structure": {
+      "base_color": [0.145, 0.135, 0.125, 1.0],
+      "roughness": 0.93,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [0.3, 0.275, 0.235, 1.0],
+      "roughness": 0.72,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 20000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 6.0
+  }
+}
