@@ -48,6 +48,30 @@ character_studio\CharacterStudio.bat
 
 See [`character_studio/README.md`](character_studio/README.md).
 
+## Quaternius monster pack
+
+[Quaternius Ultimate Monsters](https://quaternius.com/packs/ultimatemonsters.html)
+(CC0) lives here as a library other projects can copy from. Fifty bodies in three
+rig families (`big`, `blob`, `flying`), one shared atlas, measured heights and
+clip names in [`assets/monsters/quaternius/catalog.json`](assets/monsters/quaternius/catalog.json).
+
+The `.glb` files are gitignored. Fetch them (copies from a sibling City checkout
+when that pack is already there):
+
+```bash
+python tools/fetch_quaternius_monsters.py
+```
+
+A small Engine viewer browses the catalog and plays clips. Character Studio stays
+Godot and is unchanged. City keeps its own copy of the pack for now.
+
+```bat
+viewer\monster_pack\MonsterPack.bat
+```
+
+or `cargo run -p monster_pack`. License notes: [`docs/LICENSE_ASSETS.md`](docs/LICENSE_ASSETS.md).
+This pack is **not** part of `python tools/ag.py regenerate`.
+
 ## Make one asset
 
 ```bash
@@ -112,11 +136,13 @@ non-zero exit code.
 ```text
 assets/specs/          asset definitions (the source of truth, committed)
 assets/out/            generated .glb files and previews (gitignored)
+assets/monsters/       Quaternius catalog (committed) + fetched .glb files (gitignored)
 blender/lib/           scene setup, QA, export, preview helpers
 blender/generators/    one module per asset family
 blender/entrypoints/   scripts Blender executes; they only ever write a JSON report
 tools/ag.py            the CLI everything goes through
 tools/bootstrap.py     one-command Blender setup
+viewer/monster_pack/   Engine catalog browser for the monster pack
 .cursor/               rule and skill that keep the agent in the validated loop
 ```
 

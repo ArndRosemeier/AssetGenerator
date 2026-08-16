@@ -1,0 +1,26 @@
+Quaternius — Ultimate Monsters (October 2022)
+https://quaternius.com/packs/ultimatemonsters.html
+Source: Google Drive folder 18m4KpzpEzhC9wl7jzr6dUc0N8Jozr79C (author's own download link)
+
+License: CC0 1.0 Universal. See License.txt, which is the file bundled with
+the download by the author, vendored unedited. It is his boilerplate and names
+a different pack of his (Ultimate Platformer Pack) while stating CC0; the pack
+page states the same terms. Sketchfab and scraper mirrors of this pack
+sometimes state CC-BY; the author's page and the bundled License.txt are the
+terms this repository relies on.
+
+Vendored form: the pack ships self-contained .gltf with the atlas base64'd
+into every file. tools/fetch_quaternius_monsters.py rewrites each as .glb
+referencing the single shared Atlas_Monsters.png in this directory.
+Geometry, rigs and animation clips are untouched.
+
+Rig families:
+  big/    16 models, 43-bone humanoid rig, 14 clips, 2.8-4.0 units tall
+  blob/   17 models, 4-bone rig (Body/Head/Head2/Head3), 9 clips
+  flying/ 17 models, flier rig; no ground walk cycle
+
+Catalogue (heights, offsets, clip names): catalog.json in this directory.
+
+Rebuild the gitignored .glb files and atlas with:
+
+    python tools/fetch_quaternius_monsters.py

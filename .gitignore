@@ -20,6 +20,15 @@ tools/character_studio/.mpfb_user_data/
 tools/character_studio/.mh_download_cache/
 tools/character_studio/makehuman_extra_assets/clothes/
 
+# Quaternius Ultimate Monsters: fetch the .glb files and atlas
+assets/monsters/quaternius/**
+!assets/monsters/quaternius/.gitkeep
+!assets/monsters/quaternius/catalog.json
+!assets/monsters/quaternius/CREDITS.txt
+
+# Engine viewer build
+/target/
+
 __pycache__/
 *.py[cod]
 .venv/

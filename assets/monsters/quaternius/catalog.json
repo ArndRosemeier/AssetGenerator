@@ -1,0 +1,90 @@
+{
+  "pack": "quaternius.ultimate_monsters",
+  "title": "Quaternius Ultimate Monsters",
+  "source": "https://quaternius.com/packs/ultimatemonsters.html",
+  "license": "CC0-1.0",
+  "atlas": "Atlas_Monsters.png",
+  "families": {
+    "big": {
+      "rig": "43-bone humanoid (49 on Bunny, which adds ear bones)",
+      "clips": {
+        "idle": "Idle",
+        "locomotion": "Walk",
+        "death": "Death",
+        "melee": "Punch",
+        "cast": "Weapon",
+        "hit": "HitReact"
+      }
+    },
+    "blob": {
+      "rig": "4-bone (Body/Head/Head2/Head3)",
+      "clips": {
+        "idle": "Idle",
+        "locomotion": "Walk",
+        "death": "Death",
+        "melee": "Bite_Front",
+        "cast": "Bite_Front",
+        "hit": "HitRecieve"
+      }
+    },
+    "flying": {
+      "rig": "flier; most authored hovering; no ground walk cycle",
+      "clips": {
+        "idle": "Flying_Idle",
+        "locomotion": "Fast_Flying"
+      }
+    }
+  },
+  "bodies": [
+    {"id": "big/Alien", "family": "big", "file": "big/Alien.glb", "measured_height_m": 3.547, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Birb", "family": "big", "file": "big/Birb.glb", "measured_height_m": 3.328, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/BlueDemon", "family": "big", "file": "big/BlueDemon.glb", "measured_height_m": 2.841, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Bunny", "family": "big", "file": "big/Bunny.glb", "measured_height_m": 3.444, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Cactoro", "family": "big", "file": "big/Cactoro.glb", "measured_height_m": 3.957, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Demon", "family": "big", "file": "big/Demon.glb", "measured_height_m": 3.120, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Dino", "family": "big", "file": "big/Dino.glb", "measured_height_m": 3.226, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Fish", "family": "big", "file": "big/Fish.glb", "measured_height_m": 3.755, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Frog", "family": "big", "file": "big/Frog.glb", "measured_height_m": 2.695, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Monkroose", "family": "big", "file": "big/Monkroose.glb", "measured_height_m": 2.985, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/MushroomKing", "family": "big", "file": "big/MushroomKing.glb", "measured_height_m": 3.609, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Ninja", "family": "big", "file": "big/Ninja.glb", "measured_height_m": 3.021, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Orc", "family": "big", "file": "big/Orc.glb", "measured_height_m": 3.209, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Orc_Skull", "family": "big", "file": "big/Orc_Skull.glb", "measured_height_m": 3.268, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Tribal", "family": "big", "file": "big/Tribal.glb", "measured_height_m": 3.929, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "big/Yeti", "family": "big", "file": "big/Yeti.glb", "measured_height_m": 2.828, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Alien", "family": "blob", "file": "blob/Alien.glb", "measured_height_m": 3.243, "offset": [0.0, 0.0, 0.315], "notes": ""},
+    {"id": "blob/Birb", "family": "blob", "file": "blob/Birb.glb", "measured_height_m": 2.612, "offset": [0.0, 0.0, -0.771], "notes": ""},
+    {"id": "blob/Cactoro", "family": "blob", "file": "blob/Cactoro.glb", "measured_height_m": 3.574, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Cat", "family": "blob", "file": "blob/Cat.glb", "measured_height_m": 1.944, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Chicken", "family": "blob", "file": "blob/Chicken.glb", "measured_height_m": 2.347, "offset": [0.0, 0.0, -0.211], "notes": ""},
+    {"id": "blob/Dog", "family": "blob", "file": "blob/Dog.glb", "measured_height_m": 1.828, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Fish", "family": "blob", "file": "blob/Fish.glb", "measured_height_m": 2.731, "offset": [0.0, 0.0, -0.440], "notes": ""},
+    {"id": "blob/GreenBlob", "family": "blob", "file": "blob/GreenBlob.glb", "measured_height_m": 1.853, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/GreenSpikyBlob", "family": "blob", "file": "blob/GreenSpikyBlob.glb", "measured_height_m": 4.143, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Mushnub", "family": "blob", "file": "blob/Mushnub.glb", "measured_height_m": 3.296, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Mushnub_Evolved", "family": "blob", "file": "blob/Mushnub_Evolved.glb", "measured_height_m": 4.411, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Ninja", "family": "blob", "file": "blob/Ninja.glb", "measured_height_m": 3.011, "offset": [0.0, 0.0, 0.0], "notes": "rest pose sits 0.23 units below y=0"},
+    {"id": "blob/Orc", "family": "blob", "file": "blob/Orc.glb", "measured_height_m": 2.347, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Pigeon", "family": "blob", "file": "blob/Pigeon.glb", "measured_height_m": 1.802, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/PinkBlob", "family": "blob", "file": "blob/PinkBlob.glb", "measured_height_m": 2.009, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Wizard", "family": "blob", "file": "blob/Wizard.glb", "measured_height_m": 2.601, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "blob/Yeti", "family": "blob", "file": "blob/Yeti.glb", "measured_height_m": 2.437, "offset": [0.0, 0.0, 0.0], "notes": ""},
+    {"id": "flying/Alpaking", "family": "flying", "file": "flying/Alpaking.glb", "measured_height_m": 2.139, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Alpaking_Evolved", "family": "flying", "file": "flying/Alpaking_Evolved.glb", "measured_height_m": 3.192, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Armabee", "family": "flying", "file": "flying/Armabee.glb", "measured_height_m": 1.886, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Armabee_Evolved", "family": "flying", "file": "flying/Armabee_Evolved.glb", "measured_height_m": 2.138, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Demon", "family": "flying", "file": "flying/Demon.glb", "measured_height_m": 1.676, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers; this body ships a single clip"},
+    {"id": "flying/Dragon", "family": "flying", "file": "flying/Dragon.glb", "measured_height_m": 1.541, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Dragon_Evolved", "family": "flying", "file": "flying/Dragon_Evolved.glb", "measured_height_m": 2.858, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Ghost", "family": "flying", "file": "flying/Ghost.glb", "measured_height_m": 3.101, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Ghost_Skull", "family": "flying", "file": "flying/Ghost_Skull.glb", "measured_height_m": 3.101, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Glub", "family": "flying", "file": "flying/Glub.glb", "measured_height_m": 2.351, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Glub_Evolved", "family": "flying", "file": "flying/Glub_Evolved.glb", "measured_height_m": 3.707, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Goleling", "family": "flying", "file": "flying/Goleling.glb", "measured_height_m": 1.552, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Goleling_Evolved", "family": "flying", "file": "flying/Goleling_Evolved.glb", "measured_height_m": 2.568, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Hywirl", "family": "flying", "file": "flying/Hywirl.glb", "measured_height_m": 2.745, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Pigeon", "family": "flying", "file": "flying/Pigeon.glb", "measured_height_m": 1.370, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Squidle", "family": "flying", "file": "flying/Squidle.glb", "measured_height_m": 1.987, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"},
+    {"id": "flying/Tribal", "family": "flying", "file": "flying/Tribal.glb", "measured_height_m": 4.108, "offset": [0.0, 0.0, 0.0], "notes": "flying rig: hovers, and has no ground locomotion clip"}
+  ]
+}
