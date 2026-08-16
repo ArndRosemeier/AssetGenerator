@@ -1,0 +1,33 @@
+{
+  "spec_version": 1,
+  "id": "sedge_marsh_tall",
+  "generator": "nature.sedge",
+  "params": {
+    "height": 0.72,
+    "blade_count": 7,
+    "blade_width": 0.07,
+    "blade_thickness": 0.008,
+    "splay": 0.18,
+    "drooping": 0.12,
+    "seed": 831
+  },
+  "materials": {
+    "blades": {
+      "base_color": [
+        0.1,
+        0.24,
+        0.08,
+        1.0
+      ],
+      "roughness": 0.91,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2500,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.4
+  }
+}

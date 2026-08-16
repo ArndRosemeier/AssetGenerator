@@ -1,0 +1,45 @@
+{
+  "spec_version": 1,
+  "id": "mushroom_shelf_log",
+  "generator": "nature.mushroom",
+  "params": {
+    "mushroom_count": 5,
+    "cluster_spread": 0.22,
+    "stem_height": 0.04,
+    "stem_radius": 0.012,
+    "cap_radius": 0.16,
+    "cap_squash": 0.28,
+    "spot_count": 0,
+    "spot_radius": 0.02,
+    "seed": 803
+  },
+  "materials": {
+    "stem": {
+      "base_color": [
+        0.35,
+        0.22,
+        0.12,
+        1.0
+      ],
+      "roughness": 0.92,
+      "metallic": 0.0
+    },
+    "cap": {
+      "base_color": [
+        0.52,
+        0.38,
+        0.18,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}

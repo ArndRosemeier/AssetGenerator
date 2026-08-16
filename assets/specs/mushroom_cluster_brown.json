@@ -1,0 +1,45 @@
+{
+  "spec_version": 1,
+  "id": "mushroom_cluster_brown",
+  "generator": "nature.mushroom",
+  "params": {
+    "mushroom_count": 4,
+    "cluster_spread": 0.14,
+    "stem_height": 0.12,
+    "stem_radius": 0.018,
+    "cap_radius": 0.11,
+    "cap_squash": 0.55,
+    "spot_count": 0,
+    "spot_radius": 0.02,
+    "seed": 801
+  },
+  "materials": {
+    "stem": {
+      "base_color": [
+        0.78,
+        0.72,
+        0.62,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    },
+    "cap": {
+      "base_color": [
+        0.42,
+        0.28,
+        0.14,
+        1.0
+      ],
+      "roughness": 0.78,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}

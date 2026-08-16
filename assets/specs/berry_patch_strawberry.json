@@ -1,0 +1,43 @@
+{
+  "spec_version": 1,
+  "id": "berry_patch_strawberry",
+  "generator": "nature.berry_patch",
+  "params": {
+    "patch_radius": 0.18,
+    "leaf_count": 3,
+    "leaf_radius": 0.16,
+    "leaf_height": 0.06,
+    "berry_count": 10,
+    "berry_radius": 0.032,
+    "seed": 813
+  },
+  "materials": {
+    "leaves": {
+      "base_color": [
+        0.06,
+        0.22,
+        0.07,
+        1.0
+      ],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "berries": {
+      "base_color": [
+        0.72,
+        0.1,
+        0.12,
+        1.0
+      ],
+      "roughness": 0.42,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1800,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

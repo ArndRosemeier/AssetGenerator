@@ -1,0 +1,32 @@
+{
+  "spec_version": 1,
+  "id": "grass_tuft_coastal",
+  "generator": "nature.grass_tuft",
+  "params": {
+    "height": 0.35,
+    "blade_count": 8,
+    "blade_width": 0.038,
+    "blade_thickness": 0.005,
+    "splay": 0.24,
+    "seed": 843
+  },
+  "materials": {
+    "blades": {
+      "base_color": [
+        0.18,
+        0.3,
+        0.14,
+        1.0
+      ],
+      "roughness": 0.93,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}

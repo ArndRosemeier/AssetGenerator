@@ -1,0 +1,55 @@
+{
+  "spec_version": 1,
+  "id": "bush_berries_golden",
+  "generator": "nature.bush",
+  "params": {
+    "height": 0.88,
+    "spread": 0.58,
+    "stem_count": 4,
+    "stem_radius": 0.025,
+    "lobe_count": 4,
+    "lobe_radius": 0.32,
+    "berry_count": 10,
+    "berry_radius": 0.034,
+    "seed": 823
+  },
+  "materials": {
+    "wood": {
+      "base_color": [
+        0.11,
+        0.07,
+        0.04,
+        1.0
+      ],
+      "roughness": 0.95,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [
+        0.07,
+        0.2,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "berries": {
+      "base_color": [
+        0.78,
+        0.58,
+        0.08,
+        1.0
+      ],
+      "roughness": 0.44,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1800,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.6
+  }
+}

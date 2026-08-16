@@ -1,0 +1,55 @@
+{
+  "spec_version": 1,
+  "id": "mushroom_cluster_red_spotted",
+  "generator": "nature.mushroom",
+  "params": {
+    "mushroom_count": 3,
+    "cluster_spread": 0.12,
+    "stem_height": 0.14,
+    "stem_radius": 0.02,
+    "cap_radius": 0.13,
+    "cap_squash": 0.58,
+    "spot_count": 8,
+    "spot_radius": 0.022,
+    "seed": 802
+  },
+  "materials": {
+    "stem": {
+      "base_color": [
+        0.82,
+        0.78,
+        0.7,
+        1.0
+      ],
+      "roughness": 0.82,
+      "metallic": 0.0
+    },
+    "cap": {
+      "base_color": [
+        0.62,
+        0.08,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.72,
+      "metallic": 0.0
+    },
+    "spots": {
+      "base_color": [
+        0.92,
+        0.9,
+        0.86,
+        1.0
+      ],
+      "roughness": 0.65,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}

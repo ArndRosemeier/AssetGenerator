@@ -1,0 +1,33 @@
+{
+  "spec_version": 1,
+  "id": "sedge_dry_golden",
+  "generator": "nature.sedge",
+  "params": {
+    "height": 0.48,
+    "blade_count": 5,
+    "blade_width": 0.055,
+    "blade_thickness": 0.006,
+    "splay": 0.16,
+    "drooping": 0.18,
+    "seed": 833
+  },
+  "materials": {
+    "blades": {
+      "base_color": [
+        0.48,
+        0.38,
+        0.12,
+        1.0
+      ],
+      "roughness": 0.94,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}

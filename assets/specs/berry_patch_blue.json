@@ -1,0 +1,43 @@
+{
+  "spec_version": 1,
+  "id": "berry_patch_blue",
+  "generator": "nature.berry_patch",
+  "params": {
+    "patch_radius": 0.22,
+    "leaf_count": 4,
+    "leaf_radius": 0.14,
+    "leaf_height": 0.08,
+    "berry_count": 16,
+    "berry_radius": 0.028,
+    "seed": 811
+  },
+  "materials": {
+    "leaves": {
+      "base_color": [
+        0.05,
+        0.18,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "berries": {
+      "base_color": [
+        0.12,
+        0.16,
+        0.48,
+        1.0
+      ],
+      "roughness": 0.45,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1800,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

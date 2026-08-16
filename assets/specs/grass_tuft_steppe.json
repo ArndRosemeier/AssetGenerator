@@ -1,0 +1,32 @@
+{
+  "spec_version": 1,
+  "id": "grass_tuft_steppe",
+  "generator": "nature.grass_tuft",
+  "params": {
+    "height": 0.18,
+    "blade_count": 5,
+    "blade_width": 0.035,
+    "blade_thickness": 0.004,
+    "splay": 0.1,
+    "seed": 842
+  },
+  "materials": {
+    "blades": {
+      "base_color": [
+        0.42,
+        0.36,
+        0.14,
+        1.0
+      ],
+      "roughness": 0.96,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 1500,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 0.8
+  }
+}

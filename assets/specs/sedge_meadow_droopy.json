@@ -1,0 +1,33 @@
+{
+  "spec_version": 1,
+  "id": "sedge_meadow_droopy",
+  "generator": "nature.sedge",
+  "params": {
+    "height": 0.58,
+    "blade_count": 6,
+    "blade_width": 0.062,
+    "blade_thickness": 0.007,
+    "splay": 0.22,
+    "drooping": 0.22,
+    "seed": 832
+  },
+  "materials": {
+    "blades": {
+      "base_color": [
+        0.14,
+        0.28,
+        0.1,
+        1.0
+      ],
+      "roughness": 0.92,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}

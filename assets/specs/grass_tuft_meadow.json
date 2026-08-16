@@ -1,0 +1,32 @@
+{
+  "spec_version": 1,
+  "id": "grass_tuft_meadow",
+  "generator": "nature.grass_tuft",
+  "params": {
+    "height": 0.55,
+    "blade_count": 11,
+    "blade_width": 0.048,
+    "blade_thickness": 0.005,
+    "splay": 0.2,
+    "seed": 841
+  },
+  "materials": {
+    "blades": {
+      "base_color": [
+        0.1,
+        0.32,
+        0.08,
+        1.0
+      ],
+      "roughness": 0.9,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}
