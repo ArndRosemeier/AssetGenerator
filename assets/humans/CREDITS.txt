@@ -1,0 +1,14 @@
+MakeHuman / MPFB humans (Character Studio export)
+
+Bodies, face morphs and civilian clothes come from MakeHuman / MPFB and
+community clothes fetched into tools/character_studio/makehuman_extra_assets/.
+The export writes engine-agnostic .glb files here. Character Studio is one
+consumer; other projects should copy or load from this folder.
+
+Rebuild:
+
+    python tools/sync_character_studio_assets.py
+
+Licence notes: tools/character_studio/makehuman_extra_assets/LICENSES.json
+and docs/LICENSE_ASSETS.md. MakeHuman / MPFB outputs used here are CC0;
+the non-historical medieval dress is CC-BY (attribution required).

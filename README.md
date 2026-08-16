@@ -36,7 +36,8 @@ If you already have Blender installed elsewhere, set `BLENDER_BIN` to its execut
 ## Character Studio (face / body morphs)
 
 Focused Godot app with a **front-facing** preview, body/face sliders and a modular
-wardrobe: bodies and garments are exported separately by
+wardrobe. The humans themselves live in [`assets/humans/`](assets/humans/) (same
+library pattern as monsters). Bodies and garments are exported there by
 `tools/character_studio/blender_export_humans.py` (MPFB body + 28 face morphs +
 MakeHuman eyes + MakeHuman civilian clothes) and assembled onto one skeleton at
 runtime, so no outfit combination is pre-baked. It reuses City's vendored
@@ -149,6 +150,7 @@ non-zero exit code.
 ```text
 assets/specs/          asset definitions (the source of truth, committed)
 assets/out/            generated .glb files and previews (gitignored)
+assets/humans/         MakeHuman / MPFB library (wardrobe.json committed, .glb gitignored)
 assets/monsters/       Quaternius catalog (committed) + fetched .glb files (gitignored)
 blender/lib/           scene setup, QA, export, preview helpers
 blender/generators/    one module per asset family

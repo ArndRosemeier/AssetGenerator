@@ -17,11 +17,52 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CITY = Path(os.environ.get("CITY_ROOT", str(ROOT.parent / "City")))
-DEST = ROOT / "character_studio" / "assets" / "humans"
+DEST = ROOT / "assets" / "humans"
+STUDIO_LINK = ROOT / "character_studio" / "assets" / "humans"
 
 EXPORT_SCRIPT = ROOT / "tools" / "character_studio" / "blender_export_humans.py"
 BLENDER = CITY / "tools" / "vendor" / "blender" / "blender-4.2.9-windows-x64" / "blender.exe"
 MPFB_SRC = CITY / "tools" / "vendor" / "mpfb2_plugin" / "mpfb"
+
+
+def _link_target(path: Path) -> Path | None:
+    try:
+        return Path(os.readlink(path))
+    except OSError:
+        return None
+
+
+def _same_dir(a: Path, b: Path) -> bool:
+    def norm(p: Path) -> str:
+        text = os.path.normcase(os.path.normpath(str(p.resolve())))
+        return text.removeprefix("\\\\?\\")
+
+    return norm(a) == norm(b)
+
+
+def ensure_studio_link() -> None:
+    """Point Character Studio's res://assets/humans at the library folder."""
+    STUDIO_LINK.parent.mkdir(parents=True, exist_ok=True)
+    existing = _link_target(STUDIO_LINK)
+    if existing is not None:
+        if _same_dir(existing, DEST):
+            return
+        raise RuntimeError(
+            f"{STUDIO_LINK} links to {existing}, expected {DEST}"
+        )
+    if STUDIO_LINK.exists():
+        raise RuntimeError(
+            f"{STUDIO_LINK} exists and is not a link to {DEST}. "
+            "Move those files into assets/humans/ first."
+        )
+    if os.name == "nt":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(STUDIO_LINK), str(DEST)],
+            check=True,
+        )
+    else:
+        os.symlink(DEST, STUDIO_LINK, target_is_directory=True)
+    print(f"OK linked {STUDIO_LINK} -> {DEST}")
 
 
 def export_from_mpfb(only: str | None) -> int:
@@ -54,7 +95,15 @@ def main() -> int:
         default=None,
         help="comma-separated subset of export ids, e.g. male_base,male_shoes01",
     )
+    parser.add_argument(
+        "--link-only",
+        action="store_true",
+        help="create the Character Studio junction and exit",
+    )
     args = parser.parse_args()
+    ensure_studio_link()
+    if args.link_only:
+        return 0
     return export_from_mpfb(args.only)
 
 

@@ -5,7 +5,7 @@ directories — there is no asset registry.
 
 | Tab | Scans |
 | --- | --- |
-| Humans | `character_studio/assets/humans/*.glb` (base + dressed outfits) |
+| Humans | `assets/humans/*.glb` (base + dressed outfits) |
 | Monsters | `assets/monsters/**/*.glb` |
 | Assets | `assets/out/*.glb` (generated specs: trees, rocks, kit cells, …) |
 

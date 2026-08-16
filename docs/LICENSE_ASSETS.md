@@ -1,5 +1,18 @@
 # Third-party assets
 
+## Humans (MakeHuman / MPFB)
+
+| Path | Source | License |
+| --- | --- | --- |
+| `assets/humans/**` | Asset Lab export of MakeHuman / MPFB bodies, eyes, and clothes (`tools/character_studio/blender_export_humans.py`) | **CC0**, except the non-historical medieval dress (**CC-BY**) |
+
+The `.glb` files are gitignored. `wardrobe.json` is the committed catalogue.
+Rebuild with `python tools/sync_character_studio_assets.py`. Per-garment notes:
+`tools/character_studio/makehuman_extra_assets/LICENSES.json`.
+
+Character Studio reads this folder through a junction at
+`character_studio/assets/humans` so Godot `res://` paths still resolve.
+
 ## Quaternius Ultimate Monsters
 
 | Path | Source | License |

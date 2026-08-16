@@ -5,7 +5,8 @@
 class_name WardrobeCatalog
 extends RefCounted
 
-const CATALOG_PATH := "res://assets/humans/wardrobe.json"
+const LIBRARY_DIR := "res://assets/humans/"
+const CATALOG_PATH := LIBRARY_DIR + "wardrobe.json"
 
 var slots: Array[String] = []
 ## sex -> {"nude": String, "dressed": {suit_id: String}}
@@ -60,6 +61,14 @@ func is_empty() -> bool:
 	return _items.is_empty()
 
 
+func resolve(rel: String) -> String:
+	if rel.is_empty():
+		return ""
+	if rel.begins_with("res://") or rel.begins_with("user://"):
+		return rel
+	return LIBRARY_DIR + rel
+
+
 ## The body to spawn under a given suit; the nude one when no suit is worn.
 func body_path(female: bool, suit_id: String) -> String:
 	var sex := "female" if female else "male"
@@ -68,12 +77,12 @@ func body_path(female: bool, suit_id: String) -> String:
 		return ""
 	var entry: Dictionary = _bodies[sex]
 	if suit_id.is_empty():
-		return String(entry["nude"])
+		return resolve(String(entry["nude"]))
 	var dressed: Dictionary = entry["dressed"]
 	if not dressed.has(suit_id):
 		push_error("WardrobeCatalog: no %s body for suit %s" % [sex, suit_id])
 		return ""
-	return String(dressed[suit_id])
+	return resolve(String(dressed[suit_id]))
 
 
 ## Garments for one sex and slot, in catalogue order.
@@ -91,7 +100,7 @@ func path_for(female: bool, slot: String, id: String) -> String:
 		return ""
 	for item in items_for(female, slot):
 		if item["id"] == id:
-			return String(item["path"])
+			return resolve(String(item["path"]))
 	push_error("WardrobeCatalog: no %s item %s for %s" % [slot, id, "female" if female else "male"])
 	return ""
 

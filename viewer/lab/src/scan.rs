@@ -48,7 +48,7 @@ pub fn scan_all(root: &Path) -> Vec<Entry> {
 }
 
 fn scan_humans(root: &Path) -> Vec<Entry> {
-    let dir = root.join("character_studio/assets/humans");
+    let dir = root.join("assets/humans");
     let mut out = Vec::new();
     let Ok(entries) = fs::read_dir(&dir) else {
         return out;

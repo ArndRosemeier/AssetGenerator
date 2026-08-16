@@ -358,6 +358,12 @@ mod tests {
                 "expected the full Quaternius set, got {monsters}"
             );
         }
+        if root.join("assets/humans/male_base.glb").is_file() {
+            assert!(
+                entries.iter().any(|e| e.id == "humans/male_base"),
+                "scan missed male_base"
+            );
+        }
         if root.join("assets/out/crate_small.glb").is_file() {
             assert!(
                 entries.iter().any(|e| e.id == "assets/crate_small"),

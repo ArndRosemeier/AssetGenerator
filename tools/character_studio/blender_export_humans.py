@@ -14,7 +14,7 @@ share one rest pose and Godot can bind the garment meshes to the body skeleton.
 
 Asset Lab owns this pipeline but does not vendor MPFB: Blender 4.2, the MPFB
 plugin and the MakeHuman CC0 system assets are read from the City checkout.
-Nothing under the City tree is written to.
+Nothing under the City tree is written to. Outputs land in assets/humans/.
 
 Run via:
   tools\\character_studio\\export_humans.bat
@@ -48,7 +48,7 @@ EXTRA_CLOTHES_DIR = SCRIPT_DIR / "makehuman_extra_assets" / "clothes"
 # MPFB writes into its user data dir; keep that inside Asset Lab so an export
 # never mutates the City checkout.
 USER_DATA_OVERRIDE = SCRIPT_DIR / ".mpfb_user_data"
-OUT_DIR = ROOT / "character_studio" / "assets" / "humans"
+OUT_DIR = ROOT / "assets" / "humans"
 PIECES_SUBDIR = "pieces"
 WARDROBE_JSON = OUT_DIR / "wardrobe.json"
 
@@ -865,7 +865,7 @@ def _write_wardrobe_json() -> None:
                     "sex": sex,
                     "slot": item["slot"],
                     "label": item["label"],
-                    "path": f"res://assets/humans/{_piece_out(sex, item['id'])}",
+                    "path": _piece_out(sex, item["id"]),
                 }
             )
     payload = {
@@ -873,10 +873,10 @@ def _write_wardrobe_json() -> None:
         "bodies": [
             {
                 "sex": sex,
-                "nude": f"res://assets/humans/{sex}_base.glb",
+                "nude": f"{sex}_base.glb",
                 # suit id -> the body whose skin under that suit has been deleted
                 "dressed": {
-                    _suit_id(entry): f"res://assets/humans/{_dressed_out(sex, _suit_id(entry))}"
+                    _suit_id(entry): _dressed_out(sex, _suit_id(entry))
                     for entry in WARDROBE_SUITS[sex]
                 },
             }

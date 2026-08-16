@@ -5,13 +5,9 @@ tools/.blender_path
 # Generated assets, reports and previews
 assets/out/
 
-# Character Studio: Godot cache + exported/imported humans (rebuild via sync script)
+# Character Studio: Godot cache. Humans live in assets/humans/; this path is a junction.
 character_studio/.godot/
-character_studio/assets/humans/**
-!character_studio/assets/humans/.gitkeep
-!character_studio/assets/humans/wardrobe.json
-!character_studio/assets/humans/pieces/
-!character_studio/assets/humans/pieces/.gitkeep
+character_studio/assets/humans/
 
 # MPFB user data staged for the Character Studio export
 tools/character_studio/.mpfb_user_data/
@@ -19,6 +15,14 @@ tools/character_studio/.mpfb_user_data/
 # Downloaded MakeHuman community/pack clothes (rebuild via fetch_medieval_clothes.py)
 tools/character_studio/.mh_download_cache/
 tools/character_studio/makehuman_extra_assets/clothes/
+
+# Human library: export the .glb files (wardrobe.json is the committed catalogue)
+assets/humans/**
+!assets/humans/.gitkeep
+!assets/humans/wardrobe.json
+!assets/humans/CREDITS.txt
+!assets/humans/pieces/
+!assets/humans/pieces/.gitkeep
 
 # Quaternius Ultimate Monsters: fetch the .glb files and atlas
 assets/monsters/quaternius/**

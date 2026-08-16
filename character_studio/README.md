@@ -42,6 +42,10 @@ Override with `GODOT_BIN`.
 Everything is built by Asset Lab’s own MPFB export
 (`tools/character_studio/blender_export_humans.py`):
 
+The library lives at repo-root [`assets/humans/`](../assets/humans/), not inside
+this Godot project. Character Studio sees it as `res://assets/humans` through a
+junction created by `python tools/sync_character_studio_assets.py --link-only`.
+
 | Output | Contents |
 | --- | --- |
 | `assets/humans/{sex}_base.glb` | Nude body, 28 face morphs, fitted `Eyes` mesh |
