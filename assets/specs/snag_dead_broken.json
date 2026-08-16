@@ -1,0 +1,37 @@
+{
+  "spec_version": 1,
+  "id": "snag_dead_broken",
+  "generator": "nature.snag",
+  "params": {
+    "height": 6.5,
+    "trunk_radius_base": 0.42,
+    "trunk_radius_top": 0.15,
+    "trunk_segments": 7,
+    "stub_count": 8,
+    "branch_length_scale": 0.9,
+    "lean_x": 0.12,
+    "lean_y": -0.06,
+    "lichen_count": 0,
+    "lichen_radius": 0.12,
+    "seed": 302
+  },
+  "materials": {
+    "bark": {
+      "base_color": [
+        0.28,
+        0.24,
+        0.2,
+        1.0
+      ],
+      "roughness": 0.97,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 16.0
+  }
+}

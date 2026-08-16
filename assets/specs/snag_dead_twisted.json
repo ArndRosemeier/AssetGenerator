@@ -1,0 +1,47 @@
+{
+  "spec_version": 1,
+  "id": "snag_dead_twisted",
+  "generator": "nature.snag",
+  "params": {
+    "height": 8.8,
+    "trunk_radius_base": 0.35,
+    "trunk_radius_top": 0.06,
+    "trunk_segments": 9,
+    "stub_count": 18,
+    "branch_length_scale": 1.3,
+    "lean_x": 0.18,
+    "lean_y": 0.14,
+    "lichen_count": 5,
+    "lichen_radius": 0.14,
+    "seed": 303
+  },
+  "materials": {
+    "bark": {
+      "base_color": [
+        0.22,
+        0.2,
+        0.18,
+        1.0
+      ],
+      "roughness": 0.98,
+      "metallic": 0.0
+    },
+    "lichen": {
+      "base_color": [
+        0.35,
+        0.38,
+        0.22,
+        1.0
+      ],
+      "roughness": 0.92,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 16.0
+  }
+}

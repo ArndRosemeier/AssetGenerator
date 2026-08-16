@@ -1,0 +1,45 @@
+{
+  "spec_version": 1,
+  "id": "grove_mangrove_triple",
+  "generator": "nature.grove",
+  "params": {
+    "height": 9.0,
+    "trunk_count": 3,
+    "trunk_radius": 0.28,
+    "trunk_spread": 1.6,
+    "crown_height": 0.52,
+    "lobe_count": 4,
+    "lobe_radius": 2.0,
+    "crown_spread": 2.6,
+    "seed": 602
+  },
+  "materials": {
+    "bark": {
+      "base_color": [
+        0.16,
+        0.1,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.93,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [
+        0.04,
+        0.16,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.84,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 14.0
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "spec_version": 1,
+  "id": "birch_winter_bare",
+  "generator": "nature.birch",
+  "params": {
+    "height": 11.5,
+    "trunk_radius_base": 0.2,
+    "trunk_radius_top": 0.055,
+    "trunk_segments": 8,
+    "canopy_start": 0.35,
+    "branch_count": 42,
+    "branch_length": 2.0,
+    "tuft_radius": 0.35,
+    "tuft_count": 0,
+    "seed": 503
+  },
+  "materials": {
+    "bark": {
+      "base_color": [
+        0.82,
+        0.8,
+        0.76,
+        1.0
+      ],
+      "roughness": 0.72,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 5000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 15.0
+  }
+}

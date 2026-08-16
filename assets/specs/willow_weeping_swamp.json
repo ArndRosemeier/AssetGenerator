@@ -1,0 +1,46 @@
+{
+  "spec_version": 1,
+  "id": "willow_weeping_swamp",
+  "generator": "nature.willow",
+  "params": {
+    "height": 11.5,
+    "trunk_radius_base": 0.48,
+    "trunk_radius_top": 0.12,
+    "trunk_segments": 8,
+    "branch_count": 34,
+    "branch_length": 4.5,
+    "droop_depth": 5.0,
+    "tuft_radius": 0.58,
+    "tufts_per_branch": 6,
+    "seed": 103
+  },
+  "materials": {
+    "bark": {
+      "base_color": [
+        0.08,
+        0.05,
+        0.03,
+        1.0
+      ],
+      "roughness": 0.96,
+      "metallic": 0.0
+    },
+    "foliage": {
+      "base_color": [
+        0.06,
+        0.16,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.86,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 12000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 18.0
+  }
+}
