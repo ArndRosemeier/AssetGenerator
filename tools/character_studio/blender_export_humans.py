@@ -1,12 +1,11 @@
 """
 Blender headless script: modular MPFB humans for Character Studio.
 
-Character Studio assembles a character at runtime, so this exports parts rather
-than finished outfits:
+Character Studio assembles shoes / hair / eyebrows at runtime. Each dressed
+body already includes the suit that carved it:
 
   {sex}_base.glb              nude body + eyes + 28 face morphs
-  {sex}_dressed_{suit}.glb    same body with that suit's delete mask applied, so
-                              no skin pokes through it
+  {sex}_dressed_{suit}.glb    masked body + that suit's garment meshes + eyes
   pieces/{sex}_{id}.glb       one garment on the shared game_engine rig, no body
 
 Every piece is fitted against an identically generated body, so all exports
@@ -67,8 +66,9 @@ from mpfb_face_morphs import (  # noqa: E402
 SEXES = ("male", "female")
 
 # Suit entry: (id, label) or (id, label, (mhclo_part, ...)) for multi-piece suits.
-# Multi-piece suits stamp every part's delete mask on the dressed body and export
-# all part meshes into one piece GLB so the editor still has a single Suit slot.
+# Multi-piece suits stamp every part's delete mask on the dressed body, keep
+# those part meshes on the dressed GLB, and also export them as one piece GLB
+# so Character Studio still has a single Suit catalogue entry.
 SuitEntry = tuple[str, str] | tuple[str, str, tuple[str, ...]]
 
 
@@ -756,15 +756,23 @@ def _export_selection(out_rel: str, *, with_morphs: bool) -> Path:
     return out_glb
 
 
+def _prepare_garment(obj, spec_id: str, slot: str) -> None:
+    """Apply helpers and four-weight skinning; keep the GAMEENGINE cloth maps."""
+    _apply_non_armature_modifiers(obj)
+    _assign_unweighted_verts(obj, ("head", "spine_03", "pelvis", "foot_l", "foot_r"))
+    _limit_weights_to_four(obj)
+    _log(f"{spec_id}: {slot} part verts={len(obj.data.vertices)}")
+
+
 def _export_body(spec: dict) -> Path:
-    """Nude base, or the dressed base whose garment delete-masks have been applied."""
+    """Nude base, or a dressed body that keeps the suit meshes that carved it."""
     sex = spec["sex"]
     garments: list[str] = spec["garments"]
     basemesh, armature = _create_rigged_human(sex)
 
     # Eyes and clothes both fit against the macro-shaped basemesh, so equip them
-    # before the shape keys are collapsed. The garments here exist only to stamp
-    # their delete groups onto the body; they are dropped before export.
+    # before the shape keys are collapsed. Clothes stamp delete groups onto the
+    # body and stay in the dressed GLB so the viewer is not see-through.
     eyes = _equip_eyes(basemesh)
     clothes_objs = _equip_clothes(basemesh, garments, spec["id"])
 
@@ -789,9 +797,7 @@ def _export_body(spec: dict) -> Path:
     _assign_eye_material(eyes)
 
     for clothes in clothes_objs:
-        bpy.data.objects.remove(clothes, do_unlink=True)
-    if clothes_objs:
-        _log(f"Dropped {len(clothes_objs)} garment objects; body keeps their delete masks")
+        _prepare_garment(clothes, spec["id"], "suit")
 
     _log_rig_alignment(basemesh, armature, require_pelvis_in_mesh=not garments)
 
@@ -799,6 +805,8 @@ def _export_body(spec: dict) -> Path:
     basemesh.select_set(True)
     armature.select_set(True)
     eyes.select_set(True)
+    for clothes in clothes_objs:
+        clothes.select_set(True)
     bpy.context.view_layer.objects.active = armature
     return _export_selection(spec["out"], with_morphs=True)
 
@@ -824,10 +832,7 @@ def _export_piece(spec: dict) -> Path:
 
     bpy.ops.object.select_all(action="DESELECT")
     for piece in pieces:
-        _apply_non_armature_modifiers(piece)
-        _assign_unweighted_verts(piece, ("head", "spine_03", "pelvis", "foot_l", "foot_r"))
-        _limit_weights_to_four(piece)
-        _log(f"{spec['id']}: {item['slot']} part verts={len(piece.data.vertices)}")
+        _prepare_garment(piece, spec["id"], item["slot"])
         piece.select_set(True)
     armature.select_set(True)
     bpy.context.view_layer.objects.active = armature

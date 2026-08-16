@@ -46,9 +46,9 @@ func _run() -> void:
 		push_error("no Skeleton3D in the spawned body")
 		quit(1)
 		return
-	if pieces.size() < 4:
+	if pieces.size() < 3:
 		push_error(
-			"expected default suit/shoes/hair/eyebrows to be attached, got %d" % pieces.size()
+			"expected default shoes/hair/eyebrows to be attached, got %d" % pieces.size()
 		)
 		quit(1)
 		return

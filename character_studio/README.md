@@ -49,7 +49,7 @@ junction created by `python tools/sync_character_studio_assets.py --link-only`.
 | Output | Contents |
 | --- | --- |
 | `assets/humans/{sex}_base.glb` | Nude body, 28 face morphs, fitted `Eyes` mesh |
-| `assets/humans/{sex}_dressed_{suit}.glb` | Same body with that suit’s delete mask applied |
+| `assets/humans/{sex}_dressed_{suit}.glb` | Masked body + that suit’s garment meshes + eyes |
 | `assets/humans/pieces/{sex}_{garment}.glb` | One garment on the shared `game_engine` rig |
 | `assets/humans/wardrobe.json` | Slot/label/path catalogue the runtime reads |
 

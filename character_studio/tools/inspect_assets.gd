@@ -2,7 +2,8 @@ extends SceneTree
 ## Headless: verify the exported modular set before launching the studio.
 ##
 ## Bodies must carry eyes and the 28 face morphs; every per-suit body must be
-## lighter than the nude one; every wardrobe piece must ship a skinned mesh.
+## lighter than the nude one and include its clothing mesh; every wardrobe
+## piece must ship a skinned mesh.
 
 
 func _initialize() -> void:
@@ -25,13 +26,17 @@ func _run() -> void:
 			continue
 		for suit in catalog.items_for(female, "suit"):
 			var suit_id := String(suit["id"])
-			var verts := _check_body(catalog.body_path(female, suit_id), suit_id + " body")
+			var path := catalog.body_path(female, suit_id)
+			var verts := _check_body(path, suit_id + " body")
 			if verts <= 0:
 				failed += 1
 			elif verts >= nude_verts:
 				push_error(
 					"%s body is not masked (%d verts vs nude %d)" % [suit_id, verts, nude_verts]
 				)
+				failed += 1
+			elif _count_clothes(path) < 1:
+				push_error("%s dressed body has no clothing mesh" % suit_id)
 				failed += 1
 
 	for slot in catalog.slots:
@@ -50,8 +55,8 @@ func _check_body(path: String, label: String) -> int:
 		return 0
 	var face := _count_face(root)
 	var eyes := _find_eyes(root)
-	var verts := _count_verts(root)
-	print("inspect ", label, " face_morphs=", face, " eyes=", eyes != null, " verts=", verts)
+	var verts := _count_body_verts(root)
+	print("inspect ", label, " face_morphs=", face, " eyes=", eyes != null, " body_verts=", verts)
 	var ok := true
 	if face < 28:
 		push_error("%s: expected 28 face morphs, got %d" % [path, face])
@@ -118,12 +123,63 @@ func _count_verts(n: Node) -> int:
 	if n is MeshInstance3D:
 		var mi := n as MeshInstance3D
 		if mi.mesh != null:
-			for s in range(mi.mesh.get_surface_count()):
-				var arrays := mi.mesh.surface_get_arrays(s)
-				var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-				total += verts.size()
+			total += _surface_verts(mi.mesh)
 	for ch in n.get_children():
 		total += _count_verts(ch)
+	return total
+
+
+func _count_body_verts(n: Node) -> int:
+	if n is MeshInstance3D:
+		var mesh := (n as MeshInstance3D).mesh as ArrayMesh
+		if mesh != null and _face_morphs(mesh) >= 28:
+			return _surface_verts(mesh)
+	for ch in n.get_children():
+		var found := _count_body_verts(ch)
+		if found > 0:
+			return found
+	return 0
+
+
+func _count_clothes(path: String) -> int:
+	var root := _instantiate(path)
+	if root == null:
+		return 0
+	var count := _count_clothes_meshes(root)
+	root.free()
+	return count
+
+
+func _count_clothes_meshes(n: Node) -> int:
+	var total := 0
+	if n is MeshInstance3D:
+		var mi := n as MeshInstance3D
+		if mi.mesh != null and mi.skin != null:
+			var name := String(mi.name).to_lower()
+			var mesh := mi.mesh as ArrayMesh
+			var is_eyes := name.contains("eye")
+			var is_body := mesh != null and _face_morphs(mesh) >= 28
+			if not is_eyes and not is_body:
+				total += 1
+	for ch in n.get_children():
+		total += _count_clothes_meshes(ch)
+	return total
+
+
+func _face_morphs(mesh: ArrayMesh) -> int:
+	var c := 0
+	for i in range(mesh.get_blend_shape_count()):
+		if String(mesh.get_blend_shape_name(i)).begins_with("face_"):
+			c += 1
+	return c
+
+
+func _surface_verts(mesh: Mesh) -> int:
+	var total := 0
+	for s in range(mesh.get_surface_count()):
+		var arrays := mesh.surface_get_arrays(s)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		total += verts.size()
 	return total
 
 

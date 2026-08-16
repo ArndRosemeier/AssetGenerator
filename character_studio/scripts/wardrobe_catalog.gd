@@ -1,7 +1,8 @@
 ## Reads assets/humans/wardrobe.json, the catalogue the Blender export writes.
 ##
-## There is a nude body per sex plus one body per suit, whose skin under exactly
-## that suit has been deleted. Shoes never mask the body, so they fit any of them.
+## There is a nude body per sex plus one body per suit. The dressed file already
+## includes that suit's garment meshes; its skin under the suit has been deleted.
+## Shoes never mask the body, so they fit any of them.
 class_name WardrobeCatalog
 extends RefCounted
 

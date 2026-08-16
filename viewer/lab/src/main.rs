@@ -363,6 +363,32 @@ mod tests {
                 entries.iter().any(|e| e.id == "humans/male_base"),
                 "scan missed male_base"
             );
+            let human = root.join("assets/humans/male_base.glb");
+            let model = AnimatedModel::load_with(&human, &root, &EngineLimits::default())
+                .expect("male_base must load as a skinned model");
+            assert!(
+                model.meshes.iter().all(|m| m.uvs.len() == m.positions.len()),
+                "male_base mesh is missing UVs"
+            );
+            assert!(
+                model.meshes.iter().any(|m| m.albedo.is_some()),
+                "male_base must ship a baseColorTexture"
+            );
+        }
+        let dressed = root.join("assets/humans/male_dressed_male_casualsuit01.glb");
+        if dressed.is_file() {
+            let model = AnimatedModel::load_with(&dressed, &root, &EngineLimits::default())
+                .expect("dressed casualsuit01 must load as a skinned model");
+            let textured = model.meshes.iter().filter(|m| m.albedo.is_some()).count();
+            assert!(
+                model.meshes.len() >= 3,
+                "dressed body must include skin, eyes, and clothes, got {} meshes",
+                model.meshes.len()
+            );
+            assert!(
+                textured >= 3,
+                "dressed body must ship clothes albedo, got {textured} textured meshes"
+            );
         }
         if root.join("assets/out/crate_small.glb").is_file() {
             assert!(
@@ -383,6 +409,14 @@ mod tests {
             let model = AnimatedModel::load_with(&orc, &root, &EngineLimits::default())
                 .expect("Orc must load as a skinned model");
             assert!(model.find_clip("Idle").is_some());
+            assert!(
+                model.meshes.iter().all(|m| m.uvs.len() == m.positions.len()),
+                "Orc mesh is missing UVs"
+            );
+            assert!(
+                model.meshes.iter().any(|m| m.albedo.is_some()),
+                "Orc must sample Atlas_Monsters.png"
+            );
         }
     }
 }

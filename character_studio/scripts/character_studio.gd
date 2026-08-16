@@ -147,7 +147,9 @@ func _apply_wardrobe() -> void:
 		return
 	ModularAssembler.clear(_body_root)
 	var paths: Array[String] = []
-	for slot: String in ["suit", "shoes", "hair", "eyebrows"]:
+	## Suit meshes already live on the dressed body. Only overlay the slots
+	## that do not carve the skin (shoes / hair / eyebrows).
+	for slot: String in ["shoes", "hair", "eyebrows"]:
 		var path := _catalog.path_for(_female, slot, String(_selection.get(slot, "")))
 		if not path.is_empty():
 			paths.append(path)
