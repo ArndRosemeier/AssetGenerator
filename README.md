@@ -56,7 +56,7 @@ generated `.glb` files under `assets/out/`. No registry — add a file, hit Resc
 This is a looker, not Character Studio (no morph sliders).
 
 ```bat
-viewer\lab\Lab.bat
+Viewer.bat
 ```
 
 or `cargo run -p lab`. Empty tabs print the command that produces those files.
@@ -80,7 +80,7 @@ those folders. Character Studio stays Godot and is unchanged. City keeps its own
 copy of the pack for now.
 
 ```bat
-viewer\lab\Lab.bat
+Viewer.bat
 ```
 
 or `cargo run -p lab`. License notes: [`docs/LICENSE_ASSETS.md`](docs/LICENSE_ASSETS.md).

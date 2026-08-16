@@ -13,7 +13,7 @@ Empty tabs stay empty and print the command that produces the files. Character
 Studio morph sliders are not here.
 
 ```bat
-viewer\lab\Lab.bat
+Viewer.bat
 ```
 
 ```bash
