@@ -26,6 +26,8 @@ def reset_scene() -> bpy.types.Scene:
         bpy.data.cameras,
         bpy.data.lights,
         bpy.data.node_groups,
+        bpy.data.armatures,
+        bpy.data.actions,
     ):
         for datablock in list(collection):
             collection.remove(datablock)

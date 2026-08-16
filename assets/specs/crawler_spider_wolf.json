@@ -1,0 +1,51 @@
+{
+  "spec_version": 1,
+  "id": "crawler_spider_wolf",
+  "generator": "creature.crawler",
+  "params": {
+    "body_length": 0.11,
+    "body_width": 0.10,
+    "body_height": 0.07,
+    "abdomen_length": 0.15,
+    "abdomen_width": 0.12,
+    "abdomen_height": 0.09,
+    "leg_pairs": 4,
+    "leg_segments": 3,
+    "leg_span": 0.58,
+    "leg_thickness": 0.012,
+    "stinger": false,
+    "stinger_length": 0.10,
+    "stinger_thickness": 0.010,
+    "antennae": false,
+    "antennae_length": 0.12,
+    "antennae_thickness": 0.004,
+    "mandibles": true,
+    "mandible_length": 0.035,
+    "mandible_thickness": 0.007,
+    "idle_amp": 0.45,
+    "walk_hz": 1.6,
+    "run_hz": 3.2,
+    "texture_resolution": 512,
+    "bake_samples": 16,
+    "seed": 17
+  },
+  "materials": {
+    "chitin": {
+      "base_color": [0.12, 0.09, 0.06, 1.0],
+      "roughness": 0.38,
+      "metallic": 0.08
+    },
+    "abdomen": {
+      "base_color": [0.22, 0.14, 0.08, 1.0],
+      "roughness": 0.62,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 9000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.2
+  }
+}

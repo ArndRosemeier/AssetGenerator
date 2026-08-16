@@ -23,9 +23,16 @@ def triangle_count(mesh: bpy.types.Mesh) -> int:
     return sum(len(polygon.vertices) - 2 for polygon in mesh.polygons)
 
 
+def _mesh_objects(objects: Sequence[bpy.types.Object]) -> list[bpy.types.Object]:
+    return [obj for obj in objects if obj.type == "MESH"]
+
+
 def collect_stats(objects: Sequence[bpy.types.Object]) -> MeshStats:
-    meshes = [obj.data for obj in objects if obj.type == "MESH"]
-    lower, upper = world_bounds(objects)
+    mesh_objects = _mesh_objects(objects)
+    meshes = [obj.data for obj in mesh_objects]
+    if not mesh_objects:
+        raise RuntimeError("QA collect_stats received no mesh objects")
+    lower, upper = world_bounds(mesh_objects)
     material_names: set[str] = set()
     for mesh in meshes:
         for material in mesh.materials:
@@ -86,7 +93,8 @@ def run_checks(
     Topology is guaranteed at authoring time instead.
     """
     checks: list[CheckResult] = []
-    meshes = [obj.data for obj in objects if obj.type == "MESH"]
+    mesh_objects = _mesh_objects(objects)
+    meshes = [obj.data for obj in mesh_objects]
 
     checks.append(
         check(
@@ -149,7 +157,7 @@ def run_checks(
         )
 
     unassigned: list[str] = []
-    for obj in objects:
+    for obj in mesh_objects:
         mesh = obj.data
         if not mesh.materials:
             unassigned.append(mesh.name)
@@ -181,7 +189,7 @@ def run_checks(
     )
 
     if qa.require_origin_at_base:
-        lower, upper = world_bounds(objects)
+        lower, upper = world_bounds(mesh_objects)
         centred = abs(lower.x + upper.x) < 1e-3 and abs(lower.y + upper.y) < 1e-3
         on_ground = abs(lower.z) < 1e-3
         checks.append(

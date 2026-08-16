@@ -30,6 +30,14 @@ def export_glb(objects: Sequence[bpy.types.Object], destination: Path) -> Path:
     for obj in objects:
         obj.select_set(True)
 
+    has_armature = any(obj.type == "ARMATURE" for obj in objects)
+    if has_armature:
+        for obj in objects:
+            if obj.type != "ARMATURE":
+                continue
+            obj.data.pose_position = "REST"
+        bpy.context.view_layer.update()
+        bpy.context.scene.frame_set(1)
     bpy.ops.export_scene.gltf(
         filepath=str(destination),
         export_format="GLB",
@@ -41,7 +49,12 @@ def export_glb(objects: Sequence[bpy.types.Object], destination: Path) -> Path:
         export_materials="EXPORT",
         export_cameras=False,
         export_lights=False,
-        export_animations=False,
+        export_skins=has_armature,
+        export_animations=has_armature,
+        export_animation_mode="NLA_TRACKS",
+        export_rest_position_armature=True,
+        export_current_frame=False,
+        export_leaf_bone=False,
         export_extras=False,
         export_draco_mesh_compression_enable=False,
     )
@@ -61,10 +74,30 @@ def import_glb(source: Path) -> list[bpy.types.Object]:
     if not source.is_file():
         raise FileNotFoundError(f"No such glb: {source}")
     reset_scene()
-    bpy.ops.import_scene.gltf(filepath=str(source))
+    bpy.ops.import_scene.gltf(
+        filepath=str(source),
+        bone_heuristic="BLENDER",
+        guess_original_bind_pose=False,
+        disable_bone_shape=True,
+    )
     meshes = [obj for obj in bpy.data.objects if obj.type == "MESH"]
     if not meshes:
         raise RuntimeError(f"{source.name} imported without any mesh objects")
+
+    armatures = [obj for obj in bpy.data.objects if obj.type == "ARMATURE"]
+    if armatures:
+        # Applying transforms on a skinned mesh destroys the bind pose and
+        # inflates the AABB. Measure rest-pose world bounds instead.
+        for armature in armatures:
+            armature.data.pose_position = "REST"
+            if armature.animation_data is not None:
+                armature.animation_data.action = None
+                for track in armature.animation_data.nla_tracks:
+                    track.mute = True
+            for pose_bone in armature.pose.bones:
+                pose_bone.matrix_basis.identity()
+        bpy.context.view_layer.update()
+        return meshes
 
     for obj in bpy.data.objects:
         obj.select_set(obj.type == "MESH")
