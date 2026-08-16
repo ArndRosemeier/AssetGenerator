@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["viewer/monster_pack"]
-default-members = ["viewer/monster_pack"]
+members = ["viewer/lab", "viewer/monster_pack"]
+default-members = ["viewer/lab"]
 
 [workspace.package]
 edition = "2021"

@@ -48,6 +48,18 @@ character_studio\CharacterStudio.bat
 
 See [`character_studio/README.md`](character_studio/README.md).
 
+## Library viewer
+
+One Engine window lists whatever is on disk: dressed humans, fetched monsters, and
+generated `.glb` files under `assets/out/`. No registry — add a file, hit Rescan.
+This is a looker, not Character Studio (no morph sliders).
+
+```bat
+viewer\lab\Lab.bat
+```
+
+or `cargo run -p lab`. Empty tabs print the command that produces those files.
+
 ## Quaternius monster pack
 
 [Quaternius Ultimate Monsters](https://quaternius.com/packs/ultimatemonsters.html)
@@ -62,14 +74,15 @@ when that pack is already there):
 python tools/fetch_quaternius_monsters.py
 ```
 
-A small Engine viewer browses the catalog and plays clips. Character Studio stays
-Godot and is unchanged. City keeps its own copy of the pack for now.
+A small Engine viewer browses humans, monsters, and generated assets by scanning
+those folders. Character Studio stays Godot and is unchanged. City keeps its own
+copy of the pack for now.
 
 ```bat
-viewer\monster_pack\MonsterPack.bat
+viewer\lab\Lab.bat
 ```
 
-or `cargo run -p monster_pack`. License notes: [`docs/LICENSE_ASSETS.md`](docs/LICENSE_ASSETS.md).
+or `cargo run -p lab`. License notes: [`docs/LICENSE_ASSETS.md`](docs/LICENSE_ASSETS.md).
 This pack is **not** part of `python tools/ag.py regenerate`.
 
 ## Make one asset
@@ -142,7 +155,7 @@ blender/generators/    one module per asset family
 blender/entrypoints/   scripts Blender executes; they only ever write a JSON report
 tools/ag.py            the CLI everything goes through
 tools/bootstrap.py     one-command Blender setup
-viewer/monster_pack/   Engine catalog browser for the monster pack
+viewer/lab/            Engine library viewer (humans, monsters, generated assets)
 .cursor/               rule and skill that keep the agent in the validated loop
 ```
 
