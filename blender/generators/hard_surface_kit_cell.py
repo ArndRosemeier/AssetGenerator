@@ -21,6 +21,23 @@ but only in the overhang strip.
 `wall_b` is close-studded timber (verticals, no X-braces). `window_c` is three
 lights. `door_b` is a door with a transom. Same seams as the base kinds.
 
+`roof_thatch_hip` is a steep hip thatch cap: rise is `roof_height` across
+the half-cell (~50 deg when roof_height is 2.38 on a 4 m cell), flush ridge
+roll, smoke gablet on +Y. `lean_to` is a one-cell catslide / outshut: short
+timber-frame wall on +Y, shallower single-pitch thatch from the -Y wall dock
+to the +Y eave. Same storey seams as `wall`.
+
+`roof_tile_steep` is a steep gable cap in clay peg-tile: rise is `roof_height`
+across the half-cell (~47 deg when roof_height is 2.15 on a 4 m cell).
+Fewer, thicker courses than thatch; Y-shrink only (not a hip pyramid);
+clay ridge tiles, no straw roll.
+`smoke_gablet` is a roof-end smoke piece: timber-framed hip gablet with an
+open smoke mouth, not a brick stack. Same down-seam as `roof`.
+`wall_limewash` is a storey wall whose daub and timbers are both limewashed
+(St Fagans mass-wash). Same seams as `wall`.
+`wall_halftimber` is classical Fachwerk: a proud timber grid (5 posts, 4 bays,
+sill, mid-rail, plate, braces) on both faces. Same seams as `wall`.
+
 `floor` is a full-cell interior slab at the same plane as wall floors, for the
 hollow of a ring (a 3×4 hall). No walls; storey seams only.
 
@@ -32,6 +49,8 @@ four-sided extra storey with no horizontal seams (tower tops).
 displaced rock masses (floor sweeping up into the walls, vault doming over the
 middle) plus dripstone spindles, instead of axis-aligned boxes. See the
 `_CAVE_*` constants for the walk corridor those masses must leave clear.
+Closed faces also ship a backup wythe behind the irregular wall so a crack
+shows more rock, not terrain. Open docks and the mouth well stay holes.
 
 `storey_role` splits a dungeon storey into slices so a chamber can be many
 cells high: `cell` is the single-storey default, `floor` omits the vault,
@@ -75,6 +94,8 @@ _DUNGEON_CANONICAL_Y = 2.7
 _KINDS = (
     "wall",
     "wall_b",
+    "wall_limewash",
+    "wall_halftimber",
     "corner",
     "door",
     "door_b",
@@ -87,6 +108,10 @@ _KINDS = (
     "hatch",
     "floor",
     "roof",
+    "roof_thatch_hip",
+    "roof_tile_steep",
+    "lean_to",
+    "smoke_gablet",
     "chimney",
     "plinth",
     "battlement",
@@ -112,6 +137,8 @@ _KINDS = (
 _STOREY_KINDS = (
     "wall",
     "wall_b",
+    "wall_limewash",
+    "wall_halftimber",
     "corner",
     "door",
     "door_b",
@@ -123,6 +150,7 @@ _STOREY_KINDS = (
     "ladder",
     "hatch",
     "floor",
+    "lean_to",
     "turret",
     "dungeon_open",
     "dungeon_wall",
@@ -133,7 +161,16 @@ _STOREY_KINDS = (
     "dungeon_shaft",
 )
 
-_CAP_KINDS = ("roof", "chimney", "battlement", "dungeon_cap", "dungeon_mouth")
+_CAP_KINDS = (
+    "roof",
+    "roof_thatch_hip",
+    "roof_tile_steep",
+    "smoke_gablet",
+    "chimney",
+    "battlement",
+    "dungeon_cap",
+    "dungeon_mouth",
+)
 _DUNGEON_STOREY = (
     "dungeon_open",
     "dungeon_wall",
@@ -587,6 +624,8 @@ def _assert_neighbor_planes(params: KitParams, boxes: Sequence[KitBox]) -> None:
         for kind in (
             "wall",
             "wall_b",
+            "wall_limewash",
+            "wall_halftimber",
             "window",
             "window_b",
             "window_c",
@@ -614,6 +653,14 @@ def _layout(builder: KitBoxes | BoundsSink, params: KitParams) -> None:
         _plinth(builder, params)
     elif params.kind in ("roof", "chimney"):
         _roof(builder, params, chimney=params.kind == "chimney")
+    elif params.kind == "roof_thatch_hip":
+        _roof_thatch_hip(builder, params)
+    elif params.kind == "roof_tile_steep":
+        _roof_tile_steep(builder, params)
+    elif params.kind == "smoke_gablet":
+        _smoke_gablet(builder, params)
+    elif params.kind == "lean_to":
+        _lean_to(builder, params)
     elif params.kind == "battlement":
         _battlement(builder, params)
     elif params.kind == "turret":
@@ -625,6 +672,8 @@ def _layout(builder: KitBoxes | BoundsSink, params: KitParams) -> None:
     elif params.kind in (
         "wall",
         "wall_b",
+        "wall_limewash",
+        "wall_halftimber",
         "door",
         "door_b",
         "gate",
@@ -1125,11 +1174,16 @@ def _south_wall(
     x0, x1 = _south_span(
         params, shiplap_neg=shiplap_neg, shiplap_pos=shiplap_pos, wythe="inner"
     )
-    _south_cornice(builder, params, x0, x1, inner_y, z_inner - 0.015)
+    # Fachwerk plate is the interior top rail; a cornice would hide the grid.
+    if params.kind != "wall_halftimber":
+        _south_cornice(builder, params, x0, x1, inner_y, z_inner - 0.015)
     _opening_trim(builder, params, _openings(params))
     if params.timber:
         y0, y1 = _south_wythe_y(params, "outer")
-        _timber_south(builder, params, x0, x1, y1)
+        if params.kind == "wall_halftimber":
+            _timber_halftimber(builder, params, x0, x1, y1)
+        else:
+            _timber_south(builder, params, x0, x1, y1)
 
 
 def _opening_trim(builder: BoxBuilder, params: KitParams, openings: Sequence[Opening]) -> None:
@@ -1312,7 +1366,7 @@ def _timber_south(
     openings = _openings(params)
     timber_gaps = [o for o in openings if o[2] < 0.5] if params.kind == "door_b" else openings
     _horizontal_rail(builder, inner_l, inner_r, y0, y1, mid_z0, mid_z1, timber_gaps)
-    if params.kind == "wall":
+    if params.kind in ("wall", "wall_limewash"):
         mid = (x0 + x1) * 0.5
         builder.add_box_bounds(
             (mid - post * 0.5, y0, post_z0),
@@ -1629,6 +1683,365 @@ def _roof(builder: BoxBuilder, params: KitParams, *, chimney: bool) -> None:
         )
 
 
+
+def _roof_thatch_hip(builder: BoxBuilder, params: KitParams) -> None:
+    """Steep hip thatch cap. Rise is roof_height over the half-cell, not overhang.
+
+    Layers shrink in X and Y toward a flush ridge roll. A smoke gablet stands
+    out of the +Y hip near the ridge. Underside starts at `overlap`.
+    """
+    h = params.half
+    lift = params.overlap
+    layers = 12
+    step = params.roof_height / layers
+    sink = 0.018
+    eave = h + 0.04
+    ridge = 0.08
+    for index in range(layers):
+        t = index / max(layers - 1, 1)
+        half_xy = eave + (ridge - eave) * t
+        z0 = lift + index * step
+        z1 = z0 + step + sink
+        builder.add_box_bounds(
+            (-half_xy, -half_xy, z0),
+            (half_xy, half_xy, z1),
+            "structure",
+        )
+    z_top = lift + params.roof_height
+    builder.add_box_bounds(
+        (-0.72, -0.07, z_top - 0.05),
+        (0.72, 0.07, z_top + 0.055),
+        "structure",
+    )
+    gable_layers = 4
+    for gi in range(gable_layers):
+        gt = gi / max(gable_layers - 1, 1)
+        gx = 0.48 - gt * 0.20
+        gy0 = 0.10
+        gy1 = 0.78 - gt * 0.20
+        z0 = lift + params.roof_height * 0.60 + gi * 0.095 + 0.033
+        z1 = z0 + 0.108
+        builder.add_box_bounds((-gx, gy0, z0), (gx, gy1, z1), "structure")
+    builder.add_box_bounds(
+        (-0.14, 0.62, lift + params.roof_height * 0.68 + 0.041),
+        (0.14, 0.80, lift + params.roof_height * 0.68 + 0.078),
+        "trim",
+    )
+
+
+def _roof_tile_steep(builder: BoxBuilder, params: KitParams) -> None:
+    """Steep clay peg-tile gable cap. Rise is roof_height over the half-cell.
+
+    Six thick courses shrink on Y only (gable, not a hip pyramid). Clay ridge
+    tiles along X, barge boards on the gable ends. No straw roll.
+    Underside starts at `overlap`.
+    """
+    h = params.half
+    lift = params.overlap
+    layers = 6
+    step = params.roof_height / layers
+    sink = 0.022
+    eave_y = h + 0.04
+    eave_x = h + 0.025
+    ridge_y = 0.10
+    for index in range(layers):
+        t = index / max(layers - 1, 1)
+        y_half = eave_y + (ridge_y - eave_y) * t
+        z0 = lift + index * step
+        z1 = z0 + step + sink
+        builder.add_box_bounds(
+            (-eave_x, -y_half, z0),
+            (eave_x, y_half, z1),
+            "structure",
+        )
+    z_top = lift + params.roof_height
+    builder.add_box_bounds(
+        (-eave_x + 0.04, -0.12, z_top - 0.04),
+        (eave_x - 0.04, 0.12, z_top + 0.09),
+        "structure",
+    )
+    barge = 0.08
+    for sx in (-1.0, 1.0):
+        x0 = sx * eave_x - barge * 0.5
+        x1 = sx * eave_x + barge * 0.5
+        for gi in range(4):
+            gt = gi / 3.0
+            yh = eave_y + (ridge_y - eave_y) * gt
+            z0 = lift + params.roof_height * gt + 0.03 + gi * 0.011
+            z1 = z0 + 0.16
+            builder.add_box_bounds((x0, -yh, z0), (x1, yh, z1), "trim")
+
+
+def _smoke_gablet(builder: BoxBuilder, params: KitParams) -> None:
+    """Roof-end hip gablet / ridge smoke. Not a brick chimney stack.
+
+    Modest hip body (same down-seam as `roof`) plus a timber-framed gablet
+    on +Y with an open smoke mouth. Cheeks stop beside the mouth so they
+    do not share a Z plane with the lintel or sill.
+    """
+    h = params.half
+    lift = params.overlap
+    layers = 5
+    step = params.roof_height / layers
+    sink = 0.02
+    eave = h + 0.03
+    ridge = 0.16
+    for index in range(layers):
+        t = index / max(layers - 1, 1)
+        half_xy = eave + (ridge - eave) * t
+        z0 = lift + index * step
+        z1 = z0 + step + sink
+        builder.add_box_bounds(
+            (-half_xy, -half_xy, z0),
+            (half_xy, half_xy, z1),
+            "structure",
+        )
+    z_top = lift + params.roof_height
+    builder.add_box_bounds(
+        (-0.70, -0.08, z_top - 0.05),
+        (0.70, 0.08, z_top + 0.06),
+        "trim",
+    )
+    gable_z0 = lift + params.roof_height * 0.42
+    gable_z1 = z_top + 0.18
+    mouth_x = 0.16
+    mouth_z0 = gable_z0 + 0.16
+    mouth_z1 = gable_z1 - 0.14
+    gy0 = 0.10
+    gy1 = 0.78
+    # Cheeks only beside the mouth; lintel and sill are separate Z bands.
+    builder.add_box_bounds(
+        (-0.52, gy0, mouth_z0 - 0.04),
+        (-mouth_x, gy1, mouth_z1 + 0.04),
+        "structure",
+    )
+    builder.add_box_bounds(
+        (mouth_x, gy0, mouth_z0 - 0.04),
+        (0.52, gy1, mouth_z1 + 0.04),
+        "structure",
+    )
+    builder.add_box_bounds(
+        (-0.52, gy0, gable_z0),
+        (0.52, gy1, mouth_z0 + 0.035),
+        "structure",
+    )
+    builder.add_box_bounds(
+        (-0.52, gy0, mouth_z1 - 0.035),
+        (0.52, gy1, gable_z1),
+        "structure",
+    )
+    y0 = gy0 + 0.04
+    y1 = gy1 + 0.05
+    post = 0.10
+    builder.add_box_bounds((-0.50, y0, gable_z0 + 0.02), (-0.50 + post, y1, gable_z1 - 0.02), "trim")
+    builder.add_box_bounds((0.50 - post, y0, gable_z0 + 0.02), (0.50, y1, gable_z1 - 0.02), "trim")
+    builder.add_box_bounds((-0.50, y0, gable_z1 - 0.11), (0.50, y1, gable_z1 - 0.01), "trim")
+    builder.add_box_bounds((-0.50, y0, gable_z0 + 0.01), (0.50, y1, gable_z0 + 0.11), "trim")
+    builder.add_box_bounds(
+        (-mouth_x - 0.04, gy1 - 0.06, mouth_z0 - 0.03),
+        (mouth_x + 0.04, gy1 + 0.04, mouth_z0 + 0.05),
+        "trim",
+    )
+    builder.add_box_bounds(
+        (-mouth_x - 0.04, gy1 - 0.06, mouth_z1 - 0.05),
+        (mouth_x + 0.04, gy1 + 0.04, mouth_z1 + 0.055),
+        "trim",
+    )
+
+
+def _timber_halftimber(
+    builder: BoxBuilder, params: KitParams, x0: float, x1: float, y_outer: float
+) -> None:
+    """Classical Fachwerk grid: 5 posts, 4 bays, sill, mid-rail, plate, braces.
+
+    Proud of the plaster on the street face (+Y) and the interior face
+    of that wall, plus the same grid on the -Y cell face so the default
+    preview camera (from -Y) can count the frame.
+    """
+    post = 0.16
+    rail = 0.12
+    proud = _TIMBER_PROUD
+    plate_z0 = params.overlap + 0.02
+    plate_z1 = params.cell_y - 0.02
+    post_z0 = plate_z0 + 0.012
+    post_z1 = plate_z1 - 0.012
+    left = x0 + 0.02
+    right = x1 - 0.02
+    bays = 4
+    inner = right - left - post
+    if inner <= post * 2.0:
+        raise SpecError("wall_halftimber span is too narrow for a timber grid.")
+    posts: list[tuple[float, float]] = []
+    for index in range(bays + 1):
+        t = index / bays
+        px0 = left + t * (right - left - post)
+        px1 = px0 + post
+        posts.append((px0, px1))
+    mid_z0 = plate_z0 + (plate_z1 - plate_z0) * 0.48
+    mid_z1 = mid_z0 + rail
+    z_lo = plate_z0 + rail + 0.014
+    z_hi = mid_z0 - 0.014
+    braces: list[tuple[float, float, float, float]] = []
+    for index, ((px0, px1), (nx0, _nx1)) in enumerate(zip(posts, posts[1:])):
+        bx0 = px1 + 0.02
+        bx1 = nx0 - 0.02
+        rising = index % 2 == 0
+        braces.extend(_brace_steps(bx0, bx1, z_lo, z_hi, rising=rising))
+
+    outer_y0 = y_outer - 0.08
+    outer_y1 = y_outer + proud
+    inner_face = _south_wythe_y(params, "inner")[0]
+    inner_y0 = inner_face - proud
+    inner_y1 = inner_face + 0.08
+
+    def _frame(y0: float, y1: float) -> None:
+        for px0, px1 in posts:
+            builder.add_box_bounds((px0, y0, post_z0), (px1, y1, post_z1), "trim")
+        builder.add_box_bounds((x0, y0, plate_z1 - rail), (x1, y1, plate_z1), "trim")
+        builder.add_box_bounds((x0, y0, plate_z0), (x1, y1, plate_z0 + rail), "trim")
+        builder.add_box_bounds((left + post, y0, mid_z0), (right - post, y1, mid_z1), "trim")
+        for ba0, ba1, bz0, bz1 in braces:
+            builder.add_box_bounds((ba0, y0, bz0), (ba1, y1, bz1), "trim")
+
+    _frame(outer_y0, outer_y1)
+    _frame(inner_y0, inner_y1)
+    # Same proud oak grid on -Y, with limewash behind it. Hero/front cameras
+    # sit at -Y; without daub the posts vanish into the dark preview void.
+    y_neg = -params.half - params.jetty
+    half_t = params.wall_thickness * 0.5
+    builder.add_box_bounds(
+        (x0, y_neg, params.overlap + 0.008),
+        (x1, y_neg + half_t, params.cell_y - 0.008),
+        "structure",
+    )
+    builder.add_box_bounds(
+        (x0 + 0.02, y_neg + half_t - 0.02, params.overlap + 0.024),
+        (x1 - 0.02, y_neg + params.wall_thickness, params.cell_y - 0.028),
+        "structure",
+    )
+    _frame(-outer_y1, -outer_y0)
+    _jetty_supports(builder, params, x0, x1, y_outer)
+
+
+def _lean_to_eave_z(params: KitParams) -> tuple[float, float]:
+    """`(low_z, high_z)` of the thatch top. High side is the storey plane."""
+    high_z = params.cell_y
+    low_z = high_z - params.roof_height
+    if low_z < params.overlap + 0.50:
+        raise SpecError("params.roof_height leaves no outer wall under the lean-to eave.")
+    return low_z, high_z
+
+
+def _lean_to(builder: BoxBuilder, params: KitParams) -> None:
+    """One-cell catslide / outshut. High at -Y (wall dock), eave at +Y.
+
+    Short timber-frame bay on the +Y long side, rubble kick, shallower
+    single-pitch thatch. Storey seams match `wall`.
+    """
+    _floor_slab(builder, params, west_wall=False, door=False)
+    _lean_to_outer_wall(builder, params)
+    _lean_to_thatch(builder, params)
+
+
+def _lean_to_outer_wall(builder: BoxBuilder, params: KitParams) -> None:
+    low_z, _high_z = _lean_to_eave_z(params)
+    wall_top = low_z + 0.045
+    overlap = params.overlap
+    openings: list[Opening] = []
+    for wythe, z0, z1, z_nudge in (
+        ("outer", overlap, wall_top, 0.0),
+        ("inner", overlap + 0.015, wall_top - 0.018, 0.016),
+    ):
+        x0, x1 = _south_span(params, shiplap_neg=True, shiplap_pos=True, wythe=wythe)
+        y0, y1 = _south_wythe_y(params, wythe)
+        _wythe_with_openings(
+            builder,
+            x0=x0,
+            x1=x1,
+            y0=y0,
+            y1=y1,
+            z0=z0,
+            z1=z1,
+            openings=openings,
+            slot="structure",
+            z_nudge=z_nudge,
+        )
+    if params.timber:
+        _lean_to_timber(builder, params, wall_top)
+    _lean_to_rubble(builder, params, wall_top)
+
+
+def _lean_to_timber(builder: BoxBuilder, params: KitParams, wall_top: float) -> None:
+    """Short posts and plates on the +Y outshut wall."""
+    post = 0.15
+    rail = 0.12
+    proud = _TIMBER_PROUD
+    x0, x1 = _south_span(params, shiplap_neg=True, shiplap_pos=True, wythe="outer")
+    _y0, y_outer = _south_wythe_y(params, "outer")
+    y0 = y_outer - 0.08
+    y1 = y_outer + proud
+    plate_z0 = params.overlap + 0.02
+    plate_z1 = wall_top - 0.02
+    post_z0 = plate_z0 + 0.01
+    post_z1 = plate_z1 - 0.01
+    left = x0 + 0.02
+    right = x1 - 0.02
+    builder.add_box_bounds((left, y0, post_z0), (left + post, y1, post_z1), "trim")
+    builder.add_box_bounds((right - post, y0, post_z0), (right, y1, post_z1), "trim")
+    mid = (x0 + x1) * 0.5
+    builder.add_box_bounds((mid - post * 0.5, y0, post_z0), (mid + post * 0.5, y1, post_z1), "trim")
+    builder.add_box_bounds((x0, y0, plate_z1 - rail), (x1, y1, plate_z1), "trim")
+    builder.add_box_bounds((x0, y0, plate_z0), (x1, y1, plate_z0 + rail), "trim")
+    mid_z0 = plate_z0 + (plate_z1 - plate_z0) * 0.48
+    mid_z1 = mid_z0 + rail
+    builder.add_box_bounds((left + post, y0, mid_z0), (right - post, y1, mid_z1), "trim")
+
+
+def _lean_to_rubble(builder: BoxBuilder, params: KitParams, wall_top: float) -> None:
+    """Low rubble kick on +Y. Trim slot, not an all-stone wall."""
+    _y0, y_outer = _south_wythe_y(params, "outer")
+    y0 = y_outer - 0.06
+    y1 = y_outer + 0.04
+    x0, x1 = _south_span(params, shiplap_neg=True, shiplap_pos=True, wythe="outer")
+    course_h = 0.12
+    z_base = params.overlap + 0.018
+    for index in range(3):
+        inset = 0.03 if index % 2 else 0.0
+        z0 = z_base + index * course_h + index * 0.004
+        z1 = z0 + course_h + 0.015
+        if z1 > wall_top - 0.08:
+            break
+        builder.add_box_bounds((x0 + inset, y0, z0), (x1 - inset, y1, z1), "trim")
+
+
+def _lean_to_thatch(builder: BoxBuilder, params: KitParams) -> None:
+    """Single-pitch strips: t=0 at the +Y eave, t=1 at the -Y wall plate."""
+    low_z, high_z = _lean_to_eave_z(params)
+    h = params.half
+    layers = 10
+    step = params.roof_height / layers
+    sink = 0.018
+    high_y = -h + 0.06
+    low_y = h + 0.04
+    eave_x = h + 0.03
+    del high_z
+    for index in range(layers):
+        t0 = index / layers
+        t1 = (index + 1) / layers
+        y_a = low_y + t0 * (high_y - low_y)
+        y_b = low_y + t1 * (high_y - low_y)
+        y0, y1 = (min(y_a, y_b) - 0.03, max(y_a, y_b) + 0.03)
+        if index == 0:
+            z0 = low_z
+            z1 = low_z + step
+        else:
+            z0 = low_z + index * step - sink
+            z1 = low_z + (index + 1) * step
+        if z1 > params.cell_y:
+            z1 = params.cell_y
+        builder.add_box_bounds((-eave_x, y0, z0), (eave_x, y1, z1), "structure")
+
+
 def _plinth(builder: BoxBuilder, params: KitParams) -> None:
     h = params.half
     top = params.cell_y
@@ -1773,36 +2186,13 @@ def _dungeon_east_wall(builder: BoxBuilder, params: KitParams) -> None:
     )
 
 
-def _dungeon_cap(builder: BoxBuilder, params: KitParams, *, mouth: bool) -> None:
+def _dungeon_cap(builder: BoxBuilder, params: KitParams) -> None:
     if params.jagged:
-        _dungeon_cave_cap(builder, params, mouth=mouth)
+        _dungeon_cave_cap(builder, params)
         return
     h = params.half
     o = params.overlap
-    z0 = o
-    z1 = o + 0.16
-    if mouth:
-        well = 0.9
-        builder.add_box_bounds((-h, -h, z0), (h, -well, z1), "structure")
-        builder.add_box_bounds((-h, well, z0 + 0.012), (h, h, z1 + 0.012), "structure")
-        builder.add_box_bounds((-h, -well, z0 + 0.024), (-well, well, z1 + 0.024), "structure")
-        builder.add_box_bounds((well, -well, z0 + 0.036), (h, well, z1 + 0.036), "structure")
-        # Raised curb: four boxes, never one solid square over the opening.
-        # The old full lip hid the entrance even though the seam was a mouth.
-        lip = 0.16
-        outer = well + lip
-        curb_z0 = z1 - 0.025
-        curb_z1 = z1 + 0.38
-        builder.add_box_bounds(
-            (-outer, -outer, curb_z0),
-            (outer, -well, curb_z1),
-            "trim",
-        )
-        builder.add_box_bounds((-outer, well, curb_z0), (outer, outer, curb_z1), "trim")
-        builder.add_box_bounds((-outer, -well, curb_z0), (-well, well, curb_z1), "trim")
-        builder.add_box_bounds((well, -well, curb_z0), (outer, well, curb_z1), "trim")
-        return
-    builder.add_box_bounds((-h, -h, z0), (h, h, z1), "structure")
+    builder.add_box_bounds((-h, -h, o), (h, h, o + 0.16), "structure")
 
 
 def _dungeon_stair(builder: BoxBuilder, params: KitParams) -> None:
@@ -1967,8 +2357,12 @@ def _dungeon_layout(builder: BoxBuilder, params: KitParams) -> None:
             stair=params.kind.endswith("_stair"),
         )
         return
+    if params.kind == "dungeon_mouth":
+        raise SpecError(
+            "dungeon_mouth is a catalog hole with no mesh; do not generate it"
+        )
     if params.kind in _DUNGEON_CAP:
-        _dungeon_cap(builder, params, mouth=params.kind == "dungeon_mouth")
+        _dungeon_cap(builder, params)
         return
     closed = _dungeon_closed(params.kind)
     hole = params.kind == "dungeon_shaft"
@@ -2111,6 +2505,12 @@ _CAVE_SEAM_BLEND = 0.5
 # The mass runs `overlap` past the cell and drops a hair on the way out, so two
 # neighbours cross in a shallow crease instead of presenting coplanar faces.
 _CAVE_LIP = 0.02
+# Backup wythe on each closed face: full storey height, inset from the cell
+# face so it sits behind the irregular lip. A crack then shows this slab, which
+# is the same rock look, instead of terrain. Open docks stay open. Thickness
+# stays in the bank (outside `_CAVE_CORRIDOR`); do not thicken it into the walk.
+_CAVE_WYTHE = 0.10
+_CAVE_WYTHE_INSET = 0.05
 
 
 def _smoothstep(t: float) -> float:
@@ -2172,6 +2572,24 @@ class _CavePlanes:
                     self._used.append(candidate)
                     return candidate
         raise SpecError("cave shell exhausted unique storey planes.")
+
+    def claim_between(self, z: float, lo: float, hi: float) -> float:
+        """Like `claim`, but the result must stay inside `(lo, hi)`.
+
+        Backup wythes have to remain in the storey envelope. An unbounded nudge
+        can walk a request near `cell_y` over the top and fail the gate.
+        """
+        for step in range(400):
+            for direction in (1.0, -1.0):
+                candidate = round(z + direction * step * 0.0017, 5)
+                if candidate <= lo or candidate >= hi:
+                    continue
+                if all(abs(candidate - other) > 0.0018 for other in self._used):
+                    self._used.append(candidate)
+                    return candidate
+        raise SpecError(
+            f"cave shell exhausted unique storey planes in ({lo:.4f}, {hi:.4f})."
+        )
 
     def reserve(self, z: float) -> None:
         self._used.append(round(z, 5))
@@ -2695,6 +3113,68 @@ def _dungeon_cave_cell(
                 slot="structure",
             )
     _cave_dripstone(builder, shape, planes)
+    _cave_backup_wythe(builder, shape, planes, frozenset(closed))
+
+
+def _cave_backup_wythe(
+    builder: BoxBuilder,
+    shape: _CaveShape,
+    planes: _CavePlanes,
+    closed: frozenset[str],
+) -> None:
+    """Rock slab on every closed face, behind the irregular wall.
+
+    This is the enclosure contract for jagged tiles. The displaced shell is
+    dress; the wythe is the last surface a crack can show. Each face claims its
+    own storey-axis planes so two slabs that meet at a corner do not share a
+    cap. Floor and rise get no wythe: a slab to `cell_y` leaves a lid on the
+    storey plane, and looking up a tall chamber those lids are holes to
+    terrain. Cell and vault stop under the dome.
+    """
+    params = shape.params
+    if not closed or params.storey_role in ("floor", "rise"):
+        return
+    h = params.half
+    t = _CAVE_WYTHE
+    inset = _CAVE_WYTHE_INSET
+    inner = h - inset - t
+    if inner <= _CAVE_CORRIDOR:
+        raise SpecError(
+            f"cave backup wythe at {inner:.3f} invades corridor {_CAVE_CORRIDOR}."
+        )
+    lo = params.overlap
+    hi = params.cell_y
+    under_vault = params.storey_role in ("cell", "vault")
+    for face in ("s", "n", "e", "w"):
+        if face not in closed:
+            continue
+        if face == "s":
+            x0, x1 = -h + inset, h - inset
+            y0, y1 = inner, h - inset
+        elif face == "n":
+            x0, x1 = -h + inset, h - inset
+            y0, y1 = -h + inset, -h + inset + t
+        elif face == "e":
+            x0, x1 = inner, h - inset
+            y0, y1 = -h + inset, h - inset
+        else:
+            x0, x1 = -h + inset, -h + inset + t
+            y0, y1 = -h + inset, h - inset
+        z0 = planes.claim_between(lo + 0.008, lo, hi)
+        top = hi - 0.008
+        if under_vault:
+            ceiling = min(
+                shape.ceiling(x0 + (x1 - x0) * u, y0 + (y1 - y0) * v)
+                for u in (0.0, 0.25, 0.5, 0.75, 1.0)
+                for v in (0.0, 0.25, 0.5, 0.75, 1.0)
+            )
+            top = min(top, ceiling - 0.08)
+        z1 = planes.claim_between(top, lo, hi)
+        if z1 <= z0 + 0.2:
+            raise SpecError(
+                f"cave backup wythe on {face} has no storey span ({z0:.4f}..{z1:.4f})."
+            )
+        builder.add_box_bounds((x0, y0, z0), (x1, y1, z1), "structure")
 
 
 def _cave_dripstone(builder: BoxBuilder, shape: _CaveShape, planes: _CavePlanes) -> None:
@@ -2784,12 +3264,11 @@ def _cave_dripstone(builder: BoxBuilder, shape: _CaveShape, planes: _CavePlanes)
         placed += 1
 
 
-def _dungeon_cave_cap(builder: BoxBuilder, params: KitParams, *, mouth: bool) -> None:
+def _dungeon_cave_cap(builder: BoxBuilder, params: KitParams) -> None:
     """Broken ceiling mass. Underside is uneven so the room below is not a lid."""
     sculpt = _CaveSculpt(builder, params)
     rng = random.Random(params.seed + 709)
     h = params.half
-    well = 0.9 if mouth else 0.0
     steps = 6
     span = (2.0 * h) / steps
     for iz in range(steps):
@@ -2798,15 +3277,11 @@ def _dungeon_cave_cap(builder: BoxBuilder, params: KitParams, *, mouth: bool) ->
             y0 = -h + iz * span
             x1 = x0 + span + 0.05
             y1 = y0 + span + 0.05
-            if mouth and abs((x0 + x1) * 0.5) < well and abs((y0 + y1) * 0.5) < well:
-                continue
             sculpt.box(x0, y0, x1, y1, 0.18 + rng.random() * 0.7, "structure")
     for index in range(20):
         r = 0.08 + rng.random() * 0.22
         cx = rng.uniform(-h + 0.25, h - 0.25)
         cy = rng.uniform(-h + 0.25, h - 0.25)
-        if mouth and abs(cx) < well + 0.1 and abs(cy) < well + 0.1:
-            continue
         sculpt.rock(
             cx,
             cy,
@@ -2816,18 +3291,6 @@ def _dungeon_cave_cap(builder: BoxBuilder, params: KitParams, *, mouth: bool) ->
             "trim" if index % 2 else "structure",
             _cave_tilt(rng),
         )
-    if mouth:
-        lip = 0.18
-        outer = well + lip
-        for index, (x0, y0, x1, y1) in enumerate(
-            (
-                (-outer, -outer, outer, -well),
-                (-outer, well, outer, outer),
-                (-outer, -well, -well, well),
-                (well, -well, outer, well),
-            )
-        ):
-            sculpt.box(x0, y0, x1, y1, 0.28 + index * 0.04, "trim")
 
 
 def _dungeon_face_lumps(builder: BoxBuilder, params: KitParams, closed: set[str]) -> None:
@@ -2892,6 +3355,16 @@ def _slot_look(params: KitParams, slot: str) -> str:
         if params.wall_thickness >= 1.0:
             return "ashlar" if slot == "structure" else "stone_trim"
         return "stone" if slot == "structure" else "stone_trim"
+    if params.kind in ("roof_thatch_hip", "lean_to"):
+        return "thatch" if slot == "structure" else "timber"
+    if params.kind == "roof_tile_steep":
+        return "tile" if slot == "structure" else "timber"
+    if params.kind == "smoke_gablet":
+        return "thatch" if slot == "structure" else "timber"
+    if params.kind == "wall_limewash":
+        return "limewash"
+    if params.kind == "wall_halftimber":
+        return "limewash" if slot == "structure" else "timber"
     if params.kind in ("roof", "chimney"):
         if slot == "structure":
             return "shingle"
@@ -3236,6 +3709,115 @@ def build_look_material(
         )
         bump_height = straw
         bump_strength = 0.85
+        rough_base = spec.roughness
+    elif look == "tile":
+        mapping = nodes.new(type="ShaderNodeMapping")
+        mapping.location = (-700, 180)
+        mapping.inputs["Scale"].default_value = (1.0, 1.0, 1.15)
+        mapping.inputs["Location"].default_value = (shift * 0.02, shift * 0.015, 0.0)
+        links.new(generated, mapping.inputs["Vector"])
+        brick = nodes.new(type="ShaderNodeTexBrick")
+        brick.location = (-420, 180)
+        brick.offset = 0.5
+        brick.offset_frequency = 2
+        brick.inputs["Scale"].default_value = 11.0
+        brick.inputs["Mortar Size"].default_value = 0.028
+        brick.inputs["Mortar Smooth"].default_value = 0.06
+        brick.inputs["Brick Width"].default_value = 0.48
+        brick.inputs["Row Height"].default_value = 0.26
+        brick.inputs["Color1"].default_value = spec.base_color
+        brick.inputs["Color2"].default_value = (
+            spec.base_color[0] * 0.78,
+            spec.base_color[1] * 0.62,
+            spec.base_color[2] * 0.70,
+            1.0,
+        )
+        brick.inputs["Mortar"].default_value = (0.22, 0.14, 0.11, 1.0)
+        links.new(mapping.outputs["Vector"], brick.inputs["Vector"])
+        grit = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, -80),
+            scale=(3.2, 3.2, 1.4),
+            offset=(shift * 0.1, shift * 0.2, 0.0),
+            detail=5.0,
+            roughness=0.55,
+        )
+        grit_mask = nodes.new(type="ShaderNodeMapRange")
+        grit_mask.location = (80, -40)
+        grit_mask.inputs["From Min"].default_value = 0.40
+        grit_mask.inputs["From Max"].default_value = 0.82
+        grit_mask.inputs["To Min"].default_value = 0.0
+        grit_mask.inputs["To Max"].default_value = 0.22
+        grit_mask.clamp = True
+        links.new(grit, grit_mask.inputs["Value"])
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(280, 80),
+            factor=grit_mask.outputs["Result"],
+            color_a=brick.outputs["Color"],
+            color_b=lift_rgb.outputs[0],
+        )
+        bump_height = brick.outputs["Fac"]
+        bump_strength = 0.72
+        rough_base = spec.roughness
+    elif look == "limewash":
+        coarse = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, 200),
+            scale=(0.85, 0.85, 0.85),
+            offset=(shift, shift * 0.5, shift * 0.25),
+            detail=4.0,
+            roughness=0.5,
+        )
+        brush = _noise(
+            nodes,
+            links,
+            generated,
+            location=(-700, -80),
+            scale=(9.0, 2.4, 1.2),
+            offset=(shift * 0.18, shift * 0.3, shift * 0.08),
+            detail=5.0,
+            roughness=0.62,
+        )
+        cool_rgb = nodes.new(type="ShaderNodeRGB")
+        cool_rgb.location = (-120, 360)
+        cool_rgb.outputs[0].default_value = (
+            min(1.0, spec.base_color[0] * 0.92 + 0.04),
+            min(1.0, spec.base_color[1] * 0.94 + 0.04),
+            min(1.0, spec.base_color[2] * 0.98 + 0.05),
+            1.0,
+        )
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(80, 200),
+            factor=coarse,
+            color_a=dark_rgb.outputs[0],
+            color_b=cool_rgb.outputs[0],
+        )
+        brush_mask = nodes.new(type="ShaderNodeMapRange")
+        brush_mask.location = (80, -50)
+        brush_mask.inputs["From Min"].default_value = 0.38
+        brush_mask.inputs["From Max"].default_value = 0.80
+        brush_mask.inputs["To Min"].default_value = 0.0
+        brush_mask.inputs["To Max"].default_value = 0.16
+        brush_mask.clamp = True
+        links.new(brush, brush_mask.inputs["Value"])
+        color = _mix_rgba(
+            nodes,
+            links,
+            location=(300, 70),
+            factor=brush_mask.outputs["Result"],
+            color_a=color,
+            color_b=lift_rgb.outputs[0],
+        )
+        bump_height = brush
+        bump_strength = 0.14
         rough_base = spec.roughness
     elif look in ("ashlar", "dungeon_ashlar"):
         mapping = nodes.new(type="ShaderNodeMapping")
@@ -4024,7 +4606,9 @@ def build_look_material(
         "stone": (0.17, 0.15, 0.12, 1.0),
         "stone_trim": (0.16, 0.14, 0.115, 1.0),
         "brick": (0.17, 0.075, 0.04, 1.0),
+        "tile": (0.14, 0.055, 0.04, 1.0),
         "plaster": (0.34, 0.27, 0.17, 1.0),
+        "limewash": (0.28, 0.26, 0.20, 1.0),
     }
     weather_color = weather_colors.get(look)
     if weather_color is not None:
@@ -4043,7 +4627,9 @@ def build_look_material(
         age_mask.inputs["From Min"].default_value = 0.48
         age_mask.inputs["From Max"].default_value = 0.82
         age_mask.inputs["To Min"].default_value = 0.0
-        age_mask.inputs["To Max"].default_value = 0.24 if look == "plaster" else 0.17
+        age_mask.inputs["To Max"].default_value = (
+            0.24 if look == "plaster" else (0.20 if look == "limewash" else 0.17)
+        )
         age_mask.clamp = True
         links.new(age, age_mask.inputs["Value"])
         age_rgb = nodes.new(type="ShaderNodeRGB")

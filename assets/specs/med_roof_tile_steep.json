@@ -1,0 +1,54 @@
+{
+  "spec_version": 1,
+  "id": "med_roof_tile_steep",
+  "generator": "hard_surface.kit_cell",
+  "params": {
+    "cell_xz": 4.0,
+    "cell_y": 2.7,
+    "wall_thickness": 0.28,
+    "overlap": 0.02,
+    "door_width": 1.1,
+    "door_height": 2.1,
+    "window_width": 0.9,
+    "window_height": 1.05,
+    "window_sill": 0.95,
+    "overhang": 0.18,
+    "jetty": 0.0,
+    "timber": true,
+    "bevel_width": 0.0,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "kind": "roof_tile_steep",
+    "roof_height": 2.15,
+    "seed": 83
+  },
+  "materials": {
+    "structure": {
+      "base_color": [
+        0.46,
+        0.17,
+        0.13,
+        1.0
+      ],
+      "roughness": 0.9,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [
+        0.3,
+        0.11,
+        0.08,
+        1.0
+      ],
+      "roughness": 0.86,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": false,
+    "max_dimension_m": 6.0
+  }
+}

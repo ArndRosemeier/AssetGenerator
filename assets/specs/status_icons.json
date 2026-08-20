@@ -1,0 +1,36 @@
+{
+  "spec_version": 1,
+  "kind": "status_icons",
+  "id": "status_icons",
+  "pipeline": "pillow",
+  "note": "2D PNG recipe for tools/bake_status_icons.py. Not a Blender AssetSpec; regenerate skips kind=status_icons.",
+  "size_px": 256,
+  "background": "transparent",
+  "style": {
+    "language": "loot_icon",
+    "readable_at_px": 40,
+    "outline_px": 12,
+    "outline": "#2A180E"
+  },
+  "families": [
+    {
+      "id": "shaken",
+      "reads_as": "ashen gray-green cracked shield",
+      "silhouette": "heater shield, Y-crack through umbo",
+      "palette": {
+        "outline": "#2A180E",
+        "fill": "#6C7A62",
+        "shade": "#485644",
+        "light": "#A6B296",
+        "pale": "#C8CEBA",
+        "deep": "#3A4236",
+        "crack": "#2A180E"
+      }
+    }
+  ],
+  "outputs": {
+    "icons_dir": "assets/icons/status",
+    "atlas": "assets/icons/status/atlas_contact.png",
+    "families_md": "assets/icons/status/families.md"
+  }
+}

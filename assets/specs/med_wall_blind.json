@@ -1,0 +1,54 @@
+{
+  "spec_version": 1,
+  "id": "med_wall_blind",
+  "generator": "hard_surface.kit_cell",
+  "params": {
+    "cell_xz": 4.0,
+    "cell_y": 2.7,
+    "wall_thickness": 0.28,
+    "overlap": 0.02,
+    "door_width": 1.1,
+    "door_height": 2.1,
+    "window_width": 0.9,
+    "window_height": 1.05,
+    "window_sill": 0.95,
+    "overhang": 0.18,
+    "jetty": 0.0,
+    "timber": true,
+    "bevel_width": 0.0,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "kind": "wall",
+    "roof_height": 0.95,
+    "seed": 71
+  },
+  "materials": {
+    "structure": {
+      "base_color": [
+        0.89,
+        0.82,
+        0.68,
+        1.0
+      ],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "trim": {
+      "base_color": [
+        0.16,
+        0.08,
+        0.04,
+        1.0
+      ],
+      "roughness": 0.82,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": false,
+    "max_dimension_m": 6.0
+  }
+}

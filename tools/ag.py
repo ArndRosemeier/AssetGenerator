@@ -123,8 +123,21 @@ def cmd_specs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _is_blender_asset_spec(path: Path) -> bool:
+    """Skip 2D Pillow recipes so regenerate stays 3D-only."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    if data.get("kind") in {"status_icons", "2d_icons"}:
+        return False
+    if data.get("pipeline") == "pillow":
+        return False
+    return True
+
+
 def list_spec_paths() -> list[Path]:
-    return sorted(SPEC_DIR.glob("*.json"))
+    return sorted(path for path in SPEC_DIR.glob("*.json") if _is_blender_asset_spec(path))
 
 
 def generate_one(

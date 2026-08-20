@@ -81,13 +81,11 @@ fn spawn_entry(world: &mut World, root: &Path, entry: &Entry) -> Result<Loaded, 
             let entity = world
                 .spawn_animated(model, Place::default())
                 .map_err(|e| format!("spawn {}: {e}", entry.id))?;
-            let mut clip_i = 0usize;
-            if !clips.is_empty() {
-                if let Err(e) = world.play_animation(entity, &clips[0]) {
-                    eprintln!("play {} / {}: {e}", entry.id, clips[0]);
+            let clip_i = default_clip_index(&clips);
+            if let Some(name) = clips.get(clip_i) {
+                if let Err(e) = world.play_animation(entity, name) {
+                    eprintln!("play {} / {name}: {e}", entry.id);
                 }
-            } else {
-                clip_i = 0;
             }
             Ok(Loaded {
                 id: entry.id.clone(),
@@ -114,6 +112,13 @@ fn spawn_entry(world: &mut World, root: &Path, entry: &Entry) -> Result<Loaded, 
             })
         }
     }
+}
+
+fn default_clip_index(clips: &[String]) -> usize {
+    clips
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case("idle"))
+        .unwrap_or(0)
 }
 
 fn play_clip(world: &mut World, loaded: &mut Loaded, index: usize) {
@@ -269,7 +274,6 @@ fn draw_ui(world: &mut World, frame: &Frame, app: &mut App) {
             }
             ui.separator();
             ui.label("Space / E cycle clips. Arrows yaw. Esc quits.");
-            ui.label("Skinned albedo is vertex colour until Engine samples maps.");
             ui.separator();
 
             let filter = app.filter.to_ascii_lowercase();
@@ -295,20 +299,27 @@ fn draw_ui(world: &mut World, frame: &Frame, app: &mut App) {
                 }
             }
             let selected = app.loaded.as_ref().map(|l| l.id.as_str());
-            for group in groups {
-                egui::CollapsingHeader::new(&group)
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        for entry in tab_entries.iter().filter(|e| e.group == group) {
-                            let is_sel = selected == Some(entry.id.as_str());
-                            if ui.selectable_label(is_sel, entry.label.as_str()).clicked()
-                                && !is_sel
-                            {
-                                clicked_id = Some(entry.id.clone());
-                            }
-                        }
-                    });
-            }
+            let list_height = (ui.ctx().screen_rect().height() * 0.55).clamp(180.0, 640.0);
+            egui::ScrollArea::vertical()
+                .id_salt("asset-list")
+                .max_height(list_height)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for group in groups {
+                        egui::CollapsingHeader::new(&group)
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                for entry in tab_entries.iter().filter(|e| e.group == group) {
+                                    let is_sel = selected == Some(entry.id.as_str());
+                                    if ui.selectable_label(is_sel, entry.label.as_str()).clicked()
+                                        && !is_sel
+                                    {
+                                        clicked_id = Some(entry.id.clone());
+                                    }
+                                }
+                            });
+                    }
+                });
         });
 
     if let Some(i) = clicked_clip {
@@ -336,6 +347,17 @@ fn draw_ui(world: &mut World, frame: &Frame, app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn idle_is_the_default_clip() {
+        assert_eq!(
+            default_clip_index(&["Walk".into(), "Idle".into(), "Run".into()]),
+            1
+        );
+        assert_eq!(default_clip_index(&["idle".into(), "Walk".into()]), 0);
+        assert_eq!(default_clip_index(&["Walk".into(), "Run".into()]), 0);
+        assert_eq!(default_clip_index(&[]), 0);
+    }
 
     #[test]
     fn scan_repo_roots() {

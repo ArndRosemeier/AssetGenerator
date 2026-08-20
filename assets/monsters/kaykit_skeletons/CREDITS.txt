@@ -1,0 +1,8 @@
+# KayKit Character Pack: Skeletons (CC0)
+
+Source: https://kaylousberg.itch.io/kaykit-skeletons
+Author: Kay Lousberg (www.kaylousberg.com)
+License: Creative Commons Zero (CC0 1.0)
+
+Characters used: Skeleton_Mage, Skeleton_Minion (Base), Skeleton_Warrior, Skeleton_Rogue.
+Attribution appreciated but not required.

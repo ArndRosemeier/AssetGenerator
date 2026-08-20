@@ -1,0 +1,29 @@
+{
+  "spec_version": 1,
+  "id": "tent_canvas_small",
+  "generator": "hard_surface.tent",
+  "params": {
+    "length": 2.2,
+    "width": 1.6,
+    "height": 1.38,
+    "pole_size": 0.055,
+    "canvas_thickness": 0.028,
+    "peg_size": 0.045,
+    "bevel_width": 0.003,
+    "texture_resolution": 512,
+    "bake_samples": 16,
+    "seed": 517
+  },
+  "materials": {
+    "canvas": { "base_color": [0.78, 0.66, 0.42, 1.0], "roughness": 0.78, "metallic": 0.0 },
+    "wood": { "base_color": [0.36, 0.22, 0.11, 1.0], "roughness": 0.76, "metallic": 0.0 },
+    "peg": { "base_color": [0.16, 0.14, 0.12, 1.0], "roughness": 0.50, "metallic": 0.35 }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 3.0
+  }
+}
