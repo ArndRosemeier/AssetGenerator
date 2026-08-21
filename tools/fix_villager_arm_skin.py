@@ -2,14 +2,16 @@
 """Fix bind/skin on live hamlet walkers so Idle/Walk draw two arms in the right places.
 
 Does NOT re-run bake_human_idle_walk.py. That retarget (guess_original_bind_pose=True
-on an already-baked dest) is how the live files got here.
+on an already-baked dest, T-pose UAL → A-pose MPFB) is how the live files got here.
 
 Strategy:
   1. Diagnose live + backups + CS piece + base (weights, deformed arm islands, materials).
-  2. Restore a clean bind (prefer first-bake AG .bak or female_base + clothing piece).
-  3. Re-apply Idle/Walk rest-relative from UAL WITHOUT replacing vertex groups.
-  4. Optionally clamp arm-island verts to arm bones if weights still leak.
-  5. Export JSON+BIN (fourcc BIN\\0), force OPAQUE, copy Orrun + AG, render previews.
+  2. Prefer neutralizing compounded arm channels back to A-pose bind (keep spine/legs).
+  3. Optionally clamp clothing sleeve weights that leak onto spine/hips.
+  4. Export JSON+BIN (fourcc BIN\\0), force OPAQUE, copy Orrun + AG, render previews.
+
+Blender 4.5 note: NLA strips need action slots; export rebuilds slotted strips and the
+vendored glTF exporter skips strips that still lack a slot.
 """
 from __future__ import annotations
 
@@ -32,7 +34,7 @@ SRC_ANIM = Path(
     r"C:\Projekte\City\assets\humans\animations\quaternius\AnimationLibrary_Godot_Standard.gltf"
 )
 SCRATCH = Path(r"C:\Projekte\AssetGenerator\tools\_human_bake\arm_skin")
-PREVIEW_DIR = Path(r"C:\Users\windo\agent-previews")
+PREVIEW_DIR = Path(r"C:\Projekte\AssetGenerator\tools\_human_bake\arm_skin\previews")
 BLENDER_BIN = Path(
     r"C:\Projekte\AssetGenerator\tools\blender-bin\blender-4.5.12-windows-x64\blender.exe"
 )
@@ -128,6 +130,55 @@ ARM_ALL = ARM_L | ARM_R
 TORSO = {"Root", "pelvis", "spine_01", "spine_02", "spine_03", "neck_01", "head"}
 LEGS = {"thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r"}
 
+
+def neutralize_arm_clip_channels(dest) -> dict:
+    """Force arm bones to bind (identity basis) on Idle/Walk.
+
+    Live clips were compounded by a T-pose→A-pose world retarget, which folds
+    forearms through the torso. Legs/spine keys stay; arms return to A-pose.
+    """
+    ensure_quat_mode(dest)
+    arm_bones = [b.name for b in dest.pose.bones if b.name in ARM_ALL]
+    clips = []
+    for name in ("Idle", "Walk", "Idle_Loop", "Walk_Loop"):
+        act = bpy.data.actions.get(name)
+        if act is None:
+            continue
+        clips.append(name)
+        assign_action(dest, act)
+        f0 = int(round(act.frame_range[0]))
+        f1 = int(round(act.frame_range[1]))
+        for frame in range(f0, f1 + 1):
+            bpy.context.scene.frame_set(frame)
+            bpy.context.view_layer.update()
+            for bname in arm_bones:
+                pb = dest.pose.bones[bname]
+                pb.rotation_mode = "QUATERNION"
+                pb.matrix_basis = Matrix.Identity(4)
+                pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
+                pb.location = Vector((0.0, 0.0, 0.0))
+                pb.keyframe_insert(data_path="location", frame=frame)
+        for fc in act.fcurves:
+            for kp in fc.keyframe_points:
+                kp.interpolation = "LINEAR"
+        for slot in getattr(act, "slots", []) or []:
+            try:
+                for layer in act.layers:
+                    for strip in layer.strips:
+                        cb = strip.channelbag(slot, ensure=False)
+                        if cb is None:
+                            continue
+                        for fc in cb.fcurves:
+                            for kp in fc.keyframe_points:
+                                kp.interpolation = "LINEAR"
+            except Exception:
+                pass
+        act.use_fake_user = True
+    if dest.animation_data:
+        dest.animation_data.action = None
+    log(f"neutralized arm channels on {clips} bones={len(arm_bones)}")
+    return {"clips": clips, "arm_bones": arm_bones}
+
 PROTECTED = (
     "tent_canvas_small", "campfire_ring", "Tribal", "Tribal_Veteran", "kaykit",
 )
@@ -211,6 +262,25 @@ def compose_mat(loc, rot) -> Matrix:
     return Matrix.Translation(loc) @ rot.to_matrix().to_4x4()
 
 
+def build_retarget_dest_rest(src_rest: dict, dest_rest_a: dict, reverse_map: dict) -> dict:
+    """Build a T-pose-homologous dest rest for retarget.
+
+    UAL rests in a T-pose; MPFB villagers rest in an A-pose. Feeding A-pose
+    dest_rest into rest-relative retarget applies the T→Idle world delta on top
+    of already-lowered arms and folds them through the torso. Use dest joint
+    translations (proportions) with hip-aligned source T-pose rotations instead.
+    """
+    if "DEF-hips" not in src_rest or "pelvis" not in dest_rest_a:
+        return {k: v.copy() for k, v in dest_rest_a.items()}
+    align = dest_rest_a["pelvis"].to_quaternion() @ src_rest["DEF-hips"].to_quaternion().inverted()
+    out = {}
+    for dest_name, src_name in reverse_map.items():
+        loc = dest_rest_a[dest_name].to_translation()
+        rot = align @ src_rest[src_name].to_quaternion()
+        out[dest_name] = compose_mat(loc, rot)
+    return out
+
+
 def set_basis_from_arm_matrix(pb, dest_pose_arm: Matrix, parent_pose_arm) -> None:
     bone = pb.bone
     if pb.parent is not None and parent_pose_arm is not None:
@@ -230,24 +300,19 @@ def assign_action(obj, action) -> None:
         obj.animation_data_create()
     obj.animation_data.action = action
     slots = getattr(action, "slots", None)
-    if slots is not None:
-        slot = None
-        for s in slots:
-            slot = s
-            break
-        if slot is None and hasattr(slots, "new"):
-            try:
-                slot = slots.new(id_type="OBJECT")
-            except TypeError:
-                try:
-                    slot = slots.new()
-                except Exception:
-                    slot = None
-        if slot is not None and hasattr(obj.animation_data, "action_slot"):
-            try:
-                obj.animation_data.action_slot = slot
-            except Exception:
-                pass
+    if slots is None:
+        return
+    slot = None
+    for s in slots:
+        slot = s
+        break
+    # Do NOT slots.new() here: an empty pre-created slot prevents keyframe_insert
+    # from binding the OBarmature slot that glTF/NLA export need.
+    if slot is not None and hasattr(obj.animation_data, "action_slot"):
+        try:
+            obj.animation_data.action_slot = slot
+        except Exception:
+            pass
 
 
 def ensure_quat_mode(arm) -> None:
@@ -256,8 +321,7 @@ def ensure_quat_mode(arm) -> None:
 
 
 def reset_pose(arm) -> None:
-    if arm.animation_data:
-        arm.animation_data.action = None
+    # Keep the active action (and its slot); only zero pose channels.
     for pb in arm.pose.bones:
         pb.matrix_basis = Matrix.Identity(4)
     bpy.context.view_layer.update()
@@ -270,6 +334,38 @@ def copy_action(action, new_name: str):
     return clone
 
 
+def ensure_action_object_slot(action):
+    """Return an existing action slot; never invent an empty one."""
+    slots = getattr(action, "slots", None)
+    if slots is None:
+        return None
+    for s in slots:
+        return s
+    return None
+
+
+def bind_strip_action_slot(arm, strip, action) -> bool:
+    """Make sure an NLA strip has a usable action_slot for glTF export."""
+    if strip is None or action is None:
+        return False
+    if getattr(strip, "action_slot", None) is not None:
+        return True
+    # Prefer the slot Blender assigned when the action was active on this armature.
+    assign_action(arm, action)
+    ad = arm.animation_data
+    slot = getattr(ad, "action_slot", None) if ad is not None else None
+    if slot is None:
+        slot = ensure_action_object_slot(action)
+    if slot is None:
+        return False
+    try:
+        strip.action = action
+        strip.action_slot = slot
+        return getattr(strip, "action_slot", None) is not None
+    except Exception:
+        return False
+
+
 def push_nla(arm, action, name: str) -> None:
     ad = arm.animation_data
     if ad is None:
@@ -277,7 +373,44 @@ def push_nla(arm, action, name: str) -> None:
     track = ad.nla_tracks.new()
     track.name = name
     start = int(round(action.frame_range[0]))
-    track.strips.new(name, start, action)
+    strip = track.strips.new(name, start, action)
+    if not bind_strip_action_slot(arm, strip, action):
+        log(f"WARNING: NLA strip {name!r} has no action_slot after bind")
+
+
+def repair_nla_action_slots(arm) -> int:
+    """Assign missing action slots on NLA strips so glTF export does not crash."""
+    ad = arm.animation_data
+    if ad is None:
+        return 0
+    fixed = 0
+    for track in ad.nla_tracks:
+        for strip in track.strips:
+            if strip.action is None:
+                continue
+            if getattr(strip, "action_slot", None) is not None:
+                continue
+            if bind_strip_action_slot(arm, strip, strip.action):
+                fixed += 1
+            else:
+                log(f"WARNING: could not slot strip {track.name}/{strip.name} action={strip.action.name}")
+    return fixed
+
+
+def clear_unslottable_nla(arm) -> int:
+    """Drop NLA strips that still lack action_slot (export would crash on them)."""
+    ad = arm.animation_data
+    if ad is None:
+        return 0
+    removed = 0
+    for track in list(ad.nla_tracks):
+        for strip in list(track.strips):
+            if strip.action is not None and getattr(strip, "action_slot", None) is None:
+                track.strips.remove(strip)
+                removed += 1
+        if len(track.strips) == 0:
+            ad.nla_tracks.remove(track)
+    return removed
 
 
 def force_opaque(mat) -> None:
@@ -493,7 +626,7 @@ def deformed_arm_metrics(mesh, pose_label: str) -> dict:
         "arm_r_mean_z": mean(zs_r),
         "arms_separated": bool(
             mean(xs_l) is not None and mean(xs_r) is not None
-            and mean(xs_l) < -0.12 and mean(xs_r) > 0.12
+            and abs(mean(xs_l) - mean(xs_r)) >= 0.20
         ),
     }
 
@@ -771,10 +904,22 @@ def diagnose_file(path: Path, tag: str, *, guess_bind: bool, render: bool) -> di
 def _chest_frac(deforms) -> float:
     if not deforms:
         return 0.0
-    worst = 0.0
+    # Prefer body meshes; clothing sleeve weights inflate chest_frac even when
+    # the skinned body arms are fine.
+    body = []
+    clothes = []
     for d in deforms:
-        if isinstance(d, dict) and "chest_frac" in d:
-            worst = max(worst, float(d["chest_frac"]))
+        if not isinstance(d, dict) or "chest_frac" not in d:
+            continue
+        name = (d.get("name") or "").lower()
+        if any(s in name for s in ("suit", "casual", "work", "cloth")):
+            clothes.append(d)
+        else:
+            body.append(d)
+    use = body or clothes
+    worst = 0.0
+    for d in use:
+        worst = max(worst, float(d["chest_frac"]))
     return worst
 
 
@@ -787,10 +932,8 @@ def _arms_separated(deforms) -> bool:
         xl, xr = d.get("arm_l_mean_x"), d.get("arm_r_mean_x")
         if xl is None or xr is None:
             continue
-        # MPFB L/R can be mirrored in world X; only the split matters.
+        # MPFB left is +X, right is -X; only the split magnitude matters.
         if abs(xl - xr) >= 0.20:
-            return True
-        if (xl < -0.12 and xr > 0.12) or (xr < -0.12 and xl > 0.12):
             return True
     return False
 
@@ -815,11 +958,12 @@ def verdict_from_report(report: dict) -> dict:
     )
     has_clips = all(c in (report.get("glb_clips") or []) for c in REQUIRED_CLIPS)
     # Clothing sleeves stuck on the torso show up as high chest_frac on the suit mesh.
+    # Crossed / folded Idle/Walk arms also fail separation even when chest_frac is mild.
     posed_bad = False
     if report.get("deform_idle") is not None:
-        posed_bad = posed_bad or idle_chest >= 0.12
+        posed_bad = posed_bad or idle_chest >= 0.12 or not idle_sep
     if report.get("deform_walk") is not None:
-        posed_bad = posed_bad or walk_chest >= 0.12
+        posed_bad = posed_bad or walk_chest >= 0.12 or not walk_sep
     weights_bad = leak >= 0.12
     clean = (not posed_bad) and (not weights_bad)
     return {
@@ -1054,49 +1198,56 @@ def clamp_all_arm_weights() -> list[dict]:
 
 def bake_clip(src, dest, src_action, dest_action, *, in_place: bool, hip_scale: float,
               src_rest: dict, dest_rest: dict, order: list[str], reverse_map: dict) -> None:
+    """Retarget by copying parent-local matrix_basis (UAL T-pose ↔ MPFB A-pose safe).
+
+    World rest-relative retarget folds A-pose arms through the torso because UAL
+    rests in a T-pose. Local basis deltas are the motion away from each skeleton's
+    own rest, so Idle stays near the villager A-pose instead of applying T→down
+    on top of already-lowered arms.
+    """
     assign_action(src, src_action)
     assign_action(dest, dest_action)
     ensure_quat_mode(dest)
     reset_pose(dest)
+
     f0 = int(round(src_action.frame_range[0]))
     f1 = int(round(src_action.frame_range[1]))
     log(f"  bake {src_action.name} -> {dest_action.name} frames {f0}..{f1} "
-        f"in_place={in_place} hip_scale={hip_scale:.4f}")
+        f"in_place={in_place} hip_scale={hip_scale:.4f} mode=matrix_basis")
     scene = bpy.context.scene
     first_local: dict[str, tuple] = {}
-    dest_inv = dest.matrix_world.inverted()
+    pelvis = "pelvis"
+
     for frame in range(f0, f1 + 1):
         scene.frame_set(frame)
         bpy.context.view_layer.update()
-        posed_arm: dict[str, Matrix] = {}
         for dest_name in order:
             src_name = reverse_map[dest_name]
-            rel = src_rest[src_name].inverted() @ pose_world(src, src_name)
-            if dest_name in TRANSLATION_BONES:
-                rel = rel.copy()
-                rel.translation = rel.to_translation() * hip_scale
-            dest_pose_world = dest_rest[dest_name] @ rel
-            if dest_name not in TRANSLATION_BONES:
-                _loc, rot, _sca = dest_pose_world.decompose()
-                rest_loc = dest_rest[dest_name].to_translation()
-                dest_pose_world = compose_mat(rest_loc, rot)
-            if in_place and dest_name in TRANSLATION_BONES:
-                rest_loc = dest_rest[dest_name].to_translation()
-                loc = dest_pose_world.to_translation()
-                loc.x = rest_loc.x
-                loc.y = rest_loc.y
-                dest_pose_world = dest_pose_world.copy()
-                dest_pose_world.translation = loc
-            dest_pose_arm = dest_inv @ dest_pose_world
-            loc, rot, _sca = dest_pose_arm.decompose()
-            dest_pose_arm = compose_mat(loc, rot)
-            posed_arm[dest_name] = dest_pose_arm
-            pb = dest.pose.bones[dest_name]
-            parent_pose = None
-            if pb.parent is not None:
-                parent_pose = posed_arm.get(pb.parent.name)
-            set_basis_from_arm_matrix(pb, dest_pose_arm, parent_pose)
+            if src_name not in src.pose.bones or dest_name not in dest.pose.bones:
+                continue
+            sp = src.pose.bones[src_name]
+            dp = dest.pose.bones[dest_name]
+            dp.rotation_mode = "QUATERNION"
+            basis = sp.matrix_basis.copy()
+            if in_place and dest_name == pelvis:
+                # Keep villager rooted: drop planar translation from hips.
+                basis = basis.copy()
+                basis.translation.x = 0.0
+                basis.translation.y = 0.0
+                basis.translation.z *= hip_scale
+            elif dest_name in TRANSLATION_BONES:
+                basis = basis.copy()
+                basis.translation *= hip_scale
+            elif dest_name not in TRANSLATION_BONES:
+                # Rotation-only on non-root bones (match prior bake behaviour).
+                loc, rot, sca = basis.decompose()
+                basis = rot.to_matrix().to_4x4()
+                basis.translation = Vector((0.0, 0.0, 0.0))
+            dp.matrix_basis = basis
+        bpy.context.view_layer.update()
         for dest_name in order:
+            if dest_name not in dest.pose.bones:
+                continue
             pb = dest.pose.bones[dest_name]
             pb.rotation_mode = "QUATERNION"
             pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
@@ -1104,6 +1255,7 @@ def bake_clip(src, dest, src_action, dest_action, *, in_place: bool, hip_scale: 
                 pb.keyframe_insert(data_path="location", frame=frame)
             if frame == f0:
                 first_local[dest_name] = (pb.location.copy(), pb.rotation_quaternion.copy())
+
     for dest_name, (loc, rot) in first_local.items():
         pb = dest.pose.bones[dest_name]
         pb.rotation_mode = "QUATERNION"
@@ -1115,7 +1267,21 @@ def bake_clip(src, dest, src_action, dest_action, *, in_place: bool, hip_scale: 
     for fc in dest_action.fcurves:
         for kp in fc.keyframe_points:
             kp.interpolation = "LINEAR"
+    for slot in getattr(dest_action, "slots", []) or []:
+        try:
+            for layer in dest_action.layers:
+                for strip in layer.strips:
+                    cb = strip.channelbag(slot, ensure=False)
+                    if cb is None:
+                        continue
+                    for fc in cb.fcurves:
+                        for kp in fc.keyframe_points:
+                            kp.interpolation = "LINEAR"
+        except Exception:
+            pass
     dest_action.use_fake_user = True
+    n_slots = len(list(getattr(dest_action, "slots", []) or []))
+    log(f"  baked {dest_action.name} slots={n_slots} legacy_fcurves={len(dest_action.fcurves)}")
 
 
 def retarget_idle_walk(dest, dest_objects: list) -> None:
@@ -1142,6 +1308,11 @@ def retarget_idle_walk(dest, dest_objects: list) -> None:
         raise RuntimeError(f"source clips missing: {missing}; have {sorted(src_actions)}")
     reset_pose(src)
     reset_pose(dest)
+    # Clear any leftover dest clip so keyframing does not fight an old Idle.
+    if dest.animation_data:
+        dest.animation_data.action = None
+        for track in list(dest.animation_data.nla_tracks):
+            dest.animation_data.nla_tracks.remove(track)
     src_rest = {s: rest_world(src, s).copy() for s in BONE_MAP if s in src.data.bones}
     dest_rest = {d: rest_world(dest, d).copy() for d in BONE_MAP.values() if d in dest.data.bones}
     reverse_map = {d: s for s, d in BONE_MAP.items() if s in src_rest and d in dest_rest}
@@ -1149,7 +1320,7 @@ def retarget_idle_walk(dest, dest_objects: list) -> None:
     src_hip = hip_height_z(src, "DEF-hips")
     dest_hip = hip_height_z(dest, "pelvis")
     hip_scale = dest_hip / src_hip if abs(src_hip) > 1e-6 else 1.0
-    log(f"retarget mapped={len(reverse_map)} hip_scale={hip_scale:.4f} (weights untouched)")
+    log(f"retarget mapped={len(reverse_map)} hip_scale={hip_scale:.4f} (matrix_basis copy)")
     scene = bpy.context.scene
     scene.render.fps = 24
     scene.render.fps_base = 1.0
@@ -1282,10 +1453,51 @@ def load_clean_bind(path: Path):
     return dest, dest_objects
 
 
+def scrub_foreign_nla(keep_arm) -> int:
+    """Remove NLA on non-dest objects. Imported strips often lack action_slot."""
+    removed_tracks = 0
+    for obj in bpy.data.objects:
+        if obj == keep_arm:
+            continue
+        ad = obj.animation_data
+        if ad is None:
+            continue
+        if ad.nla_tracks:
+            for track in list(ad.nla_tracks):
+                ad.nla_tracks.remove(track)
+                removed_tracks += 1
+        ad.action = None
+    return removed_tracks
+
+
 def export_dest(out_path: Path, dest, dest_objects: list) -> Path:
     force_all_opaque()
-    if dest.animation_data:
-        dest.animation_data.action = None
+    n_scrub = scrub_foreign_nla(dest)
+    if n_scrub:
+        log(f"scrubbed {n_scrub} foreign NLA tracks before export")
+    if dest.animation_data is None:
+        dest.animation_data_create()
+    keep_actions = []
+    for name in ("Idle", "Idle_Loop", "Walk", "Walk_Loop"):
+        act = bpy.data.actions.get(name)
+        if act is not None:
+            keep_actions.append(act)
+    for track in list(dest.animation_data.nla_tracks):
+        dest.animation_data.nla_tracks.remove(track)
+    for act in keep_actions:
+        assign_action(dest, act)
+        push_nla(dest, act, act.name)
+    n_fixed = repair_nla_action_slots(dest)
+    log(
+        f"export NLA rebuilt actions={[a.name for a in keep_actions]} fixed={n_fixed} "
+        + "strips="
+        + ",".join(
+            f"{t.name}:{getattr(t.strips[0], 'action_slot', None) is not None}"
+            for t in dest.animation_data.nla_tracks
+            if t.strips
+        )
+    )
+    dest.animation_data.action = None
     bpy.ops.object.select_all(action="DESELECT")
     for obj in dest_objects:
         if obj.name in bpy.data.objects and obj.name != "PreviewGround":
@@ -1362,7 +1574,10 @@ def install_fixed(scratch: Path, dests: list[Path]) -> None:
         for bad in PROTECTED:
             if bad.lower() in dest.name.lower():
                 raise RuntimeError(f"refusing to overwrite protected {dest}")
-        backup_live(dest)
+        if dest.is_file():
+            backup_live(dest)
+        else:
+            log(f"install target missing, creating {dest}")
         shutil.copy2(scratch, dest)
         patch_fourcc_and_opaque(dest)
         log(f"installed {dest} ({dest.stat().st_size} bytes)")
@@ -1419,16 +1634,6 @@ def pick_bind_source(kind: str, reports: dict) -> dict:
     if live_v.get("clean") and live_v.get("has_clips") and live_v.get("has_clothes"):
         return {"action": "leave", "reason": "live already clean"}
 
-    # Live rest is the dressed A-pose (hole-body + clothes) with Idle/Walk already keyed.
-    # Do NOT assemble base+piece (that brings the nude torso back) and do NOT retarget.
-    # Clothing sleeves leak to spine/hips; clamp arm islands and keep clips.
-    if live_v.get("has_clips") and live_v.get("has_clothes") and live_v.get("posed_bad"):
-        return {
-            "action": "clamp_keep_clips",
-            "src": "orrun_live",
-            "reason": "live rest/clips OK; clothing arm islands leak to torso",
-        }
-
     # First-bake AG bak: clothes + clips, no second retarget
     if ag_v.get("clean") and ag_v.get("has_clips") and ag_v.get("has_clothes"):
         return {"action": "restore_file", "src": "ag_bak", "reason": "AG first-bake is clean"}
@@ -1440,6 +1645,34 @@ def pick_bind_source(kind: str, reports: dict) -> dict:
             "src": "orrun_bak",
             "clamp": orrun_v.get("weights_bad", False),
             "reason": "Orrun bak clean bind with clothes",
+        }
+
+    # Live rest bind OK but Idle/Walk fold arms through the torso. Neutralize
+    # arm channels back to A-pose bind; keep spine/leg motion from the live clips.
+    # (Full UAL re-retarget is unsafe: world rest-relative assumes matching T-pose
+    # rests, and matrix_basis copy fails across UAL↔MPFB bone axes.)
+    if live_v.get("rest_separated") and live_v.get("has_clothes") and live_v.get("posed_bad"):
+        return {
+            "action": "neutralize_arms",
+            "src": "orrun_live",
+            "clamp": live_v.get("weights_bad", False),
+            "reason": "live rest bind OK; neutralize compounded arm channels",
+        }
+
+    # Rest + clips look fine enough, but clothing arm islands leak to spine/hips.
+    # Clamp sleeve weights and keep existing Idle/Walk.
+    if (
+        live_v.get("has_clips")
+        and live_v.get("has_clothes")
+        and live_v.get("posed_bad")
+        and live_v.get("weights_bad")
+        and live_v.get("idle_separated")
+        and live_v.get("walk_separated")
+    ):
+        return {
+            "action": "clamp_keep_clips",
+            "src": "orrun_live",
+            "reason": "live clips OK; clothing arm islands leak to torso",
         }
 
     # Live imported without bind-guess: if rest arms are separated, weights/IBM are OK
@@ -1492,6 +1725,28 @@ def apply_plan(kind: str, plan: dict, paths: dict) -> dict:
     if plan["action"] == "clamp_keep_clips":
         dest, dest_objects = load_clean_bind(paths[plan["src"]])
         result["clamp"] = fix_clothing_sleeve_weights()
+        result["clips"] = ensure_clip_actions(dest)
+        dest_objects = [o for o in bpy.data.objects if o.type in {"MESH", "ARMATURE"} and o.name != "PreviewGround"]
+        scratch = export_dest(paths["orrun_live"], dest, dest_objects)
+        install_fixed(scratch, dests)
+        dest, dest_objects = load_clean_bind(paths["orrun_live"])
+        previews = render_final_previews(dest, f"{kind}_final", copy_names)
+        play_clip(dest, "Idle", mid=True)
+        post = {
+            "deform_idle": [deformed_arm_metrics(m, "Idle") for m in mesh_objects() if m.name != "PreviewGround"],
+        }
+        play_clip(dest, "Walk", mid=True)
+        post["deform_walk"] = [deformed_arm_metrics(m, "Walk") for m in mesh_objects() if m.name != "PreviewGround"]
+        post["weights"] = [sample_mesh_weights(m) for m in mesh_objects() if m.name != "PreviewGround"]
+        info = patch_fourcc_and_opaque(paths["orrun_live"])
+        result.update({"fixed": True, "export": info, "previews": {k: str(v) for k, v in previews.items()}, "post": post})
+        return result
+
+    if plan["action"] == "neutralize_arms":
+        dest, dest_objects = load_clean_bind(paths[plan["src"]])
+        if plan.get("clamp"):
+            result["clamp"] = clamp_all_arm_weights()
+        result["neutralize"] = neutralize_arm_clip_channels(dest)
         result["clips"] = ensure_clip_actions(dest)
         dest_objects = [o for o in bpy.data.objects if o.type in {"MESH", "ARMATURE"} and o.name != "PreviewGround"]
         scratch = export_dest(paths["orrun_live"], dest, dest_objects)
@@ -1604,7 +1859,13 @@ def post_is_worse(before: dict, after_deform_idle, after_deform_walk) -> bool:
     before_idle = bv.get("idle_chest_frac", 1.0)
     before_walk = bv.get("walk_chest_frac", 1.0)
     before_sep = bv.get("idle_separated") and bv.get("walk_separated")
-    # worse if more chest penetration or we lost separation we already had
+    # Body-mesh gate: refuse folded arms through the chest.
+    if after_idle >= 0.20 or after_walk >= 0.20:
+        log(f"post-check reject chest idle={after_idle:.3f} walk={after_walk:.3f}")
+        return True
+    if not after_sep:
+        log("post-check reject arms not separated")
+        return True
     if after_idle > before_idle + 0.05 or after_walk > before_walk + 0.05:
         return True
     if before_sep and not after_sep:
@@ -1632,8 +1893,14 @@ def main() -> int:
             reports = {
                 "orrun_live": {
                     "verdict": {
-                        "clean": False, "posed_bad": True, "weights_bad": True,
-                        "has_clips": True, "has_clothes": True,
+                        "clean": False,
+                        "posed_bad": True,
+                        "weights_bad": True,
+                        "has_clips": True,
+                        "has_clothes": True,
+                        "rest_separated": True,
+                        "idle_separated": False,
+                        "walk_separated": False,
                     }
                 }
             }
@@ -1672,8 +1939,13 @@ def main() -> int:
                 for dest in (paths["orrun_live"], paths["ag_live"]):
                     skin = Path(str(dest) + ".skin.bak")
                     if skin.is_file():
-                        shutil.copy2(skin, dest)
-                        log(f"restored {dest} from {skin}")
+                        try:
+                            if dest.is_file():
+                                dest.unlink()
+                            shutil.copy2(skin, dest)
+                            log(f"restored {dest} from {skin}")
+                        except OSError as exc:
+                            log(f"WARNING: restore failed for {dest}: {exc}")
                 summary[kind]["shipped"] = False
                 summary[kind]["reason"] = "post metrics worse; did not ship"
             else:
