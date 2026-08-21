@@ -1,14 +1,17 @@
-﻿# -*- coding: utf-8 -*-
-"""Bake UAL Idle_Loop / Walk_Loop onto MPFB dressed humans (Orrun + Asset Lab).
+# -*- coding: utf-8 -*-
+"""Bake Quaternius UAL clips onto MPFB dressed humans (City-style share).
 
-DEPRECATED for villagers: use bake_human_quaternius.py instead.
-That script bakes the full Quaternius library via world Copy Rotation (City-style
-absolute orientations). The rest-relative formula below pins joint translations
-and folds T-pose Idle arm deltas onto A-pose MPFB rests.
+City does not bake: Godot BoneMap + Rest Fixer lets AnimationPlayer share the
+UAL onto MPFB. Engine only plays clips embedded in the same GLB, so we bake.
 
-Run (legacy Idle/Walk only):
+Method: world-space Copy Rotation (absolute orientations), hip-scaled source
+armature, no Copy Location (keeps dest planted / in-place). Do NOT use the old
+world rest-relative bake with per-bone translation pinning — that freezes joint
+origins and folds T-pose Idle deltas onto A-pose arms.
+
+Run:
   blender.exe --background --factory-startup --python
-    C:\\Projekte\\AssetGenerator\\tools\\bake_human_idle_walk.py
+    C:\\Projekte\\AssetGenerator\\tools\\bake_human_quaternius.py
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ import traceback
 from pathlib import Path
 
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Matrix
 
 SRC_ANIM = Path(
     r"C:\Projekte\City\assets\humans\animations\quaternius\AnimationLibrary_Godot_Standard.gltf"
@@ -33,7 +36,6 @@ SCRATCH = Path(r"C:\Projekte\AssetGenerator\tools\_human_bake")
 MALE_NAME = "male_dressed_male_worksuit01.glb"
 FEMALE_NAME = "female_dressed_female_casualsuit01.glb"
 
-# Bake each file onto itself so clothes / mesh sets are not dropped.
 TARGETS = [
     ORRUN_HUMANS / MALE_NAME,
     ORRUN_HUMANS / FEMALE_NAME,
@@ -97,42 +99,22 @@ BONE_MAP = {
     "DEF-toe.R": "ball_r",
 }
 
-TRANSLATION_BONES = {"Root", "pelvis"}
-CLIPS = [
-    ("Idle_Loop", ("Idle", "Idle_Loop"), False),
-    ("Walk_Loop", ("Walk", "Walk_Loop"), True),
-]
-VERIFY_BONES = ("pelvis", "spine_01", "thigh_l", "thigh_r", "upperarm_l", "upperarm_r")
+# City skips A_TPose and prefers non-_RM when both exist.
+SKIP_EXACT = {"A_TPose"}
+ALIASES = {
+    "Idle_Loop": ("Idle", "Idle_Loop"),
+    "Walk_Loop": ("Walk", "Walk_Loop"),
+}
 REQUIRED_CLIPS = ("Idle", "Walk")
+VERIFY_BONES = ("pelvis", "spine_01", "thigh_l", "thigh_r", "upperarm_l", "upperarm_r")
 
 
 def log(msg: str) -> None:
-    print(f"[human-bake] {msg}", flush=True)
+    print(f"[ual-bake] {msg}", flush=True)
 
 
 def ensure_scratch() -> None:
     SCRATCH.mkdir(parents=True, exist_ok=True)
-
-
-def backup_targets() -> None:
-    for path in TARGETS:
-        if not path.is_file():
-            raise FileNotFoundError(f"missing target: {path}")
-        bak = path.with_suffix(".glb.bak")
-        if not bak.is_file():
-            shutil.copy2(path, bak)
-            log(f"backup created {bak} ({bak.stat().st_size} bytes)")
-        else:
-            log(f"backup exists {bak} ({bak.stat().st_size} bytes)")
-
-
-def restore_from_bak(path: Path) -> None:
-    bak = path.with_suffix(".glb.bak")
-    if bak.is_file():
-        shutil.copy2(bak, path)
-        log(f"RESTORED {path.name} from .bak")
-    else:
-        log(f"WARNING no .bak to restore for {path}")
 
 
 def clear_scene() -> None:
@@ -161,7 +143,7 @@ def import_gltf(path: Path) -> None:
     bpy.ops.import_scene.gltf(
         filepath=str(path),
         bone_heuristic="BLENDER",
-        guess_original_bind_pose=True,
+        guess_original_bind_pose=False,
     )
     after = set(bpy.data.objects)
     log(f"imported {path.name}: +{len(after - before)} objects")
@@ -178,48 +160,8 @@ def rest_world(arm, bone_name: str) -> Matrix:
     return arm.matrix_world @ arm.data.bones[bone_name].matrix_local
 
 
-def pose_world(arm, bone_name: str) -> Matrix:
-    return arm.matrix_world @ arm.pose.bones[bone_name].matrix
-
-
 def hip_height_z(arm, bone_name: str) -> float:
     return rest_world(arm, bone_name).to_translation().z
-
-
-def dest_order(dest, dest_names: set[str]) -> list[str]:
-    ordered: list[str] = []
-
-    def walk(bone):
-        if bone.name in dest_names:
-            ordered.append(bone.name)
-        for child in bone.children:
-            walk(child)
-
-    for bone in dest.data.bones:
-        if bone.parent is None:
-            walk(bone)
-    for name in dest_names:
-        if name not in ordered:
-            ordered.append(name)
-    return ordered
-
-
-def compose_mat(loc, rot) -> Matrix:
-    return Matrix.Translation(loc) @ rot.to_matrix().to_4x4()
-
-
-def set_basis_from_arm_matrix(pb, dest_pose_arm: Matrix, parent_pose_arm) -> None:
-    bone = pb.bone
-    if pb.parent is not None and parent_pose_arm is not None:
-        basis = (
-            bone.matrix_local.inverted()
-            @ pb.parent.bone.matrix_local
-            @ parent_pose_arm.inverted()
-            @ dest_pose_arm
-        )
-    else:
-        basis = bone.matrix_local.inverted() @ dest_pose_arm
-    pb.matrix_basis = basis
 
 
 def assign_action(obj, action) -> None:
@@ -227,24 +169,14 @@ def assign_action(obj, action) -> None:
         obj.animation_data_create()
     obj.animation_data.action = action
     slots = getattr(action, "slots", None)
-    if slots is not None:
-        slot = None
-        for s in slots:
-            slot = s
-            break
-        if slot is None and hasattr(slots, "new"):
-            try:
-                slot = slots.new(id_type="OBJECT")
-            except TypeError:
-                try:
-                    slot = slots.new()
-                except Exception:
-                    slot = None
-        if slot is not None and hasattr(obj.animation_data, "action_slot"):
-            try:
-                obj.animation_data.action_slot = slot
-            except Exception:
-                pass
+    if slots is None:
+        return
+    for slot in slots:
+        try:
+            obj.animation_data.action_slot = slot
+        except Exception:
+            pass
+        break
 
 
 def ensure_quat_mode(arm) -> None:
@@ -265,6 +197,35 @@ def copy_action(action, new_name: str):
     return clone
 
 
+def ensure_action_object_slot(action):
+    slots = getattr(action, "slots", None)
+    if slots is None:
+        return None
+    for s in slots:
+        return s
+    return None
+
+
+def bind_strip_action_slot(arm, strip, action) -> bool:
+    if strip is None or action is None:
+        return False
+    if getattr(strip, "action_slot", None) is not None:
+        return True
+    assign_action(arm, action)
+    ad = arm.animation_data
+    slot = getattr(ad, "action_slot", None) if ad is not None else None
+    if slot is None:
+        slot = ensure_action_object_slot(action)
+    if slot is None:
+        return False
+    try:
+        strip.action = action
+        strip.action_slot = slot
+        return getattr(strip, "action_slot", None) is not None
+    except Exception:
+        return False
+
+
 def push_nla(arm, action, name: str) -> None:
     ad = arm.animation_data
     if ad is None:
@@ -272,77 +233,73 @@ def push_nla(arm, action, name: str) -> None:
     track = ad.nla_tracks.new()
     track.name = name
     start = int(round(action.frame_range[0]))
-    track.strips.new(name, start, action)
+    strip = track.strips.new(name, start, action)
+    if not bind_strip_action_slot(arm, strip, action):
+        log(f"WARNING: NLA strip {name!r} has no action_slot")
 
 
-def bake_clip(src, dest, src_action, dest_action, *, in_place: bool, hip_scale: float,
-              src_rest: dict, dest_rest: dict, order: list[str], reverse_map: dict) -> None:
+def clip_should_bake(name: str, all_names: set[str]) -> bool:
+    if name in SKIP_EXACT:
+        return False
+    if name.endswith("_RM"):
+        return False
+    # Prefer non-RM twin already handled by skipping _RM.
+    if name.startswith("DST_"):
+        return False
+    return True
+
+
+def dest_clip_names(src_name: str) -> tuple[str, ...]:
+    if src_name in ALIASES:
+        return ALIASES[src_name]
+    return (src_name,)
+
+
+def clear_constraints(arm) -> None:
+    for pb in arm.pose.bones:
+        for c in list(pb.constraints):
+            pb.constraints.remove(c)
+
+
+def add_copy_rotation_constraints(src, dest, reverse_map: dict[str, str]) -> int:
+    clear_constraints(dest)
+    n = 0
+    for dest_name, src_name in reverse_map.items():
+        pb = dest.pose.bones[dest_name]
+        c = pb.constraints.new("COPY_ROTATION")
+        c.target = src
+        c.subtarget = src_name
+        c.target_space = "WORLD"
+        c.owner_space = "WORLD"
+        c.mix_mode = "REPLACE"
+        n += 1
+    return n
+
+
+def bake_clip_visual(src, dest, src_action, dest_action, mapped: list[str]) -> None:
     assign_action(src, src_action)
     assign_action(dest, dest_action)
     ensure_quat_mode(dest)
-    reset_pose(dest)
+    # Keep constraints; clear only pose channels on dest.
+    for pb in dest.pose.bones:
+        pb.matrix_basis = Matrix.Identity(4)
 
     f0 = int(round(src_action.frame_range[0]))
     f1 = int(round(src_action.frame_range[1]))
-    log(f"  bake {src_action.name} -> {dest_action.name} frames {f0}..{f1} "
-        f"in_place={in_place} hip_scale={hip_scale:.4f}")
+    log(f"  bake {src_action.name} -> {dest_action.name} frames {f0}..{f1}")
 
     scene = bpy.context.scene
-    first_local: dict[str, tuple] = {}
-    dest_inv = dest.matrix_world.inverted()
-
     for frame in range(f0, f1 + 1):
         scene.frame_set(frame)
         bpy.context.view_layer.update()
-        posed_arm: dict[str, Matrix] = {}
-
-        for dest_name in order:
-            src_name = reverse_map[dest_name]
-            rel = src_rest[src_name].inverted() @ pose_world(src, src_name)
-            if dest_name in TRANSLATION_BONES:
-                rel = rel.copy()
-                rel.translation = rel.to_translation() * hip_scale
-            dest_pose_world = dest_rest[dest_name] @ rel
-            if dest_name not in TRANSLATION_BONES:
-                # rotation only: keep dest rest translation / scale
-                _loc, rot, _sca = dest_pose_world.decompose()
-                rest_loc = dest_rest[dest_name].to_translation()
-                dest_pose_world = compose_mat(rest_loc, rot)
-            if in_place and dest_name in TRANSLATION_BONES:
-                rest_loc = dest_rest[dest_name].to_translation()
-                loc = dest_pose_world.to_translation()
-                loc.x = rest_loc.x
-                loc.y = rest_loc.y
-                dest_pose_world = dest_pose_world.copy()
-                dest_pose_world.translation = loc
-            dest_pose_arm = dest_inv @ dest_pose_world
-            # drop non-uniform scale from the retarget
-            loc, rot, _sca = dest_pose_arm.decompose()
-            dest_pose_arm = compose_mat(loc, rot)
-            posed_arm[dest_name] = dest_pose_arm
-            pb = dest.pose.bones[dest_name]
-            parent_pose = None
-            if pb.parent is not None:
-                parent_pose = posed_arm.get(pb.parent.name)
-            set_basis_from_arm_matrix(pb, dest_pose_arm, parent_pose)
-
-        for dest_name in order:
+        for dest_name in mapped:
             pb = dest.pose.bones[dest_name]
             pb.rotation_mode = "QUATERNION"
-            pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
-            if dest_name in TRANSLATION_BONES:
-                pb.keyframe_insert(data_path="location", frame=frame)
-            if frame == f0:
-                first_local[dest_name] = (pb.location.copy(), pb.rotation_quaternion.copy())
-
-    for dest_name, (loc, rot) in first_local.items():
-        pb = dest.pose.bones[dest_name]
-        pb.rotation_mode = "QUATERNION"
-        pb.rotation_quaternion = rot
-        pb.keyframe_insert(data_path="rotation_quaternion", frame=f1)
-        if dest_name in TRANSLATION_BONES:
-            pb.location = loc
-            pb.keyframe_insert(data_path="location", frame=f1)
+            pb.keyframe_insert(
+                data_path="rotation_quaternion",
+                frame=frame,
+                options={"INSERTKEY_VISUAL"},
+            )
 
     for fc in dest_action.fcurves:
         for kp in fc.keyframe_points:
@@ -360,7 +317,7 @@ def export_dest(out_path: Path, dest, dest_objects: list) -> None:
     dest.select_set(True)
     bpy.context.view_layer.objects.active = dest
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    scratch_out = SCRATCH / (out_path.stem + "_baked.glb")
+    scratch_out = SCRATCH / (out_path.stem + "_ual_baked.glb")
     if scratch_out.exists():
         scratch_out.unlink()
     kwargs = dict(
@@ -401,7 +358,6 @@ def export_dest(out_path: Path, dest, dest_objects: list) -> None:
             export_draco_mesh_compression_enable=False,
         )
     if not scratch_out.is_file():
-        # blender may append .glb
         alt = Path(str(scratch_out) + ".glb")
         if alt.is_file():
             scratch_out = alt
@@ -424,7 +380,7 @@ def glb_chunks(path: Path):
     while off + 8 <= len(data):
         chunk_len, chunk_type = struct.unpack_from("<II", data, off)
         off += 8
-        chunk = data[off: off + chunk_len]
+        chunk = data[off : off + chunk_len]
         off += chunk_len
         if chunk_type == 0x4E4F534A:
             json_doc = json.loads(chunk)
@@ -445,7 +401,7 @@ def read_accessor(doc, blob, acc_i):
     fmt = COMPONENT[acc["componentType"]]
     n = NCOMP[acc["type"]]
     count = acc["count"]
-    off = (bv.get("byteOffset", 0) + acc.get("byteOffset", 0))
+    off = bv.get("byteOffset", 0) + acc.get("byteOffset", 0)
     stride = bv.get("byteStride") or struct.calcsize(fmt) * n
     out = []
     for i in range(count):
@@ -468,17 +424,27 @@ def verify_glb(path: Path) -> dict:
     doc, blob = glb_chunks(path)
     names = node_name_map(doc)
     anims = {a.get("name"): a for a in doc.get("animations", [])}
-    result = {"path": str(path), "clips": sorted(anims), "ok": True, "notes": []}
+    result = {
+        "path": str(path),
+        "clips": sorted(anims),
+        "clip_count": len(anims),
+        "ok": True,
+        "notes": [],
+    }
     for need in REQUIRED_CLIPS:
         if need not in anims:
             result["ok"] = False
             result["notes"].append(f"MISSING clip {need}")
+    if len(anims) < 20:
+        result["ok"] = False
+        result["notes"].append(f"expected many UAL clips, got {len(anims)}")
+
     mid_rots = {}
     rest_rots = {}
     for node in doc.get("nodes", []):
         rest_rots[node.get("name")] = tuple(node.get("rotation") or (0, 0, 0, 1))
-    channel_report = {}
     spans = {}
+    channel_report = {}
     for clip_name in REQUIRED_CLIPS:
         anim = anims.get(clip_name)
         if not anim:
@@ -490,7 +456,12 @@ def verify_glb(path: Path) -> dict:
             bname = names.get(ni, "?")
             pathk = tgt.get("path")
             bones.setdefault(bname, set()).add(pathk)
-            if pathk == "rotation" and bname in ("thigh_l", "calf_l", "upperarm_l", "foot_l"):
+            if pathk == "rotation" and bname in (
+                "thigh_l",
+                "calf_l",
+                "upperarm_l",
+                "foot_l",
+            ):
                 samp = anim["samplers"][ch["sampler"]]
                 times, _ = read_accessor(doc, blob, samp["input"])
                 rots, _ = read_accessor(doc, blob, samp["output"])
@@ -533,24 +504,27 @@ def verify_glb(path: Path) -> dict:
             result["notes"].append(f"Walk mid thigh_l is T-pose-ish vs rest ({ang:.3f} deg)")
 
     idle_arm = spans.get(("Idle", "upperarm_l"))
-    idle_foot = spans.get(("Idle", "foot_l"))
+    walk_arm = spans.get(("Walk", "upperarm_l"))
     result["idle_arm_span"] = idle_arm
-    result["idle_foot_span"] = idle_foot
-    if idle_arm is not None and idle_arm > 25.0:
+    result["walk_arm_span"] = walk_arm
+    # Copy-rotation Idle still has breathing / sway; reject the old fold (~90+).
+    if idle_arm is not None and idle_arm > 45.0:
         result["ok"] = False
-        result["notes"].append(f"Idle upperarm_l span {idle_arm:.1f} deg (source is ~6)")
-    if idle_foot is not None and idle_foot > 20.0:
+        result["notes"].append(f"Idle upperarm_l span {idle_arm:.1f} deg (folded?)")
+    if walk_arm is not None and walk_arm < 5.0:
         result["ok"] = False
-        result["notes"].append(f"Idle foot_l span {idle_foot:.1f} deg (source is ~3)")
+        result["notes"].append(f"Walk upperarm_l span {walk_arm:.1f} deg (stiff arms?)")
 
-    result["channel_counts"] = {clip: len(channel_report.get(clip, {})) for clip in REQUIRED_CLIPS}
+    result["channel_counts"] = {
+        clip: len(channel_report.get(clip, {})) for clip in REQUIRED_CLIPS
+    }
     result["meshes"] = [m.get("name") for m in doc.get("meshes", [])]
     line = (
-        f"{path.name}: clips={result['clips']} "
+        f"{path.name}: clips={result['clip_count']} "
         f"ch={result.get('channel_counts')} "
         f"idle_vs_walk={result.get('idle_vs_walk_thigh_deg')}deg "
         f"walk_vs_rest={result.get('walk_vs_rest_thigh_deg')}deg "
-        f"idle_arm_span={idle_arm} idle_foot_span={idle_foot} "
+        f"idle_arm={idle_arm} walk_arm={walk_arm} "
         f"{'PASS' if result['ok'] else 'FAIL'}"
     )
     if result["notes"]:
@@ -559,21 +533,56 @@ def verify_glb(path: Path) -> dict:
     return result
 
 
+def prepare_bak(path: Path) -> Path:
+    """Ensure path.glb.bak is a clean dressed bind (prefer existing bak / git clean)."""
+    bak = path.with_suffix(".glb.bak")
+    if bak.is_file():
+        log(f"backup exists {bak} ({bak.stat().st_size} bytes)")
+        return bak
+    # Prefer opaque first-bake from AG if live is neutralized / broken.
+    ag = AG_HUMANS / path.name
+    ag_bak = ag.with_suffix(".glb.bak")
+    if ag_bak.is_file():
+        shutil.copy2(ag_bak, bak)
+        log(f"backup from AG bak -> {bak}")
+        return bak
+    if path.is_file():
+        shutil.copy2(path, bak)
+        log(f"backup created from live {bak} ({bak.stat().st_size} bytes)")
+        return bak
+    raise FileNotFoundError(f"missing target and bak: {path}")
+
+
+def restore_from_bak(path: Path) -> None:
+    bak = path.with_suffix(".glb.bak")
+    if bak.is_file():
+        shutil.copy2(bak, path)
+        log(f"RESTORED {path.name} from .bak")
+
+
 def bake_one(dest_path: Path) -> None:
     log(f"==== bake {dest_path}")
-    bak = dest_path.with_suffix(".glb.bak")
-    src_glb = bak if bak.is_file() else dest_path
+    bak = prepare_bak(dest_path)
+    # Always bake from bak so we never compound live clips.
+    src_glb = bak
 
     clear_scene()
     import_gltf(src_glb)
     dest_objects = [o for o in bpy.data.objects]
     dest = find_armature(has_bone="pelvis")
-    log(f"dest armature {dest.name} bones={len(dest.data.bones)} "
-        f"meshes={[o.name for o in dest_objects if o.type == 'MESH']}")
+    log(
+        f"dest armature {dest.name} bones={len(dest.data.bones)} "
+        f"meshes={[o.name for o in dest_objects if o.type == 'MESH']}"
+    )
 
     for act in list(bpy.data.actions):
         if not act.name.startswith("DST_"):
             act.name = "DST_" + act.name
+    if dest.animation_data:
+        dest.animation_data.action = None
+        for track in list(dest.animation_data.nla_tracks):
+            dest.animation_data.nla_tracks.remove(track)
+    reset_pose(dest)
 
     import_gltf(SRC_ANIM)
     src = find_armature(has_bone="DEF-hips")
@@ -591,42 +600,53 @@ def bake_one(dest_path: Path) -> None:
             raw = act.name[4:]
         src_actions[raw] = act
 
-    missing = [c[0] for c in CLIPS if c[0] not in src_actions]
-    if missing:
-        raise RuntimeError(f"source clips missing: {missing}; have {sorted(src_actions)}")
+    to_bake = sorted(
+        name for name in src_actions if clip_should_bake(name, set(src_actions))
+    )
+    if "Idle_Loop" not in to_bake or "Walk_Loop" not in to_bake:
+        raise RuntimeError(
+            f"need Idle_Loop/Walk_Loop; have {sorted(src_actions)}"
+        )
+    log(f"baking {len(to_bake)} clips")
 
-    reset_pose(src)
-    reset_pose(dest)
-    src_rest = {s: rest_world(src, s).copy() for s in BONE_MAP if s in src.data.bones}
-    dest_rest = {d: rest_world(dest, d).copy() for d in BONE_MAP.values() if d in dest.data.bones}
-    reverse_map = {d: s for s, d in BONE_MAP.items() if s in src_rest and d in dest_rest}
-    order = dest_order(dest, set(reverse_map))
+    reverse_map = {
+        d: s
+        for s, d in BONE_MAP.items()
+        if s in src.data.bones and d in dest.data.bones
+    }
+    mapped = list(reverse_map.keys())
+    log(f"mapped bones {len(mapped)}")
 
     src_hip = hip_height_z(src, "DEF-hips")
     dest_hip = hip_height_z(dest, "pelvis")
     hip_scale = dest_hip / src_hip if abs(src_hip) > 1e-6 else 1.0
+    src.scale = (hip_scale, hip_scale, hip_scale)
+    bpy.context.view_layer.update()
     log(f"hip height src={src_hip:.4f} dest={dest_hip:.4f} scale={hip_scale:.4f}")
-    log(f"mapped bones {len(reverse_map)}")
+
+    n_con = add_copy_rotation_constraints(src, dest, reverse_map)
+    log(f"copy-rotation constraints {n_con}")
 
     scene = bpy.context.scene
     scene.render.fps = 24
     scene.render.fps_base = 1.0
 
     made = []
-    for src_name, dest_names, in_place in CLIPS:
-        primary = dest_names[0]
+    for src_name in to_bake:
+        names = dest_clip_names(src_name)
+        primary = names[0]
         action = bpy.data.actions.new(name=primary)
-        bake_clip(
-            src, dest, src_actions[src_name], action,
-            in_place=in_place, hip_scale=hip_scale,
-            src_rest=src_rest, dest_rest=dest_rest,
-            order=order, reverse_map=reverse_map,
-        )
+        bake_clip_visual(src, dest, src_actions[src_name], action, mapped)
         made.append(action)
-        for extra in dest_names[1:]:
+        for extra in names[1:]:
+            if extra == primary:
+                continue
             clone = copy_action(action, extra)
             made.append(clone)
             log(f"  alias {extra}")
+
+    clear_constraints(dest)
+    reset_pose(dest)
 
     src_objs = [o for o in bpy.data.objects if o not in dest_objects]
     bpy.ops.object.select_all(action="DESELECT")
@@ -639,6 +659,9 @@ def bake_one(dest_path: Path) -> None:
     for act in list(bpy.data.actions):
         if act.name not in keep:
             bpy.data.actions.remove(act)
+    if dest.animation_data:
+        for track in list(dest.animation_data.nla_tracks):
+            dest.animation_data.nla_tracks.remove(track)
     for act in made:
         act.use_fake_user = True
         push_nla(dest, act, act.name)
@@ -647,11 +670,47 @@ def bake_one(dest_path: Path) -> None:
 
 
 def write_report(results: list[dict]) -> None:
-    report = SCRATCH / "verify_report.json"
+    report = SCRATCH / "ual_verify_report.json"
     report.write_text(json.dumps(results, indent=2), encoding="utf-8")
     lines = [r["line"] for r in results]
-    (SCRATCH / "verify_report.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (SCRATCH / "ual_verify_report.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     log("verify report " + str(report))
+
+
+def seed_clean_baks_from_git() -> None:
+    """Replace neutralized lives' bak with opaque first-bake from git 9ba80ea when needed."""
+    try:
+        import subprocess
+    except Exception:
+        return
+    commit = "9ba80ea"
+    for name in (MALE_NAME, FEMALE_NAME):
+        out = ORRUN_HUMANS / name
+        bak = out.with_suffix(".glb.bak")
+        # Always refresh Orrun bak from known-good opaque commit for this bake.
+        try:
+            data = subprocess.check_output(
+                [
+                    "git",
+                    "-C",
+                    str(ORRUN_HUMANS.parents[1]),
+                    "show",
+                    f"{commit}:orrun/assets/humans/{name}",
+                ]
+            )
+        except Exception as exc:
+            log(f"git seed skip {name}: {exc}")
+            continue
+        if len(data) < 1_000_000:
+            log(f"git seed skip {name}: too small ({len(data)})")
+            continue
+        bak.write_bytes(data)
+        log(f"seeded {bak.name} from {commit} ({len(data)} bytes)")
+        ag = AG_HUMANS / name
+        if ag.parent.is_dir():
+            ag_bak = ag.with_suffix(".glb.bak")
+            ag_bak.write_bytes(data)
+            log(f"seeded {ag_bak} from {commit}")
 
 
 def main() -> int:
@@ -659,11 +718,14 @@ def main() -> int:
     log(f"blender {bpy.app.version_string}")
     if not SRC_ANIM.is_file():
         raise FileNotFoundError(SRC_ANIM)
-    backup_targets()
+    seed_clean_baks_from_git()
 
     results = []
     failed = []
     for path in TARGETS:
+        if not path.parent.is_dir():
+            log(f"skip missing dir {path.parent}")
+            continue
         try:
             bake_one(path)
             res = verify_glb(path)
@@ -675,7 +737,10 @@ def main() -> int:
         except Exception:
             traceback.print_exc()
             failed.append(path)
-            restore_from_bak(path)
+            try:
+                restore_from_bak(path)
+            except Exception:
+                pass
 
     write_report(results)
     if failed:

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Fix bind/skin on live hamlet walkers so Idle/Walk draw two arms in the right places.
+"""Legacy arm repair for hamlet walkers (neutralize / rebind).
+
+Prefer tools/bake_human_quaternius.py — full UAL via world Copy Rotation (City-style).
 
 Does NOT re-run bake_human_idle_walk.py. That retarget (guess_original_bind_pose=True
 on an already-baked dest, T-pose UAL → A-pose MPFB) is how the live files got here.
