@@ -1,8 +1,8 @@
 """Parametric one-occupancy A-frame canvas tent.
 
-Wedge canvas on wooden poles with guy-line pegs, all overlapping closed boxes.
-Open / half-open front so it reads as a tent, not a house. No thatch, timber
-frame, chimney or windows. Origin is footprint centre, base on Z=0.
+Wedge canvas on wooden poles with guy-line pegs. Open front (no door flaps);
+single rear panel. No thatch, timber frame, chimney or windows. Origin is
+footprint centre, base on Z=0.
 """
 
 from __future__ import annotations
@@ -171,7 +171,6 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     _frame(builder, params)
     _canvas(builder, params)
     _back_wall(builder, params)
-    _front_flaps(builder, params)
     _pegs_and_guys(builder, params)
     obj = builder.to_object(spec.asset_id, spec.materials)
     apply_bevel(obj, width=params.bevel_width, segments=1, angle_deg=30.0)
@@ -239,53 +238,35 @@ def _canvas(builder: BoxBuilder, params: TentParams) -> None:
     # Ground hems along the eaves.
     _box_on_ground(builder, (-hw, y_center), (0.045, canvas_len, 0.04), "canvas")
     _box_on_ground(builder, (hw, y_center), (0.045, canvas_len, 0.04), "canvas")
-    # Rolled lintel at the open front edge of the canvas.
-    front_y = y_center - canvas_len * 0.5
-    roll = (0.52, 0.085, 0.085)
-    _box(builder, (0.0, front_y, height * 0.70), roll, "canvas", (0.15, 0.0, 0.0))
 
 
 def _back_wall(builder: BoxBuilder, params: TentParams) -> None:
-    # Stepped gable of canvas boxes: closed back, still a tent not a house wall.
+    # Triangular rear gable — one thin fabric end, not a rectangle.
     hw = params.width * 0.5
     hl = params.length * 0.5
     height = params.height
-    y = hl - 0.012
-    thick = params.canvas_thickness * 1.1
-    bands = (
-        (0.26, params.width * 0.74),
-        (0.66, params.width * 0.48),
-        (0.98, params.width * 0.26),
+    thick = params.canvas_thickness
+    inset = 0.03
+    w = hw - inset
+    h = height - inset
+    y_out = hl
+    y_in = hl - thick
+    verts = (
+        (-w, y_out, 0.0),
+        (w, y_out, 0.0),
+        (0.0, y_out, h),
+        (-w, y_in, 0.0),
+        (w, y_in, 0.0),
+        (0.0, y_in, h),
     )
-    for center_z, width in bands:
-        band_h = 0.34 if center_z < 0.8 else 0.28
-        # Keep each band inside the A-frame silhouette.
-        max_w = params.width * max(0.12, 1.0 - center_z / height) - 0.04
-        w = min(width, max_w)
-        _box(builder, (0.0, y, center_z), (w, thick, band_h), "canvas")
-
-
-def _front_flaps(builder: BoxBuilder, params: TentParams) -> None:
-    # Parted door flaps, symmetric, hanging short of the ground so the opening reads.
-    hw = params.width * 0.5
-    hl = params.length * 0.5
-    canvas_len = params.length * 0.76
-    y_center = hl - 0.07 - canvas_len * 0.5
-    front_y = y_center - canvas_len * 0.5
-    flap = (0.40, 0.022, 0.82)
-    for sign, yaw in ((-1.0, 0.28), (1.0, -0.28)):
-        rot = (0.08, sign * 0.22, yaw)
-        _box(
-            builder,
-            (sign * 0.26, front_y - 0.07, _half_z(flap, rot) + 0.10),
-            flap,
-            "canvas",
-            rot,
-        )
-    # Wooden toggles on the parted edges, still symmetric.
-    toggle = (0.04, 0.03, 0.06)
-    for sign in (-1.0, 1.0):
-        _box(builder, (sign * 0.10, front_y - 0.09, 0.62), toggle, "wood")
+    faces = (
+        (0, 1, 2),
+        (5, 4, 3),
+        (0, 3, 5, 2),
+        (1, 2, 5, 4),
+        (0, 1, 4, 3),
+    )
+    builder.add_mesh(verts, faces, "canvas")
 
 
 def _pegs_and_guys(builder: BoxBuilder, params: TentParams) -> None:

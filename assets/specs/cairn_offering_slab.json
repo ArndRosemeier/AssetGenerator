@@ -1,0 +1,42 @@
+{
+  "spec_version": 1,
+  "id": "cairn_offering_slab",
+  "generator": "nature.rock",
+  "params": {
+    "size": 1.95,
+    "subdivisions": 4,
+    "elongation": 2.35,
+    "stretch_axis": "x",
+    "smoothness": 0.58,
+    "displace_amount": 0.07,
+    "noise_scale": 1.4,
+    "noise_detail": 3,
+    "vein_amount": 0.06,
+    "vein_scale": 1.8,
+    "vein_contrast": 1.4,
+    "vertical_squash": 0.42,
+    "flat_base": 0.32,
+    "texture_resolution": 512,
+    "bake_samples": 24,
+    "seed": 703
+  },
+  "materials": {
+    "rock": {
+      "base_color": [0.34, 0.33, 0.31, 1.0],
+      "roughness": 0.80,
+      "metallic": 0.0
+    },
+    "vein": {
+      "base_color": [0.55, 0.53, 0.48, 1.0],
+      "roughness": 0.72,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 3.5
+  }
+}

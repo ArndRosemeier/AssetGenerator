@@ -1,0 +1,42 @@
+{
+  "spec_version": 1,
+  "id": "cairn_menhir_lean",
+  "generator": "nature.rock",
+  "params": {
+    "size": 3.7,
+    "subdivisions": 4,
+    "elongation": 3.35,
+    "stretch_axis": "z",
+    "smoothness": 0.10,
+    "displace_amount": 0.20,
+    "noise_scale": 1.8,
+    "noise_detail": 4,
+    "vein_amount": 0.12,
+    "vein_scale": 2.4,
+    "vein_contrast": 2.2,
+    "vertical_squash": 1.0,
+    "flat_base": 0.06,
+    "texture_resolution": 512,
+    "bake_samples": 32,
+    "seed": 701
+  },
+  "materials": {
+    "rock": {
+      "base_color": [0.14, 0.14, 0.16, 1.0],
+      "roughness": 0.90,
+      "metallic": 0.02
+    },
+    "vein": {
+      "base_color": [0.32, 0.30, 0.28, 1.0],
+      "roughness": 0.82,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 10000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 5.0
+  }
+}

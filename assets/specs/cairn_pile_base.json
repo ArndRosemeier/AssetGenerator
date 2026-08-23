@@ -1,0 +1,42 @@
+{
+  "spec_version": 1,
+  "id": "cairn_pile_base",
+  "generator": "nature.rock",
+  "params": {
+    "size": 2.9,
+    "subdivisions": 4,
+    "elongation": 1.42,
+    "stretch_axis": "x",
+    "smoothness": 0.42,
+    "displace_amount": 0.38,
+    "noise_scale": 2.6,
+    "noise_detail": 5,
+    "vein_amount": 0.28,
+    "vein_scale": 3.2,
+    "vein_contrast": 2.0,
+    "vertical_squash": 0.46,
+    "flat_base": 0.24,
+    "texture_resolution": 512,
+    "bake_samples": 28,
+    "seed": 702
+  },
+  "materials": {
+    "rock": {
+      "base_color": [0.30, 0.28, 0.26, 1.0],
+      "roughness": 0.88,
+      "metallic": 0.0
+    },
+    "vein": {
+      "base_color": [0.52, 0.48, 0.44, 1.0],
+      "roughness": 0.78,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 10000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 4.5
+  }
+}
