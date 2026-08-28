@@ -26,10 +26,13 @@ This directory contains artistic look-dev stills, material targets, concept albe
   - **3) Tusk Ivory**: Base Color `#EAE0C8`, Roughness `0.35`, gradient from warm base to bone white.
   - **4) Cast Metal Rings**: Metallic `0.90`, Roughness `0.40`, dark hammered iron / bronze.
 
-### 4. UV Island Concept Paintover & Albedo Swatch Sheets (Not UV-Ready)
-- **MakeHuman UV Island Paintover Guide**: `orc_male_base_uv_paintover_not_uv_ready.png`
-  - Look-dev paintover directly referencing MakeHuman `male_base` destination UV island layout (torso/legs, unfolded head/scalp, ears, feet, hands, neck).
-  - Explicitly watermarked `LOOK-DEV CONCEPT ONLY - NOT UV-READY`.
+### 4. UV Island Concept Paintovers & Albedo Swatch Sheets (Not UV-Ready)
+- **MakeHuman UV Island Look-Dev Paintover**: `male_base_orc_lookdev_albedo_not_uv_ready.png` & `orc_male_base_uv_paintover_not_uv_ready.png`
+  - Look-dev paintover painted directly into the MakeHuman `male_base` destination UV island layout:
+    - Main body island (left): olive-grey skin, muscular torso, leather chest X-harness with bronze ring, studded belt, loincloth, leg wraps.
+    - Head island (right): olive-grey skin, heavy brow, upward tusks, pointed ears, scars.
+    - Peripheral islands: ears (far left), feet (bottom left), hands (bottom center-right), and neck/scalp (bottom right).
+  - Explicitly watermarked: `NOT UV-READY - FOR LOOK-DEV ONLY (REQUIRES BLENDER PROJECTION)`.
 - **Concept Reference & Palette**: `orc_albedo_concept_not_uv_ready.png`
   - Flat color swatches, textile references, skin palettes, and scars/markings marked explicitly as `CONCEPT ALBEDO REFERENCE - NOT UV READY`.
 
