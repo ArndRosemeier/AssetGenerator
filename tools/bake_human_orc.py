@@ -843,20 +843,26 @@ def restyle_bulk_and_jaw(arm) -> None:
                 bulk += 0.012 * max(0.0, 1.0 - hw)
 
             # Idle/Walk neck/chest shred: never displace neck_01 or heavy spine_03.
-            neck_zone = nw >= 0.08 or (s3w >= 0.28 and hw < 0.45 and arm_w < 0.25)
+            # Also skip any vert with meaningful neck weight — jaw/mouth on the
+            # head/neck blend seam was still tearing under Walk.
+            neck_zone = (
+                nw >= 0.05
+                or (s3w >= 0.22 and hw < 0.55 and arm_w < 0.30)
+                or (s3w >= 0.40 and hw < 0.70)
+            )
             if neck_zone:
                 bulk = 0.0
                 neck_skipped += 1
                 continue
 
             dz = v.co.z - head_z
-            # Face-only gate: head must dominate neck/spine.
+            # Face-only: strong head dominance; no neck blend seam.
             is_face = (
-                hw >= 0.55
-                and hw >= nw + 0.25
-                and hw >= s3w + 0.20
-                and nw < 0.20
-                and s3w < 0.35
+                hw >= 0.60
+                and hw >= nw + 0.35
+                and hw >= s3w + 0.30
+                and nw < 0.12
+                and s3w < 0.25
             )
 
             if is_face and -0.145 <= dz <= -0.055 and v.co.y < cy + 0.02:
@@ -1332,20 +1338,30 @@ def body_local_to_world(body, p: Vector) -> Vector:
     return body.matrix_world @ Vector(p)
 
 
+def _matrix_is_identity(m: Matrix, *, eps: float = 1e-5) -> bool:
+    ident = Matrix.Identity(4)
+    for i in range(4):
+        for j in range(4):
+            if abs(float(m[i][j]) - float(ident[i][j])) > eps:
+                return False
+    return True
+
+
 def bind_tusk_to_head_bone(obj, arm) -> None:
     """Parent tusk to the head bone (no Armature modifier).
 
-    Art Reviewer 19:32: Armature-mod + OBJECT parent could pass a synthetic
-    head-rotate assert while tusks stayed near rest world — in-mouth on
-    Punch/Death (near rest) and floating on Idle/Walk. Bone parenting locks
-    the mesh into head space for every clip.
-    Mesh data must already be authored in head-rest local coordinates.
+    Critical: assigning ``obj.parent`` makes Blender preserve world transform via
+    ``matrix_parent_inverse``. Leaving that inverse in place cancels bone motion
+    — tusks stick at rest world (20:14: Idle/Walk/Death float, Punch near-rest
+    looks in-mouth). Mesh data must already be in head-rest local coordinates;
+    then force Identity parent inverse so the head pose fully drives the object.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("bind_tusk_to_head_bone: missing head bone")
     for mod in list(obj.modifiers):
         obj.modifiers.remove(mod)
     obj.parent = None
+    obj.matrix_parent_inverse = Matrix.Identity(4)
     obj.location = (0.0, 0.0, 0.0)
     obj.rotation_euler = (0.0, 0.0, 0.0)
     if hasattr(obj, "rotation_quaternion"):
@@ -1353,30 +1369,84 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
     obj.scale = (1.0, 1.0, 1.0)
     bpy.context.view_layer.update()
 
+    # Order: parent object, then bone name, then bone type.
     obj.parent = arm
-    obj.parent_type = "BONE"
     obj.parent_bone = "head"
+    obj.parent_type = "BONE"
+    # Wipe the keep-transform inverse Blender just wrote — verts are already
+    # head-local; bone pose must apply unopposed.
+    obj.matrix_parent_inverse = Matrix.Identity(4)
     obj.matrix_basis = Matrix.Identity(4)
+    obj.location = (0.0, 0.0, 0.0)
+    obj.rotation_euler = (0.0, 0.0, 0.0)
+    obj.scale = (1.0, 1.0, 1.0)
     bpy.context.view_layer.update()
+
     if obj.parent != arm or obj.parent_type != "BONE" or obj.parent_bone != "head":
         raise RuntimeError(
             f"bind_tusk_to_head_bone failed on {obj.name!r}: "
             f"parent={obj.parent!r} type={obj.parent_type!r} bone={obj.parent_bone!r}"
+        )
+    # Parent inverse must stay Identity (any keep-transform inverse = rest stick).
+    if not _matrix_is_identity(obj.matrix_parent_inverse):
+        raise RuntimeError(
+            f"{obj.name!r} matrix_parent_inverse is not Identity after bone parent — "
+            f"would stick tusks at rest world. pinv={obj.matrix_parent_inverse}"
         )
     if any(m.type == "ARMATURE" for m in obj.modifiers):
         raise RuntimeError(
             f"{obj.name!r} still has Armature modifier after bone parent "
             f"(would double-transform)"
         )
-    log(f"tusk {obj.name!r} BONE-parented to head (no Armature modifier)")
+    log(
+        f"tusk {obj.name!r} BONE-parented to head "
+        f"(matrix_parent_inverse=Identity, no Armature modifier)"
+    )
+
+
+def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None:
+    """Gate the PNG the Reviewer sees — fail before render if tusks float."""
+    if not tusks:
+        raise RuntimeError(f"{label}: no tusks for in-mouth still gate")
+    bpy.context.view_layer.update()
+    bpy.context.evaluated_depsgraph_get().update()
+    head = head_world_pos(arm)
+    for tusk in tusks:
+        if tusk.parent != arm or tusk.parent_type != "BONE" or tusk.parent_bone != "head":
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} lost head BONE parent "
+                f"(parent={getattr(tusk.parent, 'name', None)!r} "
+                f"type={tusk.parent_type!r} bone={tusk.parent_bone!r})"
+            )
+        pinv = tusk.matrix_parent_inverse
+        if not _matrix_is_identity(pinv):
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} matrix_parent_inverse not Identity"
+            )
+        c = _evaluated_mesh_centroid_world(tusk)
+        local = world_to_head_local(arm, c)
+        dist = (c - head).length
+        if local.length > HEAD_MOUTH_MAX_LOCAL:
+            raise RuntimeError(
+                f"{label} still: tusk {tusk.name!r} head-local length={local.length:.4f} "
+                f"> {HEAD_MOUTH_MAX_LOCAL} — floating in rendered pose "
+                f"(world={tuple(round(x, 3) for x in c)} "
+                f"head={tuple(round(x, 3) for x in head)})"
+            )
+        if dist > HEAD_MOUTH_MAX_LOCAL + 0.04:
+            raise RuntimeError(
+                f"{label} still: tusk {tusk.name!r} world dist to head={dist:.4f} "
+                f"— not in mouth on the pose that will be rendered"
+            )
+    log(f"{label} still gate: tusks in mouth (head-local OK)")
 
 
 def assert_tusks_follow_head(arm, tusks: list) -> None:
-    """Fail loud unless tusks stay in head-local mouth space on Idle AND Walk.
+    """Fail unless tusks track the head under Idle, Walk, AND Death (large delta).
 
-    Synthetic head rotation alone is not enough — 19:32 stills showed Punch/Death
-    in-mouth (near rest) while Idle/Walk floated. Verify head-local invariance
-    under the real Idle/Walk actions used for AFTER stills, then restore rest.
+    20:14: Idle@15/Walk@16 head barely moves, so a 'head-local lock' can pass
+    while tusks are stuck at rest world. Death (and a forced head rotate) must
+    show a real head_delta; tusks must keep head-local mouth position there too.
     """
     if not tusks:
         raise RuntimeError("assert_tusks_follow_head: no tusks")
@@ -1387,6 +1457,12 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                 f"got parent={getattr(tusk.parent, 'name', None)!r} "
                 f"type={tusk.parent_type!r} bone={tusk.parent_bone!r}"
             )
+        if not _matrix_is_identity(tusk.matrix_parent_inverse):
+            raise RuntimeError(
+                f"{tusk.name!r} matrix_parent_inverse not Identity — rest-stick bind"
+            )
+
+    from mathutils import Quaternion
 
     saved_action = None
     saved_nla_mutes = []
@@ -1406,12 +1482,59 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
         rest_worlds = [_evaluated_mesh_centroid_world(t) for t in tusks]
         rest_head = head_world_pos(arm)
 
-        clip_specs = (
-            ("Idle", ("Idle", "Idle_Loop"), "idle"),
-            ("Walk", ("Walk", "Walk_Loop"), "walk"),
+        def _check_pose(label: str, *, require_head_delta: float) -> float:
+            bpy.context.view_layer.update()
+            bpy.context.evaluated_depsgraph_get().update()
+            posed_head = head_world_pos(arm)
+            head_delta = (posed_head - rest_head).length
+            if head_delta < require_head_delta:
+                raise RuntimeError(
+                    f"{label}: head_delta={head_delta:.4f} < {require_head_delta} "
+                    f"— pose too close to rest to prove tusk follow"
+                )
+            for tusk, rest_l, rest_w in zip(tusks, rest_locals, rest_worlds):
+                posed_w = _evaluated_mesh_centroid_world(tusk)
+                posed_l = world_to_head_local(arm, posed_w)
+                local_drift = (posed_l - rest_l).length
+                world_delta = (posed_w - rest_w).length
+                if local_drift > 0.025:
+                    raise RuntimeError(
+                        f"tusk {tusk.name!r} not locked to head under {label}: "
+                        f"head_local_drift={local_drift:.4f}"
+                    )
+                if world_delta < 0.5 * head_delta:
+                    raise RuntimeError(
+                        f"tusk {tusk.name!r} stuck near rest under {label} "
+                        f"(tusk_world_delta={world_delta:.4f} "
+                        f"head_delta={head_delta:.4f}) — Reviewer float-off"
+                    )
+                if posed_l.length > HEAD_MOUTH_MAX_LOCAL:
+                    raise RuntimeError(
+                        f"tusk {tusk.name!r} head-local length={posed_l.length:.4f} "
+                        f"> {HEAD_MOUTH_MAX_LOCAL} under {label}"
+                    )
+            return head_delta
+
+        # 1) Forced head rotate — must move head a lot; proves bone parent inverse.
+        HQ.reset_pose(arm)
+        if arm.animation_data is not None:
+            arm.animation_data.action = None
+        pb = arm.pose.bones["head"]
+        pb.rotation_mode = "QUATERNION"
+        pb.rotation_quaternion = Quaternion(
+            Vector((1.0, 0.0, 0.0)), math.radians(55.0)
         )
-        tested = []
-        for label, names, kind in clip_specs:
+        bpy.context.view_layer.update()
+        d_rot = _check_pose("forced_head_rotate", require_head_delta=0.05)
+        log(f"tusk follow OK forced_head_rotate head_delta={d_rot:.4f}")
+
+        # 2) Idle / Walk still frames (same as AFTER).
+        clip_specs = (
+            ("Idle", ("Idle", "Idle_Loop"), "idle", 0.0),
+            ("Walk", ("Walk", "Walk_Loop"), "walk", 0.0),
+        )
+        tested = [f"forced_head_rotateΔ={d_rot:.3f}"]
+        for label, names, kind, min_delta in clip_specs:
             act = None
             for name in names:
                 act = bpy.data.actions.get(name)
@@ -1419,17 +1542,16 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                     break
             if act is None:
                 raise RuntimeError(
-                    f"assert_tusks_follow_head: missing {label} action {names}; "
-                    f"cannot verify tusks on the still clips"
+                    f"assert_tusks_follow_head: missing {label} action {names}"
                 )
             frame = action_frame_for_action(act, kind)
-            # Pose exactly like AFTER stills (active action, NLA muted).
             HQ.reset_pose(arm)
             HQ.assign_action(arm, act)
             bpy.context.scene.frame_set(int(frame))
+            # Idle may have tiny head_delta — still require local lock + parent;
+            # world-delta check only when head actually moved.
             bpy.context.view_layer.update()
             bpy.context.evaluated_depsgraph_get().update()
-
             posed_head = head_world_pos(arm)
             head_delta = (posed_head - rest_head).length
             for tusk, rest_l, rest_w in zip(tusks, rest_locals, rest_worlds):
@@ -1437,31 +1559,44 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                 posed_l = world_to_head_local(arm, posed_w)
                 local_drift = (posed_l - rest_l).length
                 world_delta = (posed_w - rest_w).length
-                # Locked to head => head-local pose is stable across Idle/Walk.
-                if local_drift > 0.02:
+                if local_drift > 0.025:
                     raise RuntimeError(
-                        f"tusk {tusk.name!r} not locked to head under {label} "
-                        f"frame={frame}: head_local_drift={local_drift:.4f} "
-                        f"(Idle/Walk float-off — rest-world tusks look in-mouth "
-                        f"only near rest Punch/Death)"
+                        f"tusk {tusk.name!r} not locked to head under {label}@{frame}: "
+                        f"head_local_drift={local_drift:.4f}"
                     )
-                # If the head moved in world, tusks must move with it (not rest stick).
-                if head_delta > 0.02 and world_delta < 0.5 * head_delta:
+                if head_delta > 0.025 and world_delta < 0.5 * head_delta:
                     raise RuntimeError(
-                        f"tusk {tusk.name!r} stayed near rest under {label} "
-                        f"(tusk_world_delta={world_delta:.4f} "
-                        f"head_delta={head_delta:.4f})"
+                        f"tusk {tusk.name!r} stuck near rest under {label}@{frame} "
+                        f"(tusk_world_delta={world_delta:.4f} head_delta={head_delta:.4f})"
                     )
-                # Stay in mouth region relative to head bone (skull-base origin).
-                # MH mouth corners are ~0.20 in head-local — not cheek invent.
                 if posed_l.length > HEAD_MOUTH_MAX_LOCAL:
                     raise RuntimeError(
                         f"tusk {tusk.name!r} head-local length={posed_l.length:.4f} "
-                        f"> {HEAD_MOUTH_MAX_LOCAL} under {label} — not in mouth cavity"
+                        f"under {label}@{frame}"
                     )
-            tested.append(f"{label}:{act.name}@{frame}")
+            tested.append(f"{label}:{act.name}@{frame}Δ={head_delta:.3f}")
             if arm.animation_data is not None:
                 arm.animation_data.action = None
+
+        # 3) Death last/hold frame — large head motion; must not float above face.
+        death = None
+        for name in ("Death01", "Death"):
+            death = bpy.data.actions.get(name)
+            if death is not None:
+                break
+        if death is None:
+            raise RuntimeError(
+                "assert_tusks_follow_head: missing Death01/Death — "
+                "cannot prove follow on the Death still"
+            )
+        death_frame = action_frame_for_action(death, "death")
+        HQ.reset_pose(arm)
+        HQ.assign_action(arm, death)
+        bpy.context.scene.frame_set(int(death_frame))
+        d_death = _check_pose(
+            f"Death:{death.name}@{death_frame}", require_head_delta=0.08
+        )
+        tested.append(f"Death:{death.name}@{death_frame}Δ={d_death:.3f}")
         log(f"tusk head-local lock OK on clips {tested}")
     finally:
         HQ.reset_pose(arm)
@@ -2804,6 +2939,21 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
                 f"AFTER {label} missing male_body in visible meshes; "
                 f"have={sorted(o.name for o in meshes)}"
             )
+        tusks_live = [
+            o
+            for o in meshes
+            if o.name.startswith("OrcTusk_") or "tusk" in o.name.lower()
+        ]
+        if len(tusks_live) < 2:
+            tusks_live = [
+                o
+                for o in bpy.data.objects
+                if o.type == "MESH"
+                and (o.name.startswith("OrcTusk_") or "tusk" in o.name.lower())
+            ]
+        # Gate the PNG Reviewer sees — numeric lock alone passed while stills floated.
+        assert_tusks_in_mouth_for_current_pose(arm, tusks_live, label)
+
         center, extent = posed_bbox(meshes)
         if label == "Death":
             head = head_world_pos(arm)
@@ -2815,6 +2965,8 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
         else:
             setup_standing_preview(center, extent)
 
+        # Re-assert after camera setup (must not have broken bone parent).
+        assert_tusks_in_mouth_for_current_pose(arm, tusks_live, f"{label}_pre_render")
         path = still_path(tag, label)
         render_png(path)
         out[label] = str(path)
