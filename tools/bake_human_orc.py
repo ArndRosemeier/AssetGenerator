@@ -4,17 +4,34 @@
 Art / Asset Lab only. Does not write Orrun or Origin, does not author clips,
 does not add bones, does not use Quaternius Orc.glb as a donor.
 
-Donor (read-only, already UAL-baked):
+Animation donor (read-only, ~45 UAL clips — never overwrite):
+  C:\\Projekte\\OrrunWithEngine\\orrun\\assets\\humans\\male_dressed_male_worksuit01.glb
+
+AG worksuit (read-only, often Idle/Walk only — never overwrite):
   C:\\Projekte\\AssetGenerator\\assets\\humans\\male_dressed_male_worksuit01.glb
 
-Dest (NEW file only — never overwrite the donor):
+UV source for --uv-only (read-only, clean full-body MH UVs; may have 0 clips):
+  C:\\Projekte\\AssetGenerator\\assets\\humans\\male_base.glb
+
+Dest (NEW file only under AG humans):
   C:\\Projekte\\AssetGenerator\\assets\\humans\\male_orc_01.glb
 
 Scratch (gitignored):
   C:\\Projekte\\AssetGenerator\\tools\\_human_orc_bake\\
 
-Required UAL clip names kept from the worksuit donor (not authored here):
-  Idle, Walk, Death (or Death01), Punch
+Full restyle copies the Orrun worksuit (mesh + UAL clips) onto dest, then
+restyles MESH only. Required playback aliases (not authored here):
+  Idle: Idle, Idle_Loop
+  Walk: Walk, Walk_Loop
+  Death: Death, Death01
+  Punch: Punch_Cross (preferred), Punch_Jab, Punch_Enter
+    (Orrun has no clip literally named Punch — never invent one)
+If Punch/Death cannot be resolved, use the Orrun animation donor or run
+tools/bake_human_quaternius.py (full UAL) onto dest — never invent clips.
+
+--uv-only defaults to male_base.glb: export existing UV islands, log the actual
+clip list (may be empty). Does NOT call assert_required_clips / require
+Punch/Death. UV template ships even when combat clips are absent.
 
 Look-dev (silhouette + material target only — NOT a UV map):
   tools/_human_orc_bake/orc_lookdev_threequarter.png
@@ -32,7 +49,7 @@ Ship the UV template before a full restyle (first flag):
 
 --uv-only writes:
   tools/_human_orc_bake/male_orc_01_uv_layout.png
-from existing dest UVs via bpy.ops.uv.export_layout (fails loud if no UV).
+from male_base (default) existing UVs via bpy.ops.uv.export_layout.
 
 Restyle rules:
   - MESH only on the existing 53-bone bind (BONE_MAP from bake_human_quaternius).
@@ -41,7 +58,8 @@ Restyle rules:
   - Do NOT scale thigh / calf / pelvis bones. No ogre hunch, no invented gait.
   - Keep worksuit clothes. Drop cleaver/shield if present (look-dev gear only).
   - Log hip_height_z before/after; fail if pelvis rest Z moves more than ~1 cm.
-  - Guards snapshot worksuit / male_base / casualsuit / Quaternius Orc.glb.
+  - Guards snapshot AG worksuit / Orrun worksuit / male_base / casualsuit /
+    Quaternius Orc.glb.
 """
 from __future__ import annotations
 
@@ -65,7 +83,15 @@ import bake_human_quaternius as HQ  # noqa: E402
 
 AG = Path(r"C:\Projekte\AssetGenerator")
 AG_HUMANS = AG / "assets" / "humans"
-DONOR = AG_HUMANS / "male_dressed_male_worksuit01.glb"
+ORRUN_HUMANS = Path(r"C:\Projekte\OrrunWithEngine\orrun\assets\humans")
+
+# AG 4-clip Idle/Walk copy — guarded, never used as the full UAL animation donor.
+AG_WORKSUIT = AG_HUMANS / "male_dressed_male_worksuit01.glb"
+# Orrun full UAL worksuit (~45 clips) — animation + mesh seed for dest. Read-only.
+ANIM_DONOR = ORRUN_HUMANS / "male_dressed_male_worksuit01.glb"
+# Clean full-body MH UVs for --uv-only (may have zero clips).
+MALE_BASE = AG_HUMANS / "male_base.glb"
+
 DEST = AG_HUMANS / "male_orc_01.glb"
 SCRATCH = AG / "tools" / "_human_orc_bake"
 UV_LAYOUT = SCRATCH / "male_orc_01_uv_layout.png"
@@ -81,18 +107,21 @@ FORBIDDEN_ORC_MARKERS = (
 )
 
 GUARD_PATHS = [
-    DONOR,
-    AG_HUMANS / "male_base.glb",
+    AG_WORKSUIT,
+    ANIM_DONOR,
+    MALE_BASE,
     AG_HUMANS / "male_dressed_male_casualsuit01.glb",
     AG_HUMANS / "female_dressed_female_casualsuit01.glb",
     QUATERNIUS_ORC,
 ]
 
-# Required playback names. Death may appear as Death or Death01 on the donor.
+# Required playback names from Orrun UAL worksuit (~45 clips).
+# There is no clip literally named "Punch" — map to Punch_Cross (preferred),
+# Punch_Jab, or Punch_Enter. Never invent a Punch action.
 REQUIRED_CLIP_GROUPS = (
     ("Idle", ("Idle", "Idle_Loop")),
     ("Walk", ("Walk", "Walk_Loop")),
-    ("Punch", ("Punch",)),
+    ("Punch", ("Punch_Cross", "Punch_Jab", "Punch_Enter", "Punch")),
     ("Death", ("Death", "Death01")),
 )
 
@@ -133,17 +162,14 @@ def refuse_quaternius_orc(*paths: Path) -> None:
 def ensure_not_protected_dest(path: Path) -> None:
     refuse_quaternius_orc(path)
     resolved = path.resolve()
-    protected = {
-        DONOR.resolve(),
-        (AG_HUMANS / "male_base.glb").resolve(),
-        (AG_HUMANS / "male_dressed_male_casualsuit01.glb").resolve(),
-        (AG_HUMANS / "female_dressed_female_casualsuit01.glb").resolve(),
-        QUATERNIUS_ORC.resolve(),
-    }
+    protected = {p.resolve() for p in GUARD_PATHS}
     if resolved in protected:
         raise RuntimeError(f"refusing to write protected path: {path}")
-    if path.name == DONOR.name:
-        raise RuntimeError("refusing to overwrite worksuit donor")
+    if path.name == AG_WORKSUIT.name or path.name == ANIM_DONOR.name:
+        if resolved != DEST.resolve():
+            raise RuntimeError(f"refusing to overwrite worksuit donor: {path}")
+    if path.name == MALE_BASE.name:
+        raise RuntimeError("refusing to overwrite male_base.glb")
     if "worksuit" in path.name.lower() and path.name != DEST.name:
         raise RuntimeError(f"refusing worksuit-like dest name: {path.name}")
 
@@ -192,19 +218,29 @@ def hip_height_z(arm) -> float:
     return HQ.hip_height_z(arm, "pelvis")
 
 
-def copy_donor_to_dest(*, force: bool) -> None:
-    refuse_quaternius_orc(DONOR, DEST)
+def seed_dest_from_anim_donor(*, force: bool) -> None:
+    """Copy Orrun full-UAL worksuit onto AG dest. Never writes Orrun or AG worksuit."""
+    refuse_quaternius_orc(ANIM_DONOR, DEST, AG_WORKSUIT)
     ensure_not_protected_dest(DEST)
-    if not DONOR.is_file():
-        raise FileNotFoundError(f"missing UAL-baked worksuit donor: {DONOR}")
-    if DEST.resolve() == DONOR.resolve():
-        raise RuntimeError("dest must not be the worksuit donor")
+    if not ANIM_DONOR.is_file():
+        raise FileNotFoundError(
+            f"missing Orrun UAL worksuit animation donor: {ANIM_DONOR}. "
+            f"Alternatively run tools/bake_human_quaternius.py (full UAL) onto "
+            f"{DEST.name} after seeding mesh — bake_human_orc.py does not author clips."
+        )
+    if DEST.resolve() == ANIM_DONOR.resolve():
+        raise RuntimeError("dest must not be the Orrun worksuit")
+    if DEST.resolve() == AG_WORKSUIT.resolve():
+        raise RuntimeError("dest must not be the AG worksuit")
     if DEST.is_file() and not force:
         log(f"dest exists, reusing {DEST} ({DEST.stat().st_size} bytes)")
         return
     DEST.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(DONOR, DEST)
-    log(f"copied donor -> dest {DEST} ({DEST.stat().st_size} bytes)")
+    shutil.copy2(ANIM_DONOR, DEST)
+    log(
+        f"copied anim donor (Orrun worksuit) -> dest {DEST} "
+        f"({DEST.stat().st_size} bytes)"
+    )
 
 
 def glb_anim_names(path: Path) -> list[str]:
@@ -235,13 +271,49 @@ def resolve_clip(names: set[str], label: str, candidates: tuple[str, ...]) -> st
     )
 
 
+def missing_clip_labels(names: set[str]) -> list[str]:
+    missing = []
+    for label, candidates in REQUIRED_CLIP_GROUPS:
+        if not any(c in names for c in candidates):
+            missing.append(label)
+    return missing
+
+
+def _punch_death_hint(have: list[str] | set[str]) -> str:
+    return (
+        f"have={sorted(have)}. "
+        f"Use Orrun animation donor {ANIM_DONOR} (copy onto dest), or run "
+        f"tools/bake_human_quaternius.py (full UAL) onto {DEST.name} first — "
+        f"bake_human_orc.py does not author Punch/Death. "
+        f"Do not use AG {AG_WORKSUIT.name} alone when it only has Idle/Walk."
+    )
+
+
 def assert_required_clips(path: Path) -> dict[str, str]:
+    """Full restyle gate only. Never invent clips."""
     anims = set(glb_anim_names(path))
+    missing = missing_clip_labels(anims)
+    combat = [m for m in missing if m in ("Punch", "Death")]
+    if combat:
+        raise RuntimeError(
+            f"missing required clip(s) {combat} on {path.name}; {_punch_death_hint(anims)}"
+        )
+    if missing:
+        raise RuntimeError(
+            f"missing required clip(s) {missing} on {path.name}; have={sorted(anims)}. "
+            f"Do not invent clips; fix the donor bake."
+        )
     resolved = {}
     for label, candidates in REQUIRED_CLIP_GROUPS:
         resolved[label] = resolve_clip(anims, label, candidates)
     log(f"required clips resolved: {resolved} (total anims={len(anims)})")
     return resolved
+
+
+def log_clip_list(path: Path) -> list[str]:
+    anims = glb_anim_names(path)
+    log(f"clips on {path.name}: {anims}")
+    return anims
 
 
 def mesh_objects():
@@ -580,12 +652,18 @@ def export_uv_layout(path: Path) -> None:
     meshes = [o for o in mesh_objects() if o.data.uv_layers]
     if not meshes:
         raise RuntimeError("no mesh with UV layers; refusing export_layout / smart_project")
-    # Prefer body-like; else all UV meshes.
-    arm = find_armature()
+    # Prefer body-like (male_base / skin); else largest UV mesh. Never smart_project.
+    targets = meshes
     try:
-        targets = body_like_meshes(arm)
+        arm = find_armature()
+        try:
+            targets = body_like_meshes(arm)
+        except RuntimeError:
+            targets = sorted(meshes, key=lambda o: len(o.data.vertices), reverse=True)
     except RuntimeError:
-        targets = meshes
+        targets = sorted(meshes, key=lambda o: len(o.data.vertices), reverse=True)
+        log("no pelvis armature on UV source; exporting largest UV mesh")
+    targets = targets[:1] if targets else meshes[:1]
     bpy.ops.object.select_all(action="DESELECT")
     for obj in targets:
         obj.select_set(True)
@@ -924,39 +1002,47 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
 
 
 def run_uv_only() -> dict:
+    """Export UV layout from male_base (default). Does not require Punch/Death."""
     ensure_scratch()
-    copy_donor_to_dest(force=False)
-    assert_required_clips(DEST)
+    uv_src = MALE_BASE
+    if not uv_src.is_file():
+        raise FileNotFoundError(
+            f"missing UV source {uv_src}. --uv-only needs male_base.glb "
+            f"(clean full-body MH UVs; clips may be empty)."
+        )
+    # Read-only: never write male_base / worksuit / Orrun.
+    ensure_not_protected_dest(DEST)  # dest path sanity only; we do not write dest here
+    clips = log_clip_list(uv_src)
     clear_scene()
-    import_gltf(DEST)
+    import_gltf(uv_src)
     arm = find_armature()
     bone_count = len(arm.data.bones)
-    log(f"arm={arm.name!r} bones={bone_count} (expect ~53 mapped MH set)")
-    if bone_count < 50:
-        raise RuntimeError(f"expected ~53-bone MH bind, got {bone_count}")
+    log(f"uv source={uv_src.name!r} arm={arm.name!r} bones={bone_count}")
     export_uv_layout(UV_LAYOUT)
     return {
         "mode": "uv-only",
-        "dest": str(DEST),
+        "uv_source": str(uv_src),
         "uv_layout": str(UV_LAYOUT),
         "bones": bone_count,
+        "clips": clips,
+        "note": "UV template only; Punch/Death not required for --uv-only",
     }
 
 
 def run_restyle() -> dict:
     ensure_scratch()
-    copy_donor_to_dest(force=True)
+    seed_dest_from_anim_donor(force=True)
     resolved_bytes = assert_required_clips(DEST)
 
-    # Before stills from a fresh donor import (worksuit).
+    # Before stills from the Orrun animation donor (read-only import).
     clear_scene()
-    import_gltf(DONOR)
+    import_gltf(ANIM_DONOR)
     arm_before = find_armature()
     before_hip = hip_height_z(arm_before)
-    log(f"hip_height_z BEFORE (donor rest)={before_hip:.4f}")
+    log(f"hip_height_z BEFORE (anim donor rest)={before_hip:.4f}")
     before_previews = render_clip_stills(arm_before, resolved_bytes, "before")
 
-    # Restyle on dest copy.
+    # Restyle on dest copy (seeded from Orrun worksuit).
     clear_scene()
     import_gltf(DEST)
     arm = find_armature()
@@ -987,6 +1073,12 @@ def run_restyle() -> dict:
 
     # Scene actions must still resolve Punch / Death after restyle (not authored).
     have = {a.name for a in bpy.data.actions}
+    missing_scene = missing_clip_labels(have)
+    combat_scene = [m for m in missing_scene if m in ("Punch", "Death")]
+    if combat_scene:
+        raise RuntimeError(
+            f"scene missing required clip(s) {combat_scene}; {_punch_death_hint(have)}"
+        )
     resolved_scene = {}
     for label, candidates in REQUIRED_CLIP_GROUPS:
         resolved_scene[label] = resolve_clip(have, label, candidates)
@@ -999,7 +1091,8 @@ def run_restyle() -> dict:
 
     return {
         "mode": "restyle",
-        "donor": str(DONOR),
+        "anim_donor": str(ANIM_DONOR),
+        "ag_worksuit_guarded": str(AG_WORKSUIT),
         "dest": str(DEST),
         "size": DEST.stat().st_size,
         "clips_resolved": resolved_out,
@@ -1020,7 +1113,7 @@ def run_restyle() -> dict:
 
 def main() -> int:
     log(f"blender {bpy.app.version_string}")
-    refuse_quaternius_orc(DONOR, DEST)
+    refuse_quaternius_orc(DEST, AG_WORKSUIT, ANIM_DONOR, MALE_BASE)
     ensure_not_protected_dest(DEST)
     # Import-time sanity: BONE_MAP is the 53-bone MH share map — do not mutate HQ.TARGETS.
     if len(HQ.BONE_MAP) < 50:
@@ -1034,14 +1127,20 @@ def main() -> int:
             res = run_uv_only()
         else:
             res = run_restyle()
-        assert_untouched(guard, "protected humans/base/casualsuit/Quaternius Orc")
+        assert_untouched(
+            guard,
+            "protected AG/Orrun worksuit, male_base, casualsuit, Quaternius Orc",
+        )
         print(json.dumps(res, indent=2), flush=True)
         log(f"DONE mode={res.get('mode')} dest={DEST}")
         return 0
     except Exception:
         traceback.print_exc()
         try:
-            assert_untouched(guard, "protected humans/base/casualsuit/Quaternius Orc")
+            assert_untouched(
+                guard,
+                "protected AG/Orrun worksuit, male_base, casualsuit, Quaternius Orc",
+            )
         except Exception:
             traceback.print_exc()
         return 1
