@@ -1452,11 +1452,12 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                         f"(tusk_world_delta={world_delta:.4f} "
                         f"head_delta={head_delta:.4f})"
                     )
-                # Stay in mouth region relative to head (not cheek/forehead).
-                if posed_l.length > 0.14:
+                # Stay in mouth region relative to head bone (skull-base origin).
+                # MH mouth corners are ~0.20 in head-local — not cheek invent.
+                if posed_l.length > HEAD_MOUTH_MAX_LOCAL:
                     raise RuntimeError(
                         f"tusk {tusk.name!r} head-local length={posed_l.length:.4f} "
-                        f"under {label} — not in mouth cavity"
+                        f"> {HEAD_MOUTH_MAX_LOCAL} under {label} — not in mouth cavity"
                     )
             tested.append(f"{label}:{act.name}@{frame}")
             if arm.animation_data is not None:
@@ -1496,11 +1497,17 @@ def add_tusks(arm) -> list:
         f"R={tuple(round(c, 4) for c in right_local)} "
         f"(mouth verts → head bone space)"
     )
-    # Mouth should sit below head origin in bone space.
+    # Mouth sits below/forward of the skull-base head origin (~0.20 on MH).
     for label, p in (("L", left_local), ("R", right_local)):
-        if p.length > 0.14:
+        if p.length > HEAD_MOUTH_MAX_LOCAL:
             raise RuntimeError(
-                f"tusk anchor {label} head-local length={p.length:.4f} too far from head"
+                f"tusk anchor {label} head-local length={p.length:.4f} "
+                f"> {HEAD_MOUTH_MAX_LOCAL} — beyond MH mouth (not inventing closer anchors)"
+            )
+        if p.length < 0.08:
+            raise RuntimeError(
+                f"tusk anchor {label} head-local length={p.length:.4f} too close to "
+                f"head origin — likely cheek/skull, not mouth (MH mouth ~0.20)"
             )
 
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
