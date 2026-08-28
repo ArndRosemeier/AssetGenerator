@@ -4,29 +4,25 @@
 Art / Asset Lab only. Does not write Orrun or Origin, does not author clips,
 does not add bones, does not use Quaternius Orc.glb as a donor.
 
-Art Reviewer HOLD fix: dest must NOT read as a painted human in overalls.
-  - Delete worksuit tee/dungarees (and other garment meshes) on dest.
-  - Swap holey dressed body for nude male_base meshes (same 53-bone weights).
-  - Finished olive-grey skin on existing MH body UVs (no UV-grid / checker /
-    island-wire diagnostic albedo).
-  - Look-dev harness + loincloth as extra meshes (tribal bind_mesh pattern):
-    chest straps, left spaulder, belt, ragged loincloth. No cleaver/shield.
-  - Tusks stay on head. No thigh/calf/pelvis scale. No ogre hunch.
-  - Reshoot AFTER stills only: Idle, Walk, Death01, Punch_Cross.
-  - Do NOT copy ANIM_DONOR onto dest as a first step. Import Orrun read-only into
-    the live scene; write dest only after AFTER stills succeed (export from the
-    restyled live scene).
-  - Punch/Death AFTER must pose the SAME dest armature/meshes as Idle/Walk
-    (male_body olive skin, OrcTusk_*, OrcGear_*). Never hide dest body/head.
-    Mesh name after glTF is male_body (not OrcSkin_*); Eyes / Icosphere may exist.
-  - Death AFTER: Death01 root motion may live on Root / object / NLA — not pelvis.
-    Scan with root_z + posed bbox height (pelvis alone stays ~0.95 on this clip).
-    Prefer HQ.copy_action of Orrun Death01 evaluated via NLA solo strip on dest.
-    Fail loud if no lying on-back frame. Do not invent clips.
-  - Punch AFTER: Orrun donor Punch_Cross onto dest at mid-late (~55%); camera
-    shows dest head/tusks. Donor file is read-only.
-  - Idle/Walk AFTER unchanged (live dest actions). Live-scene stills before export.
-  - Keep EEVEE_NEXT. Do not invent clips. Do not overwrite the Orrun donor.
+Arnd nude lock (PR #1): same creature / same dest — not a new body plan.
+  - Delete worksuit tee/dungarees; nude male_base on the same 53-bone bind.
+  - Finished olive-grey skin on male_body MH UVs (no UV-grid / checker).
+  - NO invented look-dev clothes: do not call add_lookdev_gear; no OrcGear_*,
+    harness, spaulder, belt, loincloth, arm/ankle wraps, cubes/tori.
+  - Widen mouth / open lips; tusks IN the mouth cavity (head-bound), not cheeks.
+  - Brow spikes are male_body verts from an oversized face restyle band — NOT Eyes,
+    NOT Icosphere, NOT an authored brow mesh. Flatten those verts. Hide Eyes
+    separately if present as junk. Script never authors eyebrows.
+  - AFTER stills: Idle, Walk, Punch_Cross, Death01 on nude dest (tusks visible).
+  - Do NOT copy ANIM_DONOR onto dest as a first step. Live-import Orrun read-only;
+    write dest only after AFTER stills succeed.
+  - Do NOT overwrite tools/_human_orc_bake/male_orc_01_restyle.glb or
+    male_orc_01_restyle_1635.glb (16:35 backups).
+  - Death: dest-native Death01 on-back hold. Do not treat root_z=0 as lying
+    (MH Root sits near origin — false positive). Do not invent clips.
+  - Punch: Orrun Punch_Cross @ ~55% on dest. Idle/Walk restyle intent = nude +
+    mouth/tusks + hide/flatten junk only.
+  - Keep EEVEE_NEXT. No thigh/calf/pelvis scale. No ogre hunch.
 
 Exact local invoke (Arnd, AG blenderctl 4.5 / Blender 4.5):
 
@@ -52,8 +48,9 @@ Paths (donor / dest — never overwrite donors):
     C:\\Projekte\\AssetGenerator\\assets\\humans\\male_orc_01.glb
   Scratch (gitignored):
     C:\\Projekte\\AssetGenerator\\tools\\_human_orc_bake\\
-  Optional look-dev reference (silhouette / color target, not a UV map):
-    C:\\Projekte\\AssetGenerator\\tools\\_human_orc_bake\\orc_lookdev_threequarter.png
+  Protected restyle backups (never overwrite):
+    tools/_human_orc_bake/male_orc_01_restyle.glb
+    tools/_human_orc_bake/male_orc_01_restyle_1635.glb
 
 Clip aliases (resolve existing names only — never invent Punch or Death):
 
@@ -65,28 +62,20 @@ Clip aliases (resolve existing names only — never invent Punch or Death):
 
 Full restyle path:
   1. Import Orrun worksuit READ-ONLY into the live Blender scene (UAL clips).
-     Do NOT copy ANIM_DONOR onto dest yet. If Orrun is missing, bake_one into
-     scratch only — never touch dest until stills pass.
+     Do NOT copy ANIM_DONOR onto dest. Scratch bake fallback never touches dest.
   2. Strip worksuit garments; attach nude male_base body on the same armature.
-  3. Mesh-only restyle (bulk/jaw) + tusks + look-dev harness/loincloth.
-  4. Finished olive-grey skin on male_body MH UVs (Principled; no diagnostic grid).
+  3. Mesh-only restyle (bulk + mouth/jaw) + flatten brow-ridge spikes on male_body
+     + mouth-cavity tusks. No gear.
+  4. Hide junk Eyes mesh if present. Olive on male_body.
   5. AFTER stills on the live restyled scene (must succeed before any dest write).
-  6. Only then export skinned dest with every donor action preserved (fake_user + NLA).
-  7. Write Art Reviewer packet under tools/_human_orc_bake/previews/:
-       male_orc_01_after_{idle,walk,death,punch}.png
-       CLIP_LIST.md          (actual names + resolved aliases)
-       art_review_packet.json
-
---uv-only writes tools/_human_orc_bake/male_base_uv_layout.png from existing
-male_base UV islands (CPU PNG; bpy.ops.uv.export_layout needs GPU and fails
-under --background). Does NOT call assert_required_clips.
+  6. Only then export skinned dest (fake_user + NLA). Scratch export path must
+     not clobber the protected restyle backups.
+  7. Art Reviewer packet under tools/_human_orc_bake/previews/.
 
 Restyle rules:
   - MESH only on the existing 53-bone bind (BONE_MAP from bake_human_quaternius).
-  - Conservative bulk via vertex displace; jaw on head-weighted verts.
-  - Tusks + harness/loincloth bound via bind_mesh; no new bones.
-  - Do NOT scale thigh / calf / pelvis bones. No ogre hunch, no invented gait.
-  - Do NOT keep worksuit clothes. Drop cleaver/shield if present.
+  - Tusks bound via bind_mesh to head; no new bones.
+  - Do NOT scale thigh / calf / pelvis bones. No invented clothes / gait.
   - Log hip_height_z before/after; fail if pelvis rest Z moves more than ~1 cm.
   - After export, every donor clip name must still exist on dest (loud fail).
   - Guards snapshot AG worksuit / Orrun worksuit / male_base / casualsuit /
@@ -167,11 +156,6 @@ OLIVE = (0.34, 0.38, 0.28)
 OLIVE_SHADOW = (0.22, 0.26, 0.18)
 OLIVE_WARM = (0.40, 0.36, 0.26)
 TUSK = (0.92, 0.88, 0.78)
-LEATHER = (0.16, 0.10, 0.07)
-LEATHER_DARK = (0.10, 0.07, 0.05)
-LEATHER_RED = (0.28, 0.14, 0.09)
-RAG_TAN = (0.42, 0.32, 0.22)
-METAL = (0.55, 0.50, 0.42)
 JSON_FOURCC = 0x4E4F534A
 BIN_FOURCC = 0x004E4942
 
@@ -179,13 +163,18 @@ BIN_FOURCC = 0x004E4942
 NO_SCALE_BONES = ("pelvis", "thigh_l", "thigh_r", "calf_l", "calf_r")
 
 PELVIS_LYING_MAX_Z = 0.50  # standing MH pelvis ~0.95; lying hold is much lower
-# Death01 on this MH bind often keeps pelvis ~0.95 (in-place lean); root motion /
-# posed bbox collapse is the reliable lying signal.
-ROOT_LYING_MAX_Z = 0.50
+# Do NOT use absolute root_z/obj_z <= threshold as lying: MH Root sits near z=0
+# at rest (root_z=0 is a false positive). Prefer posed bbox collapse / pelvis drop.
 BBOX_LYING_MAX_Z = 0.70  # posed mesh AABB max Z when lying on ground
 BBOX_LYING_MAX_HEIGHT = 0.90  # standing ~1.7–1.9; lying flattens
 CHEST_ON_BACK_MIN_Z = 0.20  # chest forward world-Z; on-back faces sky
 CHEST_FACEPLANT_MAX_Z = -0.05  # chest forward toward ground
+
+# Scratch exports must never clobber the 16:35 restyle backups.
+PROTECTED_RESTYLE_BACKUPS = (
+    SCRATCH / "male_orc_01_restyle.glb",
+    SCRATCH / "male_orc_01_restyle_1635.glb",
+)
 
 # Garment / worksuit mesh name markers (tee, dungarees, shoes, …).
 GARMENT_NAME_KEYS = (
@@ -533,12 +522,15 @@ def write_art_review_packet(
         "removed_garments": removed_garments,
         "notes": [
             "DEST is written only after AFTER stills succeed (no early Orrun copy onto dest).",
+            "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
-            "Death AFTER: investigate Root/object/bbox + NLA unmute/solo + HQ.copy_action "
-            "Orrun Death01 (pelvis alone stays ~0.95 lean on this clip).",
+            "Tusks sit in the widened mouth cavity (head-bound), not on cheeks.",
+            "Brow spikes flattened on male_body verts (not Eyes / not a brow mesh).",
+            "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
             "Punch AFTER uses Orrun Punch_Cross @ ~55% on dest with head camera.",
-            "Idle/Walk AFTER unchanged on live scene. Dest body/tusks/gear never hidden.",
+            "Idle/Walk AFTER = nude + mouth/tusks + junk hide/flatten only.",
             "ORRUN_STILL_* clones are still-only and are dropped before export.",
+            "Protected scratch backups: male_orc_01_restyle.glb / _restyle_1635.glb.",
         ],
     }
     ART_REVIEW_PACKET.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
@@ -767,14 +759,23 @@ def assert_no_leg_bone_scale(arm) -> None:
 
 
 def restyle_bulk_and_jaw(arm) -> None:
-    """Conservative vertex displace on skinned meshes; jaw on head-weighted verts."""
+    """Conservative bulk + orc mouth/jaw. Does NOT invent brow spikes.
+
+    Prior jaw band (z_rel up to ~0.92) pushed forehead/brow verts forward and
+    read as brow spikes on male_body. Mouth/jaw stay in the lower-face band only.
+    Brow ridge is flattened afterward — spikes are male_body verts, not Eyes.
+    """
     assert_no_leg_bone_scale(arm)
     for obj in skinned_meshes(arm):
         me = obj.data
         if not me.vertices:
             continue
+        # Only restyle skin body — never Eyes / junk companions.
+        if is_junk_companion_mesh(obj):
+            continue
+        if obj.name.startswith("OrcTusk_") or obj.name.startswith("OrcGear_"):
+            continue
         head_i = vg_index(obj, "head")
-        spine_i = vg_index(obj, "spine_03") or vg_index(obj, "spine_02")
         upper_l = vg_index(obj, "upperarm_l")
         upper_r = vg_index(obj, "upperarm_r")
         lower_l = vg_index(obj, "lowerarm_l")
@@ -788,7 +789,6 @@ def restyle_bulk_and_jaw(arm) -> None:
             vg_index(obj, "pelvis"),
         ]
 
-        # Object-space bbox for radial bulk.
         xs = [v.co.x for v in me.vertices]
         ys = [v.co.y for v in me.vertices]
         zs = [v.co.z for v in me.vertices]
@@ -808,7 +808,6 @@ def restyle_bulk_and_jaw(arm) -> None:
                 vg_weight(v, hand_l),
                 vg_weight(v, hand_r),
             )
-            # Radial bulk in XY — conservative, no vertical hunch.
             radial = Vector((v.co.x - cx, v.co.y - cy, 0.0))
             if radial.length < 1e-6:
                 radial = Vector((0.0, -1.0, 0.0))
@@ -816,22 +815,34 @@ def restyle_bulk_and_jaw(arm) -> None:
                 radial.normalize()
 
             bulk = 0.0
-            bulk += 0.038 * tw  # torso — nude creature read
-            bulk += 0.030 * arm_w  # delts / forearms
-            # Mild overall stockiness; skip pure head shell.
-            bulk += 0.012 * max(0.0, 1.0 - hw)
+            bulk += 0.038 * tw
+            bulk += 0.030 * arm_w
+            # Mild stockiness; skip head shell (avoids forehead radial spikes).
+            if hw < 0.35:
+                bulk += 0.012 * max(0.0, 1.0 - hw)
 
-            # Jaw: head-weighted verts in the lower-front face region.
-            jaw = 0.0
-            if hw >= 0.25:
-                z_rel = (v.co.z - z0) / height
-                # Lower face band; push jaw forward (-Y in MH rest) and slightly out.
-                if 0.72 < z_rel < 0.92 and v.co.y < cy + 0.02:
-                    jaw = (hw - 0.20) * 0.055
-                    v.co.y -= jaw * 0.85
-                    v.co.z -= jaw * 0.15
-                    # Widen mandible.
-                    v.co.x += math.copysign(jaw * 0.65, v.co.x - cx)
+            z_rel = (v.co.z - z0) / height
+
+            # Mandible only — below the mouth mid. Never the brow band (>=~0.88).
+            if hw >= 0.25 and 0.72 < z_rel < 0.80 and v.co.y < cy + 0.02:
+                jaw = (hw - 0.20) * 0.070
+                v.co.y -= jaw * 0.85
+                v.co.z -= jaw * 0.18
+                v.co.x += math.copysign(jaw * 0.85, v.co.x - cx)
+
+            # Widen + open mouth cavity so tusks read as coming out of the mouth.
+            if hw >= 0.30 and 0.80 <= z_rel < 0.875 and v.co.y < cy:
+                mouth_mid_z = z0 + 0.835 * height
+                widen = 0.016 * hw
+                v.co.x += math.copysign(widen, v.co.x - cx)
+                if v.co.z < mouth_mid_z:
+                    # Lower lip down + slight forward for cavity.
+                    v.co.z -= 0.012 * hw
+                    v.co.y -= 0.010 * hw
+                else:
+                    # Upper lip up + slight forward.
+                    v.co.z += 0.008 * hw
+                    v.co.y -= 0.006 * hw
 
             if bulk > 0.0:
                 v.co.x += radial.x * bulk
@@ -839,6 +850,208 @@ def restyle_bulk_and_jaw(arm) -> None:
 
         me.update()
         log(f"restyled mesh {obj.name!r} verts={len(me.vertices)}")
+
+    flatten_male_body_brow_spikes(arm)
+
+
+def flatten_male_body_brow_spikes(arm) -> int:
+    """Flatten forward brow-ridge spikes on male_body (not Eyes, not a brow mesh).
+
+    Dest GLB has Eyes + male_body (+ tusks/gear historically). Look-dev only painted
+    a 2D heavy brow — the script never authors eyebrows. Spikes that remain after
+    hiding Eyes are male_body verts (oversized prior face band / residual ridge).
+    Pull those verts back toward the forehead plane.
+    """
+    bodies = [
+        o
+        for o in skinned_meshes(arm)
+        if o.name == "male_body" or o.name.lower() == "male_body"
+    ]
+    if not bodies:
+        raise RuntimeError(
+            "flatten_male_body_brow_spikes: male_body missing — cannot hunt spikes"
+        )
+    flattened = 0
+    for obj in bodies:
+        me = obj.data
+        head_i = vg_index(obj, "head")
+        xs = [v.co.x for v in me.vertices]
+        ys = [v.co.y for v in me.vertices]
+        zs = [v.co.z for v in me.vertices]
+        cx = 0.5 * (min(xs) + max(xs))
+        cy = 0.5 * (min(ys) + max(ys))
+        z0, z1 = min(zs), max(zs)
+        height = max(z1 - z0, 1e-3)
+        # Forehead reference: median Y of head verts above brow band (less forward).
+        forehead_ys = []
+        for v in me.vertices:
+            hw = vg_weight(v, head_i)
+            if hw < 0.40:
+                continue
+            z_rel = (v.co.z - z0) / height
+            if 0.92 < z_rel < 0.98 and abs(v.co.x - cx) < 0.06:
+                forehead_ys.append(v.co.y)
+        if not forehead_ys:
+            forehead_ys = [cy - 0.04]
+        forehead_ys.sort()
+        forehead_y = forehead_ys[len(forehead_ys) // 2]
+        # Brow band: high face, forward of forehead reference.
+        for v in me.vertices:
+            hw = vg_weight(v, head_i)
+            if hw < 0.35:
+                continue
+            z_rel = (v.co.z - z0) / height
+            if not (0.875 <= z_rel <= 0.955):
+                continue
+            if abs(v.co.x - cx) > 0.090:
+                continue  # temples / sides — leave
+            # Spike = verts pushed forward of the forehead plane (-Y in MH rest).
+            if v.co.y < forehead_y - 0.008:
+                # Blend back toward forehead; keep a mild ridge, kill spikes.
+                target_y = forehead_y - 0.004
+                v.co.y = 0.25 * v.co.y + 0.75 * target_y
+                # Slightly flatten upward protrusion.
+                if z_rel > 0.93:
+                    v.co.z -= 0.003 * hw
+                flattened += 1
+        me.update()
+        log(
+            f"brow-spike flatten mesh={obj.name!r} verts_adjusted={flattened} "
+            f"forehead_y={forehead_y:.4f} (male_body verts — not Eyes)"
+        )
+    return flattened
+
+
+def is_junk_companion_mesh(obj) -> bool:
+    """True for leftover companion meshes that are not the nude orc identity.
+
+    Eyes may exist as a separate MH export mesh — hide as junk. Icosphere may
+    appear on some imports. These are NOT the brow spikes (spikes = male_body).
+    """
+    low = obj.name.lower()
+    if low in ("eyes", "eye") or low.startswith("eyes"):
+        return True
+    if "icosphere" in low:
+        return True
+    return False
+
+
+def hide_junk_companion_meshes(arm) -> list[str]:
+    """Hide Eyes / Icosphere junk. Separate from brow-spike flatten on male_body."""
+    hidden = []
+    for obj in list(mesh_objects()):
+        if not is_junk_companion_mesh(obj):
+            continue
+        obj.hide_render = True
+        obj.hide_viewport = True
+        try:
+            obj.hide_set(True)
+        except Exception:
+            pass
+        hidden.append(obj.name)
+    if hidden:
+        log(f"hidden junk companion meshes (not brow spikes): {hidden}")
+    else:
+        log("no Eyes/Icosphere junk companions to hide")
+    return hidden
+
+
+def assert_no_invented_gear() -> None:
+    gear = [
+        o.name
+        for o in mesh_objects()
+        if o.name.startswith("OrcGear_") or "orcgear" in o.name.lower()
+    ]
+    if gear:
+        raise RuntimeError(
+            f"invented look-dev gear present (forbidden on nude pass): {gear}"
+        )
+
+
+def male_body_mesh(arm):
+    for obj in skinned_meshes(arm):
+        if obj.name == "male_body" or obj.name.lower() == "male_body":
+            return obj
+    raise RuntimeError("male_body mesh required for mouth/tusk placement")
+
+
+def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
+    """Head-weighted lower-lip / mouth-corner verts on male_body (object space).
+
+    Returns (left_corner, right_corner) in mesh local space. Character faces -Y;
+    character left is -X when facing -Y.
+    """
+    body = male_body_mesh(arm)
+    me = body.data
+    head_i = vg_index(body, "head")
+    if head_i is None:
+        raise RuntimeError("male_body missing head vertex group for mouth anchors")
+    xs = [v.co.x for v in me.vertices]
+    ys = [v.co.y for v in me.vertices]
+    zs = [v.co.z for v in me.vertices]
+    cx = 0.5 * (min(xs) + max(xs))
+    cy = 0.5 * (min(ys) + max(ys))
+    z0, z1 = min(zs), max(zs)
+    height = max(z1 - z0, 1e-3)
+
+    candidates = []
+    for v in me.vertices:
+        hw = vg_weight(v, head_i)
+        if hw < 0.35:
+            continue
+        z_rel = (v.co.z - z0) / height
+        if not (0.80 <= z_rel <= 0.870):
+            continue
+        if v.co.y > cy - 0.01:
+            continue  # not front of face
+        candidates.append(v)
+    if len(candidates) < 6:
+        raise RuntimeError(
+            f"too few mouth-band verts for tusk anchors ({len(candidates)}); "
+            f"mouth widen may have failed on male_body"
+        )
+    # Prefer forward half of mouth band, then extreme X as corners.
+    candidates.sort(key=lambda v: v.co.y)
+    front = candidates[: max(8, len(candidates) // 2)]
+    left_side = [v for v in front if v.co.x < cx]
+    right_side = [v for v in front if v.co.x >= cx]
+    if not left_side or not right_side:
+        raise RuntimeError(
+            f"mouth anchors missing L/R split "
+            f"(L={len(left_side)} R={len(right_side)} front={len(front)})"
+        )
+    # Character left = min X; character right = max X.
+    left = min(left_side, key=lambda v: v.co.x)
+    right = max(right_side, key=lambda v: v.co.x)
+    # Nudge slightly into the mouth cavity (toward center + deeper -Y + down).
+    def into_mouth(v, sign_x: float) -> Vector:
+        return Vector(
+            (
+                v.co.x - sign_x * 0.006,
+                v.co.y - 0.012,
+                v.co.z - 0.006,
+            )
+        )
+
+    left_p = into_mouth(left, -1.0)
+    right_p = into_mouth(right, 1.0)
+    # Sanity: corners must not sit on cheeks (too far |x| or too high).
+    for label, p in (("L", left_p), ("R", right_p)):
+        z_rel = (p.z - z0) / height
+        if z_rel > 0.885:
+            raise RuntimeError(
+                f"tusk anchor {label} z_rel={z_rel:.3f} looks like cheek/brow, not mouth"
+            )
+        if abs(p.x - cx) > 0.085:
+            raise RuntimeError(
+                f"tusk anchor {label} |x|={abs(p.x - cx):.3f} looks like cheek, not mouth"
+            )
+    log(
+        f"mouth anchors L={tuple(round(c, 4) for c in left_p)} "
+        f"R={tuple(round(c, 4) for c in right_p)} "
+        f"(from male_body verts, not head-bone offsets)"
+    )
+    return left_p, right_p
 
 
 def bind_mesh(obj, arm, bone_fn) -> None:
@@ -888,32 +1101,34 @@ def make_opaque_mat(name: str, color, roughness: float = 0.9):
 
 
 def add_tusks(arm) -> list:
-    """Tusks as extra meshes bound to ``head`` (no new bones)."""
+    """Tusks in the mouth cavity from male_body mouth-corner verts (head-bound).
+
+    No hardcoded cheek offsets. No new bones.
+    """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
-    head_rest = HQ.rest_world(arm, "head").to_translation()
+    left_p, right_p = find_mouth_corner_anchors(arm)
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
     created = []
-    # Approximate mouth corners in front of the head bone.
     specs = [
-        ("OrcTusk_L", -0.045, -0.095, -0.060, 12.0),
-        ("OrcTusk_R", 0.045, -0.095, -0.060, -12.0),
+        ("OrcTusk_L", left_p, 14.0),
+        ("OrcTusk_R", right_p, -14.0),
     ]
-    for name, dx, dy, dz, yaw_deg in specs:
+    for name, base, yaw_deg in specs:
         bm = bmesh.new()
         bmesh.ops.create_cone(
             bm,
             cap_ends=True,
             cap_tris=True,
             segments=10,
-            radius1=0.014,
-            radius2=0.0035,
-            depth=0.055,
+            radius1=0.013,
+            radius2=0.0030,
+            depth=0.052,
         )
-        # Point tip upward / slightly forward.
+        # Tip up / slightly forward / slightly out of mouth.
         for v in bm.verts:
-            v.co.z += 0.028
-            a = math.radians(-35.0)
+            v.co.z += 0.026
+            a = math.radians(-42.0)
             cy = v.co.y * math.cos(a) - v.co.z * math.sin(a)
             cz = v.co.y * math.sin(a) + v.co.z * math.cos(a)
             v.co.y = cy
@@ -922,9 +1137,9 @@ def add_tusks(arm) -> list:
             sa = math.sin(math.radians(yaw_deg))
             rx = v.co.x * ca - v.co.y * sa
             ry = v.co.x * sa + v.co.y * ca
-            v.co.x = rx + head_rest.x + dx
-            v.co.y = ry + head_rest.y + dy
-            v.co.z += head_rest.z + dz
+            v.co.x = rx + base.x
+            v.co.y = ry + base.y
+            v.co.z += base.z
         me = bpy.data.meshes.new(name)
         bm.to_mesh(me)
         bm.free()
@@ -933,7 +1148,15 @@ def add_tusks(arm) -> list:
         obj.data.materials.append(mat)
         bind_mesh(obj, arm, lambda _v: {"head": 1.0})
         created.append(obj)
-    log(f"tusks: {[o.name for o in created]} bound to head")
+    # Verify bases are not on cheeks relative to head bone (mouth is below head).
+    head_rest = HQ.rest_world(arm, "head").to_translation()
+    for obj, base in ((created[0], left_p), (created[1], right_p)):
+        if base.z > head_rest.z - 0.02:
+            raise RuntimeError(
+                f"{obj.name} base z={base.z:.4f} near head bone z={head_rest.z:.4f} "
+                f"— looks cheek-mounted, not in-mouth"
+            )
+    log(f"tusks: {[o.name for o in created]} bound to head (mouth-corner anchors)")
     return created
 
 
@@ -1048,239 +1271,6 @@ def apply_finished_olive_skin(arm) -> None:
             f"(Principled+noise, no UV-grid, uv={me.uv_layers.active.name!r})"
         )
 
-
-def mesh_from_bmesh(name: str, bm, mat):
-    me = bpy.data.meshes.new(name)
-    bm.to_mesh(me)
-    bm.free()
-    obj = bpy.data.objects.new(name, me)
-    bpy.context.scene.collection.objects.link(obj)
-    obj.data.materials.append(mat)
-    return obj
-
-
-def append_transformed(dst_bm, src_bm) -> None:
-    vert_map = {}
-    for v in src_bm.verts:
-        vert_map[v] = dst_bm.verts.new(v.co)
-    dst_bm.verts.ensure_lookup_table()
-    for f in src_bm.faces:
-        try:
-            dst_bm.faces.new([vert_map[v] for v in f.verts])
-        except ValueError:
-            pass
-
-
-def _bone_t(arm, name: str) -> Vector:
-    if name not in arm.data.bones:
-        raise RuntimeError(f"53-bone bind missing {name!r} for look-dev gear")
-    return HQ.rest_world(arm, name).to_translation()
-
-
-def add_lookdev_gear(arm) -> list:
-    """Look-dev harness + loincloth as extra meshes (tribal add_gear / bind_mesh).
-
-    Shoulder spaulder (L), chest X-straps, wide belt, ragged loincloth.
-    Optional arm/ankle wraps. No cleaver/shield. No new bones.
-    """
-    created = []
-    leather = make_opaque_mat("OrcLeather", LEATHER, 0.92)
-    leather_dark = make_opaque_mat("OrcLeatherDark", LEATHER_DARK, 0.95)
-    metal = make_opaque_mat("OrcMetal", METAL, 0.45)
-
-    chest = _bone_t(arm, "spine_03")
-    mid = _bone_t(arm, "spine_02")
-    pelvis = _bone_t(arm, "pelvis")
-    sh_l = _bone_t(arm, "upperarm_l")
-    sh_r = _bone_t(arm, "upperarm_r")
-    low_l = _bone_t(arm, "lowerarm_l")
-    low_r = _bone_t(arm, "lowerarm_r")
-    calf_l = _bone_t(arm, "calf_l")
-    calf_r = _bone_t(arm, "calf_r")
-
-    # --- Chest X-straps (two diagonal bands) ---
-    bm = bmesh.new()
-    strap_specs = [
-        # (x0,y0,z0) -> (x1,y1,z1), half-width
-        (sh_r.x * 0.55, -0.08, chest.z + 0.02, pelvis.x - 0.08, -0.10, pelvis.z + 0.06, 0.018),
-        (sh_l.x * 0.55, -0.08, chest.z + 0.02, pelvis.x + 0.08, -0.10, pelvis.z + 0.06, 0.018),
-    ]
-    for x0, y0, z0, x1, y1, z1, hw in strap_specs:
-        tmp = bmesh.new()
-        bmesh.ops.create_cube(tmp, size=1.0)
-        direction = Vector((x1 - x0, y1 - y0, z1 - z0))
-        length = max(direction.length, 1e-3)
-        midp = Vector((0.5 * (x0 + x1), 0.5 * (y0 + y1), 0.5 * (z0 + z1)))
-        for v in tmp.verts:
-            v.co.x *= hw * 2.0
-            v.co.y *= 0.012
-            v.co.z *= length
-        # Orient cube local Z along strap direction.
-        z_axis = direction.normalized()
-        x_axis = z_axis.cross(Vector((0.0, 1.0, 0.0)))
-        if x_axis.length < 1e-4:
-            x_axis = z_axis.cross(Vector((1.0, 0.0, 0.0)))
-        x_axis.normalize()
-        y_axis = z_axis.cross(x_axis).normalized()
-        for v in tmp.verts:
-            local = Vector(v.co)
-            v.co = midp + x_axis * local.x + y_axis * local.y + z_axis * local.z
-        append_transformed(bm, tmp)
-        tmp.free()
-    straps = mesh_from_bmesh("OrcGear_ChestStraps", bm, leather)
-    def strap_w(v):
-        t = max(0.0, min(1.0, (v.co.z - pelvis.z) / max(chest.z - pelvis.z, 1e-3)))
-        return {"spine_03": 0.15 + 0.55 * t, "spine_02": 0.45, "spine_01": 0.40 - 0.25 * t}
-    bind_mesh(straps, arm, strap_w)
-    created.append(straps)
-
-    # Strap rivets (small metal discs on the X crossing)
-    bm = bmesh.new()
-    for dx in (-0.03, 0.03, 0.0):
-        tmp = bmesh.new()
-        bmesh.ops.create_uvsphere(tmp, u_segments=8, v_segments=6, radius=0.012)
-        for v in tmp.verts:
-            v.co.x += mid.x + dx
-            v.co.y += -0.11
-            v.co.z += mid.z + 0.02
-        append_transformed(bm, tmp)
-        tmp.free()
-    rivets = mesh_from_bmesh("OrcGear_StrapRivets", bm, metal)
-    bind_mesh(rivets, arm, lambda _v: {"spine_02": 1.0})
-    created.append(rivets)
-
-    # --- Left spaulder (two overlapping plates on upperarm_l) ---
-    bm = bmesh.new()
-    for i, (sx, sy, sz, ox, oy, oz) in enumerate(
-        (
-            (0.11, 0.08, 0.06, 0.02, -0.02, 0.02),
-            (0.09, 0.07, 0.05, 0.05, -0.01, -0.02),
-        )
-    ):
-        tmp = bmesh.new()
-        bmesh.ops.create_cube(tmp, size=1.0)
-        for v in tmp.verts:
-            v.co.x = v.co.x * sx + sh_l.x + ox
-            v.co.y = v.co.y * sy + sh_l.y + oy
-            v.co.z = v.co.z * sz + sh_l.z + oz
-            # Soften outer edge
-            if v.co.x < sh_l.x - 0.02:
-                v.co.x = sh_l.x - 0.02 + (v.co.x - (sh_l.x - 0.02)) * 0.35
-        append_transformed(bm, tmp)
-        tmp.free()
-    spaulder = mesh_from_bmesh("OrcGear_Spaulder_L", bm, leather_dark)
-    def spaulder_w(v):
-        return {"upperarm_l": 0.75, "spine_03": 0.25}
-    bind_mesh(spaulder, arm, spaulder_w)
-    created.append(spaulder)
-
-    # --- Wide buckled belt ---
-    bpy.ops.mesh.primitive_torus_add(
-        align="WORLD",
-        location=(pelvis.x, pelvis.y - 0.02, pelvis.z + 0.05),
-        rotation=(math.radians(90.0), 0.0, 0.0),
-        major_radius=0.16,
-        minor_radius=0.028,
-        major_segments=24,
-        minor_segments=10,
-    )
-    belt = bpy.context.active_object
-    belt.name = "OrcGear_Belt"
-    belt.data.materials.clear()
-    belt.data.materials.append(leather_dark)
-    # Flatten slightly into a wide belt band.
-    for v in belt.data.vertices:
-        v.co.z *= 0.55
-        v.co.z += 0.01
-    bind_mesh(belt, arm, lambda _v: {"pelvis": 1.0})
-    created.append(belt)
-
-    # Belt buckles (two metal boxes on front)
-    bm = bmesh.new()
-    for dx in (-0.035, 0.035):
-        tmp = bmesh.new()
-        bmesh.ops.create_cube(tmp, size=1.0)
-        for v in tmp.verts:
-            v.co.x = v.co.x * 0.028 + pelvis.x + dx
-            v.co.y = v.co.y * 0.012 + pelvis.y - 0.14
-            v.co.z = v.co.z * 0.035 + pelvis.z + 0.05
-        append_transformed(bm, tmp)
-        tmp.free()
-    buckles = mesh_from_bmesh("OrcGear_BeltBuckles", bm, metal)
-    bind_mesh(buckles, arm, lambda _v: {"pelvis": 1.0})
-    created.append(buckles)
-
-    # --- Ragged loincloth (layered front flaps) ---
-    flap_specs = [
-        (0.0, -0.12, 0.10, 0.14, 0.012, 0.28, LEATHER_RED),
-        (-0.06, -0.10, 0.08, 0.09, 0.010, 0.22, LEATHER),
-        (0.06, -0.10, 0.08, 0.09, 0.010, 0.20, RAG_TAN),
-        (0.0, -0.08, 0.06, 0.07, 0.008, 0.16, LEATHER_DARK),
-    ]
-    for i, (dx, dy, dz, sx, sy, sz, col) in enumerate(flap_specs):
-        tmp = bmesh.new()
-        bmesh.ops.create_cube(tmp, size=1.0)
-        for v in tmp.verts:
-            # Taper toward bottom + ragged edge via x jitter on lower verts
-            v.co.x *= sx * (0.55 + 0.45 * max(0.0, v.co.z + 0.5))
-            v.co.y *= sy
-            v.co.z = (v.co.z * 0.5 - 0.5) * sz  # hang downward
-            if v.co.z < -sz * 0.35:
-                v.co.x += 0.015 * math.sin(i * 2.1 + v.co.x * 40.0)
-            v.co.x += pelvis.x + dx
-            v.co.y += pelvis.y + dy
-            v.co.z += pelvis.z + dz
-        flap = mesh_from_bmesh(
-            f"OrcGear_Loin_{i}",
-            tmp,
-            make_opaque_mat(f"OrcLoinMat_{i}", col, 0.95),
-        )
-        bind_mesh(flap, arm, lambda _v: {"pelvis": 0.85, "spine_01": 0.15})
-        created.append(flap)
-
-    # --- Arm wraps ---
-    for side, low, bone in (("L", low_l, "lowerarm_l"), ("R", low_r, "lowerarm_r")):
-        bpy.ops.mesh.primitive_torus_add(
-            align="WORLD",
-            location=(low.x, low.y, low.z),
-            rotation=(0.0, math.radians(90.0), 0.0),
-            major_radius=0.045,
-            minor_radius=0.012,
-            major_segments=16,
-            minor_segments=8,
-        )
-        wrap = bpy.context.active_object
-        wrap.name = f"OrcGear_ArmWrap_{side}"
-        wrap.data.materials.clear()
-        wrap.data.materials.append(leather)
-        # Stretch along forearm
-        for v in wrap.data.vertices:
-            v.co.z *= 2.2
-        bind_mesh(wrap, arm, lambda _v, b=bone: {b: 1.0})
-        created.append(wrap)
-
-    # --- Ankle wraps ---
-    for side, cpos, bone in (("L", calf_l, "calf_l"), ("R", calf_r, "calf_r")):
-        bpy.ops.mesh.primitive_torus_add(
-            align="WORLD",
-            location=(cpos.x, cpos.y, cpos.z - 0.08),
-            rotation=(math.radians(90.0), 0.0, 0.0),
-            major_radius=0.055,
-            minor_radius=0.014,
-            major_segments=16,
-            minor_segments=8,
-        )
-        wrap = bpy.context.active_object
-        wrap.name = f"OrcGear_AnkleWrap_{side}"
-        wrap.data.materials.clear()
-        wrap.data.materials.append(leather)
-        for v in wrap.data.vertices:
-            v.co.z *= 1.6
-        bind_mesh(wrap, arm, lambda _v, b=bone: {b: 1.0})
-        created.append(wrap)
-
-    log(f"look-dev gear: {[o.name for o in created]}")
-    return created
 
 
 def _uv_to_px(u: float, v: float, w: int, h: int) -> tuple[int, int]:
@@ -1470,7 +1460,20 @@ def export_glb(path: Path, arm, objects: list) -> None:
     arm.select_set(True)
     bpy.context.view_layer.objects.active = arm
     path.parent.mkdir(parents=True, exist_ok=True)
-    scratch_out = SCRATCH / (path.stem + "_restyle.glb")
+    # Never overwrite the protected 16:35 restyle backups.
+    scratch_out = SCRATCH / f"{path.stem}_export_live.glb"
+    protected = {p.resolve() for p in PROTECTED_RESTYLE_BACKUPS}
+    if scratch_out.resolve() in protected:
+        raise RuntimeError(f"refusing to write protected restyle backup path: {scratch_out}")
+    if path.resolve() in protected:
+        raise RuntimeError(f"refusing dest path that aliases a protected backup: {path}")
+    for backup in PROTECTED_RESTYLE_BACKUPS:
+        if backup.is_file():
+            log(f"protected restyle backup intact: {backup} ({backup.stat().st_size} bytes)")
+    before_backup_sizes = {
+        str(p.resolve()): (p.stat().st_size if p.is_file() else None)
+        for p in PROTECTED_RESTYLE_BACKUPS
+    }
     if scratch_out.exists():
         scratch_out.unlink()
     kwargs = dict(
@@ -1514,8 +1517,17 @@ def export_glb(path: Path, arm, objects: list) -> None:
             scratch_out = alt
         else:
             raise RuntimeError(f"export produced no file: {scratch_out}")
+    # Re-check backups were not clobbered by a mis-aimed export.
+    for backup in PROTECTED_RESTYLE_BACKUPS:
+        if str(backup.resolve()) in before_backup_sizes:
+            after = backup.stat().st_size if backup.is_file() else None
+            if after != before_backup_sizes[str(backup.resolve())]:
+                raise RuntimeError(
+                    f"protected restyle backup changed during export: {backup} "
+                    f"before={before_backup_sizes[str(backup.resolve())]} after={after}"
+                )
     shutil.copy2(scratch_out, path)
-    log(f"exported {path} ({path.stat().st_size} bytes)")
+    log(f"exported {path} ({path.stat().st_size} bytes) via scratch {scratch_out.name}")
 
 
 def action_frame_for_action(act, kind: str) -> int:
@@ -1612,11 +1624,12 @@ def posed_mesh_aabb_z(arm) -> tuple[float, float, float]:
 
 
 def death_pose_metrics(arm) -> dict:
-    """Height metrics for Death stills — pelvis alone is NOT enough on this clip.
+    """Height metrics for Death stills.
 
-    Local 16:52: dest-native Death01 pelvis_z stayed 0.954 on every frame (lean).
-    Lying may appear only as Root bone drop, armature object location, or posed
-    mesh AABB collapse — include all three alongside pelvis.
+    Local facts: dest-native Death01 pelvis_z stayed ~0.954 (lean). MH Root sits
+    near world z=0 at rest — root_z=0 is a FALSE POSITIVE for lying. Do not use
+    absolute root_z/obj_z thresholds. Lying = pelvis drop and/or posed bbox
+    collapse (not pelvis-only alone without height context when tall).
     """
     pz = pelvis_world_z(arm)
     hz = float(head_world_pos(arm).z)
@@ -1624,13 +1637,11 @@ def death_pose_metrics(arm) -> dict:
     obj_z = float(arm.matrix_world.translation.z)
     z0, z1, height = posed_mesh_aabb_z(arm)
     forward = chest_forward_world(arm)
-    lying = (
-        pz <= PELVIS_LYING_MAX_Z
-        or (rz is not None and rz <= ROOT_LYING_MAX_Z)
-        or obj_z <= ROOT_LYING_MAX_Z
-        or z1 <= BBOX_LYING_MAX_Z
-        or height <= BBOX_LYING_MAX_HEIGHT
-    )
+    # root_z / arm_obj_z logged only — never alone as lying (z≈0 at rest).
+    bbox_lying = z1 <= BBOX_LYING_MAX_Z or height <= BBOX_LYING_MAX_HEIGHT
+    pelvis_lying = pz <= PELVIS_LYING_MAX_Z
+    # Require real collapse: bbox lying, or pelvis low AND not still standing-tall.
+    lying = bbox_lying or (pelvis_lying and height <= 1.20)
     on_back = float(forward.z) >= CHEST_ON_BACK_MIN_Z
     faceplant = lying and float(forward.z) <= CHEST_FACEPLANT_MAX_Z
     return {
@@ -1813,9 +1824,9 @@ def find_death_on_back_frame(arm, act, *, apply_fn) -> int:
     if best is None:
         raise RuntimeError(
             f"no on-back lying frame in {act.name!r} frame_range=({lo},{hi}). "
-            f"Lying needs pelvis_z<={PELVIS_LYING_MAX_Z} OR root_z<={ROOT_LYING_MAX_Z} "
-            f"OR arm_obj_z<={ROOT_LYING_MAX_Z} OR bbox_max_z<={BBOX_LYING_MAX_Z} "
-            f"OR bbox_height<={BBOX_LYING_MAX_HEIGHT}; "
+            f"Lying needs bbox_max_z<={BBOX_LYING_MAX_Z} OR bbox_height<={BBOX_LYING_MAX_HEIGHT} "
+            f"OR (pelvis_z<={PELVIS_LYING_MAX_Z} and bbox_height<=1.20); "
+            f"root_z=0 is NOT lying (MH Root rest false positive). "
             f"on-back needs chest_fwd_z>={CHEST_ON_BACK_MIN_Z}. "
             f"samples={samples}"
         )
@@ -1954,10 +1965,12 @@ def chest_forward_world(arm) -> Vector:
 
 
 def dest_owned_meshes(arm) -> list:
-    """Meshes skinned to / parented on the dest armature only (orc body+tusks+gear)."""
+    """Meshes skinned to / parented on the dest armature (nude body + tusks)."""
     out = []
     for obj in mesh_objects():
         if obj.name.startswith("Preview") or obj.name == "PreviewGround":
+            continue
+        if is_junk_companion_mesh(obj):
             continue
         if obj.parent == arm:
             out.append(obj)
@@ -1970,20 +1983,23 @@ def dest_owned_meshes(arm) -> list:
 
 
 def is_dest_identity_mesh(obj) -> bool:
-    """Body / tusks / look-dev gear that must stay visible in Punch/Death AFTER.
+    """Nude body + tusks that must stay visible in AFTER stills.
 
-    After glTF the skin mesh is ``male_body`` (material may be OrcSkin_male_body).
-    Eyes / Icosphere are companions — keep them visible, not as olive targets.
+    male_body is the skin. OrcTusk_* are mouth tusks. Eyes/Icosphere are junk
+    (hidden separately). OrcGear_* is forbidden on this nude pass. Brow spikes
+    are male_body verts — flattened in restyle, not a separate mesh.
     """
     n = obj.name
     low = n.lower()
+    if is_junk_companion_mesh(obj):
+        return False
+    if n.startswith("OrcGear_") or "orcgear" in low:
+        return False
     if n == "male_body" or low == "male_body":
         return True
-    if n.startswith("OrcSkin_") or n.startswith("OrcTusk_") or n.startswith("OrcGear_"):
+    if n.startswith("OrcSkin_") or n.startswith("OrcTusk_"):
         return True
     if "tusk" in low:
-        return True
-    if low in ("eyes", "eye", "icosphere"):
         return True
     if any(k in low for k in ("body", "basemesh", "malehighpoly", "male_base", "human")):
         return True
@@ -1991,9 +2007,13 @@ def is_dest_identity_mesh(obj) -> bool:
 
 
 def ensure_dest_identity_visible(arm) -> list:
-    """Never hide dest body/head/tusks/gear. Return dest-owned still meshes."""
+    """Show nude body+tusks; keep junk hidden; refuse invented gear."""
+    hide_junk_companion_meshes(arm)
+    assert_no_invented_gear()
     owned = dest_owned_meshes(arm)
     for obj in owned:
+        if is_junk_companion_mesh(obj):
+            continue
         obj.hide_render = False
         obj.hide_viewport = False
         obj.hide_set(False)
@@ -2010,19 +2030,26 @@ def ensure_dest_identity_visible(arm) -> list:
     if not any("tusk" in n.lower() or n.startswith("OrcTusk_") for n in names):
         raise RuntimeError(
             f"dest still meshes missing tusks; have={sorted(names)}. "
-            f"Refusing Punch/Death AFTER that is not male_orc_01."
+            f"Refusing AFTER stills that are not nude male_orc_01."
         )
-    if not any(n.startswith("OrcGear_") for n in names):
-        raise RuntimeError(
-            f"dest still meshes missing look-dev gear; have={sorted(names)}"
-        )
+    if any(n.startswith("OrcGear_") for n in names):
+        raise RuntimeError(f"OrcGear_* must not appear on nude pass; have={sorted(names)}")
+    # Ensure junk stays hidden even if parented on arm.
+    for obj in mesh_objects():
+        if is_junk_companion_mesh(obj):
+            obj.hide_render = True
+            obj.hide_viewport = True
+            try:
+                obj.hide_set(True)
+            except Exception:
+                pass
     if not any(is_dest_identity_mesh(o) for o in owned):
         raise RuntimeError(f"dest identity meshes missing; have={sorted(names)}")
-    return owned
+    return [o for o in owned if is_dest_identity_mesh(o) and not o.hide_render]
 
 
 def isolate_dest_for_stills(arm) -> list:
-    """Remove leftover donor armatures; never hide dest body/head/tusks/gear."""
+    """Remove leftover donor armatures; show nude body+tusks; hide junk."""
     removed_arms = []
     for obj in list(bpy.data.objects):
         if obj.type == "ARMATURE" and obj != arm:
@@ -2037,18 +2064,25 @@ def isolate_dest_for_stills(arm) -> list:
     for obj in list(mesh_objects()):
         if obj.name.startswith("Preview") or obj.name == "PreviewGround":
             continue
+        if is_junk_companion_mesh(obj):
+            obj.hide_render = True
+            obj.hide_viewport = True
+            try:
+                obj.hide_set(True)
+            except Exception:
+                pass
+            hidden.append(obj.name)
+            continue
         if obj in owned_set or is_dest_identity_mesh(obj):
             obj.hide_render = False
             obj.hide_viewport = False
             obj.hide_set(False)
             continue
-        # Only hide true leftovers — never dest identity.
         obj.hide_render = True
         obj.hide_viewport = True
         hidden.append(obj.name)
     if hidden:
-        log(f"isolate: hid non-dest leftover meshes {hidden}")
-
+        log(f"isolate: hidden non-identity/junk meshes {hidden}")
     extras = [o.name for o in bpy.data.objects if o.type == "ARMATURE" and o != arm]
     if extras:
         raise RuntimeError(f"isolate failed; extra armatures remain: {extras}")
@@ -2279,19 +2313,17 @@ def clip_kind(label: str) -> str:
 
 
 def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str]:
-    """Render AFTER stills on the live restyled scene (DEST file not written yet).
+    """Render AFTER stills on the live restyled nude scene (DEST not written yet).
 
-    Idle/Walk: live actions (unchanged).
-    Punch: Orrun Punch_Cross on dest (~55%) — donor DOES pose dest.
-    Death: verify Root/bbox (pelvis alone stays ~0.95). Prefer Orrun Death01 via
-    HQ.copy_action + NLA solo; fall back to dest-native Death01 with same metrics.
+    Idle/Walk: live actions (nude + mouth/tusks intent only).
+    Punch: Orrun Punch_Cross on dest (~55%).
+    Death: dest-native Death01 on-back; bbox/pelvis lying — never root_z=0 alone.
     """
     meshes = isolate_dest_for_stills(arm)
     apply_finished_olive_skin(arm)
     meshes = ensure_dest_identity_visible(arm)
 
-    # Punch + Death from Orrun (read-only clones). Punch is proven; Death needs
-    # Root/NLA evaluation — pelvis-only scan falsely treats lean as stand.
+    # Punch from Orrun (proven). Death prefers dest-native Death01.
     orrun_still = fetch_orrun_still_actions(("Punch_Cross", "Death01"))
     punch_act = orrun_still["Punch_Cross"]
     donor_death = orrun_still["Death01"]
@@ -2307,16 +2339,13 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
     death_frame = None
     death_apply = None
     death_errors = []
-    # Order matters: nla_unmute needs imported strips intact; nla_solo clears tracks.
-    # 1) dest-native unmute (glTF NLA may already evaluate Root/object motion)
-    # 2) HQ.copy_action Orrun Death01 via NLA solo / active assign
-    # 3) dest-native rebuild + active
+    # Dest-native first (Arnd lock). Orrun copy_action only as fallback investigation.
     death_candidates = (
         ("dest_native_nla_unmute", dest_death, apply_death_action_nla_unmute),
-        ("orrun_nla_solo", donor_death, apply_death_action_nla_solo),
-        ("orrun_active", donor_death, apply_action_datablock),
         ("dest_native_nla_solo", dest_death, apply_death_action_nla_solo),
         ("dest_native_active", dest_death, apply_action_datablock),
+        ("orrun_nla_solo", donor_death, apply_death_action_nla_solo),
+        ("orrun_active", donor_death, apply_action_datablock),
     )
     for label_src, act, apply_fn in death_candidates:
         if act is None:
@@ -2335,8 +2364,9 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
             log(f"Death AFTER candidate failed ({label_src}): {exc}")
     if death_act is None or death_frame is None or death_apply is None:
         raise RuntimeError(
-            "no Death01 on-back lying frame after Root/object/bbox/NLA investigation; "
-            "do not invent clips. failures=" + " || ".join(death_errors)
+            "no Death01 on-back lying frame (dest-native preferred; "
+            "bbox/pelvis lying — not root_z=0 FP); do not invent clips. failures="
+            + " || ".join(death_errors)
         )
 
     frames = {
@@ -2451,9 +2481,10 @@ def run_restyle() -> dict:
 
     drop_weapons()
     _body_meshes, removed_garments = strip_dressed_meshes_attach_male_base(arm)
-    restyle_bulk_and_jaw(arm)
+    restyle_bulk_and_jaw(arm)  # includes brow-spike flatten on male_body
     tusks = add_tusks(arm)
-    gear = add_lookdev_gear(arm)
+    hidden_junk = hide_junk_companion_meshes(arm)
+    assert_no_invented_gear()
     apply_finished_olive_skin(arm)
 
     # Explicitly never scale gait bones after edits.
@@ -2515,10 +2546,13 @@ def run_restyle() -> dict:
     export_objects = [
         o
         for o in owned
-        if not o.name.startswith("Preview") and o.name != "PreviewGround"
+        if not o.name.startswith("Preview")
+        and o.name != "PreviewGround"
+        and not is_junk_companion_mesh(o)
+        and not o.name.startswith("OrcGear_")
     ]
     if not export_objects:
-        raise RuntimeError("no mesh objects to export after restyle/gear")
+        raise RuntimeError("no mesh objects to export after nude restyle")
     # First write of DEST — only from the restyled live scene after stills passed.
     export_glb(DEST, arm, export_objects)
     dest_clips = assert_donor_clips_preserved(donor_clips, DEST)
@@ -2533,12 +2567,14 @@ def run_restyle() -> dict:
         hip_before=hip_before,
         hip_after=hip_after,
         tusks=[o.name for o in tusks],
-        gear=[o.name for o in gear],
+        gear=[],  # nude pass — no invented clothes
         removed_garments=removed_garments,
     )
     packet["still_frames"] = still_frames
     packet["still_actions"] = still_actions
     packet["dest_write"] = "after_stills_only"
+    packet["hidden_junk"] = hidden_junk
+    packet["nude_pass"] = True
     ART_REVIEW_PACKET.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
 
     return {
@@ -2558,7 +2594,8 @@ def run_restyle() -> dict:
         "hip_after": hip_after,
         "hip_delta_m": delta,
         "tusks": [o.name for o in tusks],
-        "gear": [o.name for o in gear],
+        "gear": [],
+        "hidden_junk": hidden_junk,
         "removed_garments": removed_garments,
         "previews_after": after_previews,
         "still_frames": still_frames,
@@ -2568,8 +2605,9 @@ def run_restyle() -> dict:
         "uv_layout_hint": str(UV_LAYOUT),
         "lookdev": str(LOOKDEV),
         "note": (
-            "DEST written only after AFTER stills; Death uses Root/bbox/NLA; "
-            "Punch=Orrun Punch_Cross; olive on male_body"
+            "Nude pass: DEST after stills; mouth tusks; male_body brow flatten; "
+            "no OrcGear; Punch=Orrun Punch_Cross; Death=dest-native metrics "
+            "(not root_z=0 FP); olive on male_body"
         ),
         "packet_notes": packet.get("notes"),
     }
