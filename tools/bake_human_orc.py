@@ -1379,52 +1379,109 @@ def _evaluated_mesh_centroid_world(obj) -> Vector:
 
 
 def assert_tusks_follow_head(arm, tusks: list) -> None:
-    """Fail loud if tusks stay at rest while the head poses (float-off bug)."""
+    """Fail loud if tusks stay at rest while the head poses (float-off bug).
+
+    mathutils.Quaternion(axis, angle) requires a Vector axis — a 3-tuple is
+    treated as (w,x,y) and the angle is ignored (identity), which left
+    head_delta=0 on the local HOLD-fix bake.
+    """
     if not tusks:
         raise RuntimeError("assert_tusks_follow_head: no tusks")
     from mathutils import Quaternion
 
-    HQ.reset_pose(arm)
-    bpy.context.view_layer.update()
-    rest_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
-    rest_head = head_world_pos(arm)
+    # Manual pose must not be overwritten by an active action / NLA on update.
+    saved_action = None
+    saved_nla_mutes = []
+    if arm.animation_data is not None:
+        saved_action = arm.animation_data.action
+        arm.animation_data.action = None
+        for track in arm.animation_data.nla_tracks:
+            saved_nla_mutes.append(track.mute)
+            track.mute = True
 
-    pb = arm.pose.bones["head"]
-    pb.rotation_mode = "QUATERNION"
-    pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0), math.radians(40.0))
-    bpy.context.view_layer.update()
-    posed_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
-    posed_head = head_world_pos(arm)
-    head_delta = (posed_head - rest_head).length
+    try:
+        HQ.reset_pose(arm)
+        bpy.context.view_layer.update()
+        rest_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
+        rest_head = head_world_pos(arm)
 
-    HQ.reset_pose(arm)
-    bpy.context.view_layer.update()
-
-    if head_delta < 0.02:
-        raise RuntimeError(
-            f"head pose delta too small ({head_delta:.4f}); cannot verify tusk bind"
+        pb = arm.pose.bones["head"]
+        pb.rotation_mode = "QUATERNION"
+        # Axis must be a Vector — Quaternion((1,0,0), angle) is NOT axis-angle.
+        pb.rotation_quaternion = Quaternion(
+            Vector((1.0, 0.0, 0.0)), math.radians(40.0)
         )
-    for tusk, a, b in zip(tusks, rest_centers, posed_centers):
-        delta = (b - a).length
-        # Must move with the head — floating rest-world tusks move ~0.
-        if delta < 0.5 * head_delta:
-            raise RuntimeError(
-                f"tusk {tusk.name!r} does not follow head "
-                f"(tusk_delta={delta:.4f} head_delta={head_delta:.4f}). "
-                f"Armature/head vertex-group bind is broken."
+        bpy.context.view_layer.update()
+        deps = bpy.context.evaluated_depsgraph_get()
+        deps.update()
+
+        posed_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
+        posed_head = head_world_pos(arm)
+        head_delta = (posed_head - rest_head).length
+
+        # Fallback: Walk mid-frame if manual head rotation still didn't move.
+        if head_delta < 0.02:
+            walk = None
+            for name in ("Walk", "Walk_Loop"):
+                walk = bpy.data.actions.get(name)
+                if walk is not None:
+                    break
+            if walk is None:
+                raise RuntimeError(
+                    f"head pose delta too small ({head_delta:.4f}) after axis-angle "
+                    f"head rotate, and no Walk/Walk_Loop action for fallback pose"
+                )
+            HQ.reset_pose(arm)
+            HQ.assign_action(arm, walk)
+            fr = tuple(walk.frame_range)
+            mid = int(round(0.5 * (fr[0] + fr[1])))
+            bpy.context.scene.frame_set(mid)
+            bpy.context.view_layer.update()
+            deps = bpy.context.evaluated_depsgraph_get()
+            deps.update()
+            posed_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
+            posed_head = head_world_pos(arm)
+            head_delta = (posed_head - rest_head).length
+            log(
+                f"tusk follow-head fallback: Walk mid frame={mid} "
+                f"head_delta={head_delta:.4f}"
             )
-        # Stay near the head (in-mouth), not drifting away.
-        dist_rest = (a - rest_head).length
-        dist_posed = (b - posed_head).length
-        if dist_posed > dist_rest + 0.05:
+            if arm.animation_data is not None:
+                arm.animation_data.action = None
+
+        if head_delta < 0.02:
             raise RuntimeError(
-                f"tusk {tusk.name!r} drifts from head under pose "
-                f"(rest_dist={dist_rest:.4f} posed_dist={dist_posed:.4f})"
+                f"head pose delta too small ({head_delta:.4f}); cannot verify tusk bind"
             )
-    log(
-        f"tusk head-follow OK: head_delta={head_delta:.4f} "
-        f"tusk_deltas={[round((b - a).length, 4) for a, b in zip(rest_centers, posed_centers)]}"
-    )
+        for tusk, a, b in zip(tusks, rest_centers, posed_centers):
+            delta = (b - a).length
+            # Must move with the head — floating rest-world tusks move ~0.
+            if delta < 0.5 * head_delta:
+                raise RuntimeError(
+                    f"tusk {tusk.name!r} does not follow head "
+                    f"(tusk_delta={delta:.4f} head_delta={head_delta:.4f}). "
+                    f"Armature/head vertex-group bind is broken."
+                )
+            # Stay near the head (in-mouth), not drifting away.
+            dist_rest = (a - rest_head).length
+            dist_posed = (b - posed_head).length
+            if dist_posed > dist_rest + 0.05:
+                raise RuntimeError(
+                    f"tusk {tusk.name!r} drifts from head under pose "
+                    f"(rest_dist={dist_rest:.4f} posed_dist={dist_posed:.4f})"
+                )
+        log(
+            f"tusk head-follow OK: head_delta={head_delta:.4f} "
+            f"tusk_deltas="
+            f"{[round((b - a).length, 4) for a, b in zip(rest_centers, posed_centers)]}"
+        )
+    finally:
+        HQ.reset_pose(arm)
+        if arm.animation_data is not None:
+            arm.animation_data.action = saved_action
+            for track, mute in zip(arm.animation_data.nla_tracks, saved_nla_mutes):
+                track.mute = mute
+        bpy.context.view_layer.update()
 
 
 def body_local_to_armature_space(arm, body, p: Vector) -> Vector:
