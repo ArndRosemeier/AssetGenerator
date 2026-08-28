@@ -528,9 +528,11 @@ def write_art_review_packet(
             "DEST is written only after AFTER stills succeed (no early Orrun copy onto dest).",
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
-            "Tusks BONE-parented to head with Identity matrix_parent_inverse "
-            "(keep-transform inverse was rest-stick on 20:14).",
-            "AFTER stills gate: tusks must be in-mouth on the posed frame before PNG.",
+            "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
+            "mesh authored in Blender tip/BONE-parent space (not skull-base) — "
+            "head-space+Identity was the 20:52 float-off.",
+            "AFTER stills gate: tusk world vs posed male_body mouth verts before PNG "
+            "(head-local length alone lied on 20:52).",
             "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
             "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
@@ -1144,13 +1146,15 @@ def resolve_mouth_zrel_band(samples: list[dict]) -> tuple[float, float, float]:
     return mouth_lo, mouth_hi, brow_lo
 
 
-def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
+def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector, int, int]:
     """Head-weighted lower-lip / mouth-corner verts on male_body (object space).
 
     Full-body z_rel 0.80–0.87 was empty on MH male_body (face lives ~0.88+).
     Logs a head-front histogram, derives an adaptive mouth band, then expands
     until real L/R corners exist. Still refuses cheek/brow. No head-bone offsets
     for the tusk bases — anchors are mesh verts (nudged into the cavity).
+
+    Returns ``(left_pos, right_pos, left_vert_index, right_vert_index)``.
     """
     _body, samples = collect_head_front_face_samples(arm)
     if not samples:
@@ -1278,14 +1282,17 @@ def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
             raise RuntimeError(
                 f"tusk anchor {label} |x|={abs(p.x - cx):.3f} too centered — not a corner"
             )
+    left_idx = int(left["v"].index)
+    right_idx = int(right["v"].index)
     log(
         f"mouth anchors L={tuple(round(c, 4) for c in left_p)} "
         f"R={tuple(round(c, 4) for c in right_p)} "
+        f"verts=({left_idx},{right_idx}) "
         f"z_rel=({(left_p.z - z0) / height:.3f},{(right_p.z - z0) / height:.3f}) "
         f"dz=({left_p.z - head_z:.3f},{right_p.z - head_z:.3f}) "
         f"(male_body verts, not head-bone offsets)"
     )
-    return left_p, right_p
+    return left_p, right_p, left_idx, right_idx
 
 
 def make_opaque_mat(name: str, color, roughness: float = 0.9):
@@ -1340,6 +1347,48 @@ def body_local_to_world(body, p: Vector) -> Vector:
     return body.matrix_world @ Vector(p)
 
 
+def head_bone_length(arm) -> float:
+    if "head" not in arm.data.bones:
+        raise RuntimeError("dest armature missing head bone")
+    return float(arm.data.bones["head"].length)
+
+
+def head_local_to_bone_parent_local(arm, head_local: Vector) -> Vector:
+    """Convert head ``matrix_local`` space → Blender BONE-parent object space.
+
+    Default BONE parenting uses ``pose_mat`` then offsets by ``+Y * bone.length``
+    (the tip). Mesh authored in skull-base / ``matrix_local`` space with Identity
+    ``matrix_parent_inverse`` therefore sits a full head-bone length away from the
+    mouth — numeric head-local checks still pass (rigid tip attach), but still
+    cameras see floating cones (20:52 Reviewer HOLD).
+    """
+    return Vector(head_local) - Vector((0.0, head_bone_length(arm), 0.0))
+
+
+def evaluated_vertex_world(obj, vert_index: int) -> Vector:
+    """World position of a mesh vertex after modifiers (Armature deform)."""
+    if obj.type != "MESH":
+        raise RuntimeError(f"evaluated_vertex_world: {obj.name!r} is not a mesh")
+    nverts = len(obj.data.vertices)
+    if vert_index < 0 or vert_index >= nverts:
+        raise RuntimeError(
+            f"evaluated_vertex_world: {obj.name!r} vert {vert_index} "
+            f"out of range n={nverts}"
+        )
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(dg)
+    me = ev.to_mesh()
+    try:
+        if vert_index >= len(me.vertices):
+            raise RuntimeError(
+                f"evaluated_vertex_world: {obj.name!r} eval mesh missing vert "
+                f"{vert_index} (n={len(me.vertices)})"
+            )
+        return ev.matrix_world @ me.vertices[vert_index].co
+    finally:
+        ev.to_mesh_clear()
+
+
 def _matrix_is_identity(m: Matrix, *, eps: float = 1e-5) -> bool:
     ident = Matrix.Identity(4)
     for i in range(4):
@@ -1353,10 +1402,10 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
     """Parent tusk to the head bone (no Armature modifier).
 
     Critical: assigning ``obj.parent`` makes Blender preserve world transform via
-    ``matrix_parent_inverse``. Leaving that inverse in place cancels bone motion
-    — tusks stick at rest world (20:14: Idle/Walk/Death float, Punch near-rest
-    looks in-mouth). Mesh data must already be in head-rest local coordinates;
-    then force Identity parent inverse so the head pose fully drives the object.
+    ``matrix_parent_inverse``. Leaving that keep-transform inverse cancels bone
+    motion — tusks stick at rest world. Mesh data must already be in **BONE
+    parent / tip** space (see ``head_local_to_bone_parent_local``); then force
+    Identity parent inverse so the head pose fully drives the object.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("bind_tusk_to_head_bone: missing head bone")
@@ -1376,7 +1425,7 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
     obj.parent_bone = "head"
     obj.parent_type = "BONE"
     # Wipe the keep-transform inverse Blender just wrote — verts are already
-    # head-local; bone pose must apply unopposed.
+    # tip-parent local; bone pose must apply unopposed.
     obj.matrix_parent_inverse = Matrix.Identity(4)
     obj.matrix_basis = Matrix.Identity(4)
     obj.location = (0.0, 0.0, 0.0)
@@ -1389,7 +1438,7 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
             f"bind_tusk_to_head_bone failed on {obj.name!r}: "
             f"parent={obj.parent!r} type={obj.parent_type!r} bone={obj.parent_bone!r}"
         )
-    # Parent inverse must stay Identity (any keep-transform inverse = rest stick).
+    # Parent inverse must stay Identity (keep-transform inverse = rest stick).
     if not _matrix_is_identity(obj.matrix_parent_inverse):
         raise RuntimeError(
             f"{obj.name!r} matrix_parent_inverse is not Identity after bone parent — "
@@ -1402,17 +1451,29 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
         )
     log(
         f"tusk {obj.name!r} BONE-parented to head "
-        f"(matrix_parent_inverse=Identity, no Armature modifier)"
+        f"(matrix_parent_inverse=Identity, tip-space mesh, no Armature modifier)"
     )
 
 
+# Max world distance from tusk centroid to the posed mouth-corner vert on the
+# still frame. Cone centroid sits ~2–3cm from the base; into_mouth nudge ~1cm.
+# 20:52 float-off was ~head-bone-length (~15–25cm) — must fail that class.
+TUSK_MOUTH_WORLD_MAX = 0.085
+
+
 def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None:
-    """Gate the PNG the Reviewer sees — fail before render if tusks float."""
+    """Gate the PNG the Reviewer sees — tusk world must meet posed mouth verts.
+
+    Head-local length alone lied on 20:52: tip-space mis-authoring kept a fixed
+    head-local offset that passed the budget while the camera saw rest-offset
+    cones in front of the face. Compare evaluated tusk centroids to the skinned
+    male_body mouth-corner verts at this exact pose.
+    """
     if not tusks:
         raise RuntimeError(f"{label}: no tusks for in-mouth still gate")
+    body = male_body_mesh(arm)
     bpy.context.view_layer.update()
     bpy.context.evaluated_depsgraph_get().update()
-    head = head_world_pos(arm)
     for tusk in tusks:
         if tusk.parent != arm or tusk.parent_type != "BONE" or tusk.parent_bone != "head":
             raise RuntimeError(
@@ -1425,22 +1486,46 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
             raise RuntimeError(
                 f"{label} still: {tusk.name!r} matrix_parent_inverse not Identity"
             )
+        if "orc_mouth_vert" not in tusk:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} missing orc_mouth_vert custom prop "
+                f"— cannot prove mouth coincidence"
+            )
+        mouth_idx = int(tusk["orc_mouth_vert"])
+        mouth_w = evaluated_vertex_world(body, mouth_idx)
+        # Optional: intended bind target in current head pose (catches tip miss).
+        if "orc_mouth_head_local" in tusk:
+            hl = tusk["orc_mouth_head_local"]
+            expected = head_pose_world_matrix(arm) @ Vector(
+                (float(hl[0]), float(hl[1]), float(hl[2]))
+            )
+        else:
+            expected = mouth_w
         c = _evaluated_mesh_centroid_world(tusk)
-        local = world_to_head_local(arm, c)
-        dist = (c - head).length
-        if local.length > HEAD_MOUTH_MAX_LOCAL:
+        dist_vert = (c - mouth_w).length
+        dist_bind = (c - expected).length
+        if dist_bind > TUSK_MOUTH_WORLD_MAX:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} head-local length={local.length:.4f} "
-                f"> {HEAD_MOUTH_MAX_LOCAL} — floating in rendered pose "
-                f"(world={tuple(round(x, 3) for x in c)} "
-                f"head={tuple(round(x, 3) for x in head)})"
+                f"{label} still: tusk {tusk.name!r} missed head-pose bind target "
+                f"(dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
+                f"tusk_w={tuple(round(x, 3) for x in c)} "
+                f"bind_w={tuple(round(x, 3) for x in expected)} "
+                f"mouth_w={tuple(round(x, 3) for x in mouth_w)} — "
+                f"pixels would float; refusing PNG"
             )
-        if dist > HEAD_MOUTH_MAX_LOCAL + 0.04:
+        if dist_vert > TUSK_MOUTH_WORLD_MAX:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} world dist to head={dist:.4f} "
-                f"— not in mouth on the pose that will be rendered"
+                f"{label} still: tusk {tusk.name!r} not at posed mouth vert "
+                f"(dist_mouth_vert={dist_vert:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
+                f"tusk_w={tuple(round(x, 3) for x in c)} "
+                f"mouth_w={tuple(round(x, 3) for x in mouth_w)} — "
+                f"pixels would float; refusing PNG"
             )
-    log(f"{label} still gate: tusks in mouth (head-local OK)")
+        log(
+            f"{label} still gate: {tusk.name} mouth_vert_dist={dist_vert:.4f} "
+            f"bind_dist={dist_bind:.4f}"
+        )
+    log(f"{label} still gate: tusks coincide with posed mouth verts")
 
 
 def assert_tusks_follow_head(arm, tusks: list) -> None:
@@ -1515,6 +1600,17 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                         f"tusk {tusk.name!r} head-local length={posed_l.length:.4f} "
                         f"> {HEAD_MOUTH_MAX_LOCAL} under {label}"
                     )
+                if "orc_mouth_head_local" in tusk:
+                    hl = tusk["orc_mouth_head_local"]
+                    expected = head_pose_world_matrix(arm) @ Vector(
+                        (float(hl[0]), float(hl[1]), float(hl[2]))
+                    )
+                    dist_bind = (posed_w - expected).length
+                    if dist_bind > TUSK_MOUTH_WORLD_MAX:
+                        raise RuntimeError(
+                            f"tusk {tusk.name!r} off bind mouth under {label}: "
+                            f"dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}"
+                        )
             return head_delta
 
         # 1) Forced head rotate via Euler on bone; delta from bone.tail.
@@ -1603,9 +1699,14 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
 def add_tusks(arm) -> list:
     """Tusks in the mouth cavity, BONE-parented to head (follow all clips).
 
-    Mouth anchors from male_body verts → world → head-rest local mesh authoring
-    → parent_type=BONE / parent_bone=head. No Armature modifier (avoids the
-    rest-space float that passed synthetic asserts on 19:32). No new bones.
+    Mouth anchors from male_body verts → world → head-rest (``matrix_local``)
+    → **tip / BONE-parent object space** → parent_type=BONE / parent_bone=head
+    with Identity ``matrix_parent_inverse``. No Armature modifier. No new bones.
+
+    Blender's default BONE parent places the child relative to the bone tip
+    (``pose_mat + Y*length``). Authoring in skull-base space with Identity
+    inverse parks cones a head-length off the mouth while head-local locks
+    still pass — that was the 20:52 pixel miss.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
@@ -1613,20 +1714,26 @@ def add_tusks(arm) -> list:
     bpy.context.view_layer.update()
 
     body = male_body_mesh(arm)
-    left_body, right_body = find_mouth_corner_anchors(arm)
+    left_body, right_body, left_idx, right_idx = find_mouth_corner_anchors(arm)
     left_world = body_local_to_world(body, left_body)
     right_world = body_local_to_world(body, right_body)
     head_rest = HQ.rest_world(arm, "head")
     head_rest_inv = head_rest.inverted()
-    left_local = head_rest_inv @ left_world
-    right_local = head_rest_inv @ right_world
+    left_head = head_rest_inv @ left_world
+    right_head = head_rest_inv @ right_world
+    bone_len = head_bone_length(arm)
+    left_local = head_local_to_bone_parent_local(arm, left_head)
+    right_local = head_local_to_bone_parent_local(arm, right_head)
     log(
-        f"tusk bases head-rest-local L={tuple(round(c, 4) for c in left_local)} "
+        f"tusk bases head-rest-local L={tuple(round(c, 4) for c in left_head)} "
+        f"R={tuple(round(c, 4) for c in right_head)} "
+        f"tip-parent-local L={tuple(round(c, 4) for c in left_local)} "
         f"R={tuple(round(c, 4) for c in right_local)} "
-        f"(mouth verts → head bone space)"
+        f"head_bone_length={bone_len:.4f} "
+        f"(mouth verts → head space → BONE tip parent space)"
     )
     # Mouth sits below/forward of the skull-base head origin (~0.20 on MH).
-    for label, p in (("L", left_local), ("R", right_local)):
+    for label, p in (("L", left_head), ("R", right_head)):
         if p.length > HEAD_MOUTH_MAX_LOCAL:
             raise RuntimeError(
                 f"tusk anchor {label} head-local length={p.length:.4f} "
@@ -1641,10 +1748,10 @@ def add_tusks(arm) -> list:
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
     created = []
     specs = [
-        ("OrcTusk_L", left_local, 14.0),
-        ("OrcTusk_R", right_local, -14.0),
+        ("OrcTusk_L", left_local, left_head, left_idx, left_world, 14.0),
+        ("OrcTusk_R", right_local, right_head, right_idx, right_world, -14.0),
     ]
-    for name, base, yaw_deg in specs:
+    for name, base, head_local, mouth_idx, mouth_world, yaw_deg in specs:
         bm = bmesh.new()
         bmesh.ops.create_cone(
             bm,
@@ -1655,7 +1762,7 @@ def add_tusks(arm) -> list:
             radius2=0.0030,
             depth=0.052,
         )
-        # Tip up / slightly forward / slightly out of mouth (head-local).
+        # Tip up / slightly forward / slightly out of mouth (tip-parent local).
         for v in bm.verts:
             v.co.z += 0.026
             a = math.radians(-42.0)
@@ -1676,11 +1783,42 @@ def add_tusks(arm) -> list:
         obj = bpy.data.objects.new(name, me)
         bpy.context.scene.collection.objects.link(obj)
         obj.data.materials.append(mat)
+        obj["orc_mouth_vert"] = int(mouth_idx)
+        obj["orc_mouth_head_local"] = [
+            float(head_local.x),
+            float(head_local.y),
+            float(head_local.z),
+        ]
         bind_tusk_to_head_bone(obj, arm)
         created.append(obj)
 
+    # Rest-pose proof: tusk world must meet the mouth anchor world (tip miss → ~bone_len).
+    HQ.reset_pose(arm)
+    bpy.context.view_layer.update()
+    bpy.context.evaluated_depsgraph_get().update()
+    for obj, mouth_world in (
+        (created[0], left_world),
+        (created[1], right_world),
+    ):
+        c = _evaluated_mesh_centroid_world(obj)
+        dist = (c - Vector(mouth_world)).length
+        if dist > TUSK_MOUTH_WORLD_MAX:
+            raise RuntimeError(
+                f"rest bind: {obj.name!r} centroid world dist to mouth={dist:.4f} "
+                f"> {TUSK_MOUTH_WORLD_MAX} (head_bone_length={bone_len:.4f}). "
+                f"tusk={tuple(round(x, 3) for x in c)} "
+                f"mouth={tuple(round(x, 3) for x in mouth_world)}. "
+                f"Likely head-space authored into tip BONE parent."
+            )
+        log(
+            f"rest bind OK {obj.name}: mouth_world_dist={dist:.4f} "
+            f"(tip-parent space + Identity pinv)"
+        )
+
     assert_tusks_follow_head(arm, created)
-    log(f"tusks: {[o.name for o in created]} BONE-parented to head (mouth cavity)")
+    # Posed mouth-vert gate at rest (same check stills use).
+    assert_tusks_in_mouth_for_current_pose(arm, created, "rest_after_bind")
+    log(f"tusks: {[o.name for o in created]} BONE-parented to head (mouth cavity, tip-space)")
     return created
 
 
