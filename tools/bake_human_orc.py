@@ -169,6 +169,10 @@ BBOX_LYING_MAX_Z = 0.70  # posed mesh AABB max Z when lying on ground
 BBOX_LYING_MAX_HEIGHT = 0.90  # standing ~1.7–1.9; lying flattens
 CHEST_ON_BACK_MIN_Z = 0.20  # chest forward world-Z; on-back faces sky
 CHEST_FACEPLANT_MAX_Z = -0.05  # chest forward toward ground
+# MH head bone origin is at the skull base, not the lips. Real mouth-corner
+# distance in head-rest space is ~0.20 (local bake: 0.2053). Do not use a
+# tight 0.08–0.14 cap — that rejects every real mouth vert.
+HEAD_MOUTH_MAX_LOCAL = 0.28
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
