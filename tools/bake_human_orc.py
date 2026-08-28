@@ -74,7 +74,7 @@ Full restyle path:
 
 Restyle rules:
   - MESH only on the existing 53-bone bind (BONE_MAP from bake_human_quaternius).
-  - Tusks bound via bind_mesh to head; no new bones.
+  - Tusks BONE-parented to head (mouth cavity); no new bones.
   - Do NOT scale thigh / calf / pelvis bones. No invented clothes / gait.
   - Log hip_height_z before/after; fail if pelvis rest Z moves more than ~1 cm.
   - After export, every donor clip name must still exist on dest (loud fail).
@@ -524,9 +524,9 @@ def write_art_review_packet(
             "DEST is written only after AFTER stills succeed (no early Orrun copy onto dest).",
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
-            "Tusks sit in the widened mouth cavity (head Armature-mod bind), not on cheeks.",
-            "Mouth/jaw restyle is face-only (no neck_01 shred under Walk).",
-            "Brow spikes flattened on male_body face verts (not Eyes / not a brow mesh).",
+            "Tusks sit in the mouth cavity via head BONE parent (all four clips).",
+            "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
+            "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
             "Punch AFTER uses Orrun Punch_Cross @ ~55% on dest with head camera.",
             "Idle/Walk AFTER = nude + mouth/tusks + junk hide/flatten only.",
@@ -680,8 +680,12 @@ def strip_dressed_meshes_attach_male_base(arm) -> tuple[list, list[str]]:
 
     attached = []
     for obj in base_meshes:
+        # Keep imported bind transforms. Forcing matrix_basis=Identity here was
+        # shredding neck/chest under Idle/Walk (verts no longer matched bone rest).
+        mw = obj.matrix_world.copy()
         obj.parent = arm
         obj.parent_type = "OBJECT"
+        obj.matrix_world = mw
         for mod in list(obj.modifiers):
             if mod.type == "ARMATURE":
                 mod.object = arm
@@ -694,9 +698,6 @@ def strip_dressed_meshes_attach_male_base(arm) -> tuple[list, list[str]]:
             mod.use_vertex_groups = True
             if hasattr(mod, "use_bone_envelopes"):
                 mod.use_bone_envelopes = False
-        # Keep mesh local in armature object space (same convention as tusks).
-        obj.matrix_parent_inverse = arm.matrix_world.inverted()
-        obj.matrix_basis = Matrix.Identity(4)
         missing_bones = [
             vg.name
             for vg in obj.vertex_groups
@@ -836,21 +837,22 @@ def restyle_bulk_and_jaw(arm) -> None:
             # Mild stockiness; skip head shell (avoids forehead radial spikes).
             if hw < 0.35:
                 bulk += 0.012 * max(0.0, 1.0 - hw)
-            # Walk neck/chest tear: do not radially bulk neck-weighted verts.
-            if nw >= 0.15:
-                bulk *= max(0.0, 1.0 - nw)
+
+            # Idle/Walk neck/chest shred: never displace neck_01 or heavy spine_03.
+            neck_zone = nw >= 0.08 or (s3w >= 0.28 and hw < 0.45 and arm_w < 0.25)
+            if neck_zone:
+                bulk = 0.0
                 neck_skipped += 1
-            # Soften upper-chest bulk where spine_03 dominates over limbs.
-            if s3w >= 0.45 and arm_w < 0.2 and hw < 0.2:
-                bulk *= 0.35
+                continue
 
             dz = v.co.z - head_z
-            # Face-only gate: head must dominate neck/spine or Walk shreds the seam.
+            # Face-only gate: head must dominate neck/spine.
             is_face = (
-                hw >= 0.50
-                and hw >= nw + 0.20
-                and hw >= s3w + 0.15
-                and nw < 0.35
+                hw >= 0.55
+                and hw >= nw + 0.25
+                and hw >= s3w + 0.20
+                and nw < 0.20
+                and s3w < 0.35
             )
 
             if is_face and -0.145 <= dz <= -0.055 and v.co.y < cy + 0.02:
@@ -1274,73 +1276,6 @@ def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
     return left_p, right_p
 
 
-def bind_mesh(obj, arm, bone_fn) -> None:
-    """Bind extra mesh to dest armature via vertex groups (same space as male_body).
-
-    Tusks must live in armature object space with an Armature modifier + head
-    weights — OBJECT parent alone does not deform. Clear object xforms, set
-    parent inverse so local==armature space, then weight.
-    """
-    # Detach and reset so mesh local coordinates stay armature-object space.
-    obj.parent = None
-    obj.location = (0.0, 0.0, 0.0)
-    obj.rotation_euler = (0.0, 0.0, 0.0)
-    if hasattr(obj, "rotation_quaternion"):
-        obj.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
-    obj.scale = (1.0, 1.0, 1.0)
-    bpy.context.view_layer.update()
-
-    needed = set()
-    weights = []
-    for v in obj.data.vertices:
-        wmap = bone_fn(v)
-        if not wmap:
-            raise RuntimeError(f"bind_mesh: empty weights for vert on {obj.name!r}")
-        weights.append((v.index, wmap))
-        needed.update(wmap)
-    for name in needed:
-        if name not in arm.data.bones:
-            raise RuntimeError(f"bind_mesh: armature missing bone {name!r}")
-        if not arm.data.bones[name].use_deform:
-            raise RuntimeError(
-                f"bind_mesh: bone {name!r} has use_deform=False — cannot drive {obj.name!r}"
-            )
-        if name not in obj.vertex_groups:
-            obj.vertex_groups.new(name=name)
-    for vi, wmap in weights:
-        total = float(sum(wmap.values()))
-        if abs(total - 1.0) > 1e-3:
-            raise RuntimeError(
-                f"bind_mesh: weights on {obj.name!r} vert {vi} sum to {total}, need 1.0"
-            )
-        for bname, w in wmap.items():
-            obj.vertex_groups[bname].add([vi], float(w), "REPLACE")
-
-    for mod in list(obj.modifiers):
-        obj.modifiers.remove(mod)
-
-    obj.parent = arm
-    obj.parent_type = "OBJECT"
-    # Keep mesh verts in armature object space (do not bake a parent offset into them).
-    obj.matrix_parent_inverse = arm.matrix_world.inverted()
-    obj.matrix_basis = Matrix.Identity(4)
-
-    mod = obj.modifiers.new("Armature", "ARMATURE")
-    mod.object = arm
-    mod.use_vertex_groups = True
-    if hasattr(mod, "use_bone_envelopes"):
-        mod.use_bone_envelopes = False
-    if hasattr(mod, "show_in_editmode"):
-        mod.show_in_editmode = True
-    if hasattr(mod, "show_on_cage"):
-        mod.show_on_cage = True
-    bpy.context.view_layer.update()
-    if not any(m.type == "ARMATURE" and m.object == arm for m in obj.modifiers):
-        raise RuntimeError(f"bind_mesh: Armature modifier missing on {obj.name!r}")
-    if "head" in needed and obj.vertex_groups.get("head") is None:
-        raise RuntimeError(f"bind_mesh: head vertex group missing on {obj.name!r}")
-
-
 def make_opaque_mat(name: str, color, roughness: float = 0.9):
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
@@ -1378,18 +1313,77 @@ def _evaluated_mesh_centroid_world(obj) -> Vector:
         ev.to_mesh_clear()
 
 
-def assert_tusks_follow_head(arm, tusks: list) -> None:
-    """Fail loud if tusks stay at rest while the head poses (float-off bug).
+def head_pose_world_matrix(arm) -> Matrix:
+    """Posed head bone matrix in world space (follows Idle/Walk/Punch/Death)."""
+    if "head" not in arm.pose.bones:
+        raise RuntimeError("dest armature missing head pose bone")
+    return arm.matrix_world @ arm.pose.bones["head"].matrix
 
-    mathutils.Quaternion(axis, angle) requires a Vector axis — a 3-tuple is
-    treated as (w,x,y) and the angle is ignored (identity), which left
-    head_delta=0 on the local HOLD-fix bake.
+
+def world_to_head_local(arm, world_p: Vector) -> Vector:
+    return head_pose_world_matrix(arm).inverted() @ Vector(world_p)
+
+
+def body_local_to_world(body, p: Vector) -> Vector:
+    return body.matrix_world @ Vector(p)
+
+
+def bind_tusk_to_head_bone(obj, arm) -> None:
+    """Parent tusk to the head bone (no Armature modifier).
+
+    Art Reviewer 19:32: Armature-mod + OBJECT parent could pass a synthetic
+    head-rotate assert while tusks stayed near rest world — in-mouth on
+    Punch/Death (near rest) and floating on Idle/Walk. Bone parenting locks
+    the mesh into head space for every clip.
+    Mesh data must already be authored in head-rest local coordinates.
+    """
+    if "head" not in arm.data.bones:
+        raise RuntimeError("bind_tusk_to_head_bone: missing head bone")
+    for mod in list(obj.modifiers):
+        obj.modifiers.remove(mod)
+    obj.parent = None
+    obj.location = (0.0, 0.0, 0.0)
+    obj.rotation_euler = (0.0, 0.0, 0.0)
+    if hasattr(obj, "rotation_quaternion"):
+        obj.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+    obj.scale = (1.0, 1.0, 1.0)
+    bpy.context.view_layer.update()
+
+    obj.parent = arm
+    obj.parent_type = "BONE"
+    obj.parent_bone = "head"
+    obj.matrix_basis = Matrix.Identity(4)
+    bpy.context.view_layer.update()
+    if obj.parent != arm or obj.parent_type != "BONE" or obj.parent_bone != "head":
+        raise RuntimeError(
+            f"bind_tusk_to_head_bone failed on {obj.name!r}: "
+            f"parent={obj.parent!r} type={obj.parent_type!r} bone={obj.parent_bone!r}"
+        )
+    if any(m.type == "ARMATURE" for m in obj.modifiers):
+        raise RuntimeError(
+            f"{obj.name!r} still has Armature modifier after bone parent "
+            f"(would double-transform)"
+        )
+    log(f"tusk {obj.name!r} BONE-parented to head (no Armature modifier)")
+
+
+def assert_tusks_follow_head(arm, tusks: list) -> None:
+    """Fail loud unless tusks stay in head-local mouth space on Idle AND Walk.
+
+    Synthetic head rotation alone is not enough — 19:32 stills showed Punch/Death
+    in-mouth (near rest) while Idle/Walk floated. Verify head-local invariance
+    under the real Idle/Walk actions used for AFTER stills, then restore rest.
     """
     if not tusks:
         raise RuntimeError("assert_tusks_follow_head: no tusks")
-    from mathutils import Quaternion
+    for tusk in tusks:
+        if tusk.parent != arm or tusk.parent_type != "BONE" or tusk.parent_bone != "head":
+            raise RuntimeError(
+                f"{tusk.name!r} must be BONE-parented to head before follow assert; "
+                f"got parent={getattr(tusk.parent, 'name', None)!r} "
+                f"type={tusk.parent_type!r} bone={tusk.parent_bone!r}"
+            )
 
-    # Manual pose must not be overwritten by an active action / NLA on update.
     saved_action = None
     saved_nla_mutes = []
     if arm.animation_data is not None:
@@ -1402,79 +1396,68 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
     try:
         HQ.reset_pose(arm)
         bpy.context.view_layer.update()
-        rest_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
+        rest_locals = [
+            world_to_head_local(arm, _evaluated_mesh_centroid_world(t)) for t in tusks
+        ]
+        rest_worlds = [_evaluated_mesh_centroid_world(t) for t in tusks]
         rest_head = head_world_pos(arm)
 
-        pb = arm.pose.bones["head"]
-        pb.rotation_mode = "QUATERNION"
-        # Axis must be a Vector — Quaternion((1,0,0), angle) is NOT axis-angle.
-        pb.rotation_quaternion = Quaternion(
-            Vector((1.0, 0.0, 0.0)), math.radians(40.0)
+        clip_specs = (
+            ("Idle", ("Idle", "Idle_Loop"), "idle"),
+            ("Walk", ("Walk", "Walk_Loop"), "walk"),
         )
-        bpy.context.view_layer.update()
-        deps = bpy.context.evaluated_depsgraph_get()
-        deps.update()
-
-        posed_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
-        posed_head = head_world_pos(arm)
-        head_delta = (posed_head - rest_head).length
-
-        # Fallback: Walk mid-frame if manual head rotation still didn't move.
-        if head_delta < 0.02:
-            walk = None
-            for name in ("Walk", "Walk_Loop"):
-                walk = bpy.data.actions.get(name)
-                if walk is not None:
+        tested = []
+        for label, names, kind in clip_specs:
+            act = None
+            for name in names:
+                act = bpy.data.actions.get(name)
+                if act is not None:
                     break
-            if walk is None:
+            if act is None:
                 raise RuntimeError(
-                    f"head pose delta too small ({head_delta:.4f}) after axis-angle "
-                    f"head rotate, and no Walk/Walk_Loop action for fallback pose"
+                    f"assert_tusks_follow_head: missing {label} action {names}; "
+                    f"cannot verify tusks on the still clips"
                 )
+            frame = action_frame_for_action(act, kind)
+            # Pose exactly like AFTER stills (active action, NLA muted).
             HQ.reset_pose(arm)
-            HQ.assign_action(arm, walk)
-            fr = tuple(walk.frame_range)
-            mid = int(round(0.5 * (fr[0] + fr[1])))
-            bpy.context.scene.frame_set(mid)
+            HQ.assign_action(arm, act)
+            bpy.context.scene.frame_set(int(frame))
             bpy.context.view_layer.update()
-            deps = bpy.context.evaluated_depsgraph_get()
-            deps.update()
-            posed_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
+            bpy.context.evaluated_depsgraph_get().update()
+
             posed_head = head_world_pos(arm)
             head_delta = (posed_head - rest_head).length
-            log(
-                f"tusk follow-head fallback: Walk mid frame={mid} "
-                f"head_delta={head_delta:.4f}"
-            )
+            for tusk, rest_l, rest_w in zip(tusks, rest_locals, rest_worlds):
+                posed_w = _evaluated_mesh_centroid_world(tusk)
+                posed_l = world_to_head_local(arm, posed_w)
+                local_drift = (posed_l - rest_l).length
+                world_delta = (posed_w - rest_w).length
+                # Locked to head => head-local pose is stable across Idle/Walk.
+                if local_drift > 0.02:
+                    raise RuntimeError(
+                        f"tusk {tusk.name!r} not locked to head under {label} "
+                        f"frame={frame}: head_local_drift={local_drift:.4f} "
+                        f"(Idle/Walk float-off — rest-world tusks look in-mouth "
+                        f"only near rest Punch/Death)"
+                    )
+                # If the head moved in world, tusks must move with it (not rest stick).
+                if head_delta > 0.02 and world_delta < 0.5 * head_delta:
+                    raise RuntimeError(
+                        f"tusk {tusk.name!r} stayed near rest under {label} "
+                        f"(tusk_world_delta={world_delta:.4f} "
+                        f"head_delta={head_delta:.4f})"
+                    )
+                # Stay in mouth region relative to head (not cheek/forehead).
+                if posed_l.length > 0.14:
+                    raise RuntimeError(
+                        f"tusk {tusk.name!r} head-local length={posed_l.length:.4f} "
+                        f"under {label} — not in mouth cavity"
+                    )
+            tested.append(f"{label}:{act.name}@{frame}")
             if arm.animation_data is not None:
                 arm.animation_data.action = None
-
-        if head_delta < 0.02:
-            raise RuntimeError(
-                f"head pose delta too small ({head_delta:.4f}); cannot verify tusk bind"
-            )
-        for tusk, a, b in zip(tusks, rest_centers, posed_centers):
-            delta = (b - a).length
-            # Must move with the head — floating rest-world tusks move ~0.
-            if delta < 0.5 * head_delta:
-                raise RuntimeError(
-                    f"tusk {tusk.name!r} does not follow head "
-                    f"(tusk_delta={delta:.4f} head_delta={head_delta:.4f}). "
-                    f"Armature/head vertex-group bind is broken."
-                )
-            # Stay near the head (in-mouth), not drifting away.
-            dist_rest = (a - rest_head).length
-            dist_posed = (b - posed_head).length
-            if dist_posed > dist_rest + 0.05:
-                raise RuntimeError(
-                    f"tusk {tusk.name!r} drifts from head under pose "
-                    f"(rest_dist={dist_rest:.4f} posed_dist={dist_posed:.4f})"
-                )
-        log(
-            f"tusk head-follow OK: head_delta={head_delta:.4f} "
-            f"tusk_deltas="
-            f"{[round((b - a).length, 4) for a, b in zip(rest_centers, posed_centers)]}"
-        )
+        log(f"tusk head-local lock OK on clips {tested}")
     finally:
         HQ.reset_pose(arm)
         if arm.animation_data is not None:
@@ -1484,37 +1467,43 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
         bpy.context.view_layer.update()
 
 
-def body_local_to_armature_space(arm, body, p: Vector) -> Vector:
-    """Convert male_body mesh-local point into dest armature object space."""
-    world = body.matrix_world @ Vector(p)
-    return arm.matrix_world.inverted() @ world
-
-
 def add_tusks(arm) -> list:
-    """Tusks in the mouth cavity, armature-skinned 100% to head (follow Idle/Walk).
+    """Tusks in the mouth cavity, BONE-parented to head (follow all clips).
 
-    Mouth anchors come from male_body verts (mesh-local) and are converted into
-    armature object space before mesh build — same space the Armature modifier
-    expects. No new bones. No hardcoded cheek offsets.
+    Mouth anchors from male_body verts → world → head-rest local mesh authoring
+    → parent_type=BONE / parent_bone=head. No Armature modifier (avoids the
+    rest-space float that passed synthetic asserts on 19:32). No new bones.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
-    if not arm.data.bones["head"].use_deform:
-        raise RuntimeError("head bone use_deform=False; cannot bind tusks")
+    HQ.reset_pose(arm)
+    bpy.context.view_layer.update()
+
     body = male_body_mesh(arm)
     left_body, right_body = find_mouth_corner_anchors(arm)
-    left_p = body_local_to_armature_space(arm, body, left_body)
-    right_p = body_local_to_armature_space(arm, body, right_body)
+    left_world = body_local_to_world(body, left_body)
+    right_world = body_local_to_world(body, right_body)
+    head_rest = HQ.rest_world(arm, "head")
+    head_rest_inv = head_rest.inverted()
+    left_local = head_rest_inv @ left_world
+    right_local = head_rest_inv @ right_world
     log(
-        f"tusk bases armature-space L={tuple(round(c, 4) for c in left_p)} "
-        f"R={tuple(round(c, 4) for c in right_p)} "
-        f"(from male_body local via matrix_world)"
+        f"tusk bases head-rest-local L={tuple(round(c, 4) for c in left_local)} "
+        f"R={tuple(round(c, 4) for c in right_local)} "
+        f"(mouth verts → head bone space)"
     )
+    # Mouth should sit below head origin in bone space.
+    for label, p in (("L", left_local), ("R", right_local)):
+        if p.length > 0.14:
+            raise RuntimeError(
+                f"tusk anchor {label} head-local length={p.length:.4f} too far from head"
+            )
+
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
     created = []
     specs = [
-        ("OrcTusk_L", left_p, 14.0),
-        ("OrcTusk_R", right_p, -14.0),
+        ("OrcTusk_L", left_local, 14.0),
+        ("OrcTusk_R", right_local, -14.0),
     ]
     for name, base, yaw_deg in specs:
         bm = bmesh.new()
@@ -1527,7 +1516,7 @@ def add_tusks(arm) -> list:
             radius2=0.0030,
             depth=0.052,
         )
-        # Tip up / slightly forward / slightly out of mouth.
+        # Tip up / slightly forward / slightly out of mouth (head-local).
         for v in bm.verts:
             v.co.z += 0.026
             a = math.radians(-42.0)
@@ -1548,18 +1537,11 @@ def add_tusks(arm) -> list:
         obj = bpy.data.objects.new(name, me)
         bpy.context.scene.collection.objects.link(obj)
         obj.data.materials.append(mat)
-        bind_mesh(obj, arm, lambda _v: {"head": 1.0})
+        bind_tusk_to_head_bone(obj, arm)
         created.append(obj)
-    # Verify bases are not on cheeks relative to head bone (mouth is below head).
-    head_rest = HQ.rest_world(arm, "head").to_translation()
-    for obj, base in ((created[0], left_p), (created[1], right_p)):
-        if base.z > head_rest.z - 0.02:
-            raise RuntimeError(
-                f"{obj.name} base z={base.z:.4f} near head bone z={head_rest.z:.4f} "
-                f"— looks cheek-mounted, not in-mouth"
-            )
+
     assert_tusks_follow_head(arm, created)
-    log(f"tusks: {[o.name for o in created]} bound to head (mouth-corner anchors)")
+    log(f"tusks: {[o.name for o in created]} BONE-parented to head (mouth cavity)")
     return created
 
 
