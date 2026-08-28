@@ -94,7 +94,7 @@ from pathlib import Path
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 TOOLS = Path(r"C:\Projekte\AssetGenerator\tools")
 if str(TOOLS) not in sys.path:
@@ -524,8 +524,9 @@ def write_art_review_packet(
             "DEST is written only after AFTER stills succeed (no early Orrun copy onto dest).",
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
-            "Tusks sit in the widened mouth cavity (head-bound), not on cheeks.",
-            "Brow spikes flattened on male_body verts (not Eyes / not a brow mesh).",
+            "Tusks sit in the widened mouth cavity (head Armature-mod bind), not on cheeks.",
+            "Mouth/jaw restyle is face-only (no neck_01 shred under Walk).",
+            "Brow spikes flattened on male_body face verts (not Eyes / not a brow mesh).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
             "Punch AFTER uses Orrun Punch_Cross @ ~55% on dest with head camera.",
             "Idle/Walk AFTER = nude + mouth/tusks + junk hide/flatten only.",
@@ -685,11 +686,17 @@ def strip_dressed_meshes_attach_male_base(arm) -> tuple[list, list[str]]:
             if mod.type == "ARMATURE":
                 mod.object = arm
                 mod.use_vertex_groups = True
+                if hasattr(mod, "use_bone_envelopes"):
+                    mod.use_bone_envelopes = False
         if not any(m.type == "ARMATURE" for m in obj.modifiers):
             mod = obj.modifiers.new("Armature", "ARMATURE")
             mod.object = arm
             mod.use_vertex_groups = True
-        # Fail loud if weights do not reference MH bones on dest.
+            if hasattr(mod, "use_bone_envelopes"):
+                mod.use_bone_envelopes = False
+        # Keep mesh local in armature object space (same convention as tusks).
+        obj.matrix_parent_inverse = arm.matrix_world.inverted()
+        obj.matrix_basis = Matrix.Identity(4)
         missing_bones = [
             vg.name
             for vg in obj.vertex_groups
@@ -761,9 +768,9 @@ def assert_no_leg_bone_scale(arm) -> None:
 def restyle_bulk_and_jaw(arm) -> None:
     """Conservative bulk + orc mouth/jaw. Does NOT invent brow spikes.
 
-    Prior jaw band (z_rel up to ~0.92) pushed forehead/brow verts forward and
-    read as brow spikes on male_body. Mouth/jaw stay in the lower-face band only.
-    Brow ridge is flattened afterward — spikes are male_body verts, not Eyes.
+    Neck/chest tear fix: mouth/jaw/widen only on head-dominant face verts —
+    never on neck_01 / spine_03–heavy verts (those sat in the old dz band and
+    shredded under Walk). Brow flatten stays face-only. No new neck mesh.
     """
     assert_no_leg_bone_scale(arm)
     for obj in skinned_meshes(arm):
@@ -776,6 +783,7 @@ def restyle_bulk_and_jaw(arm) -> None:
         if obj.name.startswith("OrcTusk_") or obj.name.startswith("OrcGear_"):
             continue
         head_i = vg_index(obj, "head")
+        neck_i = vg_index(obj, "neck_01") or vg_index(obj, "neck")
         upper_l = vg_index(obj, "upperarm_l")
         upper_r = vg_index(obj, "upperarm_r")
         lower_l = vg_index(obj, "lowerarm_l")
@@ -788,6 +796,7 @@ def restyle_bulk_and_jaw(arm) -> None:
             vg_index(obj, "spine_03"),
             vg_index(obj, "pelvis"),
         ]
+        spine3_i = vg_index(obj, "spine_03")
 
         xs = [v.co.x for v in me.vertices]
         ys = [v.co.y for v in me.vertices]
@@ -800,8 +809,12 @@ def restyle_bulk_and_jaw(arm) -> None:
             raise RuntimeError("53-bone bind missing head bone for mouth/jaw restyle")
         head_z = float(HQ.rest_world(arm, "head").to_translation().z)
 
+        face_edits = 0
+        neck_skipped = 0
         for v in me.vertices:
             hw = vg_weight(v, head_i)
+            nw = vg_weight(v, neck_i)
+            s3w = vg_weight(v, spine3_i)
             tw = max(vg_weight(v, gi) for gi in torso_groups)
             arm_w = max(
                 vg_weight(v, upper_l),
@@ -823,20 +836,31 @@ def restyle_bulk_and_jaw(arm) -> None:
             # Mild stockiness; skip head shell (avoids forehead radial spikes).
             if hw < 0.35:
                 bulk += 0.012 * max(0.0, 1.0 - hw)
+            # Walk neck/chest tear: do not radially bulk neck-weighted verts.
+            if nw >= 0.15:
+                bulk *= max(0.0, 1.0 - nw)
+                neck_skipped += 1
+            # Soften upper-chest bulk where spine_03 dominates over limbs.
+            if s3w >= 0.45 and arm_w < 0.2 and hw < 0.2:
+                bulk *= 0.35
 
             dz = v.co.z - head_z
+            # Face-only gate: head must dominate neck/spine or Walk shreds the seam.
+            is_face = (
+                hw >= 0.50
+                and hw >= nw + 0.20
+                and hw >= s3w + 0.15
+                and nw < 0.35
+            )
 
-            # Mandible / mouth use head-bone-relative Z (full-body z_rel puts the
-            # mouth near ~0.88–0.92 — the old 0.80–0.87 band was empty).
-            # Never touch brow (dz > -0.01).
-            if hw >= 0.25 and -0.145 <= dz <= -0.055 and v.co.y < cy + 0.02:
+            if is_face and -0.145 <= dz <= -0.055 and v.co.y < cy + 0.02:
                 jaw = (hw - 0.18) * 0.070
                 v.co.y -= jaw * 0.85
                 v.co.z -= jaw * 0.18
                 v.co.x += math.copysign(jaw * 0.85, v.co.x - cx)
+                face_edits += 1
 
-            # Widen + open mouth cavity so tusks read as coming out of the mouth.
-            if hw >= 0.25 and -0.110 <= dz <= -0.012 and v.co.y < cy:
+            if is_face and -0.110 <= dz <= -0.012 and v.co.y < cy:
                 mouth_mid_z = head_z - 0.055
                 widen = 0.018 * hw
                 v.co.x += math.copysign(widen, v.co.x - cx)
@@ -846,6 +870,7 @@ def restyle_bulk_and_jaw(arm) -> None:
                 else:
                     v.co.z += 0.008 * hw
                     v.co.y -= 0.006 * hw
+                face_edits += 1
 
             if bulk > 0.0:
                 v.co.x += radial.x * bulk
@@ -854,7 +879,8 @@ def restyle_bulk_and_jaw(arm) -> None:
         me.update()
         log(
             f"restyled mesh {obj.name!r} verts={len(me.vertices)} "
-            f"head_z={head_z:.4f} (mouth/jaw via head-relative dz)"
+            f"head_z={head_z:.4f} face_edits={face_edits} "
+            f"neck_bulk_damped={neck_skipped}"
         )
 
     flatten_male_body_brow_spikes(arm)
@@ -881,6 +907,8 @@ def flatten_male_body_brow_spikes(arm) -> int:
     for obj in bodies:
         me = obj.data
         head_i = vg_index(obj, "head")
+        neck_i = vg_index(obj, "neck_01") or vg_index(obj, "neck")
+        spine3_i = vg_index(obj, "spine_03")
         xs = [v.co.x for v in me.vertices]
         ys = [v.co.y for v in me.vertices]
         zs = [v.co.z for v in me.vertices]
@@ -892,7 +920,8 @@ def flatten_male_body_brow_spikes(arm) -> int:
         forehead_ys = []
         for v in me.vertices:
             hw = vg_weight(v, head_i)
-            if hw < 0.40:
+            nw = vg_weight(v, neck_i)
+            if hw < 0.40 or nw >= 0.25:
                 continue
             z_rel = (v.co.z - z0) / height
             if 0.92 < z_rel < 0.98 and abs(v.co.x - cx) < 0.06:
@@ -901,10 +930,14 @@ def flatten_male_body_brow_spikes(arm) -> int:
             forehead_ys = [cy - 0.04]
         forehead_ys.sort()
         forehead_y = forehead_ys[len(forehead_ys) // 2]
-        # Brow band: high face, forward of forehead reference.
+        # Brow band: high face, forward of forehead reference. Head-dominant only.
         for v in me.vertices:
             hw = vg_weight(v, head_i)
-            if hw < 0.35:
+            nw = vg_weight(v, neck_i)
+            s3w = vg_weight(v, spine3_i)
+            if hw < 0.45 or nw >= 0.30 or hw < nw + 0.15:
+                continue
+            if hw < s3w + 0.10:
                 continue
             z_rel = (v.co.z - z0) / height
             if not (0.875 <= z_rel <= 0.955):
@@ -923,7 +956,7 @@ def flatten_male_body_brow_spikes(arm) -> int:
         me.update()
         log(
             f"brow-spike flatten mesh={obj.name!r} verts_adjusted={flattened} "
-            f"forehead_y={forehead_y:.4f} (male_body verts — not Eyes)"
+            f"forehead_y={forehead_y:.4f} (male_body face verts — not Eyes/neck)"
         )
     return flattened
 
@@ -1242,28 +1275,70 @@ def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
 
 
 def bind_mesh(obj, arm, bone_fn) -> None:
-    """Bind extra mesh to armature via vertex groups (from tribal veteran)."""
-    obj.parent = arm
-    obj.parent_type = "OBJECT"
+    """Bind extra mesh to dest armature via vertex groups (same space as male_body).
+
+    Tusks must live in armature object space with an Armature modifier + head
+    weights — OBJECT parent alone does not deform. Clear object xforms, set
+    parent inverse so local==armature space, then weight.
+    """
+    # Detach and reset so mesh local coordinates stay armature-object space.
+    obj.parent = None
+    obj.location = (0.0, 0.0, 0.0)
+    obj.rotation_euler = (0.0, 0.0, 0.0)
+    if hasattr(obj, "rotation_quaternion"):
+        obj.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+    obj.scale = (1.0, 1.0, 1.0)
+    bpy.context.view_layer.update()
+
     needed = set()
     weights = []
     for v in obj.data.vertices:
         wmap = bone_fn(v)
+        if not wmap:
+            raise RuntimeError(f"bind_mesh: empty weights for vert on {obj.name!r}")
         weights.append((v.index, wmap))
         needed.update(wmap)
     for name in needed:
         if name not in arm.data.bones:
             raise RuntimeError(f"bind_mesh: armature missing bone {name!r}")
+        if not arm.data.bones[name].use_deform:
+            raise RuntimeError(
+                f"bind_mesh: bone {name!r} has use_deform=False — cannot drive {obj.name!r}"
+            )
         if name not in obj.vertex_groups:
             obj.vertex_groups.new(name=name)
     for vi, wmap in weights:
+        total = float(sum(wmap.values()))
+        if abs(total - 1.0) > 1e-3:
+            raise RuntimeError(
+                f"bind_mesh: weights on {obj.name!r} vert {vi} sum to {total}, need 1.0"
+            )
         for bname, w in wmap.items():
             obj.vertex_groups[bname].add([vi], float(w), "REPLACE")
+
     for mod in list(obj.modifiers):
         obj.modifiers.remove(mod)
+
+    obj.parent = arm
+    obj.parent_type = "OBJECT"
+    # Keep mesh verts in armature object space (do not bake a parent offset into them).
+    obj.matrix_parent_inverse = arm.matrix_world.inverted()
+    obj.matrix_basis = Matrix.Identity(4)
+
     mod = obj.modifiers.new("Armature", "ARMATURE")
     mod.object = arm
     mod.use_vertex_groups = True
+    if hasattr(mod, "use_bone_envelopes"):
+        mod.use_bone_envelopes = False
+    if hasattr(mod, "show_in_editmode"):
+        mod.show_in_editmode = True
+    if hasattr(mod, "show_on_cage"):
+        mod.show_on_cage = True
+    bpy.context.view_layer.update()
+    if not any(m.type == "ARMATURE" and m.object == arm for m in obj.modifiers):
+        raise RuntimeError(f"bind_mesh: Armature modifier missing on {obj.name!r}")
+    if "head" in needed and obj.vertex_groups.get("head") is None:
+        raise RuntimeError(f"bind_mesh: head vertex group missing on {obj.name!r}")
 
 
 def make_opaque_mat(name: str, color, roughness: float = 0.9):
@@ -1287,14 +1362,97 @@ def make_opaque_mat(name: str, color, roughness: float = 0.9):
     return mat
 
 
-def add_tusks(arm) -> list:
-    """Tusks in the mouth cavity from male_body mouth-corner verts (head-bound).
+def _evaluated_mesh_centroid_world(obj) -> Vector:
+    deps = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(deps)
+    me = ev.to_mesh()
+    try:
+        if not me.vertices:
+            raise RuntimeError(f"evaluated mesh empty: {obj.name!r}")
+        mw = ev.matrix_world
+        acc = Vector((0.0, 0.0, 0.0))
+        for v in me.vertices:
+            acc += mw @ v.co
+        return acc / float(len(me.vertices))
+    finally:
+        ev.to_mesh_clear()
 
-    No hardcoded cheek offsets. No new bones.
+
+def assert_tusks_follow_head(arm, tusks: list) -> None:
+    """Fail loud if tusks stay at rest while the head poses (float-off bug)."""
+    if not tusks:
+        raise RuntimeError("assert_tusks_follow_head: no tusks")
+    from mathutils import Quaternion
+
+    HQ.reset_pose(arm)
+    bpy.context.view_layer.update()
+    rest_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
+    rest_head = head_world_pos(arm)
+
+    pb = arm.pose.bones["head"]
+    pb.rotation_mode = "QUATERNION"
+    pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0), math.radians(40.0))
+    bpy.context.view_layer.update()
+    posed_centers = [_evaluated_mesh_centroid_world(t) for t in tusks]
+    posed_head = head_world_pos(arm)
+    head_delta = (posed_head - rest_head).length
+
+    HQ.reset_pose(arm)
+    bpy.context.view_layer.update()
+
+    if head_delta < 0.02:
+        raise RuntimeError(
+            f"head pose delta too small ({head_delta:.4f}); cannot verify tusk bind"
+        )
+    for tusk, a, b in zip(tusks, rest_centers, posed_centers):
+        delta = (b - a).length
+        # Must move with the head — floating rest-world tusks move ~0.
+        if delta < 0.5 * head_delta:
+            raise RuntimeError(
+                f"tusk {tusk.name!r} does not follow head "
+                f"(tusk_delta={delta:.4f} head_delta={head_delta:.4f}). "
+                f"Armature/head vertex-group bind is broken."
+            )
+        # Stay near the head (in-mouth), not drifting away.
+        dist_rest = (a - rest_head).length
+        dist_posed = (b - posed_head).length
+        if dist_posed > dist_rest + 0.05:
+            raise RuntimeError(
+                f"tusk {tusk.name!r} drifts from head under pose "
+                f"(rest_dist={dist_rest:.4f} posed_dist={dist_posed:.4f})"
+            )
+    log(
+        f"tusk head-follow OK: head_delta={head_delta:.4f} "
+        f"tusk_deltas={[round((b - a).length, 4) for a, b in zip(rest_centers, posed_centers)]}"
+    )
+
+
+def body_local_to_armature_space(arm, body, p: Vector) -> Vector:
+    """Convert male_body mesh-local point into dest armature object space."""
+    world = body.matrix_world @ Vector(p)
+    return arm.matrix_world.inverted() @ world
+
+
+def add_tusks(arm) -> list:
+    """Tusks in the mouth cavity, armature-skinned 100% to head (follow Idle/Walk).
+
+    Mouth anchors come from male_body verts (mesh-local) and are converted into
+    armature object space before mesh build — same space the Armature modifier
+    expects. No new bones. No hardcoded cheek offsets.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
-    left_p, right_p = find_mouth_corner_anchors(arm)
+    if not arm.data.bones["head"].use_deform:
+        raise RuntimeError("head bone use_deform=False; cannot bind tusks")
+    body = male_body_mesh(arm)
+    left_body, right_body = find_mouth_corner_anchors(arm)
+    left_p = body_local_to_armature_space(arm, body, left_body)
+    right_p = body_local_to_armature_space(arm, body, right_body)
+    log(
+        f"tusk bases armature-space L={tuple(round(c, 4) for c in left_p)} "
+        f"R={tuple(round(c, 4) for c in right_p)} "
+        f"(from male_body local via matrix_world)"
+    )
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
     created = []
     specs = [
@@ -1343,6 +1501,7 @@ def add_tusks(arm) -> list:
                 f"{obj.name} base z={base.z:.4f} near head bone z={head_rest.z:.4f} "
                 f"— looks cheek-mounted, not in-mouth"
             )
+    assert_tusks_follow_head(arm, created)
     log(f"tusks: {[o.name for o in created]} bound to head (mouth-corner anchors)")
     return created
 
