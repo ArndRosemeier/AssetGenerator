@@ -1163,8 +1163,9 @@ def add_tusks(arm) -> list:
 def body_like_meshes(arm):
     """Skin / basemesh targets for finished olive albedo (no garments).
 
-    After glTF import the MH skin mesh is named ``male_body`` (also Eyes,
-    Icosphere). It is NOT named OrcSkin_* — material slot may be OrcSkin_male_body.
+    After glTF the MH skin mesh is named ``male_body``. Eyes may exist as a
+    separate junk companion (hidden — not an olive target). Brow spikes are
+    male_body verts, not a separate mesh.
     """
     skins = []
     # Prefer exact male_body first (dest / male_base export name).
