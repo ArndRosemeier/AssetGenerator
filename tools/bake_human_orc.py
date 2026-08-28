@@ -173,6 +173,10 @@ CHEST_FACEPLANT_MAX_Z = -0.05  # chest forward toward ground
 # distance in head-rest space is ~0.20 (local bake: 0.2053). Do not use a
 # tight 0.08–0.14 cap — that rejects every real mouth vert.
 HEAD_MOUTH_MAX_LOCAL = 0.28
+# MH mouth corners sit at |x-cx| ~0.08–0.09 (local L |x|~0.082 tonight;
+# 7e5ee8a rejected 0.088 under a tighter 0.085 cheek refuse). Keep cheek
+# refuse above that family — do not invent closer dummy anchors.
+MOUTH_CORNER_MAX_ABS_X = 0.095
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
@@ -1189,7 +1193,7 @@ def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector, int, int]:
                 continue  # cheek/brow refuse
             if s["dz"] > -0.005:
                 continue  # at/above head bone — brow/forehead
-            if abs(s["x"] - cx) > 0.090:
+            if abs(s["x"] - cx) > MOUTH_CORNER_MAX_ABS_X:
                 continue
             out.append(s)
         return out
@@ -1267,9 +1271,10 @@ def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector, int, int]:
                 f"(z_rel={z_rel:.3f} brow_lo={brow_lo:.3f} dz={dz:.3f} "
                 f"src_z_rel={src['z_rel']:.3f})"
             )
-        if abs(p.x - cx) > 0.085:
+        if abs(p.x - cx) > MOUTH_CORNER_MAX_ABS_X:
             raise RuntimeError(
-                f"tusk anchor {label} |x|={abs(p.x - cx):.3f} looks like cheek, not mouth"
+                f"tusk anchor {label} |x|={abs(p.x - cx):.3f} looks like cheek, not mouth "
+                f"(MH mouth corners ~0.08–0.09; refuse > {MOUTH_CORNER_MAX_ABS_X})"
             )
         if abs(p.x - cx) < 0.012:
             raise RuntimeError(
@@ -1449,8 +1454,8 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
 
 
 # Max world distance from tusk centroid to the posed mouth-corner vert on the
-# still frame. Cone centroid sits ~2–3cm from the base; into_mouth nudge ~1cm.
-# 20:52 float-off was ~head-bone-length (~15–25cm) — must fail that class.
+# still frame. Cone centroid sits ~2–3cm from the base. 20:52 float-off was
+# ~head-bone-length (~15–25cm) — must fail that class. Do not raise this cap.
 TUSK_MOUTH_WORLD_MAX = 0.085
 
 
