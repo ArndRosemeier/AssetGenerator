@@ -824,7 +824,6 @@ def restyle_bulk_and_jaw(arm) -> None:
             if hw < 0.35:
                 bulk += 0.012 * max(0.0, 1.0 - hw)
 
-            z_rel = (v.co.z - z0) / height
             dz = v.co.z - head_z
 
             # Mandible / mouth use head-bone-relative Z (full-body z_rel puts the
@@ -1131,16 +1130,14 @@ def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
                 continue
             if s["y"] > cy - 0.005:
                 continue
-            if not (z_lo <= s["z_rel"] <= z_hi):
-                # Allow dz window as alternate when z_rel band is mis-scaled.
-                if not (dz_lo <= s["dz"] <= dz_hi):
-                    continue
-            else:
-                # Still require plausible mouth dz (not brow / not chest).
-                if s["dz"] > -0.005 or s["dz"] < -0.18:
-                    continue
+            in_z = z_lo <= s["z_rel"] <= z_hi
+            in_dz = dz_lo <= s["dz"] <= dz_hi
+            if not (in_z or in_dz):
+                continue
             if s["z_rel"] >= brow_lo:
                 continue  # cheek/brow refuse
+            if s["dz"] > -0.005:
+                continue  # at/above head bone — brow/forehead
             if abs(s["x"] - cx) > 0.090:
                 continue
             out.append(s)
