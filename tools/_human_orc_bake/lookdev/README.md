@@ -1,15 +1,18 @@
 # Orc Look-Dev & Material Targets (`male_orc_01`)
 
-This directory contains artistic look-dev stills, material targets, and concept albedo reference boards for the ambitious orc restyle on the MakeHuman 53-bone skeleton donor (`male_dressed_male_worksuit01.glb` -> `male_orc_01.glb`).
+This directory contains artistic look-dev stills, material targets, concept albedo reference boards, and UV island layout paintovers for the ambitious orc restyle on the MakeHuman 53-bone skeleton donor (`male_dressed_male_worksuit01.glb` -> `male_orc_01.glb`).
 
-> **Note**: These images serve strictly as visual look-dev and material targets. They are **NOT** UV maps or dest-UV ready unwraps. When `male_orc_01_uv_layout.png` is generated, final albedo textures will be mapped onto the exact destination MakeHuman UV islands without automated projection artifacts.
+> **CRITICAL LOOK-DEV DISCLAIMER**:
+> This directory is **strictly look-dev exploration only**. These assets are **NOT** drop-in albedo textures, **NOT** final game-ready UV unwraps, and **NOT** a skinned-mesh review packet.
+> Any UV-oriented sheets (such as `orc_male_base_uv_paintover_not_uv_ready.png` and `orc_albedo_concept_not_uv_ready.png`) are marked **`NOT UV-READY`**. They serve purely as guide paintovers to visualize how albedo detail, skin tones, and gear line up with MakeHuman `male_base` UV islands. Final texture baking and projection must be executed through the Art Pipeline.
 
 ---
 
 ## Look-Dev Render Gallery
 
 ### 1. Full Body Stills (Upright Humanoid, No Weapons)
-- **Front View**: `orc_lookdev_front.png` — Upright posture (no ogre hunch), broad shoulders, muscular chest, dark leather harness, studded belt, loincloth, arm & leg wraps. No cleaver or shield.
+- **Three-Quarter View**: `orc_lookdev_threequarter_not_uv_ready.png` — Upright posture without ogre hunch, broad shoulders, muscular build, olive-grey skin, leather chest harness with bronze/iron ring, studded belt, loincloth, forearm and shin wraps. Cleaver and shield dropped.
+- **Front View**: `orc_lookdev_front.png` — Upright posture, broad shoulders, muscular chest, dark leather harness, studded belt, loincloth, arm & leg wraps. No cleaver or shield.
 - **Side View**: `orc_lookdev_side.png` — Natural spine curvature, plantigrade stance, protruding lower jaw with upward lower tusks, leather strap harness, profile silhouette.
 - **Back View**: `orc_lookdev_back.png` — Defined back and lat muscle anatomy, topknot hair fastening, rear harness ring connections, loincloth draping.
 
@@ -23,9 +26,12 @@ This directory contains artistic look-dev stills, material targets, and concept 
   - **3) Tusk Ivory**: Base Color `#EAE0C8`, Roughness `0.35`, gradient from warm base to bone white.
   - **4) Cast Metal Rings**: Metallic `0.90`, Roughness `0.40`, dark hammered iron / bronze.
 
-### 4. Concept Albedo Reference (Not UV Ready)
-- **Concept Reference**: `orc_albedo_concept_not_uv_ready.png`
-  - Flat color swatches, textile references, skin palettes, and markings marked explicitly as `CONCEPT ALBEDO REFERENCE - NOT UV READY`.
+### 4. UV Island Concept Paintover & Albedo Swatch Sheets (Not UV-Ready)
+- **MakeHuman UV Island Paintover Guide**: `orc_male_base_uv_paintover_not_uv_ready.png`
+  - Look-dev paintover directly referencing MakeHuman `male_base` destination UV island layout (torso/legs, unfolded head/scalp, ears, feet, hands, neck).
+  - Explicitly watermarked `LOOK-DEV CONCEPT ONLY - NOT UV-READY`.
+- **Concept Reference & Palette**: `orc_albedo_concept_not_uv_ready.png`
+  - Flat color swatches, textile references, skin palettes, and scars/markings marked explicitly as `CONCEPT ALBEDO REFERENCE - NOT UV READY`.
 
 ---
 
@@ -34,3 +40,4 @@ This directory contains artistic look-dev stills, material targets, and concept 
 - **Skeleton**: Preserves MakeHuman 53-bone bind hierarchy.
 - **Locomotion Invariants**: No scaling on pelvis/thigh/calf bones; upright humanoid gait without ogre hunch, digitigrade legs, wings, or tails.
 - **Gear**: Dropped cleaver and shield from donor model; focused on base body mesh, head/jaw/tusk geometry, and harness/wrap attire.
+- **No Animations / Script Edits**: No punch/death animations invented, no `.glb` exports generated, no edits to Python bake/retarget scripts (`tools/bake_human_orc.py` untouched).
