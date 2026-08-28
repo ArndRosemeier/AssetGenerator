@@ -528,7 +528,9 @@ def write_art_review_packet(
             "DEST is written only after AFTER stills succeed (no early Orrun copy onto dest).",
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
-            "Tusks sit in the mouth cavity via head BONE parent (all four clips).",
+            "Tusks BONE-parented to head with Identity matrix_parent_inverse "
+            "(keep-transform inverse was rest-stick on 20:14).",
+            "AFTER stills gate: tusks must be in-mouth on the posed frame before PNG.",
             "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
             "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
