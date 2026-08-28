@@ -13,12 +13,16 @@ Art Reviewer HOLD fix: dest must NOT read as a painted human in overalls.
     chest straps, left spaulder, belt, ragged loincloth. No cleaver/shield.
   - Tusks stay on head. No thigh/calf/pelvis scale. No ogre hunch.
   - Reshoot AFTER stills only: Idle, Walk, Death01, Punch_Cross.
+  - Do NOT copy ANIM_DONOR onto dest as a first step. Import Orrun read-only into
+    the live scene; write dest only after AFTER stills succeed (export from the
+    restyled live scene).
   - Punch/Death AFTER must pose the SAME dest armature/meshes as Idle/Walk
     (male_body olive skin, OrcTusk_*, OrcGear_*). Never hide dest body/head.
     Mesh name after glTF is male_body (not OrcSkin_*); Eyes / Icosphere may exist.
-  - Death AFTER: use dest-native Death01. Scan frames for lying-down (low pelvis)
-    AND on-back (chest forward +Z). Fail loud if none — last frame alone is not
-    enough (may be faceplant). Do NOT assign Orrun Death01 onto dest (stands).
+  - Death AFTER: Death01 root motion may live on Root / object / NLA — not pelvis.
+    Scan with root_z + posed bbox height (pelvis alone stays ~0.95 on this clip).
+    Prefer HQ.copy_action of Orrun Death01 evaluated via NLA solo strip on dest.
+    Fail loud if no lying on-back frame. Do not invent clips.
   - Punch AFTER: Orrun donor Punch_Cross onto dest at mid-late (~55%); camera
     shows dest head/tusks. Donor file is read-only.
   - Idle/Walk AFTER unchanged (live dest actions). Live-scene stills before export.
@@ -60,14 +64,15 @@ Clip aliases (resolve existing names only — never invent Punch or Death):
            (Orrun has no clip literally named Punch)
 
 Full restyle path:
-  1. Seed dest from Orrun worksuit copy (UAL clips), OR if Orrun is missing
-     seed AG worksuit mesh then bake_human_quaternius.bake_one(dest) —
-     never invent clips.
+  1. Import Orrun worksuit READ-ONLY into the live Blender scene (UAL clips).
+     Do NOT copy ANIM_DONOR onto dest yet. If Orrun is missing, bake_one into
+     scratch only — never touch dest until stills pass.
   2. Strip worksuit garments; attach nude male_base body on the same armature.
   3. Mesh-only restyle (bulk/jaw) + tusks + look-dev harness/loincloth.
-  4. Finished olive-grey skin on MH UVs (Principled; no diagnostic grid).
-  5. Re-export skinned dest with every donor action preserved (fake_user + NLA).
-  6. Write Art Reviewer packet under tools/_human_orc_bake/previews/:
+  4. Finished olive-grey skin on male_body MH UVs (Principled; no diagnostic grid).
+  5. AFTER stills on the live restyled scene (must succeed before any dest write).
+  6. Only then export skinned dest with every donor action preserved (fake_user + NLA).
+  7. Write Art Reviewer packet under tools/_human_orc_bake/previews/:
        male_orc_01_after_{idle,walk,death,punch}.png
        CLIP_LIST.md          (actual names + resolved aliases)
        art_review_packet.json
@@ -173,7 +178,12 @@ BIN_FOURCC = 0x004E4942
 # Never scale these bones (keep MH gait / hip height).
 NO_SCALE_BONES = ("pelvis", "thigh_l", "thigh_r", "calf_l", "calf_r")
 
-PELVIS_LYING_MAX_Z = 0.50  # standing MH pelvis ~0.95; lying Death hold is much lower
+PELVIS_LYING_MAX_Z = 0.50  # standing MH pelvis ~0.95; lying hold is much lower
+# Death01 on this MH bind often keeps pelvis ~0.95 (in-place lean); root motion /
+# posed bbox collapse is the reliable lying signal.
+ROOT_LYING_MAX_Z = 0.50
+BBOX_LYING_MAX_Z = 0.70  # posed mesh AABB max Z when lying on ground
+BBOX_LYING_MAX_HEIGHT = 0.90  # standing ~1.7–1.9; lying flattens
 CHEST_ON_BACK_MIN_Z = 0.20  # chest forward world-Z; on-back faces sky
 CHEST_FACEPLANT_MAX_Z = -0.05  # chest forward toward ground
 
@@ -278,10 +288,12 @@ def hip_height_z(arm) -> float:
     return HQ.hip_height_z(arm, "pelvis")
 
 
-def seed_dest_from_anim_donor(*, force: bool) -> str:
-    """Copy Orrun full-UAL worksuit onto AG dest. Never writes Orrun or AG worksuit.
+def seed_live_from_anim_donor() -> tuple[str, Path]:
+    """Import UAL seed into the LIVE scene only. Never writes DEST or Orrun.
 
-    Returns seed mode: ``orrun_copy`` or ``bake_one``.
+    Returns (seed_mode, clip_source_path) where clip_source_path is used only to
+    read animation names (ANIM_DONOR or a scratch bake). DEST must stay untouched
+    until AFTER stills succeed and export_glb runs.
     """
     refuse_quaternius_orc(ANIM_DONOR, DEST, AG_WORKSUIT)
     ensure_not_protected_dest(DEST)
@@ -289,38 +301,36 @@ def seed_dest_from_anim_donor(*, force: bool) -> str:
         raise RuntimeError("dest must not be the Orrun worksuit")
     if DEST.resolve() == AG_WORKSUIT.resolve():
         raise RuntimeError("dest must not be the AG worksuit")
-    if DEST.is_file() and not force:
-        log(f"dest exists, reusing {DEST} ({DEST.stat().st_size} bytes)")
-        return "reuse"
-
-    DEST.parent.mkdir(parents=True, exist_ok=True)
 
     if ANIM_DONOR.is_file():
-        shutil.copy2(ANIM_DONOR, DEST)
+        clear_scene()
+        import_gltf(ANIM_DONOR)
         log(
-            f"copied anim donor (Orrun worksuit) -> dest {DEST} "
-            f"({DEST.stat().st_size} bytes)"
+            f"live-seed imported Orrun donor read-only "
+            f"({ANIM_DONOR}; {ANIM_DONOR.stat().st_size} bytes); DEST not written yet"
         )
-        return "orrun_copy"
+        return "orrun_live_import", ANIM_DONOR
 
-    # Fallback: seed mesh from AG worksuit, then UAL-bake onto dest only.
+    # Fallback: bake UAL onto a scratch GLB (not DEST), then import that.
     if not AG_WORKSUIT.is_file():
         raise FileNotFoundError(
             f"missing Orrun UAL worksuit animation donor: {ANIM_DONOR} "
             f"and missing AG worksuit mesh seed: {AG_WORKSUIT}. "
-            f"Cannot seed {DEST.name}; bake_human_orc.py does not author clips."
+            f"Cannot live-seed; bake_human_orc.py does not author clips."
         )
+    ensure_scratch()
+    scratch_seed = SCRATCH / "male_orc_01_ual_seed.glb"
     log(
-        f"Orrun donor missing ({ANIM_DONOR}); seeding mesh from AG worksuit "
-        f"then bake_human_quaternius.bake_one({DEST.name})"
+        f"Orrun donor missing ({ANIM_DONOR}); baking UAL into scratch "
+        f"{scratch_seed} via bake_one (DEST untouched)"
     )
-    shutil.copy2(AG_WORKSUIT, DEST)
-    # bake_one writes only dest_path (and its .bak). Never pass Orrun/Quaternius Orc.
-    refuse_quaternius_orc(DEST)
-    ensure_not_protected_dest(DEST)
-    HQ.bake_one(DEST)
-    log(f"bake_one complete -> {DEST} ({DEST.stat().st_size} bytes)")
-    return "bake_one"
+    shutil.copy2(AG_WORKSUIT, scratch_seed)
+    refuse_quaternius_orc(scratch_seed)
+    HQ.bake_one(scratch_seed)
+    clear_scene()
+    import_gltf(scratch_seed)
+    log(f"live-seed imported scratch bake {scratch_seed}; DEST not written yet")
+    return "bake_one_scratch", scratch_seed
 
 
 def glb_anim_names(path: Path) -> list[str]:
@@ -522,12 +532,11 @@ def write_art_review_packet(
         "gear": gear,
         "removed_garments": removed_garments,
         "notes": [
-            "HOLD: no worksuit tee/dungarees; nude male_base body + look-dev harness.",
-            "Olive skin is painted on mesh male_body (mat OrcSkin_male_body); not an OrcSkin_* mesh.",
-            "Death AFTER uses dest-native Death01; scans for lying + on-back (not last-frame faceplant).",
-            "Orrun Death01 must NOT be assigned onto dest for stills (leaves pelvis standing).",
+            "DEST is written only after AFTER stills succeed (no early Orrun copy onto dest).",
+            "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
+            "Death AFTER: Root/bbox/NLA solo on Death01 (pelvis alone stays ~0.95 lean).",
             "Punch AFTER uses Orrun Punch_Cross @ ~55% on dest with head camera.",
-            "Idle/Walk AFTER unchanged on live dest. Dest body/tusks/gear never hidden.",
+            "Idle/Walk AFTER unchanged on live scene. Dest body/tusks/gear never hidden.",
             "ORRUN_STILL_* clones are still-only and are dropped before export.",
         ],
     }
@@ -1549,11 +1558,102 @@ def action_frame(name: str, kind: str) -> int:
     return action_frame_for_action(act, kind)
 
 
+def log_action_motion_channels(act) -> list[str]:
+    """Log Root/root/location fcurves — Death01 root motion often lives here."""
+    interesting = []
+    for fc in act.fcurves:
+        p = fc.data_path or ""
+        low = p.lower()
+        if "root" in low or p == "location" or p.endswith(".location"):
+            zs = []
+            if fc.array_index == 2 and fc.keyframe_points:
+                zs = [
+                    round(float(kp.co.y), 3)
+                    for kp in (
+                        fc.keyframe_points[0],
+                        fc.keyframe_points[len(fc.keyframe_points) // 2],
+                        fc.keyframe_points[-1],
+                    )
+                ]
+            interesting.append(
+                f"{p}[{fc.array_index}] keys={len(fc.keyframe_points)}"
+                + (f" z_samples={zs}" if zs else "")
+            )
+    log(f"action {act.name!r} root/location channels: {interesting or '(none)'}")
+    return interesting
+
+
+def root_bone_name(arm) -> str | None:
+    for name in ("Root", "root"):
+        if name in arm.pose.bones:
+            return name
+    return None
+
+
+def root_world_z(arm) -> float | None:
+    name = root_bone_name(arm)
+    if name is None:
+        return None
+    return float((arm.matrix_world @ arm.pose.bones[name].head).z)
+
+
+def pelvis_world_z(arm) -> float:
+    return float((arm.matrix_world @ arm.pose.bones["pelvis"].head).z)
+
+
+def posed_mesh_aabb_z(arm) -> tuple[float, float, float]:
+    """Return (min_z, max_z, height) of dest-owned posed meshes."""
+    meshes = dest_owned_meshes(arm)
+    center, extent = posed_bbox(meshes)
+    min_z = float(center.z - 0.5 * extent.z)
+    max_z = float(center.z + 0.5 * extent.z)
+    return min_z, max_z, float(extent.z)
+
+
+def death_pose_metrics(arm) -> dict:
+    """Height metrics for Death stills — pelvis alone is NOT enough on this clip.
+
+    Local 16:52: dest-native Death01 pelvis_z stayed 0.954 on every frame (lean).
+    Lying may appear only as Root bone drop, armature object location, or posed
+    mesh AABB collapse — include all three alongside pelvis.
+    """
+    pz = pelvis_world_z(arm)
+    hz = float(head_world_pos(arm).z)
+    rz = root_world_z(arm)
+    obj_z = float(arm.matrix_world.translation.z)
+    z0, z1, height = posed_mesh_aabb_z(arm)
+    forward = chest_forward_world(arm)
+    lying = (
+        pz <= PELVIS_LYING_MAX_Z
+        or (rz is not None and rz <= ROOT_LYING_MAX_Z)
+        or obj_z <= ROOT_LYING_MAX_Z
+        or z1 <= BBOX_LYING_MAX_Z
+        or height <= BBOX_LYING_MAX_HEIGHT
+    )
+    on_back = float(forward.z) >= CHEST_ON_BACK_MIN_Z
+    faceplant = lying and float(forward.z) <= CHEST_FACEPLANT_MAX_Z
+    return {
+        "pelvis_z": round(pz, 3),
+        "head_z": round(hz, 3),
+        "root_z": None if rz is None else round(rz, 3),
+        "arm_obj_z": round(obj_z, 3),
+        "bbox_min_z": round(z0, 3),
+        "bbox_max_z": round(z1, 3),
+        "bbox_height": round(height, 3),
+        "chest_fwd_z": round(float(forward.z), 3),
+        "lying": lying,
+        "on_back": on_back,
+        "faceplant": faceplant,
+    }
+
+
 def apply_action_datablock(arm, act, frame: int) -> None:
-    """Pose dest armature with an exact Action datablock at frame."""
+    """Pose dest armature with an exact Action datablock at frame (active action)."""
     if act is None:
         raise RuntimeError("apply_action_datablock: act is None")
     HQ.reset_pose(arm)
+    arm.location = (0.0, 0.0, 0.0)
+    arm.rotation_euler = (0.0, 0.0, 0.0)
     if arm.animation_data is None:
         arm.animation_data_create()
     for obj in bpy.data.objects:
@@ -1570,7 +1670,93 @@ def apply_action_datablock(arm, act, frame: int) -> None:
         raise RuntimeError(
             f"failed to assign {act.name!r} onto dest armature {arm.name!r} for still"
         )
-    log(f"pose arm={arm.name!r} action={act.name!r} frame={int(frame)}")
+    log(f"pose arm={arm.name!r} action={act.name!r} frame={int(frame)} mode=active")
+
+
+def apply_death_action_nla_solo(arm, act, frame: int) -> None:
+    """Evaluate Death01 via a single unmuted NLA strip (root motion / slots).
+
+    Active-action assign can miss Root location evaluation on Blender 4.4+ slotted
+    actions; Punch_Cross worked with active assign, Death01 may need NLA solo.
+    """
+    if act is None:
+        raise RuntimeError("apply_death_action_nla_solo: act is None")
+    HQ.reset_pose(arm)
+    # Clear object-level transform so location fcurves can drive from rest.
+    arm.location = (0.0, 0.0, 0.0)
+    arm.rotation_euler = (0.0, 0.0, 0.0)
+    if arm.animation_data is None:
+        arm.animation_data_create()
+    ad = arm.animation_data
+    ad.action = None
+    for track in list(ad.nla_tracks):
+        ad.nla_tracks.remove(track)
+    # Mute every other armature's NLA so leftovers cannot drive the still.
+    for obj in bpy.data.objects:
+        if obj.type != "ARMATURE" or obj is arm or obj.animation_data is None:
+            continue
+        for track in obj.animation_data.nla_tracks:
+            track.mute = True
+        obj.animation_data.action = None
+    track = ad.nla_tracks.new()
+    track.name = f"STILL_{act.name}"
+    track.mute = False
+    start = int(round(act.frame_range[0]))
+    strip = track.strips.new(act.name, start, act)
+    if hasattr(HQ, "bind_strip_action_slot"):
+        HQ.bind_strip_action_slot(arm, strip, act)
+    # bind_strip_action_slot may re-assign active action; NLA solo needs it clear.
+    ad.action = None
+    bpy.context.scene.frame_set(int(frame))
+    bpy.context.view_layer.update()
+    log(
+        f"pose arm={arm.name!r} action={act.name!r} frame={int(frame)} "
+        f"mode=nla_solo strip={strip.name!r} "
+        f"slot={getattr(strip, 'action_slot', None)!r}"
+    )
+
+
+def apply_death_action_nla_unmute(arm, act, frame: int) -> None:
+    """Pose via existing NLA strips that already reference ``act`` (unmute only).
+
+    glTF import often leaves Death01 on NLA; rebuilding strips can drop Root /
+    object channels. Prefer unmute of the imported strip when present.
+    """
+    if act is None:
+        raise RuntimeError("apply_death_action_nla_unmute: act is None")
+    if arm.animation_data is None:
+        raise RuntimeError(
+            f"arm {arm.name!r} has no animation_data for NLA unmute of {act.name!r}"
+        )
+    HQ.reset_pose(arm)
+    ad = arm.animation_data
+    ad.action = None
+    matched = []
+    for track in ad.nla_tracks:
+        track_hit = False
+        for strip in track.strips:
+            strip_act = getattr(strip, "action", None)
+            if strip_act == act or (
+                strip_act is not None and strip_act.name == act.name
+            ):
+                track.mute = False
+                if hasattr(strip, "mute"):
+                    strip.mute = False
+                track_hit = True
+                matched.append(f"{track.name}/{strip.name}")
+        if not track_hit:
+            track.mute = True
+    if not matched:
+        raise RuntimeError(
+            f"no existing NLA strip for {act.name!r} on {arm.name!r}; "
+            f"tracks={[(t.name, [s.name for s in t.strips]) for t in ad.nla_tracks]}"
+        )
+    bpy.context.scene.frame_set(int(frame))
+    bpy.context.view_layer.update()
+    log(
+        f"pose arm={arm.name!r} action={act.name!r} frame={int(frame)} "
+        f"mode=nla_unmute strips={matched}"
+    )
 
 
 def apply_action(arm, name: str, frame: int) -> None:
@@ -1583,16 +1769,88 @@ def apply_action(arm, name: str, frame: int) -> None:
     apply_action_datablock(arm, act, frame)
 
 
+def find_death_on_back_frame(arm, act, *, apply_fn) -> int:
+    """Scan Death01 for lying + on-back using Root/bbox (not pelvis alone).
+
+    Local 16:52: dest-native Death01 pelvis_z stayed 0.954 for frames 0–57 (lean,
+    not lie-down). Root / posed AABB are the lying signals to verify.
+    """
+    if act is None:
+        raise RuntimeError("find_death_on_back_frame: act is None")
+    log_action_motion_channels(act)
+    fr = tuple(act.frame_range)
+    lo, hi = int(round(fr[0])), int(round(fr[1]))
+    key_frames = sorted(
+        {
+            int(round(kp.co.x))
+            for fc in act.fcurves
+            for kp in fc.keyframe_points
+        }
+    )
+    if hi < lo:
+        raise RuntimeError(f"{act.name!r} has invalid frame_range {fr}")
+    span = hi - lo
+    step = 1 if span <= 180 else max(1, span // 90)
+    candidates = sorted(set(key_frames) | set(range(lo, hi + 1, step)) | {hi, lo})
+    samples = []
+    best = None
+    best_score = -1e9
+    for f in candidates:
+        apply_fn(arm, act, f)
+        m = death_pose_metrics(arm)
+        samples.append({"frame": f, **m})
+        if m["lying"] and m["on_back"] and not m["faceplant"]:
+            # Prefer flatter / lower holds with stronger on-back.
+            score = (
+                float(m["chest_fwd_z"]) * 2.0
+                - float(m["bbox_max_z"])
+                - float(m["bbox_height"]) * 0.5
+            )
+            if score > best_score:
+                best_score = score
+                best = f
+    if best is None:
+        raise RuntimeError(
+            f"no on-back lying frame in {act.name!r} frame_range=({lo},{hi}). "
+            f"Lying needs pelvis_z<={PELVIS_LYING_MAX_Z} OR root_z<={ROOT_LYING_MAX_Z} "
+            f"OR arm_obj_z<={ROOT_LYING_MAX_Z} OR bbox_max_z<={BBOX_LYING_MAX_Z} "
+            f"OR bbox_height<={BBOX_LYING_MAX_HEIGHT}; "
+            f"on-back needs chest_fwd_z>={CHEST_ON_BACK_MIN_Z}. "
+            f"samples={samples}"
+        )
+    apply_fn(arm, act, best)
+    m = death_pose_metrics(arm)
+    log(
+        f"death on-back frame chosen action={act.name!r} frame={best} "
+        f"metrics={m} (scanned {len(candidates)} frames; last={hi})"
+    )
+    return int(best)
+
+
+def assert_death_on_back(arm, act_name: str, frame: int) -> None:
+    """Fail loud if Death still looks face-down / standing instead of on-back hold."""
+    m = death_pose_metrics(arm)
+    log(f"death on-back check action={act_name!r} frame={frame} metrics={m}")
+    if not m["lying"]:
+        raise RuntimeError(
+            f"Death still not lying (metrics={m}) for {act_name!r}@{frame}"
+        )
+    if m["faceplant"]:
+        raise RuntimeError(
+            f"Death still is faceplant (metrics={m}) for {act_name!r}@{frame}"
+        )
+    if not m["on_back"]:
+        raise RuntimeError(
+            f"Death still is not on-back (metrics={m}) for {act_name!r}@{frame}"
+        )
+
+
 def fetch_orrun_still_actions(names: tuple[str, ...]) -> dict[str, object]:
     """Load exact Orrun worksuit actions for AFTER still posing (read-only).
 
-    Used for Punch_Cross (donor DOES pose dest). Do NOT use for Death01 stills —
-    Orrun Death01 on dest leaves pelvis standing (~0.95). Death uses dest-native
-    Death01 with on-back frame scan instead.
-
-    Imports ANIM_DONOR, copies requested clips into ORRUN_STILL_* clones, then
-    deletes every donor armature/mesh so leftover donor cannot be framed.
-    Never writes the donor file. Bone paths stay MH 53-bone (same as dest).
+    Punch_Cross: donor DOES pose dest (active action @ ~55%).
+    Death01: investigate via HQ.copy_action + NLA solo; Root/bbox metrics (pelvis
+    alone stays ~0.95 on this MH bind). Never writes the donor file.
     """
     if not ANIM_DONOR.is_file():
         raise FileNotFoundError(
@@ -1692,106 +1950,6 @@ def chest_forward_world(arm) -> Vector:
     best_local = max(local_axes, key=lambda v: float((rest_mat @ v).dot(armature_forward)))
     pose_mat = (arm.matrix_world @ pb.matrix).to_3x3()
     return (pose_mat @ best_local).normalized()
-
-
-def pelvis_world_z(arm) -> float:
-    return float((arm.matrix_world @ arm.pose.bones["pelvis"].head).z)
-
-
-def find_death_on_back_frame(arm, act) -> int:
-    """Scan dest-native Death01 for lying-down + on-back (not faceplant, not standing).
-
-    Local v6: Orrun Death01 assigned onto dest left pelvis_z~0.95 STANDING.
-    Dest-native Death01 last frame was FACE-DOWN. Must search the clip.
-    """
-    if act is None:
-        raise RuntimeError("find_death_on_back_frame: act is None")
-    fr = tuple(act.frame_range)
-    lo, hi = int(round(fr[0])), int(round(fr[1]))
-    key_frames = sorted(
-        {
-            int(round(kp.co.x))
-            for fc in act.fcurves
-            for kp in fc.keyframe_points
-        }
-    )
-    if hi < lo:
-        raise RuntimeError(f"{act.name!r} has invalid frame_range {fr}")
-    # Dense scan — Death01 is short; prefer every integer frame.
-    span = hi - lo
-    step = 1 if span <= 180 else max(1, span // 90)
-    candidates = sorted(set(key_frames) | set(range(lo, hi + 1, step)) | {hi, lo})
-    samples = []
-    best = None
-    best_score = -1e9
-    for f in candidates:
-        apply_action_datablock(arm, act, f)
-        pz = pelvis_world_z(arm)
-        forward = chest_forward_world(arm)
-        lying = pz <= PELVIS_LYING_MAX_Z
-        on_back = forward.z >= CHEST_ON_BACK_MIN_Z
-        faceplant = lying and forward.z <= CHEST_FACEPLANT_MAX_Z
-        samples.append(
-            {
-                "frame": f,
-                "pelvis_z": round(pz, 3),
-                "chest_fwd_z": round(float(forward.z), 3),
-                "lying": lying,
-                "on_back": on_back,
-                "faceplant": faceplant,
-            }
-        )
-        if lying and on_back and not faceplant:
-            # Prefer stronger on-back and lower pelvis (settled hold).
-            score = float(forward.z) * 2.0 - pz
-            if score > best_score:
-                best_score = score
-                best = f
-    if best is None:
-        raise RuntimeError(
-            f"no on-back lying frame in dest-native {act.name!r} "
-            f"frame_range=({lo},{hi}). "
-            f"Need pelvis_z<={PELVIS_LYING_MAX_Z} and "
-            f"chest_forward.z>={CHEST_ON_BACK_MIN_Z} (not faceplant). "
-            f"samples={samples}"
-        )
-    # Re-pose best and log.
-    apply_action_datablock(arm, act, best)
-    pz = pelvis_world_z(arm)
-    forward = chest_forward_world(arm)
-    log(
-        f"death on-back frame chosen action={act.name!r} frame={best} "
-        f"pelvis_z={pz:.3f} chest_fwd_z={float(forward.z):.3f} "
-        f"(scanned {len(candidates)} frames; last={hi})"
-    )
-    return int(best)
-
-
-def assert_death_on_back(arm, act_name: str, frame: int) -> None:
-    """Fail loud if Death still looks face-down / standing instead of on-back hold."""
-    forward = chest_forward_world(arm)
-    head = head_world_pos(arm)
-    pz = pelvis_world_z(arm)
-    log(
-        f"death on-back check action={act_name!r} frame={frame} "
-        f"chest_fwd={tuple(round(c, 3) for c in forward)} "
-        f"head_z={head.z:.3f} pelvis_z={pz:.3f}"
-    )
-    if pz > PELVIS_LYING_MAX_Z:
-        raise RuntimeError(
-            f"Death still looks standing (pelvis_z={pz:.3f} > {PELVIS_LYING_MAX_Z}) "
-            f"for {act_name!r}@{frame}; expected lying-down hold."
-        )
-    if float(forward.z) <= CHEST_FACEPLANT_MAX_Z:
-        raise RuntimeError(
-            f"Death still is faceplant (chest_fwd.z={float(forward.z):.3f}) "
-            f"for {act_name!r}@{frame}; refusing."
-        )
-    if float(forward.z) < CHEST_ON_BACK_MIN_Z:
-        raise RuntimeError(
-            f"Death still is not on-back (chest_fwd.z={float(forward.z):.3f} "
-            f"< {CHEST_ON_BACK_MIN_Z}) for {act_name!r}@{frame}."
-        )
 
 
 def dest_owned_meshes(arm) -> list:
@@ -2120,36 +2278,66 @@ def clip_kind(label: str) -> str:
 
 
 def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str]:
-    """Render AFTER stills on the live dest.
+    """Render AFTER stills on the live restyled scene (DEST file not written yet).
 
-    Idle/Walk: dest-native actions (unchanged).
-    Punch: Orrun donor Punch_Cross on dest (~55%) — donor DOES pose dest.
-    Death: dest-native Death01, scan for lying + on-back (Orrun Death01 on dest
-    stands; dest last frame alone can be faceplant).
+    Idle/Walk: live actions (unchanged).
+    Punch: Orrun Punch_Cross on dest (~55%) — donor DOES pose dest.
+    Death: verify Root/bbox (pelvis alone stays ~0.95). Prefer Orrun Death01 via
+    HQ.copy_action + NLA solo; fall back to dest-native Death01 with same metrics.
     """
     meshes = isolate_dest_for_stills(arm)
-    # Re-assert olive lives on male_body (dest-import white proxy if skipped).
     apply_finished_olive_skin(arm)
     meshes = ensure_dest_identity_visible(arm)
 
-    death_name = resolved["Death"]
-    if death_name != "Death01" and "Death01" in {a.name for a in bpy.data.actions}:
-        death_name = "Death01"
-    death_act = bpy.data.actions.get(death_name)
-    if death_act is None:
-        have = sorted(a.name for a in bpy.data.actions)
-        raise RuntimeError(
-            f"dest-native death action {death_name!r} missing; have={have}. "
-            f"Do not invent Death."
-        )
-
-    # Punch only from Orrun (read-only) — verified to drive dest armature.
-    orrun_still = fetch_orrun_still_actions(("Punch_Cross",))
+    # Punch + Death from Orrun (read-only clones). Punch is proven; Death needs
+    # Root/NLA evaluation — pelvis-only scan falsely treats lean as stand.
+    orrun_still = fetch_orrun_still_actions(("Punch_Cross", "Death01"))
     punch_act = orrun_still["Punch_Cross"]
+    donor_death = orrun_still["Death01"]
     meshes = isolate_dest_for_stills(arm)
     apply_finished_olive_skin(arm)
 
-    death_frame = find_death_on_back_frame(arm, death_act)
+    dest_death_name = resolved["Death"]
+    if dest_death_name != "Death01" and "Death01" in {a.name for a in bpy.data.actions}:
+        dest_death_name = "Death01"
+    dest_death = bpy.data.actions.get(dest_death_name)
+
+    death_act = None
+    death_frame = None
+    death_apply = None
+    death_errors = []
+    # Order matters: nla_unmute needs imported strips intact; nla_solo clears tracks.
+    # 1) dest-native unmute (glTF NLA may already evaluate Root/object motion)
+    # 2) HQ.copy_action Orrun Death01 via NLA solo / active assign
+    # 3) dest-native rebuild + active
+    death_candidates = (
+        ("dest_native_nla_unmute", dest_death, apply_death_action_nla_unmute),
+        ("orrun_nla_solo", donor_death, apply_death_action_nla_solo),
+        ("orrun_active", donor_death, apply_action_datablock),
+        ("dest_native_nla_solo", dest_death, apply_death_action_nla_solo),
+        ("dest_native_active", dest_death, apply_action_datablock),
+    )
+    for label_src, act, apply_fn in death_candidates:
+        if act is None:
+            death_errors.append(f"{label_src}: missing action")
+            continue
+        try:
+            death_frame = find_death_on_back_frame(arm, act, apply_fn=apply_fn)
+            death_act = act
+            death_apply = apply_fn
+            log(
+                f"Death AFTER using {label_src} action={act.name!r} frame={death_frame}"
+            )
+            break
+        except RuntimeError as exc:
+            death_errors.append(f"{label_src}/{act.name}: {exc}")
+            log(f"Death AFTER candidate failed ({label_src}): {exc}")
+    if death_act is None or death_frame is None or death_apply is None:
+        raise RuntimeError(
+            "no Death01 on-back lying frame after Root/object/bbox/NLA investigation; "
+            "do not invent clips. failures=" + " || ".join(death_errors)
+        )
+
     frames = {
         "Idle": action_frame(resolved["Idle"], "idle"),
         "Walk": action_frame(resolved["Walk"], "walk"),
@@ -2171,19 +2359,18 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
     for label in PREVIEW_CLIPS:
         frame = frames[label]
         if label == "Death":
-            apply_action_datablock(arm, death_act, frame)
+            # Re-apply with the same method that found the lying frame.
+            death_apply(arm, death_act, frame)
             assert_death_on_back(arm, death_act.name, frame)
             clip_label = death_act.name
         elif label == "Punch":
             apply_action_datablock(arm, punch_act, frame)
             clip_label = punch_act.name
         else:
-            # Idle / Walk: unchanged dest actions (accepted by Reviewer).
             apply_action(arm, resolved[label], frame)
             clip_label = resolved[label]
 
         meshes = ensure_dest_identity_visible(arm)
-        # male_body must be among visible still subjects (olive skin).
         if not any(o.name.lower() == "male_body" for o in meshes):
             raise RuntimeError(
                 f"AFTER {label} missing male_body in visible meshes; "
@@ -2242,21 +2429,17 @@ def run_uv_only() -> dict:
 
 def run_restyle() -> dict:
     ensure_scratch()
-    seed_mode = seed_dest_from_anim_donor(force=True)
-    # Capture donor clip list before mesh restyle / re-export.
-    if seed_mode == "orrun_copy":
-        donor_clips = log_clip_list(ANIM_DONOR)
-    else:
-        # bake_one / reuse: dest already holds the UAL set we must preserve.
-        donor_clips = log_clip_list(DEST)
-    assert_required_clips(DEST)
+    # Snapshot DEST before anything — must remain untouched until stills succeed.
+    dest_before = snapshot([DEST])
+    seed_mode, clip_source = seed_live_from_anim_donor()
+    donor_clips = log_clip_list(clip_source)
+    assert_required_clips(clip_source)
+    # DEST must still be untouched after live seed (no Orrun copy onto dest).
+    assert_untouched(dest_before, "DEST before restyle/stills (must not be pre-seeded)")
 
-    # Restyle on dest (Orrun clips on armature; strip worksuit; male_base body).
-    clear_scene()
-    import_gltf(DEST)
     arm = find_armature()
     hip_before = hip_height_z(arm)
-    log(f"hip_height_z BEFORE (dest rest)={hip_before:.4f}")
+    log(f"hip_height_z BEFORE (live seed rest)={hip_before:.4f}")
     assert_no_leg_bone_scale(arm)
     bone_count = len(arm.data.bones)
     if bone_count < 50:
@@ -2279,7 +2462,7 @@ def run_restyle() -> dict:
     assert_no_leg_bone_scale(arm)
 
     hip_after = hip_height_z(arm)
-    log(f"hip_height_z AFTER (dest rest)={hip_after:.4f}")
+    log(f"hip_height_z AFTER (live rest)={hip_after:.4f}")
     delta = abs(hip_after - hip_before)
     if delta > PELVIS_MAX_DELTA_M:
         raise RuntimeError(
@@ -2298,7 +2481,6 @@ def run_restyle() -> dict:
     resolved_scene = {}
     for label, candidates in REQUIRED_CLIP_GROUPS:
         resolved_scene[label] = resolve_clip(have, label, candidates)
-    # HOLD reshoot targets: Death01 + Punch_Cross when present.
     log(
         f"AFTER still actions: Idle={resolved_scene['Idle']!r} "
         f"Walk={resolved_scene['Walk']!r} "
@@ -2314,11 +2496,12 @@ def run_restyle() -> dict:
             f"Death must resolve to Death01/Death, got {resolved_scene['Death']!r}"
         )
 
-    # AFTER stills on the LIVE restyled dest (before export). Idle/Walk use dest
-    # actions; Punch uses Orrun Punch_Cross on dest; Death scans dest-native Death01.
+    # AFTER stills MUST succeed before any DEST write.
+    assert_untouched(dest_before, "DEST immediately before AFTER stills")
     after_previews = render_clip_stills(arm, resolved_scene, "after")
     still_frames = after_previews.pop("_frames", {})
     still_actions = after_previews.pop("_actions", {})
+    assert_untouched(dest_before, "DEST after AFTER stills (export not started)")
 
     preserved = preserve_all_actions_for_export(arm)
     if len(preserved) < len([n for n in donor_clips if n]):
@@ -2327,20 +2510,15 @@ def run_restyle() -> dict:
             f"refusing export that would drop UAL. preserved={preserved}"
         )
 
+    owned = dest_owned_meshes(arm)
     export_objects = [
         o
-        for o in bpy.data.objects
-        if o.type == "MESH"
-        and not o.name.startswith("Preview")
-        and o.name != "PreviewGround"
-        and not getattr(o, "hide_render", False)
+        for o in owned
+        if not o.name.startswith("Preview") and o.name != "PreviewGround"
     ]
-    # Prefer dest-owned meshes only (tusks + gear + body).
-    owned = dest_owned_meshes(arm)
-    if owned:
-        export_objects = owned
     if not export_objects:
         raise RuntimeError("no mesh objects to export after restyle/gear")
+    # First write of DEST — only from the restyled live scene after stills passed.
     export_glb(DEST, arm, export_objects)
     dest_clips = assert_donor_clips_preserved(donor_clips, DEST)
     resolved_out = assert_required_clips(DEST)
@@ -2359,12 +2537,14 @@ def run_restyle() -> dict:
     )
     packet["still_frames"] = still_frames
     packet["still_actions"] = still_actions
+    packet["dest_write"] = "after_stills_only"
     ART_REVIEW_PACKET.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
 
     return {
         "mode": "restyle",
         "seed_mode": seed_mode,
         "anim_donor": str(ANIM_DONOR),
+        "clip_source": str(clip_source),
         "ag_worksuit_guarded": str(AG_WORKSUIT),
         "male_base_body": str(MALE_BASE),
         "dest": str(DEST),
@@ -2387,8 +2567,8 @@ def run_restyle() -> dict:
         "uv_layout_hint": str(UV_LAYOUT),
         "lookdev": str(LOOKDEV),
         "note": (
-            "AFTER Death=dest-native Death01 on-back scan; "
-            "Punch=Orrun Punch_Cross on dest; olive on male_body"
+            "DEST written only after AFTER stills; Death uses Root/bbox/NLA; "
+            "Punch=Orrun Punch_Cross; olive on male_body"
         ),
         "packet_notes": packet.get("notes"),
     }
