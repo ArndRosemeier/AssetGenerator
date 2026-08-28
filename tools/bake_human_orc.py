@@ -1464,8 +1464,6 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                 f"{tusk.name!r} matrix_parent_inverse not Identity — rest-stick bind"
             )
 
-    from mathutils import Quaternion
-
     saved_action = None
     saved_nla_mutes = []
     if arm.animation_data is not None:
@@ -1482,17 +1480,19 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
             world_to_head_local(arm, _evaluated_mesh_centroid_world(t)) for t in tusks
         ]
         rest_worlds = [_evaluated_mesh_centroid_world(t) for t in tusks]
-        rest_head = head_world_pos(arm)
+        rest_tip = head_motion_marker_world(arm)
 
         def _check_pose(label: str, *, require_head_delta: float) -> float:
             bpy.context.view_layer.update()
             bpy.context.evaluated_depsgraph_get().update()
-            posed_head = head_world_pos(arm)
-            head_delta = (posed_head - rest_head).length
+            # Use bone.tail — bone.head is the rotation pivot and stays put.
+            posed_tip = head_motion_marker_world(arm)
+            head_delta = (posed_tip - rest_tip).length
             if head_delta < require_head_delta:
                 raise RuntimeError(
-                    f"{label}: head_delta={head_delta:.4f} < {require_head_delta} "
-                    f"— pose too close to rest to prove tusk follow"
+                    f"{label}: head_tip_delta={head_delta:.4f} < {require_head_delta} "
+                    f"— pose too close to rest to prove tusk follow "
+                    f"(measuring bone.tail, not bone.head pivot)"
                 )
             for tusk, rest_l, rest_w in zip(tusks, rest_locals, rest_worlds):
                 posed_w = _evaluated_mesh_centroid_world(tusk)
@@ -1508,7 +1508,7 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                     raise RuntimeError(
                         f"tusk {tusk.name!r} stuck near rest under {label} "
                         f"(tusk_world_delta={world_delta:.4f} "
-                        f"head_delta={head_delta:.4f}) — Reviewer float-off"
+                        f"head_tip_delta={head_delta:.4f}) — Reviewer float-off"
                     )
                 if posed_l.length > HEAD_MOUTH_MAX_LOCAL:
                     raise RuntimeError(
@@ -1517,26 +1517,18 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                     )
             return head_delta
 
-        # 1) Forced head rotate — must move head a lot; proves bone parent inverse.
-        HQ.reset_pose(arm)
-        if arm.animation_data is not None:
-            arm.animation_data.action = None
-        pb = arm.pose.bones["head"]
-        pb.rotation_mode = "QUATERNION"
-        pb.rotation_quaternion = Quaternion(
-            Vector((1.0, 0.0, 0.0)), math.radians(55.0)
-        )
-        bpy.context.view_layer.update()
+        # 1) Forced head rotate via Euler on bone; delta from bone.tail.
+        force_head_pose_for_tusk_assert(arm)
         d_rot = _check_pose("forced_head_rotate", require_head_delta=0.05)
-        log(f"tusk follow OK forced_head_rotate head_delta={d_rot:.4f}")
+        log(f"tusk follow OK forced_head_rotate head_tip_delta={d_rot:.4f}")
 
         # 2) Idle / Walk still frames (same as AFTER).
         clip_specs = (
-            ("Idle", ("Idle", "Idle_Loop"), "idle", 0.0),
-            ("Walk", ("Walk", "Walk_Loop"), "walk", 0.0),
+            ("Idle", ("Idle", "Idle_Loop"), "idle"),
+            ("Walk", ("Walk", "Walk_Loop"), "walk"),
         )
         tested = [f"forced_head_rotateΔ={d_rot:.3f}"]
-        for label, names, kind, min_delta in clip_specs:
+        for label, names, kind in clip_specs:
             act = None
             for name in names:
                 act = bpy.data.actions.get(name)
@@ -1550,12 +1542,10 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
             HQ.reset_pose(arm)
             HQ.assign_action(arm, act)
             bpy.context.scene.frame_set(int(frame))
-            # Idle may have tiny head_delta — still require local lock + parent;
-            # world-delta check only when head actually moved.
             bpy.context.view_layer.update()
             bpy.context.evaluated_depsgraph_get().update()
-            posed_head = head_world_pos(arm)
-            head_delta = (posed_head - rest_head).length
+            posed_tip = head_motion_marker_world(arm)
+            head_delta = (posed_tip - rest_tip).length
             for tusk, rest_l, rest_w in zip(tusks, rest_locals, rest_worlds):
                 posed_w = _evaluated_mesh_centroid_world(tusk)
                 posed_l = world_to_head_local(arm, posed_w)
@@ -1569,7 +1559,8 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                 if head_delta > 0.025 and world_delta < 0.5 * head_delta:
                     raise RuntimeError(
                         f"tusk {tusk.name!r} stuck near rest under {label}@{frame} "
-                        f"(tusk_world_delta={world_delta:.4f} head_delta={head_delta:.4f})"
+                        f"(tusk_world_delta={world_delta:.4f} "
+                        f"head_tip_delta={head_delta:.4f})"
                     )
                 if posed_l.length > HEAD_MOUTH_MAX_LOCAL:
                     raise RuntimeError(
@@ -2467,10 +2458,49 @@ def fetch_orrun_still_actions(names: tuple[str, ...]) -> dict[str, object]:
 
 
 def head_world_pos(arm) -> Vector:
+    """Skull-base end of the head bone (bone.head). Useful for mouth distance.
+
+    Do NOT use this to prove the head rotated — bone.head is the rotation pivot,
+    so a pure head-bone rotate leaves it fixed (forced_head_rotate head_delta=0).
+    """
     if "head" not in arm.pose.bones:
         raise RuntimeError("dest armature missing head bone for still camera")
     pb = arm.pose.bones["head"]
     return arm.matrix_world @ pb.head
+
+
+def head_motion_marker_world(arm) -> Vector:
+    """A point that moves when the head bone rotates (bone.tail, not bone.head)."""
+    if "head" not in arm.pose.bones:
+        raise RuntimeError("dest armature missing head bone for motion marker")
+    pb = arm.pose.bones["head"]
+    return arm.matrix_world @ pb.tail
+
+
+def force_head_pose_for_tusk_assert(arm) -> None:
+    """Actually rotate the head bone (Euler XYZ). Prove tip moves (not bone.head)."""
+    HQ.reset_pose(arm)
+    if arm.animation_data is not None:
+        arm.animation_data.action = None
+        for track in arm.animation_data.nla_tracks:
+            track.mute = True
+    bpy.context.view_layer.update()
+    tip_rest = head_motion_marker_world(arm)
+    pb = arm.pose.bones["head"]
+    pb.rotation_mode = "XYZ"
+    pb.rotation_euler = (math.radians(55.0), 0.0, 0.0)
+    bpy.context.view_layer.update()
+    bpy.context.evaluated_depsgraph_get().update()
+    tip_posed = head_motion_marker_world(arm)
+    delta = (tip_posed - tip_rest).length
+    if delta < 0.05:
+        raise RuntimeError(
+            f"force_head_pose_for_tusk_assert failed: head tip delta={delta:.4f} "
+            f"(rest={tuple(round(c, 4) for c in tip_rest)} "
+            f"posed={tuple(round(c, 4) for c in tip_posed)}). "
+            f"Head bone did not actually rotate."
+        )
+    log(f"forced head pose applied: tip_delta={delta:.4f}")
 
 
 def chest_forward_world(arm) -> Vector:
