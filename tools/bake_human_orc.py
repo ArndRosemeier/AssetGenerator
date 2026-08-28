@@ -534,7 +534,8 @@ def write_art_review_packet(
         "notes": [
             "DEST is written only after AFTER stills succeed (no early Orrun copy onto dest).",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
-            "Death AFTER: Root/bbox/NLA solo on Death01 (pelvis alone stays ~0.95 lean).",
+            "Death AFTER: investigate Root/object/bbox + NLA unmute/solo + HQ.copy_action "
+            "Orrun Death01 (pelvis alone stays ~0.95 lean on this clip).",
             "Punch AFTER uses Orrun Punch_Cross @ ~55% on dest with head camera.",
             "Idle/Walk AFTER unchanged on live scene. Dest body/tusks/gear never hidden.",
             "ORRUN_STILL_* clones are still-only and are dropped before export.",
