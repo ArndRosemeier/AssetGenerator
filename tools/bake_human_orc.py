@@ -1461,6 +1461,27 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
 TUSK_MOUTH_WORLD_MAX = 0.085
 
 
+def force_armature_rest(arm) -> None:
+    """Clear action/NLA drivers and snap every bone to rest bind.
+
+    ``assert_tusks_follow_head`` ends on the Death still frame with an action
+    assigned. A bare ``reset_pose`` + restoring the prior action/NLA mute state
+    left the armature posed — ``rest_after_bind`` then compared head-parented
+    tusks to weight-blended mouth verts and got dist≈0.11 while tip-space bind
+    at true rest was 0.026. Always leave a quiet rest pose after follow tests.
+    """
+    if arm.animation_data is not None:
+        arm.animation_data.action = None
+        for track in arm.animation_data.nla_tracks:
+            track.mute = True
+    HQ.reset_pose(arm)
+    # Death still leaves scene.frame at the hold frame; snap back so any stray
+    # driver/NLA cannot re-pose on the next depsgraph update.
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
+    bpy.context.evaluated_depsgraph_get().update()
+
+
 def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None:
     """Gate the PNG the Reviewer sees — tusk world must meet posed mouth verts.
 
@@ -1493,16 +1514,32 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
             )
         mouth_idx = int(tusk["orc_mouth_vert"])
         mouth_w = evaluated_vertex_world(body, mouth_idx)
-        # Optional: intended bind target in current head pose (catches tip miss).
-        if "orc_mouth_head_local" in tusk:
-            hl = tusk["orc_mouth_head_local"]
-            expected = head_pose_world_matrix(arm) @ Vector(
-                (float(hl[0]), float(hl[1]), float(hl[2]))
+        # Bind target under current head pose (catches tip miss / rest-stick).
+        if "orc_mouth_head_local" not in tusk:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} missing orc_mouth_head_local"
             )
+        hl = tusk["orc_mouth_head_local"]
+        expected = head_pose_world_matrix(arm) @ Vector(
+            (float(hl[0]), float(hl[1]), float(hl[2]))
+        )
+        # into_mouth nudge lives in head-local; apply it on the posed mouth vert
+        # so the gate compares tusk to the same cavity point we authored to —
+        # not the raw lip vert (~1.5cm off) or a leftover Death pose (0.11).
+        if "orc_mouth_raw_head_local" in tusk:
+            raw_hl = tusk["orc_mouth_raw_head_local"]
+            nudge = Vector(
+                (
+                    float(hl[0]) - float(raw_hl[0]),
+                    float(hl[1]) - float(raw_hl[1]),
+                    float(hl[2]) - float(raw_hl[2]),
+                )
+            )
+            mouth_target_w = mouth_w + head_pose_world_matrix(arm).to_3x3() @ nudge
         else:
-            expected = mouth_w
+            mouth_target_w = mouth_w
         c = _evaluated_mesh_centroid_world(tusk)
-        dist_vert = (c - mouth_w).length
+        dist_vert = (c - mouth_target_w).length
         dist_bind = (c - expected).length
         if dist_bind > TUSK_MOUTH_WORLD_MAX:
             raise RuntimeError(
@@ -1510,7 +1547,7 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"(dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
                 f"tusk_w={tuple(round(x, 3) for x in c)} "
                 f"bind_w={tuple(round(x, 3) for x in expected)} "
-                f"mouth_w={tuple(round(x, 3) for x in mouth_w)} — "
+                f"mouth_w={tuple(round(x, 3) for x in mouth_target_w)} — "
                 f"pixels would float; refusing PNG"
             )
         if dist_vert > TUSK_MOUTH_WORLD_MAX:
@@ -1518,7 +1555,9 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"{label} still: tusk {tusk.name!r} not at posed mouth vert "
                 f"(dist_mouth_vert={dist_vert:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
                 f"tusk_w={tuple(round(x, 3) for x in c)} "
-                f"mouth_w={tuple(round(x, 3) for x in mouth_w)} — "
+                f"mouth_w={tuple(round(x, 3) for x in mouth_target_w)} "
+                f"raw_vert_w={tuple(round(x, 3) for x in mouth_w)} "
+                f"bind_w={tuple(round(x, 3) for x in expected)} — "
                 f"pixels would float; refusing PNG"
             )
         log(
@@ -1549,13 +1588,9 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                 f"{tusk.name!r} matrix_parent_inverse not Identity — rest-stick bind"
             )
 
-    saved_action = None
-    saved_nla_mutes = []
     if arm.animation_data is not None:
-        saved_action = arm.animation_data.action
         arm.animation_data.action = None
         for track in arm.animation_data.nla_tracks:
-            saved_nla_mutes.append(track.mute)
             track.mute = True
 
     try:
@@ -1663,6 +1698,17 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                         f"tusk {tusk.name!r} head-local length={posed_l.length:.4f} "
                         f"under {label}@{frame}"
                     )
+                if "orc_mouth_head_local" in tusk:
+                    hl = tusk["orc_mouth_head_local"]
+                    expected = head_pose_world_matrix(arm) @ Vector(
+                        (float(hl[0]), float(hl[1]), float(hl[2]))
+                    )
+                    dist_bind = (posed_w - expected).length
+                    if dist_bind > TUSK_MOUTH_WORLD_MAX:
+                        raise RuntimeError(
+                            f"tusk {tusk.name!r} off bind mouth under {label}@{frame}: "
+                            f"dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}"
+                        )
             tested.append(f"{label}:{act.name}@{frame}Δ={head_delta:.3f}")
             if arm.animation_data is not None:
                 arm.animation_data.action = None
@@ -1688,12 +1734,9 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
         tested.append(f"Death:{death.name}@{death_frame}Δ={d_death:.3f}")
         log(f"tusk head-local lock OK on clips {tested}")
     finally:
-        HQ.reset_pose(arm)
-        if arm.animation_data is not None:
-            arm.animation_data.action = saved_action
-            for track, mute in zip(arm.animation_data.nla_tracks, saved_nla_mutes):
-                track.mute = mute
-        bpy.context.view_layer.update()
+        # Do NOT restore the prior action/NLA mute state here — that left the
+        # Death hold frame driving the armature and made rest_after_bind lie.
+        force_armature_rest(arm)
 
 
 def add_tusks(arm) -> list:
@@ -1717,10 +1760,15 @@ def add_tusks(arm) -> list:
     left_body, right_body, left_idx, right_idx = find_mouth_corner_anchors(arm)
     left_world = body_local_to_world(body, left_body)
     right_world = body_local_to_world(body, right_body)
+    # Raw corner verts (pre into_mouth nudge) for the still-gate mouth target.
+    left_raw_world = body_local_to_world(body, body.data.vertices[left_idx].co)
+    right_raw_world = body_local_to_world(body, body.data.vertices[right_idx].co)
     head_rest = HQ.rest_world(arm, "head")
     head_rest_inv = head_rest.inverted()
     left_head = head_rest_inv @ left_world
     right_head = head_rest_inv @ right_world
+    left_raw_head = head_rest_inv @ left_raw_world
+    right_raw_head = head_rest_inv @ right_raw_world
     bone_len = head_bone_length(arm)
     left_local = head_local_to_bone_parent_local(arm, left_head)
     right_local = head_local_to_bone_parent_local(arm, right_head)
@@ -1748,10 +1796,26 @@ def add_tusks(arm) -> list:
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
     created = []
     specs = [
-        ("OrcTusk_L", left_local, left_head, left_idx, left_world, 14.0),
-        ("OrcTusk_R", right_local, right_head, right_idx, right_world, -14.0),
+        (
+            "OrcTusk_L",
+            left_local,
+            left_head,
+            left_raw_head,
+            left_idx,
+            left_world,
+            14.0,
+        ),
+        (
+            "OrcTusk_R",
+            right_local,
+            right_head,
+            right_raw_head,
+            right_idx,
+            right_world,
+            -14.0,
+        ),
     ]
-    for name, base, head_local, mouth_idx, mouth_world, yaw_deg in specs:
+    for name, base, head_local, raw_head_local, mouth_idx, mouth_world, yaw_deg in specs:
         bm = bmesh.new()
         bmesh.ops.create_cone(
             bm,
@@ -1789,13 +1853,16 @@ def add_tusks(arm) -> list:
             float(head_local.y),
             float(head_local.z),
         ]
+        obj["orc_mouth_raw_head_local"] = [
+            float(raw_head_local.x),
+            float(raw_head_local.y),
+            float(raw_head_local.z),
+        ]
         bind_tusk_to_head_bone(obj, arm)
         created.append(obj)
 
     # Rest-pose proof: tusk world must meet the mouth anchor world (tip miss → ~bone_len).
-    HQ.reset_pose(arm)
-    bpy.context.view_layer.update()
-    bpy.context.evaluated_depsgraph_get().update()
+    force_armature_rest(arm)
     for obj, mouth_world in (
         (created[0], left_world),
         (created[1], right_world),
@@ -1815,8 +1882,11 @@ def add_tusks(arm) -> list:
             f"(tip-parent space + Identity pinv)"
         )
 
+    # Same gate stills use — must pass at true rest BEFORE follow posing.
+    assert_tusks_in_mouth_for_current_pose(arm, created, "rest_before_follow")
     assert_tusks_follow_head(arm, created)
-    # Posed mouth-vert gate at rest (same check stills use).
+    # Follow assert leaves Death@hold unless force_armature_rest ran in finally.
+    force_armature_rest(arm)
     assert_tusks_in_mouth_for_current_pose(arm, created, "rest_after_bind")
     log(f"tusks: {[o.name for o in created]} BONE-parented to head (mouth cavity, tip-space)")
     return created
