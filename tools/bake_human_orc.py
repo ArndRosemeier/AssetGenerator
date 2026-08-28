@@ -177,6 +177,15 @@ HEAD_MOUTH_MAX_LOCAL = 0.28
 # 7e5ee8a rejected 0.088 under a tighter 0.085 cheek refuse). Keep cheek
 # refuse above that family — do not invent closer dummy anchors.
 MOUTH_CORNER_MAX_ABS_X = 0.095
+# Lip-corner surface → mouth cavity in MH body space (face is -Y).
+# 21:10: base ON the corner vert passed mouth_vert_dist=0.026 while Idle/Walk
+# pixels showed cones on cheeks — move the authored base into the cavity.
+CAVITY_IN_Y = 0.024  # +Y into the head from the lip surface
+CAVITY_IN_X = 0.016  # toward midline
+CAVITY_DOWN_Z = 0.010
+# Still gate: fraction of tusk verts that must sit deeper than the lip (+Y).
+TUSK_CAVITY_INSIDE_FRAC = 0.30
+TUSK_CAVITY_Y_EPS = 0.004
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
@@ -533,10 +542,10 @@ def write_art_review_packet(
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
-            "mesh authored in Blender tip/BONE-parent space from evaluated mouth "
-            "verts (same points the still gate measures — not undeformed body.co).",
-            "AFTER stills gate: tusk world vs posed male_body mouth verts before PNG "
-            "(0.085 cap; author/gate share orc_mouth_vert).",
+            "mesh authored in tip/BONE-parent space from lip-corner → mouth cavity "
+            "(+Y into MH head) so Idle/Walk do not park cones on cheeks.",
+            "AFTER stills gate: cavity bind + lip-corner dist (0.085) + "
+            "cavity-inside frac (cheek refuse) before each PNG.",
             "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
             "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
@@ -1155,8 +1164,8 @@ def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector, int, int]:
 
     Full-body z_rel 0.80–0.87 was empty on MH male_body (face lives ~0.88+).
     Logs a head-front histogram, derives an adaptive mouth band, then expands
-    until real L/R corners exist. Still refuses cheek/brow. No head-bone offsets
-    for the tusk bases — anchors are mesh verts (nudged into the cavity).
+    until real L/R corners exist. Still refuses cheek/brow. Tusk bases are
+    offset from these lip-corner verts into the mouth cavity in ``add_tusks``.
 
     Returns ``(left_pos, right_pos, left_vert_index, right_vert_index)``.
     """
@@ -1387,6 +1396,40 @@ def evaluated_vertex_world(obj, vert_index: int) -> Vector:
         ev.to_mesh_clear()
 
 
+def _evaluated_mesh_verts_world(obj) -> list[Vector]:
+    deps = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(deps)
+    me = ev.to_mesh()
+    try:
+        if not me.vertices:
+            raise RuntimeError(f"evaluated mesh empty: {obj.name!r}")
+        mw = ev.matrix_world
+        return [mw @ v.co for v in me.vertices]
+    finally:
+        ev.to_mesh_clear()
+
+
+def mouth_cavity_world_from_corner(
+    body, corner_world: Vector, *, sign_x: float
+) -> Vector:
+    """Offset a lip-corner world point into the MH mouth cavity.
+
+    MH faces -Y: into the cavity is +Y (into the head), toward midline, slightly
+    down. Authoring the cone base on the corner surface left Idle/Walk cones on
+    the cheeks while centroid-vs-corner still passed at ~0.026.
+    """
+    inv = body.matrix_world.inverted()
+    corner_b = inv @ Vector(corner_world)
+    cavity_b = Vector(
+        (
+            float(corner_b.x) - float(sign_x) * CAVITY_IN_X,
+            float(corner_b.y) + CAVITY_IN_Y,
+            float(corner_b.z) - CAVITY_DOWN_Z,
+        )
+    )
+    return body.matrix_world @ cavity_b
+
+
 def _matrix_is_identity(m: Matrix, *, eps: float = 1e-5) -> bool:
     ident = Matrix.Identity(4)
     for i in range(4):
@@ -1481,13 +1524,13 @@ def force_armature_rest(arm) -> None:
 
 
 def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None:
-    """Gate the PNG the Reviewer sees — tusk world must meet posed mouth verts.
+    """Gate the PNG the Reviewer sees — tusks seated in the mouth cavity.
 
-    Author and gate share the same ``orc_mouth_vert`` indices: head-local bind
-    is computed from ``evaluated_vertex_world`` at rest, and this gate measures
-    against that same evaluated vert on the posed frame. Do not mix undeformed
-    ``body.matrix_world @ co`` (rest-bind OK) with eval verts (gate) — those
-    were ~0.10m apart on 5490643 while tip-space bind was fine.
+    21:10: centroid-vs-lip-corner at 0.026 passed while Idle/Walk pixels showed
+    cones on cheeks. Gate now requires (1) tusk near the authored cavity bind
+    target, (2) tusk near the posed lip-corner vert, and (3) enough tusk mesh
+    verts deeper than the lip (+Y into MH head) so the visible body is not on
+    the cheek.
     """
     if not tusks:
         raise RuntimeError(f"{label}: no tusks for in-mouth still gate")
@@ -1516,37 +1559,61 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"{label} still: {tusk.name!r} missing orc_mouth_head_local"
             )
         mouth_idx = int(tusk["orc_mouth_vert"])
-        mouth_w = evaluated_vertex_world(body, mouth_idx)
+        corner_w = evaluated_vertex_world(body, mouth_idx)
         hl = tusk["orc_mouth_head_local"]
         expected = head_pose_world_matrix(arm) @ Vector(
             (float(hl[0]), float(hl[1]), float(hl[2]))
         )
         c = _evaluated_mesh_centroid_world(tusk)
-        dist_vert = (c - mouth_w).length
+        dist_corner = (c - corner_w).length
         dist_bind = (c - expected).length
         if dist_bind > TUSK_MOUTH_WORLD_MAX:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} missed head-pose bind target "
+                f"{label} still: tusk {tusk.name!r} missed cavity bind target "
                 f"(dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
                 f"tusk_w={tuple(round(x, 3) for x in c)} "
                 f"bind_w={tuple(round(x, 3) for x in expected)} "
-                f"mouth_w={tuple(round(x, 3) for x in mouth_w)} — "
+                f"corner_w={tuple(round(x, 3) for x in corner_w)} — "
                 f"pixels would float; refusing PNG"
             )
-        if dist_vert > TUSK_MOUTH_WORLD_MAX:
+        if dist_corner > TUSK_MOUTH_WORLD_MAX:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} not at posed mouth vert "
-                f"(dist_mouth_vert={dist_vert:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
+                f"{label} still: tusk {tusk.name!r} not at posed mouth corner "
+                f"(dist_mouth_vert={dist_corner:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
                 f"tusk_w={tuple(round(x, 3) for x in c)} "
-                f"mouth_w={tuple(round(x, 3) for x in mouth_w)} "
+                f"corner_w={tuple(round(x, 3) for x in corner_w)} "
                 f"bind_w={tuple(round(x, 3) for x in expected)} — "
                 f"pixels would float; refusing PNG"
             )
+        # Cheek refuse: enough of the cone must sit along the authored
+        # cavity direction from the posed lip corner (pose-aware — body +Y
+        # alone fails on Death when the face no longer points -Y).
+        into = expected - corner_w
+        if into.length < 0.008:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} cavity bind collapsed onto lip "
+                f"corner (into_len={into.length:.4f}) — cannot prove seating"
+            )
+        into_n = into.normalized()
+        verts_w = _evaluated_mesh_verts_world(tusk)
+        inside = 0
+        for vw in verts_w:
+            if (vw - corner_w).dot(into_n) >= TUSK_CAVITY_Y_EPS:
+                inside += 1
+        frac = inside / float(len(verts_w))
+        if frac < TUSK_CAVITY_INSIDE_FRAC:
+            raise RuntimeError(
+                f"{label} still: tusk {tusk.name!r} seated on cheek/chin, not in "
+                f"mouth cavity (inside_frac={frac:.3f} < {TUSK_CAVITY_INSIDE_FRAC}; "
+                f"need verts along cavity dir from lip). "
+                f"dist_bind={dist_bind:.4f} dist_corner={dist_corner:.4f} — "
+                f"21:10 Idle/Walk pixel class; refusing PNG"
+            )
         log(
-            f"{label} still gate: {tusk.name} mouth_vert_dist={dist_vert:.4f} "
-            f"bind_dist={dist_bind:.4f}"
+            f"{label} still gate: {tusk.name} mouth_vert_dist={dist_corner:.4f} "
+            f"bind_dist={dist_bind:.4f} cavity_inside_frac={frac:.3f}"
         )
-    log(f"{label} still gate: tusks coincide with posed mouth verts")
+    log(f"{label} still gate: tusks seated in mouth cavity")
 
 
 def assert_tusks_follow_head(arm, tusks: list) -> None:
@@ -1724,14 +1791,14 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
 def add_tusks(arm) -> list:
     """Tusks in the mouth cavity, BONE-parented to head (follow all clips).
 
-    Mouth anchors from male_body verts → world → head-rest (``matrix_local``)
-    → **tip / BONE-parent object space** → parent_type=BONE / parent_bone=head
-    with Identity ``matrix_parent_inverse``. No Armature modifier. No new bones.
+    Lip-corner verts from male_body → offset into the MH mouth cavity (+Y) →
+    head-rest → **tip / BONE-parent object space** → parent_type=BONE /
+    parent_bone=head with Identity ``matrix_parent_inverse``. No Armature
+    modifier. No new bones.
 
-    Blender's default BONE parent places the child relative to the bone tip
-    (``pose_mat + Y*length``). Authoring in skull-base space with Identity
-    inverse parks cones a head-length off the mouth while head-local locks
-    still pass — that was the 20:52 pixel miss.
+    21:10: authoring the cone base on the lip-corner surface passed
+    mouth_vert_dist=0.026 while Idle/Walk pixels showed cheek cones — the
+    visible mesh must start inside the cavity, not on the cheek.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
@@ -1739,11 +1806,11 @@ def add_tusks(arm) -> list:
 
     body = male_body_mesh(arm)
     _left_body, _right_body, left_idx, right_idx = find_mouth_corner_anchors(arm)
-    # Same world points the PNG gate will measure (evaluated / skinned verts).
-    # Do NOT use undeformed body.matrix_world @ co — that disagreed with eval
-    # by ~0.10m on 5490643 while tip-space bind looked fine vs bind_w.
-    left_world = evaluated_vertex_world(body, left_idx)
-    right_world = evaluated_vertex_world(body, right_idx)
+    left_corner_w = evaluated_vertex_world(body, left_idx)
+    right_corner_w = evaluated_vertex_world(body, right_idx)
+    # Cavity targets (same points stored as orc_mouth_head_local / still bind).
+    left_world = mouth_cavity_world_from_corner(body, left_corner_w, sign_x=-1.0)
+    right_world = mouth_cavity_world_from_corner(body, right_corner_w, sign_x=1.0)
     head_rest = head_pose_world_matrix(arm)
     head_rest_inv = head_rest.inverted()
     left_head = head_rest_inv @ left_world
@@ -1757,9 +1824,11 @@ def add_tusks(arm) -> list:
         f"tip-parent-local L={tuple(round(c, 4) for c in left_local)} "
         f"R={tuple(round(c, 4) for c in right_local)} "
         f"head_bone_length={bone_len:.4f} "
-        f"eval_mouth_w L={tuple(round(c, 4) for c in left_world)} "
+        f"corner_w L={tuple(round(c, 4) for c in left_corner_w)} "
+        f"R={tuple(round(c, 4) for c in right_corner_w)} "
+        f"cavity_w L={tuple(round(c, 4) for c in left_world)} "
         f"R={tuple(round(c, 4) for c in right_world)} "
-        f"(eval mouth verts → head space → BONE tip parent space)"
+        f"(eval lip corner → cavity → head space → BONE tip parent space)"
     )
     # Mouth sits below/forward of the skull-base head origin (~0.20 on MH).
     for label, p in (("L", left_head), ("R", right_head)):
@@ -1791,7 +1860,7 @@ def add_tusks(arm) -> list:
             radius2=0.0030,
             depth=0.052,
         )
-        # Tip up / slightly forward / slightly out of mouth (tip-parent local).
+        # Tip up / out of mouth opening; base stays at cavity (tip-parent local).
         for v in bm.verts:
             v.co.z += 0.026
             a = math.radians(-42.0)
@@ -1821,29 +1890,26 @@ def add_tusks(arm) -> list:
         bind_tusk_to_head_bone(obj, arm)
         created.append(obj)
 
-    # Rest-pose proof vs the SAME evaluated mouth verts the still gate uses.
+    # Rest-pose proof vs cavity bind + cheek seating (same gate stills use).
     force_armature_rest(arm)
-    for obj, mouth_idx, mouth_world in (
+    for obj, mouth_idx, cavity_w in (
         (created[0], left_idx, left_world),
         (created[1], right_idx, right_world),
     ):
         c = _evaluated_mesh_centroid_world(obj)
-        mouth_now = evaluated_vertex_world(body, mouth_idx)
-        dist = (c - mouth_now).length
+        dist = (c - Vector(cavity_w)).length
         if dist > TUSK_MOUTH_WORLD_MAX:
             raise RuntimeError(
-                f"rest bind: {obj.name!r} centroid world dist to eval mouth vert="
+                f"rest bind: {obj.name!r} centroid world dist to cavity="
                 f"{dist:.4f} > {TUSK_MOUTH_WORLD_MAX} "
                 f"(head_bone_length={bone_len:.4f}). "
                 f"tusk={tuple(round(x, 3) for x in c)} "
-                f"mouth={tuple(round(x, 3) for x in mouth_now)} "
-                f"bind_mouth={tuple(round(x, 3) for x in mouth_world)}. "
-                f"Likely head-space authored into tip BONE parent, or author/gate "
-                f"mouth target mismatch."
+                f"cavity={tuple(round(x, 3) for x in cavity_w)}. "
+                f"Likely head-space authored into tip BONE parent."
             )
         log(
-            f"rest bind OK {obj.name}: mouth_vert_dist={dist:.4f} "
-            f"(tip-parent space + Identity pinv; same eval vert as still gate)"
+            f"rest bind OK {obj.name}: cavity_dist={dist:.4f} "
+            f"(tip-parent space + Identity pinv; cavity from eval lip corner)"
         )
 
     assert_tusks_in_mouth_for_current_pose(arm, created, "rest_before_follow")
