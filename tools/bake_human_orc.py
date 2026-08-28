@@ -47,9 +47,9 @@ Ship the UV template before a full restyle (first flag):
   <AG blender> --background --factory-startup --python
     C:\\Projekte\\AssetGenerator\\tools\\bake_human_orc.py -- --uv-only
 
---uv-only writes:
-  tools/_human_orc_bake/male_orc_01_uv_layout.png
-from male_base (default) existing UVs via bpy.ops.uv.export_layout.
+--uv-only writes (CPU raster — NOT bpy.ops.uv.export_layout, which needs GPU):
+  tools/_human_orc_bake/male_base_uv_layout.png
+from male_base existing UV islands. Fails loud if no UV layer.
 
 Restyle rules:
   - MESH only on the existing 53-bone bind (BONE_MAP from bake_human_quaternius).
@@ -69,6 +69,7 @@ import shutil
 import struct
 import sys
 import traceback
+import zlib
 from pathlib import Path
 
 import bmesh
@@ -94,7 +95,7 @@ MALE_BASE = AG_HUMANS / "male_base.glb"
 
 DEST = AG_HUMANS / "male_orc_01.glb"
 SCRATCH = AG / "tools" / "_human_orc_bake"
-UV_LAYOUT = SCRATCH / "male_orc_01_uv_layout.png"
+UV_LAYOUT = SCRATCH / "male_base_uv_layout.png"
 LOOKDEV = SCRATCH / "orc_lookdev_threequarter.png"
 PREVIEW_DIR = SCRATCH / "previews"
 
@@ -647,12 +648,155 @@ def apply_olive_albedo_on_dest_uvs(arm) -> None:
         log(f"skin material -> olive on existing UV {uv_layer.name!r} for {obj.name!r}")
 
 
+def _uv_to_px(u: float, v: float, w: int, h: int) -> tuple[int, int]:
+    """Map Blender UV (V up) to PNG pixel (Y down)."""
+    x = int(max(0, min(w - 1, math.floor(u * w))))
+    y = int(max(0, min(h - 1, math.floor((1.0 - v) * h))))
+    return x, y
+
+
+def rasterize_uv_tri(px: bytearray, w: int, h: int, uv0, uv1, uv2, rgba) -> None:
+    """CPU fill of one UV triangle (tribal-veteran raster idea; no re-unwrap)."""
+    pts = [
+        (uv0[0] * w, (1.0 - uv0[1]) * h),
+        (uv1[0] * w, (1.0 - uv1[1]) * h),
+        (uv2[0] * w, (1.0 - uv2[1]) * h),
+    ]
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    minx = max(0, int(math.floor(min(xs) - 1)))
+    maxx = min(w - 1, int(math.ceil(max(xs) + 1)))
+    miny = max(0, int(math.floor(min(ys) - 1)))
+    maxy = min(h - 1, int(math.ceil(max(ys) + 1)))
+
+    def edge(a, b, c):
+        return (c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])
+
+    area = edge(pts[0], pts[1], pts[2])
+    if abs(area) < 1e-6:
+        cx = int(sum(xs) / 3.0)
+        cy = int(sum(ys) / 3.0)
+        if 0 <= cx < w and 0 <= cy < h:
+            i = (cy * w + cx) * 4
+            px[i : i + 4] = bytes(rgba)
+        return
+    for y in range(miny, maxy + 1):
+        for x in range(minx, maxx + 1):
+            p = (x + 0.5, y + 0.5)
+            w0 = edge(pts[1], pts[2], p)
+            w1 = edge(pts[2], pts[0], p)
+            w2 = edge(pts[0], pts[1], p)
+            if (w0 >= 0 and w1 >= 0 and w2 >= 0) or (w0 <= 0 and w1 <= 0 and w2 <= 0):
+                i = (y * w + x) * 4
+                px[i : i + 4] = bytes(rgba)
+
+
+def draw_uv_line(px: bytearray, w: int, h: int, uv_a, uv_b, rgba) -> None:
+    x0, y0 = _uv_to_px(uv_a[0], uv_a[1], w, h)
+    x1, y1 = _uv_to_px(uv_b[0], uv_b[1], w, h)
+    dx = abs(x1 - x0)
+    dy = -abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx + dy
+    while True:
+        if 0 <= x0 < w and 0 <= y0 < h:
+            i = (y0 * w + x0) * 4
+            px[i : i + 4] = bytes(rgba)
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 >= dy:
+            err += dy
+            x0 += sx
+        if e2 <= dx:
+            err += dx
+            y0 += sy
+
+
+def write_png_rgba(path: Path, w: int, h: int, px: bytearray) -> None:
+    """Pure-Python RGBA PNG (stdlib zlib). No Pillow, no GPU."""
+    if len(px) != w * h * 4:
+        raise RuntimeError(f"RGBA buffer size {len(px)} != {w * h * 4}")
+    raw = bytearray()
+    stride = w * 4
+    for y in range(h):
+        raw.append(0)  # filter None
+        raw.extend(px[y * stride : (y + 1) * stride])
+    compressed = zlib.compress(bytes(raw), 9)
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)  # 8-bit RGBA
+    out = bytearray()
+    out.extend(b"\x89PNG\r\n\x1a\n")
+    out.extend(chunk(b"IHDR", ihdr))
+    out.extend(chunk(b"IDAT", compressed))
+    out.extend(chunk(b"IEND", b""))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(out))
+    if not path.is_file() or path.stat().st_size < 33:
+        raise RuntimeError(f"PNG write failed: {path}")
+
+
+def cpu_export_uv_layout_png(obj, path: Path, size: int = TEX_SIZE) -> Path:
+    """Raster existing UV islands to PNG. Does not smart_project or touch UVs."""
+    me = obj.data
+    if not me.uv_layers:
+        raise RuntimeError(f"{obj.name!r} has no UV layer")
+    uv_layer = me.uv_layers.active or me.uv_layers[0]
+    w = h = int(size)
+    # Dark board + light filled islands + white outlines (UV editor style).
+    bg = (28, 28, 32, 255)
+    fill = (70, 110, 160, 255)
+    edge = (230, 230, 235, 255)
+    px = bytearray(bg * (w * h))
+
+    filled = 0
+    stroked = 0
+    for poly in me.polygons:
+        loops = list(poly.loop_indices)
+        if len(loops) < 3:
+            continue
+        uvs = [(uv_layer.data[li].uv.x, uv_layer.data[li].uv.y) for li in loops]
+        for i in range(1, len(uvs) - 1):
+            rasterize_uv_tri(px, w, h, uvs[0], uvs[i], uvs[i + 1], fill)
+            filled += 1
+        for i in range(len(uvs)):
+            draw_uv_line(px, w, h, uvs[i], uvs[(i + 1) % len(uvs)], edge)
+            stroked += 1
+
+    if filled < 1:
+        raise RuntimeError(
+            f"{obj.name!r} UV layer {uv_layer.name!r} produced no triangles; "
+            f"refusing empty layout"
+        )
+    write_png_rgba(path, w, h, px)
+    log(
+        f"CPU UV layout {path.name} from {obj.name!r}/{uv_layer.name!r} "
+        f"tris={filled} edges={stroked} bytes={path.stat().st_size}"
+    )
+    return path
+
+
 def export_uv_layout(path: Path) -> None:
+    """CPU UV island layout for --background. Never call bpy.ops.uv.export_layout.
+
+    PNG mode of export_layout uses GPUOffScreen and raises:
+      SystemError: GPU functions for drawing are not available in background mode
+    """
     ensure_scratch()
     meshes = [o for o in mesh_objects() if o.data.uv_layers]
     if not meshes:
-        raise RuntimeError("no mesh with UV layers; refusing export_layout / smart_project")
-    # Prefer body-like (male_base / skin); else largest UV mesh. Never smart_project.
+        raise RuntimeError(
+            "no mesh with UV layers; refusing CPU UV layout / smart_project"
+        )
     targets = meshes
     try:
         arm = find_armature()
@@ -662,42 +806,21 @@ def export_uv_layout(path: Path) -> None:
             targets = sorted(meshes, key=lambda o: len(o.data.vertices), reverse=True)
     except RuntimeError:
         targets = sorted(meshes, key=lambda o: len(o.data.vertices), reverse=True)
-        log("no pelvis armature on UV source; exporting largest UV mesh")
-    targets = targets[:1] if targets else meshes[:1]
-    bpy.ops.object.select_all(action="DESELECT")
-    for obj in targets:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = targets[0]
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    if path.exists():
-        path.unlink()
-    # Blender 4.x uv.export_layout writes the active object's UV layout.
-    result = bpy.ops.uv.export_layout(
-        filepath=str(path),
-        export_all=False,
-        modified=False,
-        mode="PNG",
-        size=(TEX_SIZE, TEX_SIZE),
-        opacity=1.0,
-    )
-    bpy.ops.object.mode_set(mode="OBJECT")
-    if result != {"FINISHED"} and not path.is_file():
-        # Retry exporting all selected islands.
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.mesh.select_all(action="SELECT")
-        bpy.ops.uv.export_layout(
-            filepath=str(path),
-            export_all=True,
-            modified=False,
-            mode="PNG",
-            size=(TEX_SIZE, TEX_SIZE),
-            opacity=1.0,
-        )
-        bpy.ops.object.mode_set(mode="OBJECT")
-    if not path.is_file():
-        raise RuntimeError(f"uv.export_layout did not write {path}")
-    log(f"UV layout {path} ({path.stat().st_size} bytes) from {[o.name for o in targets]}")
+        log("no pelvis armature on UV source; using largest UV mesh")
+    if not targets:
+        raise RuntimeError("no UV mesh targets for layout export")
+
+    primary = targets[0]
+    if not primary.data.uv_layers:
+        raise RuntimeError(f"{primary.name!r} has no UV layer")
+    written = [cpu_export_uv_layout_png(primary, path)]
+    # Per-mesh dumps when several UV meshes exist (clothes etc.).
+    if len(targets) > 1:
+        for obj in targets[1:]:
+            safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in obj.name)
+            per = SCRATCH / f"male_base_uv_layout_{safe}.png"
+            written.append(cpu_export_uv_layout_png(obj, per))
+    log(f"CPU UV layouts: {[str(p) for p in written]}")
 
 
 def export_glb(path: Path, arm, objects: list) -> None:
