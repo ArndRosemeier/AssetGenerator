@@ -14,13 +14,13 @@ Art Reviewer HOLD fix: dest must NOT read as a painted human in overalls.
   - Tusks stay on head. No thigh/calf/pelvis scale. No ogre hunch.
   - Reshoot AFTER stills only: Idle, Walk, Death01, Punch_Cross.
   - Punch/Death AFTER must pose the SAME dest armature/meshes as Idle/Walk
-    (OrcSkin_*, OrcTusk_*, OrcGear_*). Never hide dest body/head. Never frame
-    leftover donor armatures.
-  - Death AFTER: apply Orrun donor action Death01 (exact name) onto the dest
-    53-bone armature and hold the final on-back key — not dest frame 0 / faceplant.
-    Log action name + frame. Donor file is read-only.
-  - Punch AFTER: apply Orrun donor Punch_Cross at the same mid-late (~55%) frame
-    on that dest arm; camera must show the dest head (tusks).
+    (male_body olive skin, OrcTusk_*, OrcGear_*). Never hide dest body/head.
+    Mesh name after glTF is male_body (not OrcSkin_*); Eyes / Icosphere may exist.
+  - Death AFTER: use dest-native Death01. Scan frames for lying-down (low pelvis)
+    AND on-back (chest forward +Z). Fail loud if none — last frame alone is not
+    enough (may be faceplant). Do NOT assign Orrun Death01 onto dest (stands).
+  - Punch AFTER: Orrun donor Punch_Cross onto dest at mid-late (~55%); camera
+    shows dest head/tusks. Donor file is read-only.
   - Idle/Walk AFTER unchanged (live dest actions). Live-scene stills before export.
   - Keep EEVEE_NEXT. Do not invent clips. Do not overwrite the Orrun donor.
 
@@ -172,6 +172,10 @@ BIN_FOURCC = 0x004E4942
 
 # Never scale these bones (keep MH gait / hip height).
 NO_SCALE_BONES = ("pelvis", "thigh_l", "thigh_r", "calf_l", "calf_r")
+
+PELVIS_LYING_MAX_Z = 0.50  # standing MH pelvis ~0.95; lying Death hold is much lower
+CHEST_ON_BACK_MIN_Z = 0.20  # chest forward world-Z; on-back faces sky
+CHEST_FACEPLANT_MAX_Z = -0.05  # chest forward toward ground
 
 # Garment / worksuit mesh name markers (tee, dungarees, shoes, …).
 GARMENT_NAME_KEYS = (
@@ -519,10 +523,10 @@ def write_art_review_packet(
         "removed_garments": removed_garments,
         "notes": [
             "HOLD: no worksuit tee/dungarees; nude male_base body + look-dev harness.",
-            "Finished olive-grey Principled skin on MH UVs (no UV-grid / checker).",
-            "Punch/Death AFTER apply Orrun donor Punch_Cross/Death01 onto dest arm.",
-            "Death still = final on-back hold of donor Death01 (assert chest faces up).",
-            "Punch still = donor Punch_Cross @ ~55% with camera aimed at dest head/tusks.",
+            "Olive skin is painted on mesh male_body (mat OrcSkin_male_body); not an OrcSkin_* mesh.",
+            "Death AFTER uses dest-native Death01; scans for lying + on-back (not last-frame faceplant).",
+            "Orrun Death01 must NOT be assigned onto dest for stills (leaves pelvis standing).",
+            "Punch AFTER uses Orrun Punch_Cross @ ~55% on dest with head camera.",
             "Idle/Walk AFTER unchanged on live dest. Dest body/tusks/gear never hidden.",
             "ORRUN_STILL_* clones are still-only and are dropped before export.",
         ],
@@ -924,15 +928,40 @@ def add_tusks(arm) -> list:
 
 
 def body_like_meshes(arm):
-    """Skin / basemesh targets for finished olive albedo (no garments)."""
+    """Skin / basemesh targets for finished olive albedo (no garments).
+
+    After glTF import the MH skin mesh is named ``male_body`` (also Eyes,
+    Icosphere). It is NOT named OrcSkin_* — material slot may be OrcSkin_male_body.
+    """
     skins = []
+    # Prefer exact male_body first (dest / male_base export name).
+    for obj in skinned_meshes(arm):
+        if obj.name == "male_body" or obj.name.lower() == "male_body":
+            skins.append(obj)
+    if skins:
+        return skins
     for obj in skinned_meshes(arm):
         low = obj.name.lower()
         if is_garment_mesh_name(obj.name):
             continue
-        if any(k in low for k in ("hair", "brow", "eye", "tusk", "orcgear", "strap", "belt", "loin", "spaulder", "wrap")):
+        if any(
+            k in low
+            for k in (
+                "hair",
+                "brow",
+                "eye",
+                "tusk",
+                "orcgear",
+                "strap",
+                "belt",
+                "loin",
+                "spaulder",
+                "wrap",
+                "icosphere",
+            )
+        ):
             continue
-        if "body" in low or "male" in low or "basemesh" in low or "human" in low:
+        if "body" in low or "basemesh" in low or "human" in low:
             skins.append(obj)
     if not skins:
         candidates = []
@@ -942,37 +971,49 @@ def body_like_meshes(arm):
             if vg_index(obj, "head") is None:
                 continue
             low = obj.name.lower()
-            if any(k in low for k in ("tusk", "orcgear", "strap", "belt", "loin", "spaulder")):
+            if any(
+                k in low
+                for k in ("tusk", "orcgear", "strap", "belt", "loin", "spaulder", "eye")
+            ):
                 continue
             candidates.append(obj)
         if not candidates:
-            raise RuntimeError("no skinned UV body mesh found for orc albedo")
+            raise RuntimeError(
+                "no skinned UV body mesh found for orc albedo "
+                "(expected male_body after glTF import)"
+            )
         candidates.sort(key=lambda o: len(o.data.vertices), reverse=True)
         skins = [candidates[0]]
     return skins
 
 
 def apply_finished_olive_skin(arm) -> None:
-    """Finished olive-grey skin on existing MH body UVs. No UV-grid / checker / wire.
+    """Finished olive-grey skin on male_body (existing MH UVs). No UV-grid/checker.
 
-    Uses Principled Base Color (solid finished look). Optional LOOKDEV file is
-    logged as a silhouette/color reference only — never applied as a UV layout.
-    Does NOT call uv.smart_project. Does NOT draw island outlines into albedo.
+    Mesh name is male_body; material datablock may be named OrcSkin_male_body.
+    Re-applying after dest GLB import is required — white proxy means olive was
+    never bound to male_body.
     """
     if LOOKDEV.is_file():
         log(f"look-dev reference present (not a UV map): {LOOKDEV}")
     else:
         log(f"look-dev reference optional/missing: {LOOKDEV}")
 
-    for obj in body_like_meshes(arm):
+    skins = body_like_meshes(arm)
+    if not any(o.name.lower() == "male_body" for o in skins):
+        log(
+            f"warning: olive targets are {[o.name for o in skins]} "
+            f"(expected male_body after glTF); still painting these"
+        )
+    for obj in skins:
         me = obj.data
         if not me.uv_layers:
             raise RuntimeError(f"{obj.name!r} has no UV; refusing smart_project")
-        # Solid finished olive-grey — reads as skin, not diagnostic layout.
-        mat = make_opaque_mat(f"OrcSkin_{obj.name}", OLIVE, 0.88)
+        # Keep mesh name male_body; material id documents olive ownership.
+        mat_name = f"OrcSkin_{obj.name}"
+        mat = make_opaque_mat(mat_name, OLIVE, 0.88)
         nt = mat.node_tree
         bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
-        # Mild procedural mottling in object space (not UV-island wire).
         noise = nt.nodes.new("ShaderNodeTexNoise")
         noise.inputs["Scale"].default_value = 12.0
         noise.inputs["Detail"].default_value = 6.0
@@ -993,7 +1034,7 @@ def apply_finished_olive_skin(arm) -> None:
         me.materials.clear()
         me.materials.append(mat)
         log(
-            f"finished olive-grey skin on {obj.name!r} "
+            f"finished olive-grey skin on mesh={obj.name!r} mat={mat_name!r} "
             f"(Principled+noise, no UV-grid, uv={me.uv_layers.active.name!r})"
         )
 
@@ -1543,10 +1584,14 @@ def apply_action(arm, name: str, frame: int) -> None:
 
 
 def fetch_orrun_still_actions(names: tuple[str, ...]) -> dict[str, object]:
-    """Load exact Orrun worksuit actions for Punch/Death AFTER stills (read-only).
+    """Load exact Orrun worksuit actions for AFTER still posing (read-only).
 
-    Imports ANIM_DONOR, copies Death01 / Punch_Cross into ORRUN_STILL_* clones,
-    then deletes every donor armature/mesh so leftover donor cannot be framed.
+    Used for Punch_Cross (donor DOES pose dest). Do NOT use for Death01 stills —
+    Orrun Death01 on dest leaves pelvis standing (~0.95). Death uses dest-native
+    Death01 with on-back frame scan instead.
+
+    Imports ANIM_DONOR, copies requested clips into ORRUN_STILL_* clones, then
+    deletes every donor armature/mesh so leftover donor cannot be framed.
     Never writes the donor file. Bone paths stay MH 53-bone (same as dest).
     """
     if not ANIM_DONOR.is_file():
@@ -1624,46 +1669,128 @@ def head_world_pos(arm) -> Vector:
     return arm.matrix_world @ pb.head
 
 
-def chest_up_world(arm) -> Vector:
-    """Best-effort chest 'outward' axis in world space (on-back => near +Z)."""
-    bone = "spine_02" if "spine_02" in arm.pose.bones else "spine_03"
-    if bone not in arm.pose.bones:
+def chest_forward_world(arm) -> Vector:
+    """Anatomical chest-forward in world space (rest MH faces armature -Y).
+
+    Picks the bone-local axis that aligns with armature -Y in rest, then
+    transforms it by the posed bone — so on-back => +Z, faceplant => -Z.
+    Do NOT pick 'whichever axis points up' (that confuses back with chest).
+    """
+    bone_name = "spine_02" if "spine_02" in arm.pose.bones else "spine_03"
+    if bone_name not in arm.pose.bones or bone_name not in arm.data.bones:
         raise RuntimeError("dest armature missing spine bone for death on-back check")
-    pb = arm.pose.bones[bone]
-    mat = (arm.matrix_world @ pb.matrix).to_3x3()
-    # Blender bones: +Y along bone. Chest outward is a perpendicular axis — pick
-    # the candidate with the largest world-Z (on-back faces the sky).
-    candidates = [
-        mat @ Vector((1.0, 0.0, 0.0)),
-        mat @ Vector((-1.0, 0.0, 0.0)),
-        mat @ Vector((0.0, 0.0, 1.0)),
-        mat @ Vector((0.0, 0.0, -1.0)),
-    ]
-    best = max(candidates, key=lambda v: float(v.z))
-    return best.normalized()
+    rest_bone = arm.data.bones[bone_name]
+    pb = arm.pose.bones[bone_name]
+    rest_mat = rest_bone.matrix_local.to_3x3()
+    armature_forward = Vector((0.0, -1.0, 0.0))
+    local_axes = (
+        Vector((1.0, 0.0, 0.0)),
+        Vector((-1.0, 0.0, 0.0)),
+        Vector((0.0, 0.0, 1.0)),
+        Vector((0.0, 0.0, -1.0)),
+    )
+    best_local = max(local_axes, key=lambda v: float((rest_mat @ v).dot(armature_forward)))
+    pose_mat = (arm.matrix_world @ pb.matrix).to_3x3()
+    return (pose_mat @ best_local).normalized()
+
+
+def pelvis_world_z(arm) -> float:
+    return float((arm.matrix_world @ arm.pose.bones["pelvis"].head).z)
+
+
+def find_death_on_back_frame(arm, act) -> int:
+    """Scan dest-native Death01 for lying-down + on-back (not faceplant, not standing).
+
+    Local v6: Orrun Death01 assigned onto dest left pelvis_z~0.95 STANDING.
+    Dest-native Death01 last frame was FACE-DOWN. Must search the clip.
+    """
+    if act is None:
+        raise RuntimeError("find_death_on_back_frame: act is None")
+    fr = tuple(act.frame_range)
+    lo, hi = int(round(fr[0])), int(round(fr[1]))
+    key_frames = sorted(
+        {
+            int(round(kp.co.x))
+            for fc in act.fcurves
+            for kp in fc.keyframe_points
+        }
+    )
+    if hi < lo:
+        raise RuntimeError(f"{act.name!r} has invalid frame_range {fr}")
+    # Dense scan — Death01 is short; prefer every integer frame.
+    span = hi - lo
+    step = 1 if span <= 180 else max(1, span // 90)
+    candidates = sorted(set(key_frames) | set(range(lo, hi + 1, step)) | {hi, lo})
+    samples = []
+    best = None
+    best_score = -1e9
+    for f in candidates:
+        apply_action_datablock(arm, act, f)
+        pz = pelvis_world_z(arm)
+        forward = chest_forward_world(arm)
+        lying = pz <= PELVIS_LYING_MAX_Z
+        on_back = forward.z >= CHEST_ON_BACK_MIN_Z
+        faceplant = lying and forward.z <= CHEST_FACEPLANT_MAX_Z
+        samples.append(
+            {
+                "frame": f,
+                "pelvis_z": round(pz, 3),
+                "chest_fwd_z": round(float(forward.z), 3),
+                "lying": lying,
+                "on_back": on_back,
+                "faceplant": faceplant,
+            }
+        )
+        if lying and on_back and not faceplant:
+            # Prefer stronger on-back and lower pelvis (settled hold).
+            score = float(forward.z) * 2.0 - pz
+            if score > best_score:
+                best_score = score
+                best = f
+    if best is None:
+        raise RuntimeError(
+            f"no on-back lying frame in dest-native {act.name!r} "
+            f"frame_range=({lo},{hi}). "
+            f"Need pelvis_z<={PELVIS_LYING_MAX_Z} and "
+            f"chest_forward.z>={CHEST_ON_BACK_MIN_Z} (not faceplant). "
+            f"samples={samples}"
+        )
+    # Re-pose best and log.
+    apply_action_datablock(arm, act, best)
+    pz = pelvis_world_z(arm)
+    forward = chest_forward_world(arm)
+    log(
+        f"death on-back frame chosen action={act.name!r} frame={best} "
+        f"pelvis_z={pz:.3f} chest_fwd_z={float(forward.z):.3f} "
+        f"(scanned {len(candidates)} frames; last={hi})"
+    )
+    return int(best)
 
 
 def assert_death_on_back(arm, act_name: str, frame: int) -> None:
     """Fail loud if Death still looks face-down / standing instead of on-back hold."""
-    chest_up = chest_up_world(arm)
+    forward = chest_forward_world(arm)
     head = head_world_pos(arm)
-    pelvis = arm.matrix_world @ arm.pose.bones["pelvis"].head
+    pz = pelvis_world_z(arm)
     log(
         f"death on-back check action={act_name!r} frame={frame} "
-        f"chest_up={tuple(round(c, 3) for c in chest_up)} "
-        f"head_z={head.z:.3f} pelvis_z={pelvis.z:.3f}"
+        f"chest_fwd={tuple(round(c, 3) for c in forward)} "
+        f"head_z={head.z:.3f} pelvis_z={pz:.3f}"
     )
-    if head.z > 0.85 and pelvis.z > 0.85:
+    if pz > PELVIS_LYING_MAX_Z:
         raise RuntimeError(
-            f"Death still looks standing (head_z={head.z:.3f} pelvis_z={pelvis.z:.3f}) "
-            f"for {act_name!r}@{frame}; expected ground hold."
+            f"Death still looks standing (pelvis_z={pz:.3f} > {PELVIS_LYING_MAX_Z}) "
+            f"for {act_name!r}@{frame}; expected lying-down hold."
         )
-    # On its back: chest faces sky (+Z). Face-down: chest faces ground (-Z).
-    if chest_up.z < 0.20:
+    if float(forward.z) <= CHEST_FACEPLANT_MAX_Z:
         raise RuntimeError(
-            f"Death still pose is not on-back (chest_up.z={chest_up.z:.3f} < 0.20) "
-            f"for {act_name!r}@{frame}. Donor Death01 hold must lie on its back "
-            f"with arms out — refusing faceplant still."
+            f"Death still is faceplant (chest_fwd.z={float(forward.z):.3f}) "
+            f"for {act_name!r}@{frame}; refusing."
+        )
+    if float(forward.z) < CHEST_ON_BACK_MIN_Z:
+        raise RuntimeError(
+            f"Death still is not on-back (chest_fwd.z={float(forward.z):.3f} "
+            f"< {CHEST_ON_BACK_MIN_Z}) for {act_name!r}@{frame}."
         )
 
 
@@ -1684,12 +1811,20 @@ def dest_owned_meshes(arm) -> list:
 
 
 def is_dest_identity_mesh(obj) -> bool:
-    """Body / tusks / look-dev gear that must stay visible in Punch/Death AFTER."""
+    """Body / tusks / look-dev gear that must stay visible in Punch/Death AFTER.
+
+    After glTF the skin mesh is ``male_body`` (material may be OrcSkin_male_body).
+    Eyes / Icosphere are companions — keep them visible, not as olive targets.
+    """
     n = obj.name
     low = n.lower()
+    if n == "male_body" or low == "male_body":
+        return True
     if n.startswith("OrcSkin_") or n.startswith("OrcTusk_") or n.startswith("OrcGear_"):
         return True
     if "tusk" in low:
+        return True
+    if low in ("eyes", "eye", "icosphere"):
         return True
     if any(k in low for k in ("body", "basemesh", "malehighpoly", "male_base", "human")):
         return True
@@ -1704,6 +1839,15 @@ def ensure_dest_identity_visible(arm) -> list:
         obj.hide_viewport = False
         obj.hide_set(False)
     names = {o.name for o in owned}
+    has_body = any(
+        n == "male_body" or n.lower() == "male_body" or "body" in n.lower()
+        for n in names
+    )
+    if not has_body:
+        raise RuntimeError(
+            f"dest still meshes missing male_body skin; have={sorted(names)}. "
+            f"Olive must live on male_body (not an OrcSkin_* mesh name)."
+        )
     if not any("tusk" in n.lower() or n.startswith("OrcTusk_") for n in names):
         raise RuntimeError(
             f"dest still meshes missing tusks; have={sorted(names)}. "
@@ -1976,21 +2120,41 @@ def clip_kind(label: str) -> str:
 
 
 def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str]:
-    """Render AFTER stills on the live dest (Idle/Walk dest actions; Punch/Death from Orrun)."""
-    meshes = isolate_dest_for_stills(arm)
+    """Render AFTER stills on the live dest.
 
-    # Authoritative Punch/Death curves from Orrun worksuit (read-only), applied on dest.
-    orrun_still = fetch_orrun_still_actions(("Death01", "Punch_Cross"))
-    death_act = orrun_still["Death01"]
+    Idle/Walk: dest-native actions (unchanged).
+    Punch: Orrun donor Punch_Cross on dest (~55%) — donor DOES pose dest.
+    Death: dest-native Death01, scan for lying + on-back (Orrun Death01 on dest
+    stands; dest last frame alone can be faceplant).
+    """
+    meshes = isolate_dest_for_stills(arm)
+    # Re-assert olive lives on male_body (dest-import white proxy if skipped).
+    apply_finished_olive_skin(arm)
+    meshes = ensure_dest_identity_visible(arm)
+
+    death_name = resolved["Death"]
+    if death_name != "Death01" and "Death01" in {a.name for a in bpy.data.actions}:
+        death_name = "Death01"
+    death_act = bpy.data.actions.get(death_name)
+    if death_act is None:
+        have = sorted(a.name for a in bpy.data.actions)
+        raise RuntimeError(
+            f"dest-native death action {death_name!r} missing; have={have}. "
+            f"Do not invent Death."
+        )
+
+    # Punch only from Orrun (read-only) — verified to drive dest armature.
+    orrun_still = fetch_orrun_still_actions(("Punch_Cross",))
     punch_act = orrun_still["Punch_Cross"]
-    # Re-isolate after donor import cleanup (dest identity must stay visible).
     meshes = isolate_dest_for_stills(arm)
+    apply_finished_olive_skin(arm)
 
+    death_frame = find_death_on_back_frame(arm, death_act)
     frames = {
         "Idle": action_frame(resolved["Idle"], "idle"),
         "Walk": action_frame(resolved["Walk"], "walk"),
         "Punch": action_frame_for_action(punch_act, "punch"),
-        "Death": action_frame_for_action(death_act, "death"),
+        "Death": death_frame,
     }
     action_for = {
         "Idle": resolved["Idle"],
@@ -2002,11 +2166,6 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
         f"still frames ({tag}): "
         + ", ".join(f"{lab}={action_for[lab]!r}@{frames[lab]}" for lab in PREVIEW_CLIPS)
     )
-    if frames["Death"] <= 1:
-        raise RuntimeError(
-            f"Death still frame {frames['Death']} looks like start/rest; "
-            f"expected final on-back hold of donor Death01"
-        )
 
     out = {}
     for label in PREVIEW_CLIPS:
@@ -2024,14 +2183,18 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
             clip_label = resolved[label]
 
         meshes = ensure_dest_identity_visible(arm)
+        # male_body must be among visible still subjects (olive skin).
+        if not any(o.name.lower() == "male_body" for o in meshes):
+            raise RuntimeError(
+                f"AFTER {label} missing male_body in visible meshes; "
+                f"have={sorted(o.name for o in meshes)}"
+            )
         center, extent = posed_bbox(meshes)
         if label == "Death":
             head = head_world_pos(arm)
-            # Aim death camera toward head so on-back face/tusks read clearly.
             setup_death_preview(center, extent, look_at=head)
         elif label == "Punch":
             head = head_world_pos(arm)
-            # Include head in framing center so tusks stay on-screen.
             center = Vector((center.x, center.y, max(center.z, head.z * 0.55 + 0.35)))
             setup_standing_preview(center, extent, look_at=head, show_head=True)
         else:
@@ -2152,7 +2315,7 @@ def run_restyle() -> dict:
         )
 
     # AFTER stills on the LIVE restyled dest (before export). Idle/Walk use dest
-    # actions; Punch/Death apply Orrun donor Death01/Punch_Cross onto dest arm.
+    # actions; Punch uses Orrun Punch_Cross on dest; Death scans dest-native Death01.
     after_previews = render_clip_stills(arm, resolved_scene, "after")
     still_frames = after_previews.pop("_frames", {})
     still_actions = after_previews.pop("_actions", {})
@@ -2217,13 +2380,15 @@ def run_restyle() -> dict:
         "gear": [o.name for o in gear],
         "removed_garments": removed_garments,
         "previews_after": after_previews,
+        "still_frames": still_frames,
+        "still_actions": still_actions,
         "art_review_packet": str(ART_REVIEW_PACKET),
         "clip_list_md": str(CLIP_LIST_MD),
         "uv_layout_hint": str(UV_LAYOUT),
         "lookdev": str(LOOKDEV),
         "note": (
-            "HOLD fix: no worksuit clothes; finished olive-grey skin; "
-            "look-dev harness/loincloth; AFTER stills only"
+            "AFTER Death=dest-native Death01 on-back scan; "
+            "Punch=Orrun Punch_Cross on dest; olive on male_body"
         ),
         "packet_notes": packet.get("notes"),
     }
