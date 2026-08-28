@@ -796,6 +796,9 @@ def restyle_bulk_and_jaw(arm) -> None:
         cy = 0.5 * (min(ys) + max(ys))
         z0, z1 = min(zs), max(zs)
         height = max(z1 - z0, 1e-3)
+        if "head" not in arm.data.bones:
+            raise RuntimeError("53-bone bind missing head bone for mouth/jaw restyle")
+        head_z = float(HQ.rest_world(arm, "head").to_translation().z)
 
         for v in me.vertices:
             hw = vg_weight(v, head_i)
@@ -822,25 +825,26 @@ def restyle_bulk_and_jaw(arm) -> None:
                 bulk += 0.012 * max(0.0, 1.0 - hw)
 
             z_rel = (v.co.z - z0) / height
+            dz = v.co.z - head_z
 
-            # Mandible only — below the mouth mid. Never the brow band (>=~0.88).
-            if hw >= 0.25 and 0.72 < z_rel < 0.80 and v.co.y < cy + 0.02:
-                jaw = (hw - 0.20) * 0.070
+            # Mandible / mouth use head-bone-relative Z (full-body z_rel puts the
+            # mouth near ~0.88–0.92 — the old 0.80–0.87 band was empty).
+            # Never touch brow (dz > -0.01).
+            if hw >= 0.25 and -0.145 <= dz <= -0.055 and v.co.y < cy + 0.02:
+                jaw = (hw - 0.18) * 0.070
                 v.co.y -= jaw * 0.85
                 v.co.z -= jaw * 0.18
                 v.co.x += math.copysign(jaw * 0.85, v.co.x - cx)
 
             # Widen + open mouth cavity so tusks read as coming out of the mouth.
-            if hw >= 0.30 and 0.80 <= z_rel < 0.875 and v.co.y < cy:
-                mouth_mid_z = z0 + 0.835 * height
-                widen = 0.016 * hw
+            if hw >= 0.25 and -0.110 <= dz <= -0.012 and v.co.y < cy:
+                mouth_mid_z = head_z - 0.055
+                widen = 0.018 * hw
                 v.co.x += math.copysign(widen, v.co.x - cx)
                 if v.co.z < mouth_mid_z:
-                    # Lower lip down + slight forward for cavity.
                     v.co.z -= 0.012 * hw
                     v.co.y -= 0.010 * hw
                 else:
-                    # Upper lip up + slight forward.
                     v.co.z += 0.008 * hw
                     v.co.y -= 0.006 * hw
 
@@ -849,7 +853,10 @@ def restyle_bulk_and_jaw(arm) -> None:
                 v.co.y += radial.y * bulk
 
         me.update()
-        log(f"restyled mesh {obj.name!r} verts={len(me.vertices)}")
+        log(
+            f"restyled mesh {obj.name!r} verts={len(me.vertices)} "
+            f"head_z={head_z:.4f} (mouth/jaw via head-relative dz)"
+        )
 
     flatten_male_body_brow_spikes(arm)
 
@@ -975,17 +982,39 @@ def male_body_mesh(arm):
     raise RuntimeError("male_body mesh required for mouth/tusk placement")
 
 
-def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
-    """Head-weighted lower-lip / mouth-corner verts on male_body (object space).
+def _log_zrel_histogram(label: str, zrels: list[float], *, lo: float, hi: float, step: float) -> None:
+    """Log a coarse histogram so empty mouth bands are diagnosable locally."""
+    if not zrels:
+        log(f"{label}: empty (no samples)")
+        return
+    bins = []
+    edge = lo
+    while edge < hi - 1e-9:
+        bins.append((edge, edge + step, 0))
+        edge += step
+    for z in zrels:
+        for i, (a, b, _) in enumerate(bins):
+            if a <= z < b or (b >= hi - 1e-9 and a <= z <= b):
+                a0, b0, c0 = bins[i]
+                bins[i] = (a0, b0, c0 + 1)
+                break
+    parts = [f"[{a:.2f},{b:.2f})={c}" for a, b, c in bins if c]
+    log(
+        f"{label}: n={len(zrels)} min={min(zrels):.3f} max={max(zrels):.3f} "
+        f"hist={parts or '(all outside range)'}"
+    )
 
-    Returns (left_corner, right_corner) in mesh local space. Character faces -Y;
-    character left is -X when facing -Y.
-    """
+
+def collect_head_front_face_samples(arm) -> tuple[object, list[dict]]:
+    """Head-weighted front-hemisphere samples on male_body for mouth hunting."""
     body = male_body_mesh(arm)
     me = body.data
     head_i = vg_index(body, "head")
     if head_i is None:
         raise RuntimeError("male_body missing head vertex group for mouth anchors")
+    if "head" not in arm.data.bones:
+        raise RuntimeError("53-bone bind missing head bone for mouth anchors")
+    head_z = float(HQ.rest_world(arm, "head").to_translation().z)
     xs = [v.co.x for v in me.vertices]
     ys = [v.co.y for v in me.vertices]
     zs = [v.co.z for v in me.vertices]
@@ -993,63 +1022,224 @@ def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
     cy = 0.5 * (min(ys) + max(ys))
     z0, z1 = min(zs), max(zs)
     height = max(z1 - z0, 1e-3)
-
-    candidates = []
+    samples = []
     for v in me.vertices:
         hw = vg_weight(v, head_i)
-        if hw < 0.35:
+        if hw < 0.20:
             continue
+        if v.co.y > cy:
+            continue  # back half of bbox — not the face
         z_rel = (v.co.z - z0) / height
-        if not (0.80 <= z_rel <= 0.870):
-            continue
-        if v.co.y > cy - 0.01:
-            continue  # not front of face
-        candidates.append(v)
-    if len(candidates) < 6:
+        dz = v.co.z - head_z
+        samples.append(
+            {
+                "v": v,
+                "hw": hw,
+                "x": float(v.co.x),
+                "y": float(v.co.y),
+                "z": float(v.co.z),
+                "z_rel": z_rel,
+                "dz": dz,
+                "cx": cx,
+                "cy": cy,
+                "z0": z0,
+                "height": height,
+                "head_z": head_z,
+            }
+        )
+    _log_zrel_histogram(
+        "head-front z_rel",
+        [s["z_rel"] for s in samples],
+        lo=0.70,
+        hi=1.001,
+        step=0.02,
+    )
+    _log_zrel_histogram(
+        "head-front dz(head)",
+        [s["dz"] for s in samples],
+        lo=-0.20,
+        hi=0.16,
+        step=0.02,
+    )
+    return body, samples
+
+
+def resolve_mouth_zrel_band(samples: list[dict]) -> tuple[float, float, float]:
+    """Derive mouth z_rel band from forward head verts (not a fixed 0.80–0.87).
+
+    Returns (mouth_lo, mouth_hi, brow_lo). Mouth is the lower portion of the
+    forward face cluster; brow_lo is the refuse floor for cheek/brow.
+    """
+    if len(samples) < 20:
+        raise RuntimeError(
+            f"too few head-front samples for mouth band ({len(samples)})"
+        )
+    # Most-forward subset (MH faces -Y).
+    ordered = sorted(samples, key=lambda s: s["y"])
+    fwd = ordered[: max(40, len(ordered) * 45 // 100)]
+    zrels = sorted(s["z_rel"] for s in fwd)
+
+    def pct(p: float) -> float:
+        i = int(round((len(zrels) - 1) * p))
+        return zrels[max(0, min(len(zrels) - 1, i))]
+
+    face_lo = pct(0.05)
+    face_hi = pct(0.95)
+    span = max(face_hi - face_lo, 1e-3)
+    # Lower ~40% of forward face = mouth/lips; brow from ~55% up.
+    mouth_lo = face_lo + 0.05 * span
+    mouth_hi = face_lo + 0.45 * span
+    brow_lo = face_lo + 0.55 * span
+    log(
+        f"mouth band from forward face: face_z_rel=[{face_lo:.3f},{face_hi:.3f}] "
+        f"mouth=[{mouth_lo:.3f},{mouth_hi:.3f}] brow_lo={brow_lo:.3f} "
+        f"(fwd_n={len(fwd)})"
+    )
+    return mouth_lo, mouth_hi, brow_lo
+
+
+def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector]:
+    """Head-weighted lower-lip / mouth-corner verts on male_body (object space).
+
+    Full-body z_rel 0.80–0.87 was empty on MH male_body (face lives ~0.88+).
+    Logs a head-front histogram, derives an adaptive mouth band, then expands
+    until real L/R corners exist. Still refuses cheek/brow. No head-bone offsets
+    for the tusk bases — anchors are mesh verts (nudged into the cavity).
+    """
+    _body, samples = collect_head_front_face_samples(arm)
+    if not samples:
+        raise RuntimeError("no head-weighted front verts on male_body for mouth anchors")
+    cx = samples[0]["cx"]
+    cy = samples[0]["cy"]
+    z0 = samples[0]["z0"]
+    height = samples[0]["height"]
+    head_z = samples[0]["head_z"]
+    mouth_lo, mouth_hi, brow_lo = resolve_mouth_zrel_band(samples)
+
+    # Parallel head-relative dz windows (expand if z_rel band is sparse).
+    dz_windows = (
+        (-0.110, -0.018),
+        (-0.130, -0.012),
+        (-0.150, -0.008),
+        (-0.160, -0.005),
+    )
+
+    def pick_candidates(z_lo: float, z_hi: float, dz_lo: float, dz_hi: float, hw_min: float):
+        out = []
+        for s in samples:
+            if s["hw"] < hw_min:
+                continue
+            if s["y"] > cy - 0.005:
+                continue
+            if not (z_lo <= s["z_rel"] <= z_hi):
+                # Allow dz window as alternate when z_rel band is mis-scaled.
+                if not (dz_lo <= s["dz"] <= dz_hi):
+                    continue
+            else:
+                # Still require plausible mouth dz (not brow / not chest).
+                if s["dz"] > -0.005 or s["dz"] < -0.18:
+                    continue
+            if s["z_rel"] >= brow_lo:
+                continue  # cheek/brow refuse
+            if abs(s["x"] - cx) > 0.090:
+                continue
+            out.append(s)
+        return out
+
+    candidates = []
+    used = None
+    # Widen/shift mouth_hi toward brow_lo until we have corners.
+    for expand in (0.0, 0.03, 0.06, 0.09, 0.12):
+        z_hi = min(mouth_hi + expand, brow_lo - 0.005)
+        z_lo = mouth_lo - 0.5 * expand
+        for dz_lo, dz_hi in dz_windows:
+            for hw_min in (0.35, 0.28, 0.22, 0.18):
+                cand = pick_candidates(z_lo, z_hi, dz_lo, dz_hi, hw_min)
+                if len(cand) >= 6:
+                    left_side = [s for s in cand if s["x"] < cx]
+                    right_side = [s for s in cand if s["x"] >= cx]
+                    if left_side and right_side:
+                        candidates = cand
+                        used = (z_lo, z_hi, dz_lo, dz_hi, hw_min, len(cand))
+                        break
+            if candidates:
+                break
+        if candidates:
+            break
+
+    if len(candidates) < 6 or used is None:
         raise RuntimeError(
             f"too few mouth-band verts for tusk anchors ({len(candidates)}); "
-            f"mouth widen may have failed on male_body"
+            f"mouth_lo={mouth_lo:.3f} mouth_hi={mouth_hi:.3f} brow_lo={brow_lo:.3f} "
+            f"head_z={head_z:.4f}. See head-front z_rel/dz histograms above."
         )
+    log(
+        f"mouth candidates n={used[5]} z_rel=[{used[0]:.3f},{used[1]:.3f}] "
+        f"dz=[{used[2]:.3f},{used[3]:.3f}] hw_min={used[4]}"
+    )
+
     # Prefer forward half of mouth band, then extreme X as corners.
-    candidates.sort(key=lambda v: v.co.y)
+    candidates.sort(key=lambda s: s["y"])
     front = candidates[: max(8, len(candidates) // 2)]
-    left_side = [v for v in front if v.co.x < cx]
-    right_side = [v for v in front if v.co.x >= cx]
+    left_side = [s for s in front if s["x"] < cx]
+    right_side = [s for s in front if s["x"] >= cx]
+    if not left_side or not right_side:
+        # Fall back to full candidate set if forward half is one-sided.
+        left_side = [s for s in candidates if s["x"] < cx]
+        right_side = [s for s in candidates if s["x"] >= cx]
     if not left_side or not right_side:
         raise RuntimeError(
             f"mouth anchors missing L/R split "
-            f"(L={len(left_side)} R={len(right_side)} front={len(front)})"
+            f"(L={len(left_side)} R={len(right_side)} cand={len(candidates)})"
         )
-    # Character left = min X; character right = max X.
-    left = min(left_side, key=lambda v: v.co.x)
-    right = max(right_side, key=lambda v: v.co.x)
-    # Nudge slightly into the mouth cavity (toward center + deeper -Y + down).
-    def into_mouth(v, sign_x: float) -> Vector:
+
+    # Among each side, prefer forward verts that still have some |x| (true corners).
+    def pick_corner(side: list[dict], want_left: bool) -> dict:
+        side_sorted = sorted(side, key=lambda s: s["y"])
+        forward_side = side_sorted[: max(4, len(side_sorted) // 2)]
+        if want_left:
+            return min(forward_side, key=lambda s: s["x"])
+        return max(forward_side, key=lambda s: s["x"])
+
+    left = pick_corner(left_side, True)
+    right = pick_corner(right_side, False)
+
+    def into_mouth(s: dict, sign_x: float) -> Vector:
+        # Nudge into cavity: toward center, deeper -Y, slightly down.
         return Vector(
             (
-                v.co.x - sign_x * 0.006,
-                v.co.y - 0.012,
-                v.co.z - 0.006,
+                s["x"] - sign_x * 0.006,
+                s["y"] - 0.012,
+                s["z"] - 0.006,
             )
         )
 
     left_p = into_mouth(left, -1.0)
     right_p = into_mouth(right, 1.0)
-    # Sanity: corners must not sit on cheeks (too far |x| or too high).
-    for label, p in (("L", left_p), ("R", right_p)):
+
+    for label, p, src in (("L", left_p, left), ("R", right_p, right)):
         z_rel = (p.z - z0) / height
-        if z_rel > 0.885:
+        dz = p.z - head_z
+        if z_rel >= brow_lo or dz > -0.005:
             raise RuntimeError(
-                f"tusk anchor {label} z_rel={z_rel:.3f} looks like cheek/brow, not mouth"
+                f"tusk anchor {label} looks like cheek/brow "
+                f"(z_rel={z_rel:.3f} brow_lo={brow_lo:.3f} dz={dz:.3f} "
+                f"src_z_rel={src['z_rel']:.3f})"
             )
         if abs(p.x - cx) > 0.085:
             raise RuntimeError(
                 f"tusk anchor {label} |x|={abs(p.x - cx):.3f} looks like cheek, not mouth"
             )
+        if abs(p.x - cx) < 0.012:
+            raise RuntimeError(
+                f"tusk anchor {label} |x|={abs(p.x - cx):.3f} too centered — not a corner"
+            )
     log(
         f"mouth anchors L={tuple(round(c, 4) for c in left_p)} "
         f"R={tuple(round(c, 4) for c in right_p)} "
-        f"(from male_body verts, not head-bone offsets)"
+        f"z_rel=({(left_p.z - z0) / height:.3f},{(right_p.z - z0) / height:.3f}) "
+        f"dz=({left_p.z - head_z:.3f},{right_p.z - head_z:.3f}) "
+        f"(male_body verts, not head-bone offsets)"
     )
     return left_p, right_p
 
