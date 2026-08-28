@@ -1,63 +1,79 @@
 # -*- coding: utf-8 -*-
-"""Ambitious orc restyle on the MakeHuman 53-bone UAL-baked worksuit path.
+"""Ambitious orc restyle on the MakeHuman 53-bone UAL-baked path.
 
 Art / Asset Lab only. Does not write Orrun or Origin, does not author clips,
 does not add bones, does not use Quaternius Orc.glb as a donor.
 
-Animation donor (read-only, ~45 UAL clips — never overwrite):
-  C:\\Projekte\\OrrunWithEngine\\orrun\\assets\\humans\\male_dressed_male_worksuit01.glb
+Art Reviewer HOLD fix: dest must NOT read as a painted human in overalls.
+  - Delete worksuit tee/dungarees (and other garment meshes) on dest.
+  - Swap holey dressed body for nude male_base meshes (same 53-bone weights).
+  - Finished olive-grey skin on existing MH body UVs (no UV-grid / checker /
+    island-wire diagnostic albedo).
+  - Look-dev harness + loincloth as extra meshes (tribal bind_mesh pattern):
+    chest straps, left spaulder, belt, ragged loincloth. No cleaver/shield.
+  - Tusks stay on head. No thigh/calf/pelvis scale. No ogre hunch.
+  - Reshoot AFTER stills only: Idle, Walk, Death01, Punch_Cross.
 
-AG worksuit (read-only, often Idle/Walk only — never overwrite):
-  C:\\Projekte\\AssetGenerator\\assets\\humans\\male_dressed_male_worksuit01.glb
+Exact local invoke (Arnd, AG blenderctl 4.5 / Blender 4.5):
 
-UV source for --uv-only (read-only, clean full-body MH UVs; may have 0 clips):
-  C:\\Projekte\\AssetGenerator\\assets\\humans\\male_base.glb
+  Full restyle + Art Reviewer AFTER stills + clip list::
 
-Dest (NEW file only under AG humans):
-  C:\\Projekte\\AssetGenerator\\assets\\humans\\male_orc_01.glb
+    <AG blender> --background --factory-startup --python ^
+      C:\\Projekte\\AssetGenerator\\tools\\bake_human_orc.py
 
-Scratch (gitignored):
-  C:\\Projekte\\AssetGenerator\\tools\\_human_orc_bake\\
+  UV template only (no Punch/Death gate; CPU raster, not uv.export_layout)::
 
-Full restyle copies the Orrun worksuit (mesh + UAL clips) onto dest, then
-restyles MESH only. Required playback aliases (not authored here):
-  Idle: Idle, Idle_Loop
-  Walk: Walk, Walk_Loop
-  Death: Death, Death01
-  Punch: Punch_Cross (preferred), Punch_Jab, Punch_Enter
-    (Orrun has no clip literally named Punch — never invent one)
-If Punch/Death cannot be resolved, use the Orrun animation donor or run
-tools/bake_human_quaternius.py (full UAL) onto dest — never invent clips.
+    <AG blender> --background --factory-startup --python ^
+      C:\\Projekte\\AssetGenerator\\tools\\bake_human_orc.py -- --uv-only
 
---uv-only defaults to male_base.glb: export existing UV islands, log the actual
-clip list (may be empty). Does NOT call assert_required_clips / require
-Punch/Death. UV template ships even when combat clips are absent.
+Paths (donor / dest — never overwrite donors):
 
-Look-dev (silhouette + material target only — NOT a UV map):
-  tools/_human_orc_bake/orc_lookdev_threequarter.png
-  Project onto existing dest MH UVs; never bpy.ops.uv.smart_project.
-  Placeholder olive albedo is OK until look-dev is painted onto dest UVs.
-  Call blender/lib/bake.py only after look-dev lives on those dest UVs.
+  Animation donor (read-only, ~45 UAL clips):
+    C:\\Projekte\\OrrunWithEngine\\orrun\\assets\\humans\\male_dressed_male_worksuit01.glb
+  AG worksuit (read-only, often Idle/Walk only — never the UAL donor):
+    C:\\Projekte\\AssetGenerator\\assets\\humans\\male_dressed_male_worksuit01.glb
+  Nude body swap (read-only; full MH body, no clothes delete-mask):
+    C:\\Projekte\\AssetGenerator\\assets\\humans\\male_base.glb
+  Dest (NEW file only under AG humans):
+    C:\\Projekte\\AssetGenerator\\assets\\humans\\male_orc_01.glb
+  Scratch (gitignored):
+    C:\\Projekte\\AssetGenerator\\tools\\_human_orc_bake\\
+  Optional look-dev reference (silhouette / color target, not a UV map):
+    C:\\Projekte\\AssetGenerator\\tools\\_human_orc_bake\\orc_lookdev_threequarter.png
 
-Run (Arnd, AG blenderctl 4.5 / Blender 4.5):
-  <AG blender> --background --factory-startup --python
-    C:\\Projekte\\AssetGenerator\\tools\\bake_human_orc.py
+Clip aliases (resolve existing names only — never invent Punch or Death):
 
-Ship the UV template before a full restyle (first flag):
-  <AG blender> --background --factory-startup --python
-    C:\\Projekte\\AssetGenerator\\tools\\bake_human_orc.py -- --uv-only
+  Idle  -> Idle, Idle_Loop
+  Walk  -> Walk, Walk_Loop
+  Death -> Death01 (preferred), Death
+  Punch -> Punch_Cross (preferred), Punch_Jab, Punch_Enter
+           (Orrun has no clip literally named Punch)
 
---uv-only writes (CPU raster — NOT bpy.ops.uv.export_layout, which needs GPU):
-  tools/_human_orc_bake/male_base_uv_layout.png
-from male_base existing UV islands. Fails loud if no UV layer.
+Full restyle path:
+  1. Seed dest from Orrun worksuit copy (UAL clips), OR if Orrun is missing
+     seed AG worksuit mesh then bake_human_quaternius.bake_one(dest) —
+     never invent clips.
+  2. Strip worksuit garments; attach nude male_base body on the same armature.
+  3. Mesh-only restyle (bulk/jaw) + tusks + look-dev harness/loincloth.
+  4. Finished olive-grey skin on MH UVs (Principled; no diagnostic grid).
+  5. Re-export skinned dest with every donor action preserved (fake_user + NLA).
+  6. Write Art Reviewer packet under tools/_human_orc_bake/previews/:
+       male_orc_01_after_{idle,walk,death,punch}.png
+       CLIP_LIST.md          (actual names + resolved aliases)
+       art_review_packet.json
+
+--uv-only writes tools/_human_orc_bake/male_base_uv_layout.png from existing
+male_base UV islands (CPU PNG; bpy.ops.uv.export_layout needs GPU and fails
+under --background). Does NOT call assert_required_clips.
 
 Restyle rules:
   - MESH only on the existing 53-bone bind (BONE_MAP from bake_human_quaternius).
   - Conservative bulk via vertex displace; jaw on head-weighted verts.
-  - Tusks as extra meshes bound to bone ``head`` via bind_mesh.
+  - Tusks + harness/loincloth bound via bind_mesh; no new bones.
   - Do NOT scale thigh / calf / pelvis bones. No ogre hunch, no invented gait.
-  - Keep worksuit clothes. Drop cleaver/shield if present (look-dev gear only).
+  - Do NOT keep worksuit clothes. Drop cleaver/shield if present.
   - Log hip_height_z before/after; fail if pelvis rest Z moves more than ~1 cm.
+  - After export, every donor clip name must still exist on dest (loud fail).
   - Guards snapshot AG worksuit / Orrun worksuit / male_base / casualsuit /
     Quaternius Orc.glb.
 """
@@ -98,6 +114,8 @@ SCRATCH = AG / "tools" / "_human_orc_bake"
 UV_LAYOUT = SCRATCH / "male_base_uv_layout.png"
 LOOKDEV = SCRATCH / "orc_lookdev_threequarter.png"
 PREVIEW_DIR = SCRATCH / "previews"
+ART_REVIEW_PACKET = PREVIEW_DIR / "art_review_packet.json"
+CLIP_LIST_MD = PREVIEW_DIR / "CLIP_LIST.md"
 
 QUATERNIUS_ORC = AG / "assets" / "monsters" / "quaternius" / "big" / "Orc.glb"
 FORBIDDEN_ORC_MARKERS = (
@@ -117,26 +135,53 @@ GUARD_PATHS = [
 ]
 
 # Required playback names from Orrun UAL worksuit (~45 clips).
-# There is no clip literally named "Punch" — map to Punch_Cross (preferred),
-# Punch_Jab, or Punch_Enter. Never invent a Punch action.
+# There is no clip literally named "Punch" or inventable "Death" —
+# resolve Death01 / Punch_Cross (etc.) only. Never invent actions.
 REQUIRED_CLIP_GROUPS = (
     ("Idle", ("Idle", "Idle_Loop")),
     ("Walk", ("Walk", "Walk_Loop")),
-    ("Punch", ("Punch_Cross", "Punch_Jab", "Punch_Enter", "Punch")),
-    ("Death", ("Death", "Death01")),
+    ("Punch", ("Punch_Cross", "Punch_Jab", "Punch_Enter")),
+    ("Death", ("Death01", "Death")),
 )
 
 PREVIEW_CLIPS = ("Idle", "Walk", "Death", "Punch")
 PELVIS_MAX_DELTA_M = 0.011  # ~1 cm
 TEX_SIZE = 1024
-OLIVE = (0.28, 0.34, 0.18)
-OLIVE_DARK = (0.18, 0.24, 0.12)
+# Finished olive-grey skin (look-dev target). Not a UV-grid / checker.
+OLIVE = (0.34, 0.38, 0.28)
+OLIVE_SHADOW = (0.22, 0.26, 0.18)
+OLIVE_WARM = (0.40, 0.36, 0.26)
 TUSK = (0.92, 0.88, 0.78)
+LEATHER = (0.16, 0.10, 0.07)
+LEATHER_DARK = (0.10, 0.07, 0.05)
+LEATHER_RED = (0.28, 0.14, 0.09)
+RAG_TAN = (0.42, 0.32, 0.22)
+METAL = (0.55, 0.50, 0.42)
 JSON_FOURCC = 0x4E4F534A
 BIN_FOURCC = 0x004E4942
 
 # Never scale these bones (keep MH gait / hip height).
 NO_SCALE_BONES = ("pelvis", "thigh_l", "thigh_r", "calf_l", "calf_r")
+
+# Garment / worksuit mesh name markers (tee, dungarees, shoes, …).
+GARMENT_NAME_KEYS = (
+    "work",
+    "suit",
+    "shoe",
+    "boot",
+    "cloth",
+    "garment",
+    "pants",
+    "shirt",
+    "tee",
+    "tshirt",
+    "dungaree",
+    "overall",
+    "jean",
+    "sock",
+    "glove",
+)
+WEAPON_NAME_KEYS = ("cleaver", "shield", "axe", "sword", "weapon")
 
 
 def log(msg: str) -> None:
@@ -219,29 +264,49 @@ def hip_height_z(arm) -> float:
     return HQ.hip_height_z(arm, "pelvis")
 
 
-def seed_dest_from_anim_donor(*, force: bool) -> None:
-    """Copy Orrun full-UAL worksuit onto AG dest. Never writes Orrun or AG worksuit."""
+def seed_dest_from_anim_donor(*, force: bool) -> str:
+    """Copy Orrun full-UAL worksuit onto AG dest. Never writes Orrun or AG worksuit.
+
+    Returns seed mode: ``orrun_copy`` or ``bake_one``.
+    """
     refuse_quaternius_orc(ANIM_DONOR, DEST, AG_WORKSUIT)
     ensure_not_protected_dest(DEST)
-    if not ANIM_DONOR.is_file():
-        raise FileNotFoundError(
-            f"missing Orrun UAL worksuit animation donor: {ANIM_DONOR}. "
-            f"Alternatively run tools/bake_human_quaternius.py (full UAL) onto "
-            f"{DEST.name} after seeding mesh — bake_human_orc.py does not author clips."
-        )
     if DEST.resolve() == ANIM_DONOR.resolve():
         raise RuntimeError("dest must not be the Orrun worksuit")
     if DEST.resolve() == AG_WORKSUIT.resolve():
         raise RuntimeError("dest must not be the AG worksuit")
     if DEST.is_file() and not force:
         log(f"dest exists, reusing {DEST} ({DEST.stat().st_size} bytes)")
-        return
+        return "reuse"
+
     DEST.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(ANIM_DONOR, DEST)
+
+    if ANIM_DONOR.is_file():
+        shutil.copy2(ANIM_DONOR, DEST)
+        log(
+            f"copied anim donor (Orrun worksuit) -> dest {DEST} "
+            f"({DEST.stat().st_size} bytes)"
+        )
+        return "orrun_copy"
+
+    # Fallback: seed mesh from AG worksuit, then UAL-bake onto dest only.
+    if not AG_WORKSUIT.is_file():
+        raise FileNotFoundError(
+            f"missing Orrun UAL worksuit animation donor: {ANIM_DONOR} "
+            f"and missing AG worksuit mesh seed: {AG_WORKSUIT}. "
+            f"Cannot seed {DEST.name}; bake_human_orc.py does not author clips."
+        )
     log(
-        f"copied anim donor (Orrun worksuit) -> dest {DEST} "
-        f"({DEST.stat().st_size} bytes)"
+        f"Orrun donor missing ({ANIM_DONOR}); seeding mesh from AG worksuit "
+        f"then bake_human_quaternius.bake_one({DEST.name})"
     )
+    shutil.copy2(AG_WORKSUIT, DEST)
+    # bake_one writes only dest_path (and its .bak). Never pass Orrun/Quaternius Orc.
+    refuse_quaternius_orc(DEST)
+    ensure_not_protected_dest(DEST)
+    HQ.bake_one(DEST)
+    log(f"bake_one complete -> {DEST} ({DEST.stat().st_size} bytes)")
+    return "bake_one"
 
 
 def glb_anim_names(path: Path) -> list[str]:
@@ -284,7 +349,7 @@ def _punch_death_hint(have: list[str] | set[str]) -> str:
     return (
         f"have={sorted(have)}. "
         f"Use Orrun animation donor {ANIM_DONOR} (copy onto dest), or run "
-        f"tools/bake_human_quaternius.py (full UAL) onto {DEST.name} first — "
+        f"tools/bake_human_quaternius.py / bake_one({DEST.name}) first — "
         f"bake_human_orc.py does not author Punch/Death. "
         f"Do not use AG {AG_WORKSUIT.name} alone when it only has Idle/Walk."
     )
@@ -313,8 +378,177 @@ def assert_required_clips(path: Path) -> dict[str, str]:
 
 def log_clip_list(path: Path) -> list[str]:
     anims = glb_anim_names(path)
-    log(f"clips on {path.name}: {anims}")
+    log(f"clips on {path.name} ({len(anims)}): {anims}")
     return anims
+
+
+def assert_donor_clips_preserved(donor_clips: list[str], dest_path: Path) -> list[str]:
+    """Every donor animation name must survive on dest. Never invent replacements."""
+    dest_clips = glb_anim_names(dest_path)
+    dest_set = set(dest_clips)
+    missing = [n for n in donor_clips if n and n not in dest_set]
+    if missing:
+        raise RuntimeError(
+            f"dest {dest_path.name} lost {len(missing)} donor clip(s) after restyle "
+            f"export: {missing}. Donor had {len(donor_clips)}, dest has {len(dest_clips)}. "
+            f"Refusing to ship a skinned mesh that dropped UAL actions."
+        )
+    log(
+        f"donor clips preserved on dest: {len(donor_clips)}/{len(donor_clips)} "
+        f"(dest total={len(dest_clips)})"
+    )
+    return dest_clips
+
+
+def preserve_all_actions_for_export(arm) -> list[str]:
+    """Keep every imported UAL action alive for glTF ACTIONS+NLA export."""
+    actions = [a for a in bpy.data.actions if a is not None]
+    if not actions:
+        raise RuntimeError(
+            "no bpy.data.actions after dest import; cannot export skinned UAL clips"
+        )
+    if arm.animation_data is None:
+        arm.animation_data_create()
+    arm.animation_data.action = None
+    for track in list(arm.animation_data.nla_tracks):
+        arm.animation_data.nla_tracks.remove(track)
+    names: list[str] = []
+    for act in actions:
+        act.use_fake_user = True
+        HQ.push_nla(arm, act, act.name)
+        names.append(act.name)
+    # Clear active action so export reads NLA strips / ACTIONS cleanly.
+    arm.animation_data.action = None
+    log(f"preserved {len(names)} actions on NLA for export: {sorted(names)}")
+    return sorted(names)
+
+
+def still_path(tag: str, label: str) -> Path:
+    return PREVIEW_DIR / f"male_orc_01_{tag}_{label.lower()}.png"
+
+
+def write_art_review_packet(
+    *,
+    seed_mode: str,
+    donor_clips: list[str],
+    dest_clips: list[str],
+    resolved: dict[str, str],
+    after_previews: dict[str, str],
+    hip_before: float,
+    hip_after: float,
+    tusks: list[str],
+    gear: list[str],
+    removed_garments: list[str],
+    before_previews: dict[str, str] | None = None,
+) -> dict:
+    """Art Reviewer packet: AFTER stills + actual clip names (never invented)."""
+    ensure_scratch()
+    alias_rows = []
+    for label, candidates in REQUIRED_CLIP_GROUPS:
+        alias_rows.append(
+            {
+                "label": label,
+                "resolved": resolved[label],
+                "candidates": list(candidates),
+            }
+        )
+
+    for label in PREVIEW_CLIPS:
+        p = Path(after_previews[label])
+        if not p.is_file():
+            raise RuntimeError(f"Art Reviewer AFTER still missing ({label}): {p}")
+
+    stills = {
+        "after": {k: after_previews[k] for k in PREVIEW_CLIPS},
+        "expected_filenames": {
+            "after": [still_path("after", lab).name for lab in PREVIEW_CLIPS],
+        },
+        "note": (
+            "AFTER stills only (HOLD reshoot). Poses: Idle, Walk, Death01, Punch_Cross "
+            "via resolved aliases — never invent clips."
+        ),
+    }
+    if before_previews:
+        stills["before"] = {k: before_previews[k] for k in PREVIEW_CLIPS}
+
+    packet = {
+        "title": "male_orc_01 Art Reviewer packet (skinned mesh, HOLD fix)",
+        "dest": str(DEST),
+        "anim_donor": str(ANIM_DONOR),
+        "ag_worksuit_guarded": str(AG_WORKSUIT),
+        "male_base_body": str(MALE_BASE),
+        "seed_mode": seed_mode,
+        "clip_count_donor": len(donor_clips),
+        "clip_count_dest": len(dest_clips),
+        "clips_donor": donor_clips,
+        "clips_dest": dest_clips,
+        "aliases_resolved": resolved,
+        "alias_rows": alias_rows,
+        "stills": stills,
+        "hip_before": hip_before,
+        "hip_after": hip_after,
+        "hip_delta_m": abs(hip_after - hip_before),
+        "tusks": tusks,
+        "gear": gear,
+        "removed_garments": removed_garments,
+        "notes": [
+            "HOLD: no worksuit tee/dungarees; nude male_base body + look-dev harness.",
+            "Finished olive-grey Principled skin on MH UVs (no UV-grid / checker).",
+            "Punch resolves to Punch_Cross (preferred); there is no clip named Punch.",
+            "Death resolves to Death01 (preferred); do not invent Death.",
+            "AFTER stills only for Idle / Walk / Death / Punch labels.",
+        ],
+    }
+    ART_REVIEW_PACKET.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
+
+    lines = [
+        "# male_orc_01 Art Reviewer — clip list (HOLD fix)",
+        "",
+        f"- Dest: `{DEST}`",
+        f"- Animation donor: `{ANIM_DONOR}`",
+        f"- Body: nude `{MALE_BASE.name}` (worksuit garments removed)",
+        f"- Seed mode: `{seed_mode}`",
+        f"- Donor clips: **{len(donor_clips)}**",
+        f"- Dest clips after restyle: **{len(dest_clips)}**",
+        "",
+        "## Resolved playback aliases",
+        "",
+        "| Label | Resolved (actual name) | Candidates |",
+        "| --- | --- | --- |",
+    ]
+    for row in alias_rows:
+        lines.append(
+            f"| {row['label']} | `{row['resolved']}` | "
+            f"{', '.join(f'`{c}`' for c in row['candidates'])} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Full dest clip list (actual names)",
+            "",
+        ]
+    )
+    for name in dest_clips:
+        lines.append(f"- `{name}`")
+    lines.extend(
+        [
+            "",
+            "## AFTER stills (HOLD reshoot)",
+            "",
+            "Under `tools/_human_orc_bake/previews/`",
+            "",
+        ]
+    )
+    for label in PREVIEW_CLIPS:
+        actual = resolved[label]
+        lines.append(
+            f"- **{label}** (`{actual}`): `{still_path('after', label).name}`"
+        )
+    lines.append("")
+    CLIP_LIST_MD.write_text("\n".join(lines), encoding="utf-8")
+    log(f"Art Reviewer packet: {ART_REVIEW_PACKET}")
+    log(f"clip list doc: {CLIP_LIST_MD}")
+    return packet
 
 
 def mesh_objects():
@@ -334,18 +568,120 @@ def skinned_meshes(arm):
     return out
 
 
-def drop_cleaver_shield() -> list[str]:
-    """Remove look-dev weapons if somehow present; worksuit should have none."""
+def drop_weapons() -> list[str]:
+    """Remove look-dev weapons if somehow present (no cleaver/shield)."""
     removed = []
-    keys = ("cleaver", "shield", "axe", "sword", "weapon")
     for obj in list(mesh_objects()):
         low = obj.name.lower()
-        if any(k in low for k in keys):
+        if any(k in low for k in WEAPON_NAME_KEYS):
             name = obj.name
-            log(f"dropping gear mesh {name!r}")
+            log(f"dropping weapon mesh {name!r}")
             bpy.data.objects.remove(obj, do_unlink=True)
             removed.append(name)
     return removed
+
+
+def is_garment_mesh_name(name: str) -> bool:
+    low = name.lower()
+    return any(k in low for k in GARMENT_NAME_KEYS)
+
+
+def drop_worksuit_garments() -> list[str]:
+    """Delete tee/dungarees/shoes and other worksuit garment meshes. Reviewer: no worksuit."""
+    removed = []
+    for obj in list(mesh_objects()):
+        if is_garment_mesh_name(obj.name):
+            name = obj.name
+            log(f"dropping worksuit garment {name!r}")
+            bpy.data.objects.remove(obj, do_unlink=True)
+            removed.append(name)
+    if not removed:
+        log(
+            "no garment-named meshes found; dressed body may still be delete-masked — "
+            "male_base body swap is required"
+        )
+    else:
+        log(f"removed {len(removed)} worksuit garment mesh(es): {removed}")
+    return removed
+
+
+def strip_dressed_meshes_attach_male_base(arm) -> tuple[list, list[str]]:
+    """Replace holey dressed body with nude male_base meshes on the same armature.
+
+    Dressed worksuit GLBs stamp clothes delete-masks into the body. After dropping
+    tee/dungarees the remaining body has holes — swap in male_base (full MH body,
+    same 53-bone weight names). Keeps dest armature + Orrun UAL actions.
+    """
+    if not MALE_BASE.is_file():
+        raise FileNotFoundError(
+            f"missing nude body {MALE_BASE}; required after stripping worksuit clothes "
+            f"(dressed body is delete-masked under garments)"
+        )
+    refuse_quaternius_orc(MALE_BASE)
+
+    removed = drop_worksuit_garments()
+    # Also remove remaining dest meshes (holey body / old eyes) — male_base replaces them.
+    for obj in list(mesh_objects()):
+        name = obj.name
+        log(f"dropping dest mesh before male_base attach: {name!r}")
+        bpy.data.objects.remove(obj, do_unlink=True)
+        removed.append(name)
+
+    before_objs = set(bpy.data.objects)
+    before_actions = set(bpy.data.actions)
+    import_gltf(MALE_BASE)
+    new_objs = [o for o in bpy.data.objects if o not in before_objs]
+    base_arm = None
+    base_meshes = []
+    for o in new_objs:
+        if o.type == "ARMATURE" and "pelvis" in getattr(o.data, "bones", {}):
+            base_arm = o
+        elif o.type == "MESH":
+            base_meshes.append(o)
+    if base_arm is None:
+        raise RuntimeError("male_base import missing pelvis armature")
+    if not base_meshes:
+        raise RuntimeError("male_base import produced no meshes")
+
+    attached = []
+    for obj in base_meshes:
+        obj.parent = arm
+        obj.parent_type = "OBJECT"
+        for mod in list(obj.modifiers):
+            if mod.type == "ARMATURE":
+                mod.object = arm
+                mod.use_vertex_groups = True
+        if not any(m.type == "ARMATURE" for m in obj.modifiers):
+            mod = obj.modifiers.new("Armature", "ARMATURE")
+            mod.object = arm
+            mod.use_vertex_groups = True
+        # Fail loud if weights do not reference MH bones on dest.
+        missing_bones = [
+            vg.name
+            for vg in obj.vertex_groups
+            if vg.name not in arm.data.bones and vg.name.lower() not in ("root",)
+        ]
+        # Root may exist as bone "root" on MH — tolerate unknown empty groups lightly.
+        hard_missing = [n for n in missing_bones if n in ("pelvis", "head", "spine_01")]
+        if hard_missing:
+            raise RuntimeError(
+                f"male_base mesh {obj.name!r} missing dest bones {hard_missing}"
+            )
+        attached.append(obj)
+        log(f"attached male_base mesh {obj.name!r} -> {arm.name!r}")
+
+    # Drop the imported male_base armature (dest keeps Orrun clips).
+    bpy.data.objects.remove(base_arm, do_unlink=True)
+    # Drop any actions that arrived with male_base (usually none / empty).
+    for act in list(bpy.data.actions):
+        if act not in before_actions:
+            log(f"removing male_base-imported action {act.name!r}")
+            bpy.data.actions.remove(act)
+
+    if not attached:
+        raise RuntimeError("male_base attach produced no skinned meshes")
+    log(f"male_base body attached ({len(attached)}); removed_dest_meshes={len(removed)}")
+    return attached, removed
 
 
 def vg_index(obj, name: str):
@@ -428,10 +764,10 @@ def restyle_bulk_and_jaw(arm) -> None:
                 radial.normalize()
 
             bulk = 0.0
-            bulk += 0.028 * tw  # torso
-            bulk += 0.022 * arm_w  # delts / forearms
-            # Mild overall stockiness on clothed body pieces.
-            bulk += 0.008 * max(0.0, 1.0 - hw)
+            bulk += 0.038 * tw  # torso — nude creature read
+            bulk += 0.030 * arm_w  # delts / forearms
+            # Mild overall stockiness; skip pure head shell.
+            bulk += 0.012 * max(0.0, 1.0 - hw)
 
             # Jaw: head-weighted verts in the lower-front face region.
             jaw = 0.0
@@ -439,11 +775,11 @@ def restyle_bulk_and_jaw(arm) -> None:
                 z_rel = (v.co.z - z0) / height
                 # Lower face band; push jaw forward (-Y in MH rest) and slightly out.
                 if 0.72 < z_rel < 0.92 and v.co.y < cy + 0.02:
-                    jaw = (hw - 0.20) * 0.045
+                    jaw = (hw - 0.20) * 0.055
                     v.co.y -= jaw * 0.85
                     v.co.z -= jaw * 0.15
                     # Widen mandible.
-                    v.co.x += math.copysign(jaw * 0.55, v.co.x - cx)
+                    v.co.x += math.copysign(jaw * 0.65, v.co.x - cx)
 
             if bulk > 0.0:
                 v.co.x += radial.x * bulk
@@ -550,21 +886,25 @@ def add_tusks(arm) -> list:
 
 
 def body_like_meshes(arm):
-    """Prefer basemesh / skin meshes for albedo restyle; keep clothes materials."""
+    """Skin / basemesh targets for finished olive albedo (no garments)."""
     skins = []
     for obj in skinned_meshes(arm):
         low = obj.name.lower()
-        if any(k in low for k in ("work", "suit", "shoe", "boot", "hair", "brow", "eye")):
+        if is_garment_mesh_name(obj.name):
+            continue
+        if any(k in low for k in ("hair", "brow", "eye", "tusk", "orcgear", "strap", "belt", "loin", "spaulder", "wrap")):
             continue
         if "body" in low or "male" in low or "basemesh" in low or "human" in low:
             skins.append(obj)
     if not skins:
-        # Fallback: largest skinned mesh that has UVs + head weights.
         candidates = []
         for obj in skinned_meshes(arm):
             if not obj.data.uv_layers:
                 continue
             if vg_index(obj, "head") is None:
+                continue
+            low = obj.name.lower()
+            if any(k in low for k in ("tusk", "orcgear", "strap", "belt", "loin", "spaulder")):
                 continue
             candidates.append(obj)
         if not candidates:
@@ -574,78 +914,284 @@ def body_like_meshes(arm):
     return skins
 
 
-def apply_olive_albedo_on_dest_uvs(arm) -> None:
-    """Template-then-project placeholder olive onto existing dest UVs.
+def apply_finished_olive_skin(arm) -> None:
+    """Finished olive-grey skin on existing MH body UVs. No UV-grid / checker / wire.
 
-    Does NOT call uv.smart_project. Does NOT use blender/lib/bake.py yet —
-    that helper is only appropriate after look-dev is painted onto dest UVs.
+    Uses Principled Base Color (solid finished look). Optional LOOKDEV file is
+    logged as a silhouette/color reference only — never applied as a UV layout.
+    Does NOT call uv.smart_project. Does NOT draw island outlines into albedo.
     """
     if LOOKDEV.is_file():
-        log(f"look-dev present (silhouette/material target only): {LOOKDEV}")
+        log(f"look-dev reference present (not a UV map): {LOOKDEV}")
     else:
-        log(f"look-dev not on disk yet (optional): {LOOKDEV}")
+        log(f"look-dev reference optional/missing: {LOOKDEV}")
 
     for obj in body_like_meshes(arm):
         me = obj.data
         if not me.uv_layers:
             raise RuntimeError(f"{obj.name!r} has no UV; refusing smart_project")
-        uv_layer = me.uv_layers.active or me.uv_layers[0]
-        img = bpy.data.images.new(
-            f"OrcOlive_{obj.name}", width=TEX_SIZE, height=TEX_SIZE, alpha=True
-        )
-        img.colorspace_settings.name = "sRGB"
-        w = h = TEX_SIZE
-        px = [0.0] * (w * h * 4)
-        # Soft vertical variation so the placeholder is not a flat fill.
-        for y in range(h):
-            t = y / max(h - 1, 1)
-            r = OLIVE_DARK[0] * (1.0 - t) + OLIVE[0] * t
-            g = OLIVE_DARK[1] * (1.0 - t) + OLIVE[1] * t
-            b = OLIVE_DARK[2] * (1.0 - t) + OLIVE[2] * t
-            for x in range(w):
-                i = (y * w + x) * 4
-                # Mild leather-ish noise from UV index.
-                n = 0.04 * math.sin(x * 0.17) * math.cos(y * 0.13)
-                px[i] = max(0.0, min(1.0, r + n))
-                px[i + 1] = max(0.0, min(1.0, g + n * 0.8))
-                px[i + 2] = max(0.0, min(1.0, b + n * 0.5))
-                px[i + 3] = 1.0
-
-        # Stamp coverage from existing UV islands (project onto dest UVs).
-        covered = 0
-        for poly in me.polygons:
-            for li in poly.loop_indices:
-                uv = uv_layer.data[li].uv
-                x = int(max(0, min(w - 1, uv.x * w)))
-                y = int(max(0, min(h - 1, uv.y * h)))
-                i = (y * w + x) * 4
-                if px[i + 3] > 0.5:
-                    covered += 1
-        if covered < 16:
-            raise RuntimeError(
-                f"{obj.name!r} UV stamp covered {covered} texels; UV map looks empty"
-            )
-
-        img.pixels = px
-        img.update()
-        debug = SCRATCH / f"orc_olive_{obj.name}.png"
-        img.filepath_raw = str(debug)
-        img.file_format = "PNG"
-        img.save()
-        log(f"wrote olive template {debug} (dest UVs, no smart_project)")
-
-        mat = make_opaque_mat(f"OrcSkin_{obj.name}", OLIVE, 0.92)
+        # Solid finished olive-grey — reads as skin, not diagnostic layout.
+        mat = make_opaque_mat(f"OrcSkin_{obj.name}", OLIVE, 0.88)
         nt = mat.node_tree
         bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
-        tex = nt.nodes.new("ShaderNodeTexImage")
-        tex.image = img
-        uvn = nt.nodes.new("ShaderNodeUVMap")
-        uvn.uv_map = uv_layer.name
-        nt.links.new(uvn.outputs["UV"], tex.inputs["Vector"])
-        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        # Mild procedural mottling in object space (not UV-island wire).
+        noise = nt.nodes.new("ShaderNodeTexNoise")
+        noise.inputs["Scale"].default_value = 12.0
+        noise.inputs["Detail"].default_value = 6.0
+        ramp = nt.nodes.new("ShaderNodeValToRGB")
+        ramp.color_ramp.elements[0].position = 0.35
+        ramp.color_ramp.elements[0].color = (*OLIVE_SHADOW, 1.0)
+        ramp.color_ramp.elements[1].position = 0.75
+        ramp.color_ramp.elements[1].color = (*OLIVE_WARM, 1.0)
+        nt.links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+        nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+        if "Subsurface Weight" in bsdf.inputs:
+            bsdf.inputs["Subsurface Weight"].default_value = 0.05
+        elif "Subsurface" in bsdf.inputs:
+            try:
+                bsdf.inputs["Subsurface"].default_value = 0.04
+            except Exception:
+                pass
         me.materials.clear()
         me.materials.append(mat)
-        log(f"skin material -> olive on existing UV {uv_layer.name!r} for {obj.name!r}")
+        log(
+            f"finished olive-grey skin on {obj.name!r} "
+            f"(Principled+noise, no UV-grid, uv={me.uv_layers.active.name!r})"
+        )
+
+
+def mesh_from_bmesh(name: str, bm, mat):
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    obj = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.data.materials.append(mat)
+    return obj
+
+
+def append_transformed(dst_bm, src_bm) -> None:
+    vert_map = {}
+    for v in src_bm.verts:
+        vert_map[v] = dst_bm.verts.new(v.co)
+    dst_bm.verts.ensure_lookup_table()
+    for f in src_bm.faces:
+        try:
+            dst_bm.faces.new([vert_map[v] for v in f.verts])
+        except ValueError:
+            pass
+
+
+def _bone_t(arm, name: str) -> Vector:
+    if name not in arm.data.bones:
+        raise RuntimeError(f"53-bone bind missing {name!r} for look-dev gear")
+    return HQ.rest_world(arm, name).to_translation()
+
+
+def add_lookdev_gear(arm) -> list:
+    """Look-dev harness + loincloth as extra meshes (tribal add_gear / bind_mesh).
+
+    Shoulder spaulder (L), chest X-straps, wide belt, ragged loincloth.
+    Optional arm/ankle wraps. No cleaver/shield. No new bones.
+    """
+    created = []
+    leather = make_opaque_mat("OrcLeather", LEATHER, 0.92)
+    leather_dark = make_opaque_mat("OrcLeatherDark", LEATHER_DARK, 0.95)
+    metal = make_opaque_mat("OrcMetal", METAL, 0.45)
+
+    chest = _bone_t(arm, "spine_03")
+    mid = _bone_t(arm, "spine_02")
+    pelvis = _bone_t(arm, "pelvis")
+    sh_l = _bone_t(arm, "upperarm_l")
+    sh_r = _bone_t(arm, "upperarm_r")
+    low_l = _bone_t(arm, "lowerarm_l")
+    low_r = _bone_t(arm, "lowerarm_r")
+    calf_l = _bone_t(arm, "calf_l")
+    calf_r = _bone_t(arm, "calf_r")
+
+    # --- Chest X-straps (two diagonal bands) ---
+    bm = bmesh.new()
+    strap_specs = [
+        # (x0,y0,z0) -> (x1,y1,z1), half-width
+        (sh_r.x * 0.55, -0.08, chest.z + 0.02, pelvis.x - 0.08, -0.10, pelvis.z + 0.06, 0.018),
+        (sh_l.x * 0.55, -0.08, chest.z + 0.02, pelvis.x + 0.08, -0.10, pelvis.z + 0.06, 0.018),
+    ]
+    for x0, y0, z0, x1, y1, z1, hw in strap_specs:
+        tmp = bmesh.new()
+        bmesh.ops.create_cube(tmp, size=1.0)
+        direction = Vector((x1 - x0, y1 - y0, z1 - z0))
+        length = max(direction.length, 1e-3)
+        midp = Vector((0.5 * (x0 + x1), 0.5 * (y0 + y1), 0.5 * (z0 + z1)))
+        for v in tmp.verts:
+            v.co.x *= hw * 2.0
+            v.co.y *= 0.012
+            v.co.z *= length
+        # Orient cube local Z along strap direction.
+        z_axis = direction.normalized()
+        x_axis = z_axis.cross(Vector((0.0, 1.0, 0.0)))
+        if x_axis.length < 1e-4:
+            x_axis = z_axis.cross(Vector((1.0, 0.0, 0.0)))
+        x_axis.normalize()
+        y_axis = z_axis.cross(x_axis).normalized()
+        for v in tmp.verts:
+            local = Vector(v.co)
+            v.co = midp + x_axis * local.x + y_axis * local.y + z_axis * local.z
+        append_transformed(bm, tmp)
+        tmp.free()
+    straps = mesh_from_bmesh("OrcGear_ChestStraps", bm, leather)
+    def strap_w(v):
+        t = max(0.0, min(1.0, (v.co.z - pelvis.z) / max(chest.z - pelvis.z, 1e-3)))
+        return {"spine_03": 0.15 + 0.55 * t, "spine_02": 0.45, "spine_01": 0.40 - 0.25 * t}
+    bind_mesh(straps, arm, strap_w)
+    created.append(straps)
+
+    # Strap rivets (small metal discs on the X crossing)
+    bm = bmesh.new()
+    for dx in (-0.03, 0.03, 0.0):
+        tmp = bmesh.new()
+        bmesh.ops.create_uvsphere(tmp, u_segments=8, v_segments=6, radius=0.012)
+        for v in tmp.verts:
+            v.co.x += mid.x + dx
+            v.co.y += -0.11
+            v.co.z += mid.z + 0.02
+        append_transformed(bm, tmp)
+        tmp.free()
+    rivets = mesh_from_bmesh("OrcGear_StrapRivets", bm, metal)
+    bind_mesh(rivets, arm, lambda _v: {"spine_02": 1.0})
+    created.append(rivets)
+
+    # --- Left spaulder (two overlapping plates on upperarm_l) ---
+    bm = bmesh.new()
+    for i, (sx, sy, sz, ox, oy, oz) in enumerate(
+        (
+            (0.11, 0.08, 0.06, 0.02, -0.02, 0.02),
+            (0.09, 0.07, 0.05, 0.05, -0.01, -0.02),
+        )
+    ):
+        tmp = bmesh.new()
+        bmesh.ops.create_cube(tmp, size=1.0)
+        for v in tmp.verts:
+            v.co.x = v.co.x * sx + sh_l.x + ox
+            v.co.y = v.co.y * sy + sh_l.y + oy
+            v.co.z = v.co.z * sz + sh_l.z + oz
+            # Soften outer edge
+            if v.co.x < sh_l.x - 0.02:
+                v.co.x = sh_l.x - 0.02 + (v.co.x - (sh_l.x - 0.02)) * 0.35
+        append_transformed(bm, tmp)
+        tmp.free()
+    spaulder = mesh_from_bmesh("OrcGear_Spaulder_L", bm, leather_dark)
+    def spaulder_w(v):
+        return {"upperarm_l": 0.75, "spine_03": 0.25}
+    bind_mesh(spaulder, arm, spaulder_w)
+    created.append(spaulder)
+
+    # --- Wide buckled belt ---
+    bpy.ops.mesh.primitive_torus_add(
+        align="WORLD",
+        location=(pelvis.x, pelvis.y - 0.02, pelvis.z + 0.05),
+        rotation=(math.radians(90.0), 0.0, 0.0),
+        major_radius=0.16,
+        minor_radius=0.028,
+        major_segments=24,
+        minor_segments=10,
+    )
+    belt = bpy.context.active_object
+    belt.name = "OrcGear_Belt"
+    belt.data.materials.clear()
+    belt.data.materials.append(leather_dark)
+    # Flatten slightly into a wide belt band.
+    for v in belt.data.vertices:
+        v.co.z *= 0.55
+        v.co.z += 0.01
+    bind_mesh(belt, arm, lambda _v: {"pelvis": 1.0})
+    created.append(belt)
+
+    # Belt buckles (two metal boxes on front)
+    bm = bmesh.new()
+    for dx in (-0.035, 0.035):
+        tmp = bmesh.new()
+        bmesh.ops.create_cube(tmp, size=1.0)
+        for v in tmp.verts:
+            v.co.x = v.co.x * 0.028 + pelvis.x + dx
+            v.co.y = v.co.y * 0.012 + pelvis.y - 0.14
+            v.co.z = v.co.z * 0.035 + pelvis.z + 0.05
+        append_transformed(bm, tmp)
+        tmp.free()
+    buckles = mesh_from_bmesh("OrcGear_BeltBuckles", bm, metal)
+    bind_mesh(buckles, arm, lambda _v: {"pelvis": 1.0})
+    created.append(buckles)
+
+    # --- Ragged loincloth (layered front flaps) ---
+    flap_specs = [
+        (0.0, -0.12, 0.10, 0.14, 0.012, 0.28, LEATHER_RED),
+        (-0.06, -0.10, 0.08, 0.09, 0.010, 0.22, LEATHER),
+        (0.06, -0.10, 0.08, 0.09, 0.010, 0.20, RAG_TAN),
+        (0.0, -0.08, 0.06, 0.07, 0.008, 0.16, LEATHER_DARK),
+    ]
+    for i, (dx, dy, dz, sx, sy, sz, col) in enumerate(flap_specs):
+        tmp = bmesh.new()
+        bmesh.ops.create_cube(tmp, size=1.0)
+        for v in tmp.verts:
+            # Taper toward bottom + ragged edge via x jitter on lower verts
+            v.co.x *= sx * (0.55 + 0.45 * max(0.0, v.co.z + 0.5))
+            v.co.y *= sy
+            v.co.z = (v.co.z * 0.5 - 0.5) * sz  # hang downward
+            if v.co.z < -sz * 0.35:
+                v.co.x += 0.015 * math.sin(i * 2.1 + v.co.x * 40.0)
+            v.co.x += pelvis.x + dx
+            v.co.y += pelvis.y + dy
+            v.co.z += pelvis.z + dz
+        flap = mesh_from_bmesh(
+            f"OrcGear_Loin_{i}",
+            tmp,
+            make_opaque_mat(f"OrcLoinMat_{i}", col, 0.95),
+        )
+        bind_mesh(flap, arm, lambda _v: {"pelvis": 0.85, "spine_01": 0.15})
+        created.append(flap)
+
+    # --- Arm wraps ---
+    for side, low, bone in (("L", low_l, "lowerarm_l"), ("R", low_r, "lowerarm_r")):
+        bpy.ops.mesh.primitive_torus_add(
+            align="WORLD",
+            location=(low.x, low.y, low.z),
+            rotation=(0.0, math.radians(90.0), 0.0),
+            major_radius=0.045,
+            minor_radius=0.012,
+            major_segments=16,
+            minor_segments=8,
+        )
+        wrap = bpy.context.active_object
+        wrap.name = f"OrcGear_ArmWrap_{side}"
+        wrap.data.materials.clear()
+        wrap.data.materials.append(leather)
+        # Stretch along forearm
+        for v in wrap.data.vertices:
+            v.co.z *= 2.2
+        bind_mesh(wrap, arm, lambda _v, b=bone: {b: 1.0})
+        created.append(wrap)
+
+    # --- Ankle wraps ---
+    for side, cpos, bone in (("L", calf_l, "calf_l"), ("R", calf_r, "calf_r")):
+        bpy.ops.mesh.primitive_torus_add(
+            align="WORLD",
+            location=(cpos.x, cpos.y, cpos.z - 0.08),
+            rotation=(math.radians(90.0), 0.0, 0.0),
+            major_radius=0.055,
+            minor_radius=0.014,
+            major_segments=16,
+            minor_segments=8,
+        )
+        wrap = bpy.context.active_object
+        wrap.name = f"OrcGear_AnkleWrap_{side}"
+        wrap.data.materials.clear()
+        wrap.data.materials.append(leather)
+        for v in wrap.data.vertices:
+            v.co.z *= 1.6
+        bind_mesh(wrap, arm, lambda _v, b=bone: {b: 1.0})
+        created.append(wrap)
+
+    log(f"look-dev gear: {[o.name for o in created]}")
+    return created
 
 
 def _uv_to_px(u: float, v: float, w: int, h: int) -> tuple[int, int]:
@@ -1118,9 +1664,10 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
             setup_death_preview(center, extent)
         else:
             setup_standing_preview(center, extent)
-        path = PREVIEW_DIR / f"male_orc_01_{tag}_{label.lower()}.png"
+        path = still_path(tag, label)
         render_png(path)
         out[label] = str(path)
+        log(f"still {tag}/{label} action={clip!r} frame={frame} -> {path.name}")
     return out
 
 
@@ -1154,30 +1701,35 @@ def run_uv_only() -> dict:
 
 def run_restyle() -> dict:
     ensure_scratch()
-    seed_dest_from_anim_donor(force=True)
-    resolved_bytes = assert_required_clips(DEST)
+    seed_mode = seed_dest_from_anim_donor(force=True)
+    # Capture donor clip list before mesh restyle / re-export.
+    if seed_mode == "orrun_copy":
+        donor_clips = log_clip_list(ANIM_DONOR)
+    else:
+        # bake_one / reuse: dest already holds the UAL set we must preserve.
+        donor_clips = log_clip_list(DEST)
+    assert_required_clips(DEST)
 
-    # Before stills from the Orrun animation donor (read-only import).
-    clear_scene()
-    import_gltf(ANIM_DONOR)
-    arm_before = find_armature()
-    before_hip = hip_height_z(arm_before)
-    log(f"hip_height_z BEFORE (anim donor rest)={before_hip:.4f}")
-    before_previews = render_clip_stills(arm_before, resolved_bytes, "before")
-
-    # Restyle on dest copy (seeded from Orrun worksuit).
+    # Restyle on dest (Orrun clips on armature; strip worksuit; male_base body).
     clear_scene()
     import_gltf(DEST)
     arm = find_armature()
-    dest_objects = list(bpy.data.objects)
     hip_before = hip_height_z(arm)
     log(f"hip_height_z BEFORE (dest rest)={hip_before:.4f}")
     assert_no_leg_bone_scale(arm)
+    bone_count = len(arm.data.bones)
+    if bone_count < 50:
+        raise RuntimeError(
+            f"expected ~53-bone MH bind, got {bone_count} bones on {arm.name!r}"
+        )
+    log(f"restyle bind bones={bone_count} arm={arm.name!r}")
 
-    drop_cleaver_shield()
+    drop_weapons()
+    _body_meshes, removed_garments = strip_dressed_meshes_attach_male_base(arm)
     restyle_bulk_and_jaw(arm)
     tusks = add_tusks(arm)
-    apply_olive_albedo_on_dest_uvs(arm)
+    gear = add_lookdev_gear(arm)
+    apply_finished_olive_skin(arm)
 
     # Explicitly never scale gait bones after edits.
     for name in NO_SCALE_BONES:
@@ -1205,32 +1757,78 @@ def run_restyle() -> dict:
     resolved_scene = {}
     for label, candidates in REQUIRED_CLIP_GROUPS:
         resolved_scene[label] = resolve_clip(have, label, candidates)
+    # HOLD reshoot targets: Death01 + Punch_Cross when present.
+    log(
+        f"AFTER still actions: Idle={resolved_scene['Idle']!r} "
+        f"Walk={resolved_scene['Walk']!r} "
+        f"Death={resolved_scene['Death']!r} "
+        f"Punch={resolved_scene['Punch']!r}"
+    )
 
-    export_objects = [o for o in dest_objects if o.name in bpy.data.objects] + tusks
+    preserved = preserve_all_actions_for_export(arm)
+    if len(preserved) < len([n for n in donor_clips if n]):
+        raise RuntimeError(
+            f"scene actions ({len(preserved)}) < donor clips ({len(donor_clips)}); "
+            f"refusing export that would drop UAL. preserved={preserved}"
+        )
+
+    export_objects = [
+        o
+        for o in bpy.data.objects
+        if o.type == "MESH"
+        and not o.name.startswith("Preview")
+        and o.name != "PreviewGround"
+    ]
+    if not export_objects:
+        raise RuntimeError("no mesh objects to export after restyle/gear")
+    # Include tusks + gear (already in scene meshes) + body.
     export_glb(DEST, arm, export_objects)
+    dest_clips = assert_donor_clips_preserved(donor_clips, DEST)
     resolved_out = assert_required_clips(DEST)
 
+    # HOLD: reshoot AFTER stills only (Idle / Walk / Death01 / Punch_Cross aliases).
     after_previews = render_clip_stills(arm, resolved_scene, "after")
+    packet = write_art_review_packet(
+        seed_mode=seed_mode,
+        donor_clips=donor_clips,
+        dest_clips=dest_clips,
+        resolved=resolved_out,
+        after_previews=after_previews,
+        hip_before=hip_before,
+        hip_after=hip_after,
+        tusks=[o.name for o in tusks],
+        gear=[o.name for o in gear],
+        removed_garments=removed_garments,
+    )
 
     return {
         "mode": "restyle",
+        "seed_mode": seed_mode,
         "anim_donor": str(ANIM_DONOR),
         "ag_worksuit_guarded": str(AG_WORKSUIT),
+        "male_base_body": str(MALE_BASE),
         "dest": str(DEST),
         "size": DEST.stat().st_size,
+        "bones": bone_count,
+        "clips_donor": donor_clips,
+        "clips_dest": dest_clips,
         "clips_resolved": resolved_out,
         "hip_before": hip_before,
         "hip_after": hip_after,
         "hip_delta_m": delta,
         "tusks": [o.name for o in tusks],
-        "previews_before": before_previews,
+        "gear": [o.name for o in gear],
+        "removed_garments": removed_garments,
         "previews_after": after_previews,
+        "art_review_packet": str(ART_REVIEW_PACKET),
+        "clip_list_md": str(CLIP_LIST_MD),
         "uv_layout_hint": str(UV_LAYOUT),
         "lookdev": str(LOOKDEV),
         "note": (
-            "placeholder olive albedo on dest UVs; "
-            "use blender/lib/bake.py only after look-dev is on dest UVs"
+            "HOLD fix: no worksuit clothes; finished olive-grey skin; "
+            "look-dev harness/loincloth; AFTER stills only"
         ),
+        "packet_notes": packet.get("notes"),
     }
 
 
