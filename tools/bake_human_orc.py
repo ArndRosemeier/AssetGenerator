@@ -13,6 +13,10 @@ Art Reviewer HOLD fix: dest must NOT read as a painted human in overalls.
     chest straps, left spaulder, belt, ragged loincloth. No cleaver/shield.
   - Tusks stay on head. No thigh/calf/pelvis scale. No ogre hunch.
   - Reshoot AFTER stills only: Idle, Walk, Death01, Punch_Cross.
+  - Punch/Death AFTER must pose the same dest armature/meshes as Idle/Walk
+    (olive + tusks + harness). Leftover donor/extra armatures are removed/hidden.
+  - Death still frame = final Death01 hold (on back, same as donor Death still).
+  - Punch still frame = same mid-late formula as the donor Punch still.
 
 Exact local invoke (Arnd, AG blenderctl 4.5 / Blender 4.5):
 
@@ -496,7 +500,9 @@ def write_art_review_packet(
             "Finished olive-grey Principled skin on MH UVs (no UV-grid / checker).",
             "Punch resolves to Punch_Cross (preferred); there is no clip named Punch.",
             "Death resolves to Death01 (preferred); do not invent Death.",
-            "AFTER stills only for Idle / Walk / Death / Punch labels.",
+            "AFTER stills isolate dest armature only (tusks+gear required); no leftover donor.",
+            "Death still uses final on-back frame of Death01 (same as donor Death still).",
+            "Punch still uses same mid-late frame formula as donor Punch still on dest arm.",
         ],
     }
     ART_REVIEW_PACKET.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
@@ -670,8 +676,15 @@ def strip_dressed_meshes_attach_male_base(arm) -> tuple[list, list[str]]:
         attached.append(obj)
         log(f"attached male_base mesh {obj.name!r} -> {arm.name!r}")
 
-    # Drop the imported male_base armature (dest keeps Orrun clips).
-    bpy.data.objects.remove(base_arm, do_unlink=True)
+    # Drop every imported male_base armature (dest keeps Orrun clips).
+    leftover_arms = [
+        o
+        for o in list(bpy.data.objects)
+        if o.type == "ARMATURE" and o != arm
+    ]
+    for extra in leftover_arms:
+        log(f"removing leftover armature after male_base attach: {extra.name!r}")
+        bpy.data.objects.remove(extra, do_unlink=True)
     # Drop any actions that arrived with male_base (usually none / empty).
     for act in list(bpy.data.actions):
         if act not in before_actions:
@@ -680,6 +693,9 @@ def strip_dressed_meshes_attach_male_base(arm) -> tuple[list, list[str]]:
 
     if not attached:
         raise RuntimeError("male_base attach produced no skinned meshes")
+    extras = [o.name for o in bpy.data.objects if o.type == "ARMATURE" and o != arm]
+    if extras:
+        raise RuntimeError(f"extra armatures remain after male_base attach: {extras}")
     log(f"male_base body attached ({len(attached)}); removed_dest_meshes={len(removed)}")
     return attached, removed
 
@@ -1430,36 +1446,144 @@ def export_glb(path: Path, arm, objects: list) -> None:
 
 
 def action_frame(name: str, kind: str) -> int:
+    """Pick the same still frame used for donor Idle/Walk/Punch/Death reviews.
+
+    Death uses the action's last frame (UAL Death01 ends on its back — not
+    frame 0 / falling). Punch uses mid-late (~55%), matching the donor Punch still.
+    """
     act = bpy.data.actions.get(name)
     if act is None:
         raise RuntimeError(f"action {name!r} missing in scene")
+    # Prefer native frame_range (matches bake_bandit_death hold) over scanning
+    # every fcurve key — empty/invalid ranges fall back to key scan.
+    fr = tuple(act.frame_range)
+    lo_r, hi_r = int(round(fr[0])), int(round(fr[1]))
     frames = [kp.co.x for fc in act.fcurves for kp in fc.keyframe_points]
-    if not frames:
+    if frames:
+        lo_k, hi_k = int(min(frames)), int(max(frames))
+        lo = min(lo_r, lo_k) if hi_r > lo_r else lo_k
+        hi = max(hi_r, hi_k) if hi_r > lo_r else hi_k
+    elif hi_r > lo_r:
+        lo, hi = lo_r, hi_r
+    else:
         return 1
-    lo, hi = int(min(frames)), int(max(frames))
     if kind == "idle":
         return lo + max(1, (hi - lo) // 4)
     if kind == "walk":
         return lo + max(1, (hi - lo) // 2)
     if kind == "punch":
+        # Same formula as the donor Punch still (~mid-late impact).
         return lo + max(1, int((hi - lo) * 0.55))
     if kind == "death":
-        return hi
+        # Donor Death01 still is the final on-back hold — never frame 0.
+        if hi <= lo:
+            raise RuntimeError(
+                f"death action {name!r} has empty frame range lo={lo} hi={hi}"
+            )
+        return int(hi)
     return lo
 
 
 def apply_action(arm, name: str, frame: int) -> None:
     act = bpy.data.actions.get(name)
     if act is None:
-        raise RuntimeError(f"action {name!r} missing")
+        # Exact name only — never silently fall back to Punch_Cross.001 / Death.001.
+        have = sorted(a.name for a in bpy.data.actions)
+        raise RuntimeError(f"action {name!r} missing; have={have}")
+    if act.name != name:
+        raise RuntimeError(f"action lookup {name!r} resolved to {act.name!r}")
+    HQ.reset_pose(arm)
     if arm.animation_data is None:
         arm.animation_data_create()
-    # Mute NLA so the single action drives the pose.
-    for track in arm.animation_data.nla_tracks:
-        track.mute = True
+    # Mute NLA on EVERY armature so leftover strips cannot drive another rig.
+    for obj in bpy.data.objects:
+        if obj.type != "ARMATURE" or obj.animation_data is None:
+            continue
+        for track in obj.animation_data.nla_tracks:
+            track.mute = True
+        if obj != arm:
+            obj.animation_data.action = None
     HQ.assign_action(arm, act)
     bpy.context.scene.frame_set(int(frame))
     bpy.context.view_layer.update()
+    # Loud confirm: dest arm must own the active action.
+    if arm.animation_data is None or arm.animation_data.action != act:
+        raise RuntimeError(
+            f"failed to assign {name!r} onto dest armature {arm.name!r} for still"
+        )
+    log(f"pose arm={arm.name!r} action={name!r} frame={int(frame)}")
+
+
+def dest_owned_meshes(arm) -> list:
+    """Meshes skinned to / parented on the dest armature only (orc body+tusks+gear)."""
+    out = []
+    for obj in mesh_objects():
+        if obj.name.startswith("Preview") or obj.name == "PreviewGround":
+            continue
+        if obj.parent == arm:
+            out.append(obj)
+            continue
+        for mod in obj.modifiers:
+            if mod.type == "ARMATURE" and mod.object == arm:
+                out.append(obj)
+                break
+    return out
+
+
+def isolate_dest_for_stills(arm) -> list:
+    """Hide/delete leftover donor armatures and non-dest meshes before Punch/Death stills.
+
+    Idle/Walk were accepted; Punch previously framed a different leftover mesh.
+    AFTER stills must show the same male_orc_01 dest (olive, tusks, harness).
+    """
+    removed_arms = []
+    for obj in list(bpy.data.objects):
+        if obj.type == "ARMATURE" and obj != arm:
+            removed_arms.append(obj.name)
+            bpy.data.objects.remove(obj, do_unlink=True)
+    if removed_arms:
+        log(f"isolate: removed leftover armatures {removed_arms}")
+
+    owned = dest_owned_meshes(arm)
+    owned_set = set(owned)
+    hidden = []
+    for obj in list(mesh_objects()):
+        if obj.name.startswith("Preview") or obj.name == "PreviewGround":
+            continue
+        if obj in owned_set:
+            obj.hide_render = False
+            obj.hide_viewport = False
+            continue
+        obj.hide_render = True
+        obj.hide_viewport = True
+        hidden.append(obj.name)
+    if hidden:
+        log(f"isolate: hid non-dest meshes {hidden}")
+
+    names = {o.name for o in owned}
+    if not any("tusk" in n.lower() for n in names):
+        raise RuntimeError(
+            f"dest still meshes missing tusks; have={sorted(names)}. "
+            f"Refusing Punch/Death AFTER that is not male_orc_01."
+        )
+    if not any(n.startswith("OrcGear_") for n in names):
+        raise RuntimeError(
+            f"dest still meshes missing look-dev gear; have={sorted(names)}"
+        )
+    extras = [o.name for o in bpy.data.objects if o.type == "ARMATURE" and o != arm]
+    if extras:
+        raise RuntimeError(f"isolate failed; extra armatures remain: {extras}")
+    log(f"isolate: dest arm={arm.name!r} still_meshes={sorted(names)}")
+    return owned
+
+
+def clear_preview_helpers() -> None:
+    for obj in list(bpy.data.objects):
+        if obj.type in {"CAMERA", "LIGHT"}:
+            bpy.data.objects.remove(obj, do_unlink=True)
+            continue
+        if obj.name.startswith("Preview") or obj.name == "PreviewGround":
+            bpy.data.objects.remove(obj, do_unlink=True)
 
 
 def posed_bbox(meshes):
@@ -1469,6 +1593,8 @@ def posed_bbox(meshes):
     hit = False
     for o in meshes:
         if o.type != "MESH":
+            continue
+        if getattr(o, "hide_render", False):
             continue
         ev = o.evaluated_get(deps)
         mesh = ev.to_mesh()
@@ -1490,9 +1616,7 @@ def posed_bbox(meshes):
 
 
 def setup_standing_preview(center, extent) -> None:
-    for obj in list(bpy.data.objects):
-        if obj.type in {"CAMERA", "LIGHT"}:
-            bpy.data.objects.remove(obj, do_unlink=True)
+    clear_preview_helpers()
 
     ground_mat = make_opaque_mat("PreviewGround", (0.18, 0.175, 0.165), 1.0)
     bpy.ops.mesh.primitive_plane_add(size=12.0, location=(0.0, 0.0, 0.0))
@@ -1561,9 +1685,7 @@ def setup_standing_preview(center, extent) -> None:
 
 def setup_death_preview(center, extent) -> None:
     """Camera framing from preview_bandit_death / bake_bandit_death."""
-    for obj in list(bpy.data.objects):
-        if obj.type in {"CAMERA", "LIGHT"}:
-            bpy.data.objects.remove(obj, do_unlink=True)
+    clear_preview_helpers()
 
     ground_mat = make_opaque_mat("PreviewGround", (0.18, 0.175, 0.165), 1.0)
     bpy.ops.mesh.primitive_plane_add(size=12.0, location=(0.0, 0.0, 0.0))
@@ -1653,12 +1775,37 @@ def clip_kind(label: str) -> str:
 
 
 def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str]:
-    meshes = mesh_objects()
+    """Render stills on the dest armature only (same male_orc_01 for all clips)."""
+    meshes = isolate_dest_for_stills(arm)
+    # Canonical still frames — same formulas as donor Idle/Walk/Punch/Death stills.
+    frames = {
+        label: action_frame(resolved[label], clip_kind(label)) for label in PREVIEW_CLIPS
+    }
+    log(
+        f"still frames ({tag}): "
+        + ", ".join(f"{lab}={resolved[lab]!r}@{frames[lab]}" for lab in PREVIEW_CLIPS)
+    )
+    if resolved.get("Punch") != "Punch_Cross":
+        log(f"note: Punch resolved to {resolved.get('Punch')!r} (Punch_Cross preferred)")
+    if resolved.get("Death") != "Death01":
+        log(f"note: Death resolved to {resolved.get('Death')!r} (Death01 preferred)")
+    # Death must not be frame 0 / start of fall.
+    if frames["Death"] <= 1:
+        raise RuntimeError(
+            f"Death still frame {frames['Death']} looks like start/rest; "
+            f"expected final on-back hold of {resolved['Death']!r}"
+        )
+
     out = {}
     for label in PREVIEW_CLIPS:
         clip = resolved[label]
-        frame = action_frame(clip, clip_kind(label))
+        frame = frames[label]
         apply_action(arm, clip, frame)
+        # Re-affirm isolation each clip (preview helpers must not become subjects).
+        meshes = dest_owned_meshes(arm)
+        for obj in meshes:
+            obj.hide_render = False
+            obj.hide_viewport = False
         center, extent = posed_bbox(meshes)
         if label == "Death":
             setup_death_preview(center, extent)
@@ -1667,7 +1814,11 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
         path = still_path(tag, label)
         render_png(path)
         out[label] = str(path)
-        log(f"still {tag}/{label} action={clip!r} frame={frame} -> {path.name}")
+        log(
+            f"still {tag}/{label} arm={arm.name!r} action={clip!r} "
+            f"frame={frame} meshes={len(meshes)} -> {path.name}"
+        )
+    out["_frames"] = {k: frames[k] for k in PREVIEW_CLIPS}
     return out
 
 
@@ -1764,6 +1915,19 @@ def run_restyle() -> dict:
         f"Death={resolved_scene['Death']!r} "
         f"Punch={resolved_scene['Punch']!r}"
     )
+    if resolved_scene["Punch"] not in ("Punch_Cross", "Punch_Jab", "Punch_Enter"):
+        raise RuntimeError(
+            f"Punch must resolve to Punch_Cross/Jab/Enter, got {resolved_scene['Punch']!r}"
+        )
+    if resolved_scene["Death"] not in ("Death01", "Death"):
+        raise RuntimeError(
+            f"Death must resolve to Death01/Death, got {resolved_scene['Death']!r}"
+        )
+
+    # AFTER stills on the LIVE restyled dest (before export) so Punch/Death cannot
+    # frame a leftover donor armature. Idle/Walk restyle unchanged.
+    after_previews = render_clip_stills(arm, resolved_scene, "after")
+    still_frames = after_previews.pop("_frames", {})
 
     preserved = preserve_all_actions_for_export(arm)
     if len(preserved) < len([n for n in donor_clips if n]):
@@ -1778,16 +1942,18 @@ def run_restyle() -> dict:
         if o.type == "MESH"
         and not o.name.startswith("Preview")
         and o.name != "PreviewGround"
+        and not getattr(o, "hide_render", False)
     ]
+    # Prefer dest-owned meshes only (tusks + gear + body).
+    owned = dest_owned_meshes(arm)
+    if owned:
+        export_objects = owned
     if not export_objects:
         raise RuntimeError("no mesh objects to export after restyle/gear")
-    # Include tusks + gear (already in scene meshes) + body.
     export_glb(DEST, arm, export_objects)
     dest_clips = assert_donor_clips_preserved(donor_clips, DEST)
     resolved_out = assert_required_clips(DEST)
 
-    # HOLD: reshoot AFTER stills only (Idle / Walk / Death01 / Punch_Cross aliases).
-    after_previews = render_clip_stills(arm, resolved_scene, "after")
     packet = write_art_review_packet(
         seed_mode=seed_mode,
         donor_clips=donor_clips,
@@ -1800,6 +1966,8 @@ def run_restyle() -> dict:
         gear=[o.name for o in gear],
         removed_garments=removed_garments,
     )
+    packet["still_frames"] = still_frames
+    ART_REVIEW_PACKET.write_text(json.dumps(packet, indent=2) + "\n", encoding="utf-8")
 
     return {
         "mode": "restyle",
