@@ -219,7 +219,7 @@ from pathlib import Path
 
 import bmesh
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Quaternion, Vector
 
 TOOLS = Path(r"C:\Projekte\AssetGenerator\tools")
 if str(TOOLS) not in sys.path:
@@ -353,7 +353,12 @@ CAVITY_SUBDIV_MAX_ADDED_FRAC = 0.25  # of the male_body vert count
 # the dark region stopped short of the rim and the ring between them rendered as
 # a recessed skin shelf -- a second offset zig-zag around the first. After
 # cut_rim_loop no polygon straddles the rim, so this test is exact.
-CAVITY_INTERIOR_RADIAL_EPS = 1e-5
+#
+# The tolerance exists only to absorb single-precision placement: a rim vertex on
+# a head authored around z = 1.6 m lands on the ellipse to roughly 6e-6 of radial
+# (see orc_mouth_rim.radial_tolerance). It is nowhere near the ~0.25 radial units
+# to the next vertex ring, so it cannot pull a genuinely outside polygon in.
+CAVITY_INTERIOR_RADIAL_EPS = 1e-4
 # Face attribute recording which polygons are bore. Material slots cannot hold
 # it: mesh.materials.clear() clamps every polygon index to 0.
 MOUTH_INTERIOR_ATTR = "orc_mouth_interior"
@@ -5232,7 +5237,18 @@ def head_motion_marker_world(arm) -> Vector:
 
 
 def force_head_pose_for_tusk_assert(arm) -> None:
-    """Actually rotate the head bone (Euler XYZ). Prove tip moves (not bone.head)."""
+    """Actually rotate the head bone. Prove the tip moves (not bone.head).
+
+    Rotated with a quaternion rather than by switching the bone to Euler XYZ.
+    The Euler version left the head pose bone in XYZ mode permanently -- nothing
+    restores it, and ``HQ.reset_pose`` only zeroes ``matrix_basis`` -- so for the
+    rest of the run the head bone ignored its own ``rotation_quaternion``
+    channel. Every clip that arrives through glTF is quaternion-keyed, so the
+    Idle / Walk / Death follow checks that come after this were watching the head
+    move only via its parent chain, while the head bone's own animation was
+    silently discarded. Same class as the shape keys: an edit written to a
+    channel nothing evaluates.
+    """
     HQ.reset_pose(arm)
     if arm.animation_data is not None:
         arm.animation_data.action = None
@@ -5241,8 +5257,8 @@ def force_head_pose_for_tusk_assert(arm) -> None:
     bpy.context.view_layer.update()
     tip_rest = head_motion_marker_world(arm)
     pb = arm.pose.bones["head"]
-    pb.rotation_mode = "XYZ"
-    pb.rotation_euler = (math.radians(55.0), 0.0, 0.0)
+    pb.rotation_mode = "QUATERNION"
+    pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0), math.radians(55.0))
     bpy.context.view_layer.update()
     bpy.context.evaluated_depsgraph_get().update()
     tip_posed = head_motion_marker_world(arm)

@@ -38,10 +38,25 @@ import math
 
 import bmesh
 
-# A vertex whose radius is within this of 1 is treated as already on the rim
-# rather than as straddling it, so an edge that merely touches the contour at an
-# endpoint is not cut into a zero-length sliver.
-ON_RIM_EPS = 1e-6
+# Mesh vertex coordinates are single precision, so a vertex cannot sit on the
+# ellipse more precisely than the last bit of its own coordinates. That bound is
+# scale-dependent in a way that matters here: a head is authored around
+# z = 1.6 m, so the absolute placement error is ~1e-7 m, and dividing by a 16 mm
+# half-height turns it into ~6e-6 of radial error -- roughly a hundred times what
+# the same cut achieves on a test mesh centred on the origin. A fixed tolerance
+# calibrated on the latter refuses every real head.
+#
+# So derive the tolerance from the coordinate magnitude and the ellipse size, and
+# use the same number for "is this vertex already on the rim" and for "did the
+# placement land where the solve said". The slack is bits of headroom over the
+# bound; at 8 the tolerance on a MakeHuman head works out around 1e-4 of radial,
+# which is 1.6 um of position on a 16 mm half-height -- geometrically nothing,
+# while still an order of magnitude tighter than the nearest neighbouring vertex.
+FLOAT32_EPS = 1.19209290e-07
+RIM_PLACEMENT_SLACK_BITS = 8.0
+# Floor for meshes authored near the origin, where the scale-derived bound goes
+# to zero but the arithmetic still has to round somewhere.
+RIM_MIN_RADIAL_TOL = 1e-7
 
 
 class RimCutError(RuntimeError):
@@ -50,6 +65,21 @@ class RimCutError(RuntimeError):
     Always carries the counts that failed. A ragged rim is a look bug; a
     half-cut rim is a broken mesh, so this refuses rather than carrying on.
     """
+
+
+def radial_tolerance(
+    coord_scale: float, half_width: float, half_height: float
+) -> float:
+    """Radial slop a single-precision vertex placement can actually achieve."""
+    smallest = min(abs(half_width), abs(half_height))
+    if smallest <= 0.0:
+        raise RimCutError(
+            f"degenerate rim ellipse half=({half_width}, {half_height})"
+        )
+    return max(
+        RIM_MIN_RADIAL_TOL,
+        RIM_PLACEMENT_SLACK_BITS * FLOAT32_EPS * abs(coord_scale) / smallest,
+    )
 
 
 def ellipse_crossing_fraction(
@@ -120,6 +150,12 @@ def cut_rim_loop(
     bm.edges.ensure_lookup_table()
 
     coords = {v: to_uwd(v.co) for v in bm.verts}
+    # Tolerance is a property of the mesh's coordinate magnitude, not a constant.
+    # See radial_tolerance.
+    coord_scale = max(
+        (max(abs(c) for c in v.co) for v in bm.verts), default=1.0
+    )
+    tol = radial_tolerance(coord_scale, half_width, half_height)
 
     def radial(v) -> float:
         u, w, _d = coords[v]
@@ -128,19 +164,32 @@ def cut_rim_loop(
     def on_front(v) -> bool:
         return coords[v][2] < front_max_d
 
+    # Vertices the mesh already puts on the contour, within the precision a
+    # single-precision coordinate can express. Their edges must not be cut -- the
+    # crossing is at the existing vertex, and cutting would make a zero-length
+    # sliver -- but they ARE part of the rim, and must join the loop. Leaving
+    # them out is what broke it: the faces around such a vertex hold one cut
+    # vertex instead of two, connect_verts finds no pair, and the ring comes out
+    # open at that point. Symmetric meshes make this likely rather than exotic;
+    # the synthetic head lands four verts at radius 0.99994.
+    already_on_rim = [
+        v for v in bm.verts if on_front(v) and abs(radial(v) - 1.0) <= tol
+    ]
+    on_rim_set = set(already_on_rim)
+
     straddling = []
     for e in bm.edges:
         va, vb = e.verts
         if not (on_front(va) and on_front(vb)):
             continue
-        ra, rb = radial(va), radial(vb)
-        if abs(ra - 1.0) <= ON_RIM_EPS or abs(rb - 1.0) <= ON_RIM_EPS:
+        if va in on_rim_set or vb in on_rim_set:
             continue
+        ra, rb = radial(va), radial(vb)
         if (ra < 1.0) == (rb < 1.0):
             continue
         straddling.append((e, va, vb, ra))
 
-    if not straddling:
+    if not straddling and not already_on_rim:
         raise RimCutError(
             f"no edge crosses the rim ellipse half=({half_width:.4f}, "
             f"{half_height:.4f}) on the front sheet (d < {front_max_d:.4f}) — "
@@ -170,29 +219,39 @@ def cut_rim_loop(
     bm.edges.ensure_lookup_table()
     bm.faces.ensure_lookup_table()
 
-    # Every face the contour passes through now holds exactly two rim verts.
-    # Connecting them turns the scattered cut points into a real edge loop, which
-    # is what makes the interior a closed region rather than a set of polygons.
-    rim_set = set(rim_verts)
+    # Every face the contour passes through now holds two rim verts -- cut ones,
+    # already-on-rim ones, or one of each. Connecting them turns the scattered
+    # points into a real edge loop, which is what makes the interior a closed
+    # region rather than a set of polygons.
+    #
+    # More than two CUT verts in one face means the contour genuinely crosses
+    # that polygon twice, which no amount of connecting can resolve into a single
+    # rim. Already-on-rim verts are not counted here: two of them adjacent simply
+    # means an existing edge runs along the contour, which is fine. The
+    # authoritative validation either way is the closed-ring check below.
+    cut_set = set(rim_verts)
     for f in bm.faces:
-        hits = [v for v in f.verts if v in rim_set]
+        hits = [v for v in f.verts if v in cut_set]
         if len(hits) > 2:
             raise RimCutError(
-                f"face with {len(hits)} rim vertices at "
+                f"face with {len(hits)} cut vertices at "
                 f"{[tuple(round(c, 4) for c in v.co) for v in hits]} — the contour "
                 f"re-enters the same polygon, so the mesh is too coarse here for a "
                 f"single clean rim; subdivide the aperture region further"
             )
-    bmesh.ops.connect_verts(bm, verts=rim_verts)
+    loop_verts = rim_verts + already_on_rim
+    bmesh.ops.connect_verts(bm, verts=loop_verts)
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
     bm.faces.ensure_lookup_table()
 
-    assert_closed_loop(bm, rim_verts, half_width, half_height, to_uwd)
-    return rim_verts
+    assert_closed_loop(bm, loop_verts, half_width, half_height, to_uwd, tol)
+    return loop_verts
 
 
-def assert_closed_loop(bm, rim_verts: list, half_width, half_height, to_uwd) -> None:
+def assert_closed_loop(
+    bm, rim_verts: list, half_width, half_height, to_uwd, tol: float
+) -> None:
     """The cut must be one closed ring, and every vertex of it must be on the rim.
 
     An open or branching rim means the connect step did not find the pairs it
@@ -204,10 +263,11 @@ def assert_closed_loop(bm, rim_verts: list, half_width, half_height, to_uwd) -> 
     for v in rim_verts:
         u, w, _d = to_uwd(v.co)
         worst_r = max(worst_r, abs(math.hypot(u / half_width, w / half_height) - 1.0))
-    if worst_r > 1e-6:
+    if worst_r > tol:
         raise RimCutError(
-            f"a cut vertex sits {worst_r:.3e} off the rim ellipse; the crossing "
-            f"solve and the placement disagree"
+            f"a cut vertex sits {worst_r:.3e} off the rim ellipse, more than the "
+            f"{tol:.3e} a single-precision placement at this coordinate scale can "
+            f"be held to; the crossing solve and the placement disagree"
         )
 
     degree = {v: 0 for v in rim_verts}
@@ -243,17 +303,31 @@ def _selftest() -> int:
 
     half_width, half_height = 0.031, 0.0163
 
-    def to_uwd(co):
-        return (float(co.x), float(co.z), float(co.y))
-
     # A flat sheet in the rim plane, coarse enough that the polygon boundary and
     # the ellipse disagree badly -- which is the situation on the real face.
-    for segs, label in ((8, "coarse grid"), (14, "medium grid"), (24, "fine grid")):
+    #
+    # ``lift`` puts the sheet at a realistic head height. That matters: mesh
+    # coordinates are single precision, so a cut vertex 1.6 m from the origin
+    # cannot sit on the ellipse to better than ~1e-7 m, which is ~6e-6 of radial
+    # error on a 16 mm half-height. A tolerance calibrated on an origin-centred
+    # sheet is a hundred times tighter than any real head can meet, and the first
+    # version of this selftest passed at the origin while the same cut refused
+    # every synthetic head in orc_carve_integration_check.
+    for segs, lift, label in (
+        (8, 0.0, "coarse grid at origin"),
+        (14, 0.0, "medium grid at origin"),
+        (24, 0.0, "fine grid at origin"),
+        (18, 1.60, "grid at head height"),
+    ):
+
+        def to_uwd(co, lift=lift):
+            return (float(co.x), float(co.z) - lift, float(co.y))
+
         bm = bmesh.new()
         bmesh.ops.create_grid(bm, x_segments=segs, y_segments=segs, size=0.09)
         # create_grid lies in XY; rotate into the XZ rim plane.
         for v in bm.verts:
-            v.co = (v.co.x, 0.0, v.co.y)
+            v.co = (v.co.x, 0.0, v.co.y + lift)
         before_faces = len(bm.faces)
         try:
             rim = cut_rim_loop(
@@ -267,10 +341,17 @@ def _selftest() -> int:
             check(f"{label} cuts a loop", False, f"refused: {exc}")
             bm.free()
             continue
-        worst = max(
-            abs(math.hypot(v.co.x / half_width, v.co.z / half_height) - 1.0)
-            for v in rim
+        tol = radial_tolerance(
+            max(max(abs(c) for c in v.co) for v in bm.verts),
+            half_width,
+            half_height,
         )
+
+        def rad(v, lift=lift):
+            u, w, _d = to_uwd(v.co, lift)
+            return math.hypot(u / half_width, w / half_height)
+
+        worst = max(abs(rad(v) - 1.0) for v in rim)
         # Perimeter of the cut ring, against Ramanujan's ellipse approximation.
         rim_set = set(rim)
         ring = [
@@ -282,26 +363,25 @@ def _selftest() -> int:
         exact = math.pi * (a + b) * (1.0 + 3.0 * h / (10.0 + math.sqrt(4.0 - 3.0 * h)))
         check(
             f"{label} cuts a closed loop on the exact ellipse",
-            worst <= 1e-6 and len(ring) == len(rim),
+            worst <= tol and len(ring) == len(rim),
             f"{len(rim)} verts, {len(ring)} ring edges, faces "
-            f"{before_faces}->{len(bm.faces)}, worst radial error {worst:.2e}",
+            f"{before_faces}->{len(bm.faces)}, worst radial error {worst:.2e} "
+            f"against a float32 bound of {tol:.2e}",
         )
         check(
             f"{label} ring perimeter matches the ellipse",
-            perim <= exact and perim >= 0.80 * exact,
+            perim <= exact * (1.0 + tol) and perim >= 0.80 * exact,
             f"inscribed perimeter {perim * 1000:.2f} mm vs ellipse "
             f"{exact * 1000:.2f} mm ({100.0 * perim / exact:.1f}%)",
         )
-        # The whole point: no face may straddle the rim any more. Judged with
-        # ON_RIM_EPS, because a cut vertex lands on the contour to within the
-        # solve's own precision and a tighter test would read it as inside and
-        # report every outside face that merely touches the loop.
+        # The whole point: no face may straddle the rim any more. Judged with the
+        # same float32 bound, because a cut vertex lands on the contour only to
+        # within that, and a tighter test would read it as inside and report
+        # every outside face that merely touches the loop.
         straddlers = 0
         for f in bm.faces:
-            rs = [
-                math.hypot(v.co.x / half_width, v.co.z / half_height) for v in f.verts
-            ]
-            if min(rs) < 1.0 - ON_RIM_EPS and max(rs) > 1.0 + ON_RIM_EPS:
+            rs = [rad(v) for v in f.verts]
+            if min(rs) < 1.0 - tol and max(rs) > 1.0 + tol:
                 straddlers += 1
         check(
             f"{label} leaves no face straddling the rim",
@@ -309,6 +389,9 @@ def _selftest() -> int:
             f"{straddlers} straddling face(s) of {len(bm.faces)}",
         )
         bm.free()
+
+    def to_uwd(co):
+        return (float(co.x), float(co.z), float(co.y))
 
     # A curved sheet, so the cut has to hold on a surface that is not planar.
     bm = bmesh.new()
@@ -328,14 +411,20 @@ def _selftest() -> int:
             abs(math.hypot(v.co.x / half_width, v.co.z / half_height) - 1.0)
             for v in rim
         )
+        tol = radial_tolerance(
+            max(max(abs(c) for c in v.co) for v in bm.verts),
+            half_width,
+            half_height,
+        )
         # Each cut vertex must still lie on the segment it was cut from, i.e. on
         # the original surface. Check it against the analytic bulge.
         off = max(abs(v.co.y - 0.35 * (v.co.x**2 + v.co.z**2)) for v in rim)
         check(
             "curved sheet keeps cut verts on the ellipse and on the surface",
-            worst <= 1e-6 and off <= 2.0e-4,
-            f"{len(rim)} verts, worst radial error {worst:.2e}, worst deviation "
-            f"from the surface {off * 1000:.3f} mm (chord vs arc, not a bump)",
+            worst <= tol and off <= 2.0e-4,
+            f"{len(rim)} verts, worst radial error {worst:.2e} (bound "
+            f"{tol:.2e}), worst deviation from the surface {off * 1000:.3f} mm "
+            f"(chord vs arc, not a bump)",
         )
     except RimCutError as exc:
         check("curved sheet keeps cut verts on the ellipse", False, f"refused: {exc}")
