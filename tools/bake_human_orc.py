@@ -65,8 +65,9 @@ Full restyle path:
   1. Import Orrun worksuit READ-ONLY into the live Blender scene (UAL clips).
      Do NOT copy ANIM_DONOR onto dest. Scratch bake fallback never touches dest.
   2. Strip worksuit garments; attach nude male_base body on the same armature.
-  3. Measure the mouth aperture ONCE on the untouched face, then jaw/brow/chest
-     restyle, then carve the oral cavity, then seat tusks in it. No gear.
+  3. Measure the donor face for landmarks, build the jaw muzzle and brow ridge,
+     re-measure the aperture on the built face, cut the rim loop, carve the oral
+     cavity, then seat tusks in it. No gear.
   4. Hide Icosphere/eyebrow junk if present. Olive on male_body; eyes keep the
      donor iris material.
   5. AFTER stills on the live restyled scene (must succeed before any dest write).
@@ -484,17 +485,50 @@ JAW_BAND_DZ = (-0.145, -0.055)
 JAW_BAND_EDGE = 0.030
 # 48 mm of forward push on a 100 mm deep face was a caricature and it also
 # out-projected the nose, which destroys every landmark the mouth solver needs.
-JAW_FORWARD_M = 0.012
+# 12 mm was the over-correction: invisible at the scale the stills are framed
+# at, which is why the 18:50 face still reads human. 22 mm over an eased 30 mm
+# band cannot open a step of more than ~4 mm between neighbours (the band
+# falloff is Lipschitz-bounded by 1.5/edge), so it is a muzzle rather than a
+# needle.
+JAW_FORWARD_M = 0.022
 JAW_DROP_RATIO = 0.20
-# Jaw offset fades to zero inside this normalised aperture radius.
-JAW_APERTURE_KEEPOUT = 1.35
+# There is deliberately no aperture keepout any more. The jaw offset used to
+# fade to zero across the mouth so that "the carve still sees the face the
+# aperture was solved on" -- which froze the one region a muzzle actually is,
+# and guaranteed a flat human mid-face with a hole in it. The aperture is now
+# measured AFTER the face is built instead of being protected from it, so the
+# muzzle can carry the mouth with it. MG.NOSE_MIN_HEIGHT_FRAC is the guardrail
+# that refuses a jaw which out-projects the nose.
 
-# --- brow-ridge flatten -----------------------------------------------------
-BROW_BAND_EDGE = 0.020  # z_rel easing at the band ends
-BROW_X_EDGE = 0.018
-# A vert this far forward of the forehead plane gets the full pull; nearer
-# verts get a proportional share, so the "is a spike" test is not a step.
-BROW_SPIKE_FULL_M = 0.012
+# --- brow ridge -------------------------------------------------------------
+# A supraorbital shelf, built rather than flattened. The pass here used to be
+# flatten_male_body_brow_spikes, which pulled forward-projecting brow verts back
+# toward the forehead plane. That existed to clean up spikes thrown by the 48 mm
+# jaw band of an earlier bake; with the band eased and the amplitude sane there
+# are no such spikes, and all it did on the 18:50 face was shave what little
+# supraorbital shape the donor ships -- leaving the orc flatter in the brow than
+# the human it came from.
+#
+# Anchored on the measured nose tip and head width rather than on a fraction of
+# the head cloud's Z extent, because that cloud includes neck bleed and its
+# extent is not a face measurement. The brow ridge sits roughly a sixth of a
+# head width above the nose tip.
+BROW_BAND_ABOVE_NOSE = (0.10, 0.24)  # fractions of head width
+BROW_BAND_EDGE_FRAC = 0.05
+# Half-width of the shelf, again in head widths: wide enough to span both eyes,
+# short of the temples.
+BROW_HALF_WIDTH_FRAC = 0.30
+BROW_X_EDGE_FRAC = 0.06
+BROW_FORWARD_M = 0.008
+# The shelf overhangs, so it drops as it comes forward.
+BROW_DROP_RATIO = 0.25
+# ...and it must stay behind the nose tip. If the brow out-projects the nose,
+# ``min(midline, key=y)`` starts returning a brow vert as the "nose tip" and
+# every landmark downstream -- chin, lip slit, subnasale -- is measured from the
+# wrong point. NOSE_MIN_HEIGHT_FRAC only catches the opposite mistake (a muzzle
+# out-projecting the nose from below), so this is checked directly, against the
+# nose measured before the build.
+BROW_BEHIND_NOSE_MIN_M = 0.004
 
 # --- torso / bind seam ------------------------------------------------------
 # Posed torso-vert outlier (Idle pec pinch / Death through-torso spike).
@@ -1095,9 +1129,10 @@ def write_art_review_packet(
             "top of a supine head. body_still_tusk_visibility records what each "
             "body still actually shows; mouth_cameras records the close-up "
             "angle and the measured tusk pixel size.",
-            "Jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred) and "
-            "fades out across the mouth aperture so the carve still sees the "
-            "face the aperture was solved on.",
+            "Jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred). "
+            "It no longer fades out across the mouth aperture: that keepout "
+            "froze the one region a muzzle is, so the aperture is now measured "
+            "AFTER the face is built instead of being protected from it.",
             "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
             "Punch AFTER uses Orrun Punch_Cross @ ~55% on dest with head camera.",
@@ -1374,13 +1409,19 @@ def assert_no_leg_bone_scale(arm) -> None:
             log(f"note: {name} use_inherit_rotation=False")
 
 
-def restyle_face(arm, aperture) -> None:
-    """Heavy jaw + brow flatten. No bulk, no chest edits, no invented gear.
+def restyle_face(arm, landmarks) -> None:
+    """Heavy jaw + brow ridge. No bulk, no chest edits, no invented gear.
+
+    ``landmarks`` is a ``MouthAperture`` measured on the *untouched* donor face,
+    used only for its mid-sagittal landmarks (nose tip, head width, midline).
+    The aperture the carve uses is re-measured after this runs, on the face this
+    builds -- see ``run_restyle``. Measuring once and then protecting the
+    measurement from the jaw is what froze the muzzle.
 
     Radial torso/arm bulk is gone rather than multiplied by zero: it drew the
     0706a32 pec-armpit spike and the Walk neck tear, and the orc read comes
     from the maw, the tusks and the skin. The chest edits are gone too (see
-    below), so what remains is the jaw offset and the brow flatten.
+    below), so what remains is the jaw offset and the brow ridge.
 
     Neck/chest tear guard: jaw edits only on head-dominant face verts, never on
     neck_01 / spine_03-heavy verts. Those sat in the old dz band and shredded
@@ -1451,13 +1492,9 @@ def restyle_face(arm, aperture) -> None:
             )
             if band <= 0.0:
                 continue
-            u, w, _d = aperture.aperture_coords(
-                (float(v.co.x), float(v.co.y), float(v.co.z))
-            )
-            keep_out = MG.smoothstep(
-                min(1.0, aperture.radial(u, w) / JAW_APERTURE_KEEPOUT)
-            )
-            amp = JAW_FORWARD_M * band * keep_out * min(1.0, hw)
+            # No aperture keepout: the muzzle carries the mouth with it, and the
+            # aperture is re-measured afterwards. See JAW_FORWARD_M.
+            amp = JAW_FORWARD_M * band * min(1.0, hw)
             if amp <= 0.0:
                 continue
             # Do NOT copysign-X the midline. d1f412a shoved every mouth vert
@@ -1475,7 +1512,7 @@ def restyle_face(arm, aperture) -> None:
             f"worst_jaw_offset={worst_offset:.4f} seam_skipped={seam_skipped}"
         )
 
-    flatten_male_body_brow_spikes(arm, aperture)
+    build_orc_brow_ridge(arm, landmarks)
     # No chest edits. flatten_chest_pinch and reassign_chest_head_weights both
     # existed to chase the Punch edge (1876, 1891), which f4d2059 established is
     # a donor bind seam and repair_bind_seams now fixes at its actual root. What
@@ -1492,94 +1529,100 @@ def restyle_face(arm, aperture) -> None:
     assert_all_skin_verts_bound(arm, "after restyle weight edits")
 
 
-def flatten_male_body_brow_spikes(arm, aperture) -> int:
-    """Flatten forward brow-ridge spikes on male_body (not Eyes, not a brow mesh).
+def build_orc_brow_ridge(arm, landmarks) -> int:
+    """Build a supraorbital shelf on male_body, above the measured nose tip.
 
-    Dest GLB has Eyes + male_body (+ tusks/gear historically). Look-dev only painted
-    a 2D heavy brow — the script never authors eyebrows. Spikes that remain after
-    hiding Eyes are male_body verts (oversized prior face band / residual ridge).
-    Pull those verts back toward the forehead plane.
+    Replaces ``flatten_male_body_brow_spikes``, which did the opposite: it pulled
+    forward-projecting brow verts back toward the forehead plane. That pass was
+    written to clean up spikes thrown by a 48 mm hard-banded jaw offset, and with
+    the band eased and the amplitude sane there are no such spikes left for it to
+    find. What it did on the 18:50 face was shave the donor's own supraorbital
+    shape, which is why that orc reads flatter in the brow than the human it came
+    from and why the eye region has no structure at all.
 
-    Like the jaw and the pec plate, the pull is eased across the band and across
-    the "is this a spike" threshold, so flattening a ridge cannot itself tear a
-    new one at the band edge. ``aperture`` is only used to keep the flatten off
-    the mouth.
+    A brow ridge is a horizontal bar, so the band has a plateau across X rather
+    than a peak at the midline, and it drops as it comes forward so the shelf
+    overhangs. Both bands are eased, so the shelf cannot open a step between
+    neighbouring verts (``band_falloff`` is Lipschitz-bounded by 1.5/edge).
+
+    Bands are placed off the measured nose tip and head width, not off a fraction
+    of the head cloud's Z extent: that cloud runs down the neck, so its extent is
+    not a face measurement and a band expressed in it drifts with the weighting.
     """
-    bodies = [
-        o
-        for o in skinned_meshes(arm)
-        if o.name == "male_body" or o.name.lower() == "male_body"
-    ]
-    if not bodies:
+    body = male_body_mesh(arm)
+    me = body.data
+    head_i = vg_index(body, "head")
+    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
+    spine3_i = vg_index(body, "spine_03")
+
+    wid = float(landmarks.head_width)
+    cx = float(landmarks.head_center_x)
+    nose_z = float(landmarks.nose_z)
+    nose_y = float(landmarks.nose_y)
+    lo = nose_z + BROW_BAND_ABOVE_NOSE[0] * wid
+    hi = nose_z + BROW_BAND_ABOVE_NOSE[1] * wid
+    z_edge = BROW_BAND_EDGE_FRAC * wid
+    x_half = BROW_HALF_WIDTH_FRAC * wid
+    x_edge = BROW_X_EDGE_FRAC * wid
+    ys = [v.co.y for v in me.vertices]
+    cy = 0.5 * (min(ys) + max(ys))
+
+    built = 0
+    worst_offset = 0.0
+    frontmost_y = 1e9
+    for v in me.vertices:
+        hw = vg_weight(v, head_i)
+        nw = vg_weight(v, neck_i)
+        s3w = vg_weight(v, spine3_i)
+        # Same seam rules as the jaw: never touch neck or upper chest.
+        if hw < 0.60 or nw >= 0.12 or s3w >= 0.25:
+            continue
+        if float(v.co.y) >= cy:
+            continue  # back of the skull
+        band = MG.band_falloff(float(v.co.z), lo, hi, z_edge)
+        if band <= 0.0:
+            continue
+        side = MG.band_falloff(abs(float(v.co.x) - cx), -x_half, x_half, x_edge)
+        if side <= 0.0:
+            continue  # temples
+        amp = BROW_FORWARD_M * band * side * min(1.0, hw)
+        if amp <= 0.0:
+            continue
+        v.co.y -= amp
+        v.co.z -= amp * BROW_DROP_RATIO
+        worst_offset = max(worst_offset, amp)
+        frontmost_y = min(frontmost_y, float(v.co.y))
+        built += 1
+    me.update()
+
+    if not built:
         raise RuntimeError(
-            "flatten_male_body_brow_spikes: male_body missing — cannot hunt spikes"
+            f"build_orc_brow_ridge: no male_body vert fell in the brow band "
+            f"z=[{lo:.4f},{hi:.4f}] (nose_z={nose_z:.4f} head_width={wid:.4f}), "
+            f"|x-{cx:.4f}| <= {x_half:.4f} with head weight >= 0.60 — the band is "
+            f"not on this skull, so the orc would ship with no brow at all"
         )
-    flattened = 0
-    for obj in bodies:
-        me = obj.data
-        head_i = vg_index(obj, "head")
-        neck_i = vg_index(obj, "neck_01") or vg_index(obj, "neck")
-        spine3_i = vg_index(obj, "spine_03")
-        xs = [v.co.x for v in me.vertices]
-        ys = [v.co.y for v in me.vertices]
-        zs = [v.co.z for v in me.vertices]
-        cx = 0.5 * (min(xs) + max(xs))
-        cy = 0.5 * (min(ys) + max(ys))
-        z0, z1 = min(zs), max(zs)
-        height = max(z1 - z0, 1e-3)
-        # Forehead reference: median Y of head verts above brow band (less forward).
-        forehead_ys = []
-        for v in me.vertices:
-            hw = vg_weight(v, head_i)
-            nw = vg_weight(v, neck_i)
-            if hw < 0.40 or nw >= 0.25:
-                continue
-            z_rel = (v.co.z - z0) / height
-            if 0.92 < z_rel < 0.98 and abs(v.co.x - cx) < 0.06:
-                forehead_ys.append(v.co.y)
-        if not forehead_ys:
-            forehead_ys = [cy - 0.04]
-        forehead_ys.sort()
-        forehead_y = forehead_ys[len(forehead_ys) // 2]
-        # Brow band: high face, forward of forehead reference. Head-dominant only.
-        for v in me.vertices:
-            hw = vg_weight(v, head_i)
-            nw = vg_weight(v, neck_i)
-            s3w = vg_weight(v, spine3_i)
-            if hw < 0.45 or nw >= 0.30 or hw < nw + 0.15:
-                continue
-            if hw < s3w + 0.10:
-                continue
-            z_rel = (v.co.z - z0) / height
-            band = MG.band_falloff(z_rel, 0.875, 0.955, BROW_BAND_EDGE)
-            if band <= 0.0:
-                continue
-            side = MG.band_falloff(abs(v.co.x - cx), -0.090, 0.090, BROW_X_EDGE)
-            if side <= 0.0:
-                continue  # temples / sides — leave
-            u, w, _d = aperture.aperture_coords(
-                (float(v.co.x), float(v.co.y), float(v.co.z))
-            )
-            if aperture.radial(u, w) <= 1.0:
-                continue  # the mouth aperture is not a brow ridge
-            # Spike = verts pushed forward of the forehead plane (-Y in MH rest).
-            protrusion = (forehead_y - 0.008) - float(v.co.y)
-            if protrusion <= 0.0:
-                continue
-            ramp = MG.smoothstep(min(1.0, protrusion / BROW_SPIKE_FULL_M))
-            weight = 0.75 * band * side * ramp
-            if weight <= 0.0:
-                continue
-            target_y = forehead_y - 0.004
-            v.co.y = (1.0 - weight) * float(v.co.y) + weight * target_y
-            v.co.z -= 0.003 * hw * band * ramp
-            flattened += 1
-        me.update()
-        log(
-            f"brow-spike flatten mesh={obj.name!r} verts_adjusted={flattened} "
-            f"forehead_y={forehead_y:.4f} (male_body face verts — not Eyes/neck)"
+    # A brow that out-projects the nose breaks every landmark downstream:
+    # ``min(midline, key=y)`` would start returning a brow vert as the nose tip,
+    # and the chin, lip slit and subnasale are all measured from it.
+    margin = frontmost_y - nose_y
+    if margin < BROW_BEHIND_NOSE_MIN_M:
+        raise RuntimeError(
+            f"build_orc_brow_ridge: the shelf now reaches y={frontmost_y:.4f}, "
+            f"only {margin * 1000:.1f} mm behind the nose tip y={nose_y:.4f} "
+            f"(need {BROW_BEHIND_NOSE_MIN_M * 1000:.0f} mm) after "
+            f"{worst_offset * 1000:.1f} mm of forward build over {built} verts. "
+            f"A brow in front of the nose is detected AS the nose by the landmark "
+            f"solver, which would put the lip slit and the whole aperture in the "
+            f"wrong place; lower BROW_FORWARD_M rather than letting that happen"
         )
-    return flattened
+    log(
+        f"built orc brow ridge on {body.name!r} verts={built} "
+        f"worst_offset={worst_offset:.4f} band_z=[{lo:.4f},{hi:.4f}] "
+        f"x_half={x_half:.4f} frontmost_y={frontmost_y:.4f} "
+        f"clear_of_nose={margin * 1000:.1f}mm"
+    )
+    return built
 
 
 def vg_by_index(obj, group_index):
@@ -1834,8 +1877,8 @@ def drop_morph_shape_keys(arm) -> int:
     35.3 mm back and reported ``deepest=0.0353``; the Basis key still held the
     original position, a ray down the mouth axis hit skin 5.2 mm behind the lip
     plane, and the render was a closed human mouth with two tusk tips poking
-    through the lower lip. The jaw muzzle and the brow flatten were discarded
-    the same way, which is why the face kept coming back human.
+    through the lower lip. The jaw muzzle and the brow pass were discarded the
+    same way, which is why the face kept coming back human.
 
     The keys are all at value 0 and are authoring sliders for a character
     generator, not animation this asset plays, so the fix is to delete them
@@ -6113,8 +6156,22 @@ def run_restyle() -> dict:
     # Measure the mouth ONCE, on the untouched male_base face, before any
     # restyle offset can move the landmarks it is measured from. Everything
     # downstream reads this frame instead of re-deriving the mouth.
+    # Measure the donor face once for its landmarks, build the jaw and brow on
+    # it, then measure AGAIN on the face that actually ships. The old order
+    # measured once and then faded the jaw out across the aperture so the carve
+    # would still see the face the aperture was solved on -- which froze the one
+    # region a muzzle is, and guaranteed a flat human mid-face with a hole in it.
+    # The solver is pure and cheap, so re-measuring costs a log line.
+    log("--- mouth aperture pass 1: landmarks on the untouched donor face ---")
+    donor_landmarks = resolve_mouth_aperture(arm)
+    restyle_face(arm, donor_landmarks)  # jaw + brow ridge, no mouth, no chest
+    log("--- mouth aperture pass 2: measured on the built orc face ---")
     aperture = resolve_mouth_aperture(arm)
-    restyle_face(arm, aperture)  # jaw + brow flatten only, no mouth, no chest
+    log(
+        f"face build moved the lip slit {(aperture.slit_z - donor_landmarks.slit_z) * 1000:+.1f} mm in Z "
+        f"and the rim plane {(aperture.center_y - donor_landmarks.center_y) * 1000:+.1f} mm in Y "
+        f"(negative Y is forward, i.e. the muzzle carried the mouth with it)"
+    )
     carve_orc_mouth_cavity(arm, aperture)
     # Repair torso seams that tear under the still poses, measured on the
     # shipped mesh. Must precede add_tusks: its Punch/Death follow probes run
@@ -6255,8 +6312,9 @@ def run_restyle() -> dict:
         "uv_layout_hint": str(UV_LAYOUT),
         "lookdev": str(LOOKDEV),
         "note": (
-            "Nude pass: DEST after stills; measured mouth aperture -> bored "
-            "cavity -> tusks seated in it; male_body brow flatten; no OrcGear; "
+            "Nude pass: DEST after stills; jaw+brow build -> aperture measured "
+            "on the built face -> rim loop cut -> bored cavity -> tusks seated "
+            "in it and emerging past the lip; male_body brow ridge; no OrcGear; "
             "Punch=Orrun Punch_Cross; Death=dest-native metrics (not root_z=0 "
             "FP); olive on male_body; mouth close-up still per clip"
         ),
