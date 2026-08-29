@@ -181,12 +181,13 @@ MOUTH_CORNER_MAX_ABS_X = 0.095
 # Lip-corner surface → lower-gum seat in MH body space (face is -Y).
 # Keep this SHALLOW: 24mm+ inset + skull-axis cones buried the tusks on Idle/Walk
 # and exited the throat as Death chest spikes (1116245 / ac21975).
-CAVITY_IN_Y = 0.005  # +Y into the head — gum, not maxilla
-CAVITY_IN_X = 0.010  # toward canine / midline
-CAVITY_DOWN_Z = 0.006  # downward into lower jaw gum
-TUSK_DEPTH = 0.050
-TUSK_RADIUS_BASE = 0.011
-TUSK_RADIUS_TIP = 0.0026
+CAVITY_IN_Y = 0.010  # +Y into the head — gum, not maxilla
+CAVITY_IN_X = 0.006  # canine, toward the visible opening (not the commissure)
+CAVITY_DOWN_Z = 0.001  # 0706a32: 6mm down + 11mm radius punched a chin needle
+TUSK_DEPTH = 0.040
+TUSK_RADIUS_BASE = 0.006
+TUSK_RADIUS_TIP = 0.0020
+TUSK_MAX_BELOW_LIP = 0.016  # refuse chin-needle (0706a32 Idle white spike)
 # Still gate: seated in the gum AND occupying the mouth OPENING the camera sees.
 # Do not revive TUSK_CAVITY_INSIDE_FRAC — requiring verts deep along +Y hid tusks.
 TUSK_CAVITY_Y_EPS = 0.004
@@ -204,7 +205,7 @@ MOUTH_APERTURE_MIN_Z = 0.018
 # Thin slab around the real mouth corners. A 108mm dz window selected 580
 # face verts (e1ec980); a 120 cap then aborted before tusks. Pick N most-
 # forward verts on each lip instead of refusing a large pool.
-LIP_SLAB_Z = 0.008
+LIP_SLAB_Z = 0.016  # 8mm missed center lips after the restyle Z-split
 LIP_VERTS_EACH = 14
 # Minimum gum→opening rise in body +Z. 57f9616 parted 887 face verts, the
 # "upper" hunt landed 3mm below the corner, and gum→opening collapsed to 6.2mm
@@ -571,16 +572,16 @@ def write_art_review_packet(
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
             "mesh authored from shallow lower gum along the rest-pose mouth "
             "aperture (gum → lip-plane opening), not bone local +Y. "
-            "Rest-pose lips: 8mm Z slab at the real L/R corners, most-forward "
-            "14 verts per lip (pool size is not a refuse — e1ec980 died on 580>120). "
-            "Aperture axis floors body-+Z rise at 24mm on the lip plane. "
-            "Sternum/pec pinch flattened (including head-weighted pecs); "
-            "head/neck weights cleared on the pec box so Punch/Death cannot "
-            "stretch a 21cm torso edge. Stretched-edge gate is torso-core only "
-            "(Punch armpit is not the Death chest spike).",
+            "Rest-pose lips: part the CAMERA-FACING center (not commissures "
+            "only — 0706a32 Idle/Walk still read closed). Expose the oral "
+            "opening (+Y). Tusks: 6mm / 40mm, 1mm chin hang, gum→lip-plane "
+            "aperture. Zero torso/arm radial bulk (0706a32 pec spike / Walk "
+            "neck tear). Spine-unbind (1876/1891): copy groups + seat THAT "
+            "pair only — do not collapse every >70mm torso edge into a pec "
+            "needle. Stretched-edge gate stays 0.14 on torso-core edges.",
             "AFTER stills gate: gum bind + lip-corner (0.085) + opening occupancy "
-            "+ skull-punch refuse + torso-spike refuse + max tip past posed lip; "
-            "junk Eyes unlinked from collections.",
+            "+ skull-punch refuse + chin-needle refuse + torso-spike refuse + "
+            "max tip past posed lip; junk Eyes unlinked from collections.",
             "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
             "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
@@ -936,12 +937,9 @@ def restyle_bulk_and_jaw(arm) -> None:
             else:
                 radial.normalize()
 
+            # 0706a32 pixels: torso/arm radial bulk drew the pec-armpit spike
+            # and Walk neck tear. Mouth/tusks are the orc; do not inflate the chest.
             bulk = 0.0
-            bulk += 0.038 * tw
-            bulk += 0.030 * arm_w
-            # Mild stockiness; skip head shell (avoids forehead radial spikes).
-            if hw < 0.35:
-                bulk += 0.012 * max(0.0, 1.0 - hw)
 
             # Idle/Walk neck shred: never jaw-edit neck_01. Do NOT zero bulk on
             # spine_03 pecs while spine_02 moves 38mm — that cliff pinched the
@@ -977,15 +975,11 @@ def restyle_bulk_and_jaw(arm) -> None:
                     face_edits += 1
 
                 if -0.110 <= dz <= -0.012 and v.co.y < cy:
-                    mouth_mid_z = head_z - 0.055
+                    # Widen only. Z-part here dropped center lips out of the
+                    # corner slab, so 0706a32 parted commissures and Idle/Walk
+                    # still read as a closed human mouth.
                     widen = 0.018 * hw
                     v.co.x += math.copysign(widen, v.co.x - cx)
-                    if v.co.z < mouth_mid_z:
-                        v.co.z -= 0.012 * hw
-                        v.co.y -= 0.010 * hw
-                    else:
-                        v.co.z += 0.008 * hw
-                        v.co.y -= 0.006 * hw
                     face_edits += 1
 
             if bulk > 0.0 and tw >= 0.50:
@@ -1202,10 +1196,13 @@ def clear_chest_head_weights(arm) -> int:
 
 
 def flatten_stretched_torso_edges(arm) -> int:
-    """Pull the low-spine end of a long rest-pose torso edge.
+    """Seat the unbound neighbor of a 100% spine vert (1876/1891 class).
 
     e1d08f9 only pulled verts with spine>=0.18, so vert 1891 (spine=0,
     connected to 1876 spine=1.00) was left behind. Punch then opened 21cm.
+    0706a32 then collapsed EVERY rest-edge >70mm — healthy pec/clavicle
+    spans — and the Idle still grew a pec-pinch needle. Only this unbind
+    pair is seated; do not flatten the whole chest.
     """
     body = male_body_mesh(arm)
     me = body.data
@@ -1214,6 +1211,8 @@ def flatten_stretched_torso_edges(arm) -> int:
         vg_index(body, "spine_02"),
         vg_index(body, "spine_03"),
     ]
+    head_i = vg_index(body, "head")
+    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
     upper_l = vg_index(body, "upperarm_l")
     upper_r = vg_index(body, "upperarm_r")
     lower_l = vg_index(body, "lowerarm_l")
@@ -1230,17 +1229,25 @@ def flatten_stretched_torso_edges(arm) -> int:
             continue
         sa = max(vg_weight(va, gi) for gi in spine_groups)
         sb = max(vg_weight(vb, gi) for gi in spine_groups)
-        # Pull the weaker-spine end toward the stronger (1891 → 1876).
         if sa >= sb:
-            src, dst, src_v, dst_v = a, b, va, vb
+            src, dst, src_v, dst_v, src_s, dst_s = a, b, va, vb, sa, sb
         else:
-            src, dst, src_v, dst_v = b, a, vb, va
-        if _arm_weight(dst_v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) >= 0.40:
+            src, dst, src_v, dst_v, src_s, dst_s = b, a, vb, va, sb, sa
+        if src_s < 0.50 or dst_s >= 0.15:
             continue
-        dst_v.co = 0.15 * dst_v.co + 0.85 * src_v.co
+        if vg_weight(dst_v, head_i) >= 0.15 or vg_weight(dst_v, neck_i) >= 0.15:
+            continue
+        if _arm_weight(dst_v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) >= 0.25:
+            continue
+        # Seat near the spine vert — 85% collapse was the 0706a32 pec needle.
+        dst_v.co = 0.40 * dst_v.co + 0.60 * src_v.co
         pulled += 1
+        log(
+            f"seat spine-unbind rest-edge ({src},{dst}) "
+            f"len={d:.4f} spine=({src_s:.2f},{dst_s:.2f})"
+        )
     me.update()
-    log(f"flattened stretched torso rest-edges verts={pulled}")
+    log(f"flattened spine-unbind rest-edges verts={pulled}")
     return pulled
 
 
@@ -1312,7 +1319,7 @@ def repair_spine_unbind_edges(arm) -> int:
             continue
         if _leg_weight(dst_v, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r) >= 0.25:
             continue
-        dst_v.co = 0.10 * dst_v.co + 0.90 * src_v.co
+        # Copy groups only — collapsing onto src made 0706a32 pec/chin needles.
         n = _copy_vertex_groups(body, src, dst)
         repaired += 1
         log(
@@ -1329,8 +1336,8 @@ def open_orc_mouth_aperture(arm) -> int:
 
     Do not edit a 108mm face band (57f9616: 887 verts, axis collapsed).
     Do not refuse a large candidate pool (e1ec980: 580 > 120, never reached
-    tusks). Find the real L/R corners, keep an 8mm Z slab around them, take
-    the most-forward N verts on each lip, part only those.
+    tusks). Find the real L/R corners, keep a 16mm Z slab around them, part
+    the camera-facing center first (commissure-only left Idle/Walk closed).
     """
     body, samples = collect_head_front_face_samples(arm)
     if not samples:
@@ -1360,13 +1367,22 @@ def open_orc_mouth_aperture(arm) -> int:
         pool.append(s)
     lower = [s for s in pool if s["z"] <= cz]
     upper = [s for s in pool if s["z"] > cz]
-    lower.sort(key=lambda s: s["y"])
-    upper.sort(key=lambda s: s["y"])
-    lower = lower[:LIP_VERTS_EACH]
-    upper = upper[:LIP_VERTS_EACH]
+    # Camera sees the CENTER of the mouth. 0706a32 parted 14 most-forward
+    # verts that sat at the commissures — Idle/Walk still read closed.
+    center_lo = [s for s in lower if abs(s["x"] - cx) <= 0.045]
+    center_hi = [s for s in upper if abs(s["x"] - cx) <= 0.045]
+    center_lo.sort(key=lambda s: s["y"])
+    center_hi.sort(key=lambda s: s["y"])
+    corner_lo = [s for s in lower if abs(s["x"] - cx) > 0.045]
+    corner_hi = [s for s in upper if abs(s["x"] - cx) > 0.045]
+    corner_lo.sort(key=lambda s: s["y"])
+    corner_hi.sort(key=lambda s: s["y"])
+    lower = center_lo[:12] + corner_lo[:6]
+    upper = center_hi[:12] + corner_hi[:6]
     log(
         f"open_orc_mouth_aperture pool={len(pool)} "
-        f"take L={len(lower)} U={len(upper)} "
+        f"center=({len(center_lo[:12])},{len(center_hi[:12])}) "
+        f"corners=({len(corner_lo[:6])},{len(corner_hi[:6])}) "
         f"corner_z={cz:.4f} lip_y={lip_y:.4f} half_w={half_w:.4f}"
     )
     if len(lower) < 4 or len(upper) < 4:
@@ -1376,16 +1392,20 @@ def open_orc_mouth_aperture(arm) -> int:
             f"cz={cz:.4f}). Not inventing a face-wide part."
         )
     chosen = lower + upper
+    center_ids = {id(s) for s in center_lo[:12] + center_hi[:12]}
     for s in lower:
         v = s["v"]
-        v.co.z -= max(0.012, 0.020 * s["hw"])
-        if abs(s["x"] - cx) > 0.028:
-            v.co.x += math.copysign(0.006 * s["hw"], s["x"] - cx)
+        drop = 0.018 if id(s) in center_ids else 0.010
+        v.co.z -= max(drop, 0.024 * s["hw"])
+        if id(s) in center_ids:
+            # +Y into the head — expose the oral opening the camera sees.
+            v.co.y += 0.007
     for s in upper:
         v = s["v"]
-        v.co.z += max(0.010, 0.016 * s["hw"])
-        if abs(s["x"] - cx) > 0.028:
-            v.co.x += math.copysign(0.006 * s["hw"], s["x"] - cx)
+        lift = 0.016 if id(s) in center_ids else 0.008
+        v.co.z += max(lift, 0.020 * s["hw"])
+        if id(s) in center_ids:
+            v.co.y += 0.005
     me.update()
     low_z = [float(me.vertices[s["v"].index].co.z) for s in lower]
     high_z = [float(me.vertices[s["v"].index].co.z) for s in upper]
@@ -1400,7 +1420,7 @@ def open_orc_mouth_aperture(arm) -> int:
         )
     log(
         f"opened orc mouth aperture verts={len(chosen)} "
-        f"rest_lip_gap={gap:.4f} (most-forward lips at corner slab; "
+        f"rest_lip_gap={gap:.4f} (center lips + corners; "
         f"pool={len(pool)} not edited)"
     )
     return len(chosen)
@@ -2373,6 +2393,20 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"opening_frac={opening_frac:.3f} dist_corner={dist_corner:.4f} — "
                 f"21:56 Punch pixel class; refusing PNG"
             )
+        # Chin needle: ivory hanging opposite the oral opening (0706a32 Idle
+        # white pin under a closed mouth). Measure along -aperture from the
+        # posed lip — not a looser world-Z, which Death hyperextension lies.
+        max_below = 0.0
+        for vw in verts_w:
+            below = float((vw - corner_w).dot(-aperture_n))
+            if below > max_below:
+                max_below = below
+        if max_below > TUSK_MAX_BELOW_LIP:
+            raise RuntimeError(
+                f"{label} still: tusk {tusk.name!r} hangs below the lip "
+                f"(max_below={max_below:.4f} > {TUSK_MAX_BELOW_LIP}) — "
+                f"0706a32 chin-needle class; refusing PNG"
+            )
         if seated_frac < TUSK_MIN_SEATED_FRAC:
             raise RuntimeError(
                 f"{label} still: tusk {tusk.name!r} not seated in the gum "
@@ -2383,7 +2417,7 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
             f"bind_dist={dist_bind:.4f} opening_frac={opening_frac:.3f} "
             f"seated_frac={seated_frac:.3f} tip_rise={max_rise:.4f} "
             f"max_into_skull={max_into:.4f} max_radial={max_radial:.4f} "
-            f"max_out_past_lip={max_out:.4f}"
+            f"max_out_past_lip={max_out:.4f} max_below={max_below:.4f}"
         )
     log(f"{label} still gate: tusks seated in mouth opening")
     assert_no_torso_spike(arm, label)
