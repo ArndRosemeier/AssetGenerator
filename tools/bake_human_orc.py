@@ -544,7 +544,7 @@ def write_art_review_packet(
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
-            "mesh authored from lower gum cavity with 32deg pitch (+Y up, +Z fwd) and "
+            "mesh authored from lower gum cavity with 31deg pitch (+Y up, +Z fwd) and "
             "inward coronal roll (seated naturally in mouth; no cheek float or chest spikes).",
             "AFTER stills gate: cavity bind + lip-corner (0.085) + inside frac + "
             "max tip past posed lip before each PNG; junk Eyes/spheres hidden.",
@@ -1858,7 +1858,7 @@ def add_tusks(arm) -> list:
 
     Cone mesh is authored emerging from the lower gum cavity, rising UP (+Y in
     bone local space / World +Z) and FORWARD (+Z in bone local space / World -Y)
-    at 32deg pitch with inward coronal roll (6deg) toward midline. This seats
+    at 31deg pitch with inward coronal roll (6deg) toward midline. This seats
     the tusks naturally in the oral cavity / dental arch across all animations:
     - Idle/Walk: tusks emerge through mouth aperture and rise past lower lip.
     - Punch: tusks hug jaw/lip without protruding horizontally into chin air.
@@ -1921,19 +1921,19 @@ def add_tusks(arm) -> list:
             cap_ends=True,
             cap_tris=True,
             segments=12,
-            radius1=0.0095,
-            radius2=0.0020,
-            depth=0.040,
+            radius1=0.011,
+            radius2=0.0025,
+            depth=0.046,
         )
         # Author cone emerging from lower gum cavity: rising UP (+Y in bone local / World +Z)
-        # and FORWARD (+Z in bone local / World -Y) at 32deg pitch, with inward coronal roll (6deg).
+        # and FORWARD (+Z in bone local / World -Y) at 31deg pitch, with inward coronal roll (6deg).
         for v in bm.verts:
-            vz = v.co.z + 0.020  # shift base to 0, tip to +0.040 along cone axis
+            vz = v.co.z + 0.023  # shift base to 0, tip to +0.046 along cone axis
             x0 = v.co.x
             y0 = vz
             z0 = v.co.y
             # 1) Pitch tilt: tilt from +Y (UP) toward +Z (FORWARD out of mouth):
-            ap = math.radians(32.0)
+            ap = math.radians(31.0)
             y1 = y0 * math.cos(ap) - z0 * math.sin(ap)
             z1 = y0 * math.sin(ap) + z0 * math.cos(ap)
             x1 = x0
