@@ -32,6 +32,12 @@ Exact local invoke (Arnd, AG blenderctl 4.5 / Blender 4.5):
     <AG blender> --background --factory-startup --python ^
       C:\\Projekte\\AssetGenerator\\tools\\bake_human_orc.py
 
+  A different creature -- same passes, same gates, different numbers. See the
+  ORC / OGRE presets and docs/CREATURE_TRANSFORMS.md::
+
+    <AG blender> --background --factory-startup --python ^
+      C:\\Projekte\\AssetGenerator\\tools\\bake_human_orc.py -- --creature ogre
+
   UV template only (no Punch/Death gate; CPU raster, not uv.export_layout)::
 
     <AG blender> --background --factory-startup --python ^
@@ -216,7 +222,10 @@ import struct
 import sys
 import traceback
 import zlib
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 
 # isort: off
 # bpy must come first. Inside Blender both are built in and the order is
@@ -262,13 +271,184 @@ ANIM_DONOR = ORRUN_HUMANS / "male_dressed_male_worksuit01.glb"
 # Clean full-body MH UVs for --uv-only (may have zero clips).
 MALE_BASE = AG_HUMANS / "male_base.glb"
 
-DEST = AG_HUMANS / "male_orc_01.glb"
+# --- creature presets -------------------------------------------------------
+# The passes below are shared; a creature is the handful of numbers they are
+# aimed with. This block exists instead of a copy of this file per creature,
+# because a second copy would make every gate, every landmark solver and every
+# lesson in docs/CREATURE_TRANSFORMS.md have two owners that drift apart.
+#
+# Deliberately NOT parameterised yet, because nothing has needed it: the mouth
+# aperture fractions (they live in orc_mouth_geometry.py and are read by the
+# offline sweeps), the tusk geometry and its gate bounds (read out of this file
+# by AST in orc_mouth_selfcheck.py -- see lesson 10), and overall body scale.
+# Add a field here when a creature actually needs one, not in advance.
+
+
+@dataclass(frozen=True)
+class Creature:
+    """One creature's worth of aim for the shared restyle passes.
+
+    ``bone_gain`` is a Mapping rather than a dict so a preset cannot be edited
+    at runtime by the code that reads it: a gain table mutated halfway through
+    the pass is exactly the "two owners of one number" failure this block is
+    here to avoid.
+    """
+
+    name: str
+    dest_name: str
+    # Per-bone cross-section gain as (lateral X, depth Y, vertical Z). See the
+    # long note at BODY_ZERO_GAIN_PREFIXES for why this is anisotropic and why
+    # the mass belongs in the yoke rather than the chest.
+    bone_gain: Mapping[str, tuple[float, float, float]]
+    # Laplacian passes over the displacement field. Scales with the gains: this
+    # is the knob that keeps the worst neighbour step under
+    # BODY_MASS_MAX_NEIGHBOUR_STEP_M. Raise this, never the gate.
+    mass_smooth_iterations: int
+    jaw_forward_m: float
+    brow_forward_m: float
+    skin: tuple[float, float, float]
+    skin_shadow: tuple[float, float, float]
+    skin_warm: tuple[float, float, float]
+
+
+ORC = Creature(
+    name="orc",
+    dest_name="male_orc_01.glb",
+    bone_gain=MappingProxyType(
+        {
+            "neck_01": (0.34, 0.34, 0.34),
+            "spine_03": (0.22, 0.04, 0.10),
+            "spine_02": (0.18, 0.04, 0.08),
+            "spine_01": (0.12, 0.04, 0.06),
+            "clavicle_l": (0.30, 0.16, 0.22),
+            "clavicle_r": (0.30, 0.16, 0.22),
+            "upperarm_l": (0.18, 0.18, 0.18),
+            "upperarm_r": (0.18, 0.18, 0.18),
+            "lowerarm_l": (0.14, 0.14, 0.14),
+            "lowerarm_r": (0.14, 0.14, 0.14),
+            "hand_l": (0.08, 0.08, 0.08),
+            "hand_r": (0.08, 0.08, 0.08),
+            "thigh_l": (0.14, 0.14, 0.14),
+            "thigh_r": (0.14, 0.14, 0.14),
+            "calf_l": (0.12, 0.12, 0.12),
+            "calf_r": (0.12, 0.12, 0.12),
+        }
+    ),
+    mass_smooth_iterations=10,
+    jaw_forward_m=0.014,
+    brow_forward_m=0.008,
+    skin=(0.28, 0.34, 0.20),
+    skin_shadow=(0.16, 0.21, 0.12),
+    skin_warm=(0.34, 0.32, 0.19),
+)
+
+# The ogre is the orc with the mass dialled up, which is the whole reason it is
+# the cheapest second creature: no new pass, no new gate, no new geometry.
+#
+# Two things are not just "the orc times 1.6":
+#
+#   * spine_01 gets real DEPTH gain (0.26) where the orc has almost none (0.04).
+#     That is the gut. The orc zeroed depth on every spine bone because a radial
+#     push around the spine axis inflates the chest forward and read as sagging
+#     pectorals -- but that argument is about spine_03, up at the pecs. Down at
+#     spine_01 front-to-back thickness is a belly, which is what an ogre should
+#     have and an orc should not. So depth is graded up the spine instead of
+#     switched off along it: 0.26 at the waist, 0.14 mid, 0.06 at the chest.
+#   * mass_smooth_iterations goes 10 -> 28. The orc's pass already lands at
+#     7.06 mm against the 8 mm BODY_MASS_MAX_NEIGHBOUR_STEP_M gate, so there is
+#     almost no headroom, and larger gains step the raw field further. The fix
+#     is more diffusion, never a looser gate -- that gate is measuring the
+#     permanent ledge around the jaw that MakeHuman's rigid head/neck bind
+#     produces, and it is the one number standing between this pass and a seam.
+OGRE = Creature(
+    name="ogre",
+    dest_name="male_ogre_01.glb",
+    bone_gain=MappingProxyType(
+        {
+            "neck_01": (0.56, 0.56, 0.56),
+            # 0.38 lateral tore an 8.6 mm step across edge (1960, 1976), where
+            # BOTH ends are 96% spine_03 -- so it was not a bind discontinuity
+            # but the chest radius changing fast under a large gain. Trimming
+            # here costs little; the width has to come from the lower spine.
+            "spine_03": (0.30, 0.06, 0.14),
+            # The spine axis is vertical, so LATERAL gain on these two is the
+            # only thing in this pass that actually widens the torso outline.
+            # Clavicle gain cannot: see the note on clavicle below.
+            "spine_02": (0.38, 0.18, 0.14),
+            "spine_01": (0.36, 0.30, 0.10),
+            # Thickens the yoke front-to-back and top-to-bottom, which is worth
+            # having -- but it does NOT broaden the shoulders. The clavicle axis
+            # already runs laterally and this displacement is perpendicular to
+            # the bone, so 0.46 here bought 3 mm of shoulder span. Broad
+            # shoulders need displacement ALONG the clavicle, which is a
+            # different pass and does not exist yet.
+            "clavicle_l": (0.46, 0.24, 0.32),
+            "clavicle_r": (0.46, 0.24, 0.32),
+            "upperarm_l": (0.38, 0.38, 0.38),
+            "upperarm_r": (0.38, 0.38, 0.38),
+            "lowerarm_l": (0.30, 0.30, 0.30),
+            "lowerarm_r": (0.30, 0.30, 0.30),
+            "hand_l": (0.20, 0.20, 0.20),
+            "hand_r": (0.20, 0.20, 0.20),
+            "thigh_l": (0.34, 0.34, 0.34),
+            "thigh_r": (0.34, 0.34, 0.34),
+            "calf_l": (0.26, 0.26, 0.26),
+            "calf_r": (0.26, 0.26, 0.26),
+        }
+    ),
+    mass_smooth_iterations=48,
+    # Capped by the donor's nose, not by taste: the chin front sits 19.2 mm
+    # behind the nose tip and the chin is inside the jaw band at full amplitude,
+    # so every millimetre of push spends a millimetre of the clearance that
+    # JAW_BEHIND_NOSE_MIN_M requires. 17 mm refused with 2.0 mm left. A heavier
+    # ogre muzzle than this needs the nose to move too -- the same structural
+    # limit that blocks a kobold snout, see docs/CREATURE_TRANSFORMS.md.
+    jaw_forward_m=0.0145,
+    brow_forward_m=0.012,
+    # Muddy olive-brown, not grey. A first pass at (0.33, 0.29, 0.24) was only
+    # 15% saturated and rendered as wet stone, which is the same corpse read the
+    # orc's pale sage had -- the hue has to say "living thing" before it says
+    # "different from the orc".
+    skin=(0.36, 0.30, 0.21),
+    skin_shadow=(0.19, 0.15, 0.11),
+    skin_warm=(0.47, 0.38, 0.26),
+)
+
+CREATURES: Mapping[str, Creature] = MappingProxyType({c.name: c for c in (ORC, OGRE)})
+
+
+def resolve_creature() -> Creature:
+    """Which creature this run bakes, from ``--creature <name>``.
+
+    Defaults to the orc so every existing invocation keeps its meaning. An
+    unknown name refuses rather than falling back: silently baking an orc when
+    the caller asked for an ogre would overwrite the wrong dest.
+    """
+    argv = sys.argv
+    if "--creature" not in argv:
+        return ORC
+    i = argv.index("--creature")
+    if i + 1 >= len(argv):
+        raise RuntimeError(
+            f"--creature needs a name; known: {sorted(CREATURES)}"
+        )
+    key = argv[i + 1].strip().lower()
+    if key not in CREATURES:
+        raise RuntimeError(
+            f"unknown creature {key!r}; known: {sorted(CREATURES)}"
+        )
+    return CREATURES[key]
+
+
+CREATURE: Creature = resolve_creature()
+
+DEST = AG_HUMANS / CREATURE.dest_name
 SCRATCH = AG / "tools" / "_human_orc_bake"
 UV_LAYOUT = SCRATCH / "male_base_uv_layout.png"
 LOOKDEV = SCRATCH / "orc_lookdev_threequarter.png"
 PREVIEW_DIR = SCRATCH / "previews"
-ART_REVIEW_PACKET = PREVIEW_DIR / "art_review_packet.json"
-CLIP_LIST_MD = PREVIEW_DIR / "CLIP_LIST.md"
+ART_REVIEW_PACKET = PREVIEW_DIR / f"{DEST.stem}_art_review_packet.json"
+CLIP_LIST_MD = PREVIEW_DIR / f"{DEST.stem}_CLIP_LIST.md"
 
 QUATERNIUS_ORC = AG / "assets" / "monsters" / "quaternius" / "big" / "Orc.glb"
 FORBIDDEN_ORC_MARKERS = (
@@ -307,9 +487,10 @@ TEX_SIZE = 1024
 # three of the four 18:50 stills read as a drowned man before they read as an
 # orc. Combined with the missing eyeballs that was most of the corpse look. 41%
 # saturation is a clear olive green without going lurid.
-OLIVE = (0.28, 0.34, 0.20)
-OLIVE_SHADOW = (0.16, 0.21, 0.12)
-OLIVE_WARM = (0.34, 0.32, 0.19)
+#
+# The three values are per creature: ``CREATURE.skin`` / ``.skin_shadow`` /
+# ``.skin_warm``. Keep the three-tone structure whatever the hue -- flat albedo
+# is what made the first passes read as plastic.
 # Ivory, not paper. 0.92 albedo is brighter than the olive skin and reads as a
 # folded paper dart in every 18:50 still; real ivory is a warm cream around 0.65
 # and picks up a highlight rather than blowing out.
@@ -530,8 +711,8 @@ JAW_BAND_EDGE = 0.030
 # ``min(midline, key=y)`` returns a chin vert as the nose tip and every landmark
 # downstream is garbage. 14 mm leaves ~5 mm, and is checked directly below rather
 # than left to surface two passes later as "an earlier restyle step has
-# out-projected the nose".
-JAW_FORWARD_M = 0.014
+# out-projected the nose". Per creature: ``CREATURE.jaw_forward_m``; the ogre
+# takes 17 mm, which still leaves ~2 mm and is checked below like any other.
 JAW_DROP_RATIO = 0.20
 # The jaw build must leave the nose tip the most-forward point of the face, for
 # the same reason the brow build must: the landmark solver finds the nose by
@@ -568,7 +749,7 @@ BROW_BAND_EDGE_FRAC = 0.05
 # short of the temples.
 BROW_HALF_WIDTH_FRAC = 0.30
 BROW_X_EDGE_FRAC = 0.06
-BROW_FORWARD_M = 0.008
+# Shelf amplitude is per creature: ``CREATURE.brow_forward_m``.
 # The shelf overhangs, so it drops as it comes forward.
 BROW_DROP_RATIO = 0.25
 # ...and it must stay behind the nose tip. If the brow out-projects the nose,
@@ -626,24 +807,9 @@ BROW_BEHIND_NOSE_MIN_M = 0.004
 # now widen strongly and deepen barely, which adds mass to the silhouette without
 # ballooning the pecs. Limbs and neck stay isotropic, where a section really is
 # roughly circular.
-BODY_BONE_GAIN = {
-    "neck_01": (0.34, 0.34, 0.34),
-    "spine_03": (0.22, 0.04, 0.10),
-    "spine_02": (0.18, 0.04, 0.08),
-    "spine_01": (0.12, 0.04, 0.06),
-    "clavicle_l": (0.30, 0.16, 0.22),
-    "clavicle_r": (0.30, 0.16, 0.22),
-    "upperarm_l": (0.18, 0.18, 0.18),
-    "upperarm_r": (0.18, 0.18, 0.18),
-    "lowerarm_l": (0.14, 0.14, 0.14),
-    "lowerarm_r": (0.14, 0.14, 0.14),
-    "hand_l": (0.08, 0.08, 0.08),
-    "hand_r": (0.08, 0.08, 0.08),
-    "thigh_l": (0.14, 0.14, 0.14),
-    "thigh_r": (0.14, 0.14, 0.14),
-    "calf_l": (0.12, 0.12, 0.12),
-    "calf_r": (0.12, 0.12, 0.12),
-}
+#
+# The values themselves are per creature -- see ``Creature.bone_gain`` and the
+# ORC / OGRE presets above.
 # Deliberately unthickened. The head is the face pass's business and the ask here
 # was the body only. A wider pelvis reads as fat rather than as mass. Feet and
 # fingers at this framing are noise, and thickening a foot is the one place this
@@ -682,7 +848,10 @@ BODY_MASS_MAX_NEIGHBOUR_STEP_M = 0.008
 # the underside of the jaw, which is where a thick neck meets a head anyway. It
 # does not reach the mouth or the brow -- the log reports the worst offset landing
 # on a head-weighted vert so that claim is a number rather than an assurance.
-BODY_MASS_SMOOTH_ITERATIONS = 10
+#
+# The iteration count is per creature (``Creature.mass_smooth_iterations``): it
+# has to rise with the gains to keep the worst neighbour step under the gate
+# below, and the ogre needs nearly three times the orc's.
 BODY_MASS_SMOOTH_LAMBDA = 0.5
 # ...and proof it did something. A pass that silently moves nothing is how the
 # face kept coming back human.
@@ -887,7 +1056,7 @@ WEAPON_NAME_KEYS = ("cleaver", "shield", "axe", "sword", "weapon")
 
 
 def log(msg: str) -> None:
-    print(f"[human-orc] {msg}", flush=True)
+    print(f"[human-{CREATURE.name}] {msg}", flush=True)
 
 
 def want_uv_only() -> bool:
@@ -1142,10 +1311,13 @@ def preserve_all_actions_for_export(arm) -> list[str]:
 
 
 def still_path(tag: str, label: str, view: str = "body") -> Path:
+    # Named off the dest so two creatures' stills cannot overwrite each other in
+    # the shared scratch dir.
+    stem = DEST.stem
     if view == "body":
-        return PREVIEW_DIR / f"male_orc_01_{tag}_{label.lower()}.png"
+        return PREVIEW_DIR / f"{stem}_{tag}_{label.lower()}.png"
     if view == "mouth":
-        return PREVIEW_DIR / f"male_orc_01_{tag}_{label.lower()}_mouth.png"
+        return PREVIEW_DIR / f"{stem}_{tag}_{label.lower()}_mouth.png"
     raise RuntimeError(f"still_path: unknown view {view!r}")
 
 
@@ -1673,8 +1845,8 @@ def restyle_face(arm, landmarks) -> None:
             if band <= 0.0:
                 continue
             # No aperture keepout: the muzzle carries the mouth with it, and the
-            # aperture is re-measured afterwards. See JAW_FORWARD_M.
-            amp = JAW_FORWARD_M * band * min(1.0, hw)
+            # aperture is re-measured afterwards. See ``Creature.jaw_forward_m``.
+            amp = CREATURE.jaw_forward_m * band * min(1.0, hw)
             if amp <= 0.0:
                 continue
             # Do NOT copysign-X the midline. d1f412a shoved every mouth vert
@@ -1698,8 +1870,8 @@ def restyle_face(arm, landmarks) -> None:
                 f"verts. The landmark solver finds the nose by taking the "
                 f"most-forward midline vert, so a chin in front of the nose is "
                 f"detected AS the nose and the lip slit, subnasale and the whole "
-                f"aperture land in the wrong place; lower JAW_FORWARD_M rather "
-                f"than letting that happen"
+                f"aperture land in the wrong place; lower "
+                f"{CREATURE.name}'s jaw_forward_m rather than letting that happen"
             )
         log(
             f"restyled mesh {obj.name!r} verts={len(me.vertices)} "
@@ -1820,16 +1992,18 @@ def bone_gain(name: str) -> Vector:
 
     Refuses a bone this pass has not seen rather than defaulting it to zero.
     """
-    if name in BODY_BONE_GAIN:
-        return Vector(BODY_BONE_GAIN[name])
+    gains = CREATURE.bone_gain
+    if name in gains:
+        return Vector(gains[name])
     low = name.lower()
     for prefix in BODY_ZERO_GAIN_PREFIXES:
         if low.startswith(prefix):
             return Vector((0.0, 0.0, 0.0))
     raise RuntimeError(
-        f"build_orc_body_mass: bone {name!r} is neither in BODY_BONE_GAIN nor "
-        f"covered by BODY_ZERO_GAIN_PREFIXES. Decide what mass it should get "
-        f"rather than letting a new donor's bone silently thicken by nothing"
+        f"build_orc_body_mass: bone {name!r} is neither in "
+        f"{CREATURE.name}'s bone_gain nor covered by "
+        f"BODY_ZERO_GAIN_PREFIXES. Decide what mass it should get rather than "
+        f"letting a new donor's bone silently thicken by nothing"
     )
 
 
@@ -1858,7 +2032,8 @@ def build_orc_body_mass(arm) -> int:
     Each vert is displaced by ``sum_b w_b * gain_b * radial_b(v)``, where
     ``radial_b`` is the vector from bone ``b``'s axis to the vert, clamped to the
     bone's segment so a bone thickens a capsule around itself rather than an
-    infinite cylinder. See BODY_BONE_GAIN for why the blend is over bind weights:
+    infinite cylinder. See ``Creature.bone_gain`` for why the blend is over bind
+    weights:
     it makes the displacement field exactly as smooth as the skinning, which is
     the structural answer to the pec-armpit spike that got the previous bulk pass
     deleted.
@@ -1939,7 +2114,7 @@ def build_orc_body_mass(arm) -> int:
     offsets = smooth_vector_field(
         me,
         offsets,
-        iterations=BODY_MASS_SMOOTH_ITERATIONS,
+        iterations=CREATURE.mass_smooth_iterations,
         lam=BODY_MASS_SMOOTH_LAMBDA,
     )
     del _adj
@@ -2022,7 +2197,7 @@ def build_orc_body_mass(arm) -> int:
         f"built orc body mass on {body.name!r} moved={moved}/{len(me.vertices)} "
         f"worst_offset={worst * 1000:.1f}mm at vert {worst_index} "
         f"neighbour_step {raw_step * 1000:.1f} -> {worst_step * 1000:.2f}mm "
-        f"after {BODY_MASS_SMOOTH_ITERATIONS} smoothing pass(es); "
+            f"after {CREATURE.mass_smooth_iterations} smoothing pass(es); "
         f"pure-head bleed={head_bleed * 1000:.1f}mm at vert {head_bleed_index}; "
         f"neck_width {neck_before * 1000:.1f} -> {neck_after * 1000:.1f}mm "
         f"(+{neck_growth * 1000:.1f}) shoulder_span={shoulder_after} "
@@ -2121,7 +2296,7 @@ def build_orc_brow_ridge(arm, landmarks) -> int:
         side = MG.band_falloff(abs(float(v.co.x) - cx), -x_half, x_half, x_edge)
         if side <= 0.0:
             continue  # temples
-        amp = BROW_FORWARD_M * band * side * min(1.0, hw)
+        amp = CREATURE.brow_forward_m * band * side * min(1.0, hw)
         if amp <= 0.0:
             continue
         v.co.y -= amp
@@ -2150,7 +2325,8 @@ def build_orc_brow_ridge(arm, landmarks) -> int:
             f"{worst_offset * 1000:.1f} mm of forward build over {built} verts. "
             f"A brow in front of the nose is detected AS the nose by the landmark "
             f"solver, which would put the lip slit and the whole aperture in the "
-            f"wrong place; lower BROW_FORWARD_M rather than letting that happen"
+            f"wrong place; lower {CREATURE.name}'s brow_forward_m rather than "
+            f"letting that happen"
         )
     log(
         f"built orc brow ridge on {body.name!r} verts={built} "
@@ -3582,7 +3758,7 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
     # the slots in that order so this survives every re-paint.
     interior = mouth_interior_material()
     me.materials.clear()
-    me.materials.append(make_opaque_mat(f"OrcSkin_{body.name}", OLIVE, 0.88))
+    me.materials.append(make_opaque_mat(f"OrcSkin_{body.name}", CREATURE.skin, 0.88))
     me.materials.append(interior)
     body["orc_mouth_interior_slot"] = 1
     store_mouth_interior_faces(body, interior_faces)
@@ -5038,7 +5214,7 @@ def apply_finished_olive_skin(arm) -> None:
             raise RuntimeError(f"{obj.name!r} has no UV; refusing smart_project")
         # Keep mesh name male_body; material id documents olive ownership.
         mat_name = f"OrcSkin_{obj.name}"
-        mat = make_opaque_mat(mat_name, OLIVE, 0.88)
+        mat = make_opaque_mat(mat_name, CREATURE.skin, 0.88)
         nt = mat.node_tree
         bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
         noise = nt.nodes.new("ShaderNodeTexNoise")
@@ -5046,9 +5222,9 @@ def apply_finished_olive_skin(arm) -> None:
         noise.inputs["Detail"].default_value = 6.0
         ramp = nt.nodes.new("ShaderNodeValToRGB")
         ramp.color_ramp.elements[0].position = 0.35
-        ramp.color_ramp.elements[0].color = (*OLIVE_SHADOW, 1.0)
+        ramp.color_ramp.elements[0].color = (*CREATURE.skin_shadow, 1.0)
         ramp.color_ramp.elements[1].position = 0.75
-        ramp.color_ramp.elements[1].color = (*OLIVE_WARM, 1.0)
+        ramp.color_ramp.elements[1].color = (*CREATURE.skin_warm, 1.0)
         nt.links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
         nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
         if "Subsurface Weight" in bsdf.inputs:
@@ -6948,6 +7124,13 @@ def run_restyle() -> dict:
 
 def main() -> int:
     log(f"blender {bpy.app.version_string}")
+    log(
+        f"creature={CREATURE.name!r} dest={DEST.name} "
+        f"jaw_forward={CREATURE.jaw_forward_m * 1000:.1f}mm "
+        f"brow_forward={CREATURE.brow_forward_m * 1000:.1f}mm "
+        f"mass_smooth={CREATURE.mass_smooth_iterations} "
+        f"skin={CREATURE.skin}"
+    )
     refuse_quaternius_orc(DEST, AG_WORKSUIT, ANIM_DONOR, MALE_BASE)
     ensure_not_protected_dest(DEST)
     # Import-time sanity: BONE_MAP is the 53-bone MH share map — do not mutate HQ.TARGETS.
