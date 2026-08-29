@@ -9,7 +9,7 @@ Arnd nude lock (PR #1): same creature / same dest — not a new body plan.
   - Finished olive-grey skin on male_body MH UVs (no UV-grid / checker).
   - NO invented look-dev clothes: do not call add_lookdev_gear; no OrcGear_*,
     harness, spaulder, belt, loincloth, arm/ankle wraps, cubes/tori.
-  - Widen mouth / open lips; tusks IN the mouth opening (gum-seated, head-bound),
+  - Part the lips (rest mesh); tusks IN the mouth opening (gum-seated, head-bound),
     visible on Idle/Walk/Punch_Cross/Death01 — not cheeks, not through the chest.
   - Brow spikes are male_body verts from an oversized face restyle band — NOT Eyes,
     NOT Icosphere, NOT an authored brow mesh. Flatten those verts. Hide Eyes
@@ -181,24 +181,28 @@ MOUTH_CORNER_MAX_ABS_X = 0.095
 # Lip-corner surface → lower-gum seat in MH body space (face is -Y).
 # Keep this SHALLOW: 24mm+ inset + skull-axis cones buried the tusks on Idle/Walk
 # and exited the throat as Death chest spikes (1116245 / ac21975).
-CAVITY_IN_Y = 0.008  # +Y into the head — gum, not maxilla
-CAVITY_IN_X = 0.012  # toward canine / midline
+CAVITY_IN_Y = 0.005  # +Y into the head — gum, not maxilla
+CAVITY_IN_X = 0.010  # toward canine / midline
 CAVITY_DOWN_Z = 0.006  # downward into lower jaw gum
-TUSK_DEPTH = 0.038
-TUSK_RADIUS_BASE = 0.010
-TUSK_RADIUS_TIP = 0.0024
+TUSK_DEPTH = 0.050
+TUSK_RADIUS_BASE = 0.011
+TUSK_RADIUS_TIP = 0.0026
 # Still gate: seated in the gum AND occupying the mouth OPENING the camera sees.
 # Do not revive TUSK_CAVITY_INSIDE_FRAC — requiring verts deep along +Y hid tusks.
 TUSK_CAVITY_Y_EPS = 0.004
 TUSK_MIN_SEATED_FRAC = 0.15  # some verts in the gum (not hovering on the lip)
 TUSK_OPENING_NEAR_LIP = 0.014  # depth from lip that still counts as the aperture
 TUSK_OPENING_FRAC = 0.40  # verts near lip plane AND risen through the gap
-TUSK_MIN_TIP_RISE = 0.016  # tip must rise through the open mouth (visible)
+TUSK_MIN_TIP_RISE = 0.022  # tip must clear the parted lips (Idle/Walk visibility)
 TUSK_MAX_INTO_SKULL = 0.032  # refuse maxilla / throat punch (Death chest class)
 TUSK_MAX_APERTURE_RADIUS = 0.028  # refuse cheek (off the opening axis)
 # Max any tusk vert may sit past the posed lip toward outside the mouth
 # (opposite cavity dir). Do not raise — 21:56 Punch chin-float class.
 TUSK_MAX_OUT_PAST_LIP = 0.025
+# Rest-pose lip gap after open_orc_mouth_aperture (Idle/Walk have no jaw clip).
+MOUTH_APERTURE_MIN_Z = 0.018
+# Posed torso-vert outlier (Idle pec pinch / Death through-torso spike).
+TORSO_SPIKE_MAX_M = 0.36
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
@@ -557,9 +561,11 @@ def write_art_review_packet(
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
             "mesh authored from shallow lower gum along the rest-pose mouth "
             "aperture (gum → lip-plane opening), not bone local +Y. "
-            "Skull-axis cones buried Idle/Walk and spiked the Death chest.",
+            "Rest-pose lips are parted (Idle/Walk have no jaw clip). "
+            "Sternum/pec pinch flattened; torso-spike gate on every still.",
             "AFTER stills gate: gum bind + lip-corner (0.085) + opening occupancy "
-            "+ skull-punch refuse + max tip past posed lip; junk Eyes/spheres hidden.",
+            "+ skull-punch refuse + torso-spike refuse + max tip past posed lip; "
+            "junk Eyes unlinked from collections.",
             "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
             "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
@@ -873,18 +879,20 @@ def restyle_bulk_and_jaw(arm) -> None:
             if hw < 0.35:
                 bulk += 0.012 * max(0.0, 1.0 - hw)
 
-            # Idle/Walk neck/chest shred: never displace neck_01 or heavy spine_03.
-            # Also skip any vert with meaningful neck weight — jaw/mouth on the
-            # head/neck blend seam was still tearing under Walk.
-            neck_zone = (
-                nw >= 0.05
-                or (s3w >= 0.22 and hw < 0.55 and arm_w < 0.30)
+            # Idle/Walk neck shred: never jaw-edit neck_01. Do NOT zero bulk on
+            # spine_03 pecs while spine_02 moves 38mm — that cliff pinched the
+            # sternum (Idle) and Death stretched it into a through-torso spike.
+            neck_seam = nw >= 0.05
+            upper_chest = (
+                (s3w >= 0.22 and hw < 0.55 and arm_w < 0.30)
                 or (s3w >= 0.40 and hw < 0.70)
             )
-            if neck_zone:
+            if neck_seam:
                 bulk = 0.0
                 neck_skipped += 1
-                continue
+            elif upper_chest:
+                bulk *= 0.45
+                neck_skipped += 1
 
             dz = v.co.z - head_z
             # Face-only: strong head dominance; no neck blend seam.
@@ -896,24 +904,25 @@ def restyle_bulk_and_jaw(arm) -> None:
                 and s3w < 0.25
             )
 
-            if is_face and -0.145 <= dz <= -0.055 and v.co.y < cy + 0.02:
-                jaw = (hw - 0.18) * 0.070
-                v.co.y -= jaw * 0.85
-                v.co.z -= jaw * 0.18
-                v.co.x += math.copysign(jaw * 0.85, v.co.x - cx)
-                face_edits += 1
+            if (not neck_seam) and (not upper_chest) and is_face:
+                if -0.145 <= dz <= -0.055 and v.co.y < cy + 0.02:
+                    jaw = (hw - 0.18) * 0.070
+                    v.co.y -= jaw * 0.85
+                    v.co.z -= jaw * 0.18
+                    v.co.x += math.copysign(jaw * 0.85, v.co.x - cx)
+                    face_edits += 1
 
-            if is_face and -0.110 <= dz <= -0.012 and v.co.y < cy:
-                mouth_mid_z = head_z - 0.055
-                widen = 0.018 * hw
-                v.co.x += math.copysign(widen, v.co.x - cx)
-                if v.co.z < mouth_mid_z:
-                    v.co.z -= 0.012 * hw
-                    v.co.y -= 0.010 * hw
-                else:
-                    v.co.z += 0.008 * hw
-                    v.co.y -= 0.006 * hw
-                face_edits += 1
+                if -0.110 <= dz <= -0.012 and v.co.y < cy:
+                    mouth_mid_z = head_z - 0.055
+                    widen = 0.018 * hw
+                    v.co.x += math.copysign(widen, v.co.x - cx)
+                    if v.co.z < mouth_mid_z:
+                        v.co.z -= 0.012 * hw
+                        v.co.y -= 0.010 * hw
+                    else:
+                        v.co.z += 0.008 * hw
+                        v.co.y -= 0.006 * hw
+                    face_edits += 1
 
             if bulk > 0.0:
                 v.co.x += radial.x * bulk
@@ -927,6 +936,8 @@ def restyle_bulk_and_jaw(arm) -> None:
         )
 
     flatten_male_body_brow_spikes(arm)
+    flatten_chest_pinch(arm)
+    open_orc_mouth_aperture(arm)
 
 
 def flatten_male_body_brow_spikes(arm) -> int:
@@ -1004,6 +1015,141 @@ def flatten_male_body_brow_spikes(arm) -> int:
     return flattened
 
 
+def flatten_chest_pinch(arm) -> int:
+    """Pull sternum/pec Y outliers back to the chest plane.
+
+    a4a5c61 Idle still showed a pinched cluster between the pecs. Death then
+    stretched that discontinuity into a long through-torso spike. Not a tusk
+    (tusks were already in the mouth on that Death still).
+    """
+    body = male_body_mesh(arm)
+    me = body.data
+    spine2_i = vg_index(body, "spine_02")
+    spine3_i = vg_index(body, "spine_03")
+    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
+    head_i = vg_index(body, "head")
+    xs = [v.co.x for v in me.vertices]
+    ys = [v.co.y for v in me.vertices]
+    zs = [v.co.z for v in me.vertices]
+    cx = 0.5 * (min(xs) + max(xs))
+    cy = 0.5 * (min(ys) + max(ys))
+    z0, z1 = min(zs), max(zs)
+    height = max(z1 - z0, 1e-3)
+    pec_ys = []
+    pec_idx = []
+    for i, v in enumerate(me.vertices):
+        tw = max(vg_weight(v, spine2_i), vg_weight(v, spine3_i))
+        if tw < 0.28:
+            continue
+        if vg_weight(v, neck_i) >= 0.20 or vg_weight(v, head_i) >= 0.40:
+            continue
+        z_rel = (v.co.z - z0) / height
+        if not (0.52 <= z_rel <= 0.78):
+            continue
+        if abs(v.co.x - cx) > 0.090:
+            continue
+        if v.co.y > cy:
+            continue
+        pec_ys.append(float(v.co.y))
+        pec_idx.append(i)
+    if len(pec_idx) < 8:
+        log(f"chest-pinch flatten: too few pec verts ({len(pec_idx)}); skip")
+        return 0
+    pec_ys.sort()
+    median_y = pec_ys[len(pec_ys) // 2]
+    pulled = 0
+    for i in pec_idx:
+        v = me.vertices[i]
+        dy = float(v.co.y) - median_y
+        # Inward pinch (toward +Y / back) or wild forward outlier.
+        if dy > 0.012 or dy < -0.028:
+            v.co.y = 0.25 * float(v.co.y) + 0.75 * median_y
+            pulled += 1
+    me.update()
+    log(
+        f"chest-pinch flatten verts_adjusted={pulled} pec_n={len(pec_idx)} "
+        f"median_y={median_y:.4f} (sternum/pec — not tusks)"
+    )
+    return pulled
+
+
+def open_orc_mouth_aperture(arm) -> int:
+    """Part the lips so Idle/Walk stills show gum-seated tusks.
+
+    Punch/Death open the jaw via clip. Idle/Walk do not — a4a5c61 left a closed
+    human mouth and hidden ivory. Edit the same mouth-band verts the tusk hunt
+    uses. Skip neck_01 / heavy spine_03 (Walk shred class).
+    """
+    body, samples = collect_head_front_face_samples(arm)
+    if not samples:
+        raise RuntimeError("open_orc_mouth_aperture: no head-front samples")
+    me = body.data
+    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
+    spine3_i = vg_index(body, "spine_03")
+    cx = samples[0]["cx"]
+    mouth_lo, mouth_hi, brow_lo = resolve_mouth_zrel_band(samples)
+    zs = [s["z"] for s in samples if mouth_lo <= s["z_rel"] <= min(mouth_hi + 0.04, brow_lo - 0.005)]
+    if len(zs) < 8:
+        raise RuntimeError(
+            f"open_orc_mouth_aperture: too few mouth-band verts ({len(zs)}); "
+            f"mouth=[{mouth_lo:.3f},{mouth_hi:.3f}]"
+        )
+    zs.sort()
+    mid_z = zs[len(zs) // 2]
+    edited = 0
+    for s in samples:
+        if s["hw"] < 0.22:
+            continue
+        if s["z_rel"] < mouth_lo - 0.02 or s["z_rel"] >= brow_lo:
+            continue
+        if s["y"] > s["cy"] - 0.005:
+            continue
+        if abs(s["x"] - cx) > MOUTH_CORNER_MAX_ABS_X:
+            continue
+        v = s["v"]
+        if vg_weight(v, neck_i) >= 0.12 or vg_weight(v, spine3_i) >= 0.28:
+            continue
+        # Widen corners; part lips along Z (down / up). Little extra -Y so the
+        # lip flesh does not slide forward over the tusk tips.
+        if abs(s["x"] - cx) > 0.030:
+            v.co.x += math.copysign(0.010 * s["hw"], s["x"] - cx)
+        if s["z"] < mid_z:
+            v.co.z -= 0.020 * s["hw"]
+            v.co.y -= 0.003 * s["hw"]
+        else:
+            v.co.z += 0.016 * s["hw"]
+            v.co.y -= 0.002 * s["hw"]
+        edited += 1
+    me.update()
+    low_z = []
+    high_z = []
+    for s in samples:
+        v = me.vertices[s["v"].index]
+        if s["hw"] < 0.22 or abs(s["x"] - cx) > MOUTH_CORNER_MAX_ABS_X:
+            continue
+        if s["z_rel"] < mouth_lo - 0.02 or s["z_rel"] >= brow_lo:
+            continue
+        if v.co.z < mid_z:
+            low_z.append(float(v.co.z))
+        else:
+            high_z.append(float(v.co.z))
+    if not low_z or not high_z:
+        raise RuntimeError("open_orc_mouth_aperture: missing lower or upper lip after edit")
+    low_z.sort()
+    high_z.sort()
+    gap = high_z[len(high_z) // 2] - low_z[len(low_z) // 2]
+    if gap < MOUTH_APERTURE_MIN_Z:
+        raise RuntimeError(
+            f"open_orc_mouth_aperture: rest lip gap {gap:.4f} < {MOUTH_APERTURE_MIN_Z} "
+            f"— Idle/Walk would still read as a closed human mouth"
+        )
+    log(
+        f"opened orc mouth aperture verts={edited} rest_lip_gap={gap:.4f} "
+        f"mid_z={mid_z:.4f} (Idle/Walk visibility; neck skipped)"
+    )
+    return edited
+
+
 def is_junk_companion_mesh(obj) -> bool:
     """True for leftover companion meshes that are not the nude orc identity.
 
@@ -1047,6 +1193,9 @@ def hide_junk_companion_meshes(arm) -> list[str]:
             obj.hide_set(True)
         except Exception:
             pass
+        # hide flags alone left Eyes in a rendered collection (Idle/Death spikes).
+        for col in list(obj.users_collection):
+            col.objects.unlink(obj)
         hidden.append(obj.name)
     if hidden:
         log(f"hidden junk companion meshes (not brow spikes): {hidden}")
@@ -1656,6 +1805,79 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
 TUSK_MOUTH_WORLD_MAX = 0.085
 
 
+def assert_no_torso_spike(arm, label: str) -> None:
+    """Refuse a posed male_body vert flying off the torso (Death chest spike).
+
+    a4a5c61 Death still: tusks were in the mouth, but a long grey spike ran
+    through the sternum into the ground. That is a body-vert outlier, not a
+    50mm aperture tusk. Idle pec pinch is the rest-pose form of the same class.
+    """
+    body = male_body_mesh(arm)
+    spine_groups = [
+        vg_index(body, "spine_01"),
+        vg_index(body, "spine_02"),
+        vg_index(body, "spine_03"),
+    ]
+    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
+    head_i = vg_index(body, "head")
+    verts_w = _evaluated_mesh_verts_world(body)
+    if len(verts_w) != len(body.data.vertices):
+        raise RuntimeError(
+            f"{label}: eval male_body vert count {len(verts_w)} != "
+            f"{len(body.data.vertices)}"
+        )
+    torso = []
+    for i, v in enumerate(body.data.vertices):
+        tw = max(vg_weight(v, gi) for gi in spine_groups)
+        if tw < 0.28:
+            continue
+        if vg_weight(v, head_i) >= 0.40:
+            continue
+        if vg_weight(v, neck_i) >= 0.35:
+            continue
+        torso.append(verts_w[i])
+    if len(torso) < 12:
+        raise RuntimeError(
+            f"{label}: too few torso verts for spike gate ({len(torso)})"
+        )
+    mx = sorted(p.x for p in torso)[len(torso) // 2]
+    my = sorted(p.y for p in torso)[len(torso) // 2]
+    mz = sorted(p.z for p in torso)[len(torso) // 2]
+    med = Vector((mx, my, mz))
+    dists = [(p - med).length for p in torso]
+    worst = max(dists)
+    mid_d = sorted(dists)[len(dists) // 2]
+    if worst > TORSO_SPIKE_MAX_M:
+        raise RuntimeError(
+            f"{label} still: male_body torso spike "
+            f"(worst={worst:.4f} > {TORSO_SPIKE_MAX_M} from torso median "
+            f"{tuple(round(c, 3) for c in med)}; median_dist={mid_d:.4f}) — "
+            f"Death through-chest / Idle pec-pinch class; refusing PNG"
+        )
+    log(
+        f"{label} torso spike gate: worst={worst:.4f} median_dist={mid_d:.4f} "
+        f"n={len(torso)}"
+    )
+    # Topological spike: one vert flown away from its neighbors (Death chest
+    # spike can be a head-weighted sternum vert the median test skips).
+    if len(verts_w) != len(body.data.vertices):
+        raise RuntimeError(f"{label}: cannot test stretched edges (eval mismatch)")
+    worst_e = 0.0
+    worst_pair = (-1, -1)
+    for e in body.data.edges:
+        a, b = int(e.vertices[0]), int(e.vertices[1])
+        d = (verts_w[a] - verts_w[b]).length
+        if d > worst_e:
+            worst_e = d
+            worst_pair = (a, b)
+    if worst_e > 0.14:
+        raise RuntimeError(
+            f"{label} still: stretched male_body edge {worst_e:.4f} > 0.14 "
+            f"verts={worst_pair} — through-torso / pec-pinch spike; refusing PNG"
+        )
+    log(f"{label} stretched-edge gate: worst={worst_e:.4f} verts={worst_pair}")
+
+
 def force_armature_rest(arm) -> None:
     """Clear action/NLA drivers and snap every bone to rest bind.
 
@@ -1836,6 +2058,7 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
             f"max_out_past_lip={max_out:.4f}"
         )
     log(f"{label} still gate: tusks seated in mouth opening")
+    assert_no_torso_spike(arm, label)
 
 
 def assert_tusks_follow_head(arm, tusks: list) -> None:
@@ -3533,7 +3756,11 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
             center = Vector((center.x, center.y, max(center.z, head.z * 0.55 + 0.35)))
             setup_standing_preview(center, extent, look_at=head, show_head=True)
         else:
-            setup_standing_preview(center, extent)
+            # Idle/Walk: same head-aware framing as Punch so 50mm mouth tusks
+            # read in the PNG (full-body far cam hid a4a5c61 ivory).
+            head = head_world_pos(arm)
+            center = Vector((center.x, center.y, max(center.z, head.z * 0.55 + 0.35)))
+            setup_standing_preview(center, extent, look_at=head, show_head=True)
 
         # Re-assert after camera setup (must not have broken bone parent).
         hide_junk_companion_meshes(arm)
