@@ -228,6 +228,9 @@ def main() -> int:
         arm, body, _head_z = build_synthetic_skinned_head(**kw)
 
         try:
+            neck_before = B.body_cross_section_width(body.data, arm, "neck_01")
+            B.build_orc_body_mass(arm)
+            neck_after = B.body_cross_section_width(body.data, arm, "neck_01")
             aperture = B.resolve_mouth_aperture(arm)
             before_verts = len(body.data.vertices)
             carved = B.carve_orc_mouth_cavity(arm, aperture)
@@ -238,6 +241,18 @@ def main() -> int:
             continue
 
         me = body.data
+
+        # 0. The body mass pass thickened the neck and did not tear anything.
+        # The anti-tear gate inside it raises on failure, so reaching here means
+        # no edge was pulled apart by more than BODY_MASS_MAX_NEIGHBOUR_STEP_M;
+        # what is checked here is that it actually delivered the mass.
+        check(
+            f"{label} body mass thickened the neck",
+            neck_after - neck_before >= B.BODY_MASS_MIN_NECK_GROWTH_M,
+            f"neck width {neck_before * 1000:.1f} -> {neck_after * 1000:.1f} mm "
+            f"(+{(neck_after - neck_before) * 1000:.1f}, need "
+            f"{B.BODY_MASS_MIN_NECK_GROWTH_M * 1000:.0f})",
+        )
 
         # 1. The maw is open in the EVALUATED mesh, not just in mesh.vertices.
         # This is the check the whole week turned on: read it back through the

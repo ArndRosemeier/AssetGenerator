@@ -579,6 +579,126 @@ BROW_DROP_RATIO = 0.25
 # nose measured before the build.
 BROW_BEHIND_NOSE_MIN_M = 0.004
 
+# --- body mass --------------------------------------------------------------
+# Per-bone cross-section gain: each vert is pushed away from its bones' axes by
+# this fraction of its radial distance, blended by the bind weights. So 0.30 on
+# neck_01 means "the neck is 30% thicker".
+#
+# Why weights and not a selection box. Radial torso/arm bulk was removed from
+# this script because it drew the 0706a32 pec-armpit spike and the Walk neck
+# tear, and it deserved to be: it selected verts by a dz band and pushed them
+# out from a single body axis, so the amplitude had a boundary with nothing to do
+# with the bind. Two adjacent verts either side of that boundary got torn apart
+# by the full amplitude, and the armpit -- which Punch_Cross legitimately opens
+# about 20 cm -- got bulk added to a seam that was already the most stretched
+# place on the mesh.
+#
+# Blending by bind weight removes that failure class by construction rather than
+# by tuning. The displacement is sum over bones of w_b * gain_b * (radial vector
+# from bone b's axis). Because the weights sum to 1 and are the same smooth field
+# the Armature modifier uses, the displacement is exactly as smooth as the
+# skinning: if the skinning does not tear under a pose, a weight-blended
+# displacement of it cannot either. In the armpit the weights blend from
+# clavicle to upperarm over many verts, so the amplitude blends with them instead
+# of stepping.
+#
+# Every bone must appear here or match BODY_ZERO_GAIN_PREFIXES. A donor with a
+# bone this pass has never seen fails loudly rather than silently getting 0.
+# The mass is in the yoke, not the chest. A first pass at 0.18 on spine_03 read
+# as two pectoral lumps in the Idle still: a radial push around the spine axis
+# inflates the chest forward exactly as much as sideways, and on this donor's pec
+# shape forward is the wrong direction. What makes a brute read at body distance
+# is neck, trapezius and shoulder width, so the gain moved from spine_03 into
+# clavicle and neck_01.
+#
+# The legs are thickened too, after the first pass left them spindly under a
+# heavy upper body -- a top-heavy figure on human legs reads as a caricature
+# rather than as mass. Note that the no-scale rule and PELVIS_MAX_DELTA_M are
+# about BONE scale and the pelvis bone's rest height; both are untouched by
+# moving mesh verts perpendicular to a bone axis, and the feet keep their ground
+# contact because foot and ball verts are displaced along nothing.
+# Gains are per axis -- (lateral X, depth Y, vertical Z) -- applied to the radial
+# vector componentwise. The trunk needs that anisotropy and an isotropic gain is
+# what made the second attempt worse than the donor: a radial push around the
+# spine axis inflates the chest FORWARD exactly as much as sideways, and once the
+# body still was framed closely enough to see it, the result was two sagging
+# pectoral lumps over a hard crease. An orc trunk is a slab. So the spine bones
+# now widen strongly and deepen barely, which adds mass to the silhouette without
+# ballooning the pecs. Limbs and neck stay isotropic, where a section really is
+# roughly circular.
+BODY_BONE_GAIN = {
+    "neck_01": (0.34, 0.34, 0.34),
+    "spine_03": (0.22, 0.04, 0.10),
+    "spine_02": (0.18, 0.04, 0.08),
+    "spine_01": (0.12, 0.04, 0.06),
+    "clavicle_l": (0.30, 0.16, 0.22),
+    "clavicle_r": (0.30, 0.16, 0.22),
+    "upperarm_l": (0.18, 0.18, 0.18),
+    "upperarm_r": (0.18, 0.18, 0.18),
+    "lowerarm_l": (0.14, 0.14, 0.14),
+    "lowerarm_r": (0.14, 0.14, 0.14),
+    "hand_l": (0.08, 0.08, 0.08),
+    "hand_r": (0.08, 0.08, 0.08),
+    "thigh_l": (0.14, 0.14, 0.14),
+    "thigh_r": (0.14, 0.14, 0.14),
+    "calf_l": (0.12, 0.12, 0.12),
+    "calf_r": (0.12, 0.12, 0.12),
+}
+# Deliberately unthickened. The head is the face pass's business and the ask here
+# was the body only. A wider pelvis reads as fat rather than as mass. Feet and
+# fingers at this framing are noise, and thickening a foot is the one place this
+# displacement could lift a sole off the ground. neutral_bone is a glTF export
+# artefact with no verts.
+BODY_ZERO_GAIN_PREFIXES = (
+    "head",
+    "pelvis",
+    "foot",
+    "ball",
+    "root",
+    "neutral_bone",
+    "index_",
+    "middle_",
+    "ring_",
+    "pinky_",
+    "thumb_",
+)
+# The anti-tear gate, measuring the exact thing the old pass got wrong: how far
+# this displacement moves two ends of one edge apart. A smooth field keeps this
+# near zero; a selection-box boundary would show up here as the full amplitude.
+BODY_MASS_MAX_NEIGHBOUR_STEP_M = 0.008
+# Laplacian passes over the displacement field before it is applied.
+#
+# The weight-blend argument above is sound but its premise is not free: it
+# assumes the bind itself is smooth, and on this donor it is not everywhere.
+# MakeHuman binds the jaw/neck line rigidly -- measured here, adjacent verts go
+# from head=1.00 to neck_01=1.00 with nothing in between -- so a neck gain of
+# 0.30 and a head gain of 0 step the field by 20 mm across one 8 mm edge. That is
+# not a tear under pose, it is worse: a permanent ledge around the jaw in the
+# rest mesh.
+#
+# So smooth the field rather than trusting the weights to be smooth. This is the
+# one place where the pass deliberately reaches a little past the bones it was
+# given: diffusing the neck's mass across that seam puts a few millimetres onto
+# the underside of the jaw, which is where a thick neck meets a head anyway. It
+# does not reach the mouth or the brow -- the log reports the worst offset landing
+# on a head-weighted vert so that claim is a number rather than an assurance.
+BODY_MASS_SMOOTH_ITERATIONS = 10
+BODY_MASS_SMOOTH_LAMBDA = 0.5
+# ...and proof it did something. A pass that silently moves nothing is how the
+# face kept coming back human.
+BODY_MASS_MIN_MOVED_VERTS = 500
+BODY_MASS_MIN_NECK_GROWTH_M = 0.010
+# Radial arm sanity: a vert this far from its own bone's axis is not on that
+# limb, and scaling it would fling geometry rather than thicken it.
+BODY_MASS_MAX_RADIUS_M = 0.30
+# ...but only where the weight means something. A glTF bind carries tiny stray
+# weights -- and a synthetic rig can hand every vert an epsilon on every group --
+# so a vert 300 mm from the spine axis at weight 0.0001 would trip the radius
+# guard while contributing 4 micrometres. Contributions below this are dropped
+# before the guard sees them, which is both the correct arithmetic and the
+# difference between a real refusal and a false one.
+BODY_MASS_MIN_WEIGHT = 0.01
+
 # --- torso / bind seam ------------------------------------------------------
 # Posed torso-vert outlier (Idle pec pinch / Death through-torso spike).
 TORSO_SPIKE_MAX_M = 0.36
@@ -695,6 +815,16 @@ STILL_MIN_TUSK_PX = 24.0
 # the measurement has to use the same hint or its pixel extents would be
 # rotated relative to the render.
 STILL_CAMERA_UP = (0.0, 0.0, 1.0)
+# Body-still framing. The fraction is of frame HEIGHT, and the direction is a
+# three-quarter front view slightly above the aim point -- the same angle the old
+# hand-tuned multipliers produced, kept so the stills stay comparable.
+STILL_BODY_FILL_FRAC = 0.92
+STILL_BODY_DIR = (0.52, -0.79, 0.16)
+# How far to bias the aim from the figure's centre toward its head. Enough that
+# the head is not in the bottom half, small enough that the feet stay in frame.
+STILL_BODY_HEAD_BIAS = 0.18
+# Death looks down harder, because a body on the ground read edge-on is a line.
+STILL_DEATH_DIR = (0.46, -0.62, 0.64)
 
 # --- mouth close-up still ---------------------------------------------------
 MOUTH_CLOSEUP_RES = 720
@@ -1593,6 +1723,346 @@ def restyle_face(arm, landmarks) -> None:
     # Seam repair is not done here — it needs the final mesh and the still
     # poses, so ``repair_bind_seams`` runs after the carve.
     assert_all_skin_verts_bound(arm, "after restyle weight edits")
+
+
+def worst_edge_step(me, offsets: list) -> tuple[float, tuple[int, int]]:
+    """Largest difference between the two ends of any edge, and where."""
+    worst = 0.0
+    where = (-1, -1)
+    for e in me.edges:
+        a, b = int(e.vertices[0]), int(e.vertices[1])
+        step = (offsets[a] - offsets[b]).length
+        if step > worst:
+            worst = step
+            where = (a, b)
+    return worst, where
+
+
+def welded_adjacency(me) -> tuple[list, list]:
+    """Mesh adjacency with coincident vertices joined.
+
+    The glTF importer splits a mesh along its UV seams, so ``male_body`` carries
+    1137 duplicate vertices: pairs at the same position with no edge between
+    them. Topologically the surface is cut there; geometrically it is not.
+
+    Any smoothing run on the raw adjacency therefore treats each seam as a
+    boundary and gives the two sides different results -- which for a
+    displacement field means the two coincident verts stop being coincident and
+    the mesh visibly cracks open along the seam. That is exactly what a dark line
+    down the shin in the Death still turned out to be. Joining coincident verts
+    lets the diffusion cross the seam as the surface does.
+    """
+    adj = _mesh_adjacency(me)
+    buckets: dict[tuple[int, int, int], list[int]] = {}
+    for v in me.vertices:
+        key = (
+            int(round(float(v.co.x) * 1e6)),
+            int(round(float(v.co.y) * 1e6)),
+            int(round(float(v.co.z) * 1e6)),
+        )
+        buckets.setdefault(key, []).append(int(v.index))
+    groups = [g for g in buckets.values() if len(g) > 1]
+    for group in groups:
+        for i in group:
+            for j in group:
+                if i != j:
+                    adj[i].append(j)
+    if groups:
+        log(
+            f"welded_adjacency: joined {sum(len(g) - 1 for g in groups)} "
+            f"coincident vert(s) in {len(groups)} group(s) across UV seams so "
+            f"smoothing cannot crack the mesh open along them"
+        )
+    return adj, groups
+
+
+def smooth_vector_field(me, offsets: list, *, iterations: int, lam: float) -> list:
+    """Laplacian-smooth a per-vertex displacement field over the mesh.
+
+    Applied to the displacement rather than to the bind weights on purpose: the
+    weights are the shipped rig and smoothing them changes how every clip
+    deforms, while the displacement is this pass's own and smoothing it changes
+    only the shape. ``repair_bind_seams`` is the thing that may touch weights,
+    and it runs later with its own measurements.
+    """
+    if iterations < 0:
+        raise ValueError(f"smooth_vector_field needs iterations >= 0, got {iterations}")
+    if not 0.0 < lam <= 1.0:
+        raise ValueError(f"smooth_vector_field needs 0 < lam <= 1, got {lam}")
+    adj, coincident = welded_adjacency(me)
+    cur = list(offsets)
+    for _ in range(iterations):
+        nxt = list(cur)
+        for i, nbrs in enumerate(adj):
+            if not nbrs:
+                continue
+            acc = Vector((0.0, 0.0, 0.0))
+            for j in nbrs:
+                acc += cur[j]
+            nxt[i] = cur[i] * (1.0 - lam) + (acc / float(len(nbrs))) * lam
+        # Cross-linking the adjacency lets the diffusion cross a seam, but the
+        # two sides still have different neighbour sets and so still drift apart.
+        # Collapsing each coincident group to its mean every pass is what
+        # actually guarantees they stay welded.
+        for group in coincident:
+            mean = Vector((0.0, 0.0, 0.0))
+            for i in group:
+                mean += nxt[i]
+            mean /= float(len(group))
+            for i in group:
+                nxt[i] = mean.copy()
+        cur = nxt
+    return cur
+
+
+def bone_gain(name: str) -> Vector:
+    """Per-axis cross-section gain for one bone, as (X, Y, Z).
+
+    Refuses a bone this pass has not seen rather than defaulting it to zero.
+    """
+    if name in BODY_BONE_GAIN:
+        return Vector(BODY_BONE_GAIN[name])
+    low = name.lower()
+    for prefix in BODY_ZERO_GAIN_PREFIXES:
+        if low.startswith(prefix):
+            return Vector((0.0, 0.0, 0.0))
+    raise RuntimeError(
+        f"build_orc_body_mass: bone {name!r} is neither in BODY_BONE_GAIN nor "
+        f"covered by BODY_ZERO_GAIN_PREFIXES. Decide what mass it should get "
+        f"rather than letting a new donor's bone silently thicken by nothing"
+    )
+
+
+def bone_axis_frame(arm, name: str) -> tuple[Vector, Vector, float]:
+    """Rest-space start point, unit axis and length of one bone, in body space.
+
+    ``rest_world`` is ``arm.matrix_world @ bone.matrix_local``, whose translation
+    is the bone head and whose local +Y runs down the bone. ``body_world_scale``
+    has already refused a rotated or non-uniformly scaled body, which is what
+    lets bone rest space and body object space be used interchangeably here.
+    """
+    m = HQ.rest_world(arm, name)
+    start = m.to_translation()
+    axis = (m.to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
+    return start, axis, float(arm.data.bones[name].length)
+
+
+def build_orc_body_mass(arm) -> int:
+    """Thicken neck, shoulders, chest and arms by scaling each bone's section.
+
+    At body distance the 19:24 stills read as a slim green human: the maw and the
+    tusks are a few pixels, and everything that carries at that scale -- neck,
+    shoulder yoke, chest depth -- is untouched MakeHuman. This is the pass that
+    was missing, not a stronger face.
+
+    Each vert is displaced by ``sum_b w_b * gain_b * radial_b(v)``, where
+    ``radial_b`` is the vector from bone ``b``'s axis to the vert, clamped to the
+    bone's segment so a bone thickens a capsule around itself rather than an
+    infinite cylinder. See BODY_BONE_GAIN for why the blend is over bind weights:
+    it makes the displacement field exactly as smooth as the skinning, which is
+    the structural answer to the pec-armpit spike that got the previous bulk pass
+    deleted.
+
+    Nothing here scales a bone, so the rig, the hip height and every clip are
+    untouched; this is mesh only.
+    """
+    assert_vertex_positions_authoritative(arm, "build_orc_body_mass")
+    body = male_body_mesh(arm)
+    me = body.data
+    bone_groups = armature_bone_groups(body, arm)
+    if not bone_groups:
+        raise RuntimeError(
+            f"build_orc_body_mass: {body.name!r} has no vertex group matching a "
+            f"bone on {arm.name!r}"
+        )
+
+    # One frame and one gain per bone, resolved once. bone_gain refuses an
+    # unknown bone here, before any vertex has moved.
+    frames = {}
+    for gi, name in bone_groups.items():
+        gain = bone_gain(name)
+        if max(abs(gain.x), abs(gain.y), abs(gain.z)) <= 0.0:
+            continue
+        frames[gi] = (*bone_axis_frame(arm, name), gain, name)
+    if not frames:
+        raise RuntimeError(
+            f"build_orc_body_mass: none of {sorted(bone_groups.values())} has a "
+            f"non-zero gain; the body would ship unthickened"
+        )
+
+    offsets = [Vector((0.0, 0.0, 0.0))] * len(me.vertices)
+    moved = 0
+    worst = 0.0
+    worst_index = -1
+    for v in me.vertices:
+        total = Vector((0.0, 0.0, 0.0))
+        for g in v.groups:
+            frame = frames.get(int(g.group))
+            if frame is None:
+                continue
+            w = float(g.weight)
+            if w < BODY_MASS_MIN_WEIGHT:
+                continue
+            start, axis, length, gain, name = frame
+            rel = v.co - start
+            along = max(0.0, min(length, rel.dot(axis)))
+            radial = rel - axis * along
+            r = radial.length
+            if r > BODY_MASS_MAX_RADIUS_M:
+                raise RuntimeError(
+                    f"build_orc_body_mass: {body.name!r} vert {int(v.index)} sits "
+                    f"{r:.4f} m from the axis of {name!r} (> "
+                    f"{BODY_MASS_MAX_RADIUS_M}) while carrying weight {w:.3f} on "
+                    f"it. Scaling that section would fling the vert rather than "
+                    f"thicken a limb; the bind is not what this pass assumes"
+                )
+            total += Vector(
+                (radial.x * gain.x, radial.y * gain.y, radial.z * gain.z)
+            ) * w
+        offsets[int(v.index)] = total
+        if total.length > 1e-9:
+            moved += 1
+        if total.length > worst:
+            worst = total.length
+            worst_index = int(v.index)
+
+    if moved < BODY_MASS_MIN_MOVED_VERTS:
+        raise RuntimeError(
+            f"build_orc_body_mass: only {moved} vert(s) moved (need "
+            f"{BODY_MASS_MIN_MOVED_VERTS}); gains are "
+            f"{sorted(n for *_, _g, n in frames.values())} — the body would "
+            f"ship as the donor's"
+        )
+
+    raw_step = worst_edge_step(me, offsets)[0]
+    _adj, coincident = welded_adjacency(me)
+    offsets = smooth_vector_field(
+        me,
+        offsets,
+        iterations=BODY_MASS_SMOOTH_ITERATIONS,
+        lam=BODY_MASS_SMOOTH_LAMBDA,
+    )
+    del _adj
+
+    # Coincident verts must still be coincident, or the mesh has been split
+    # along its UV seams -- which renders as a dark line, and is what a seam down
+    # the shin in the Death still was.
+    worst_split = 0.0
+    for group in coincident:
+        for i in group[1:]:
+            worst_split = max(worst_split, (offsets[i] - offsets[group[0]]).length)
+    if worst_split > 1e-9:
+        raise RuntimeError(
+            f"build_orc_body_mass: the mass field moves coincident verts apart by "
+            f"{worst_split * 1e6:.1f} um over {len(coincident)} UV-seam group(s). "
+            f"That opens a visible crack along every seam; the field must treat "
+            f"coincident verts as one point"
+        )
+
+    # The gate the old pass needed: how far this displacement pulls the two ends
+    # of one edge apart. On a smooth field this is small everywhere; a
+    # selection-box boundary would show the full amplitude across one edge.
+    worst_step = 0.0
+    worst_edge = (-1, -1)
+    for e in me.edges:
+        a, b = int(e.vertices[0]), int(e.vertices[1])
+        step = (offsets[a] - offsets[b]).length
+        if step > worst_step:
+            worst_step = step
+            worst_edge = (a, b)
+    if worst_step > BODY_MASS_MAX_NEIGHBOUR_STEP_M:
+        raise RuntimeError(
+            f"build_orc_body_mass: the mass field pulls the ends of edge "
+            f"{worst_edge} apart by {worst_step * 1000:.1f} mm (> "
+            f"{BODY_MASS_MAX_NEIGHBOUR_STEP_M * 1000:.0f} mm) — that is the "
+            f"pec-armpit spike class, a displacement boundary that does not "
+            f"follow the bind. {describe_vert_bind(body, arm, worst_edge[0])} / "
+            f"{describe_vert_bind(body, arm, worst_edge[1])}"
+        )
+
+    # How far the smoothing reached into the face. Arnd asked for the body only,
+    # so this is reported rather than asserted-and-forgotten: the diffusion across
+    # the rigid jaw/neck seam necessarily puts a little mass on the underside of
+    # the jaw, and this says how much and on what.
+    head_i = vg_index(body, "head")
+    head_bleed = 0.0
+    head_bleed_index = -1
+    for v in me.vertices:
+        if vg_weight(v, head_i) < 0.99:
+            continue
+        d = offsets[int(v.index)].length
+        if d > head_bleed:
+            head_bleed = d
+            head_bleed_index = int(v.index)
+
+    neck_before = body_cross_section_width(me, arm, "neck_01")
+    for v in me.vertices:
+        v.co += offsets[int(v.index)]
+    me.update()
+    neck_after = body_cross_section_width(me, arm, "neck_01")
+    # Reported, not asserted, so a rig without clavicles still logs something
+    # useful instead of dying on a KeyError inside a log line.
+    if "clavicle_l" in arm.data.bones:
+        shoulder_after = f"{body_cross_section_width(me, arm, 'clavicle_l', span=True) * 1000:.1f}mm"
+    else:
+        shoulder_after = "n/a (rig has no clavicle_l)"
+
+    neck_growth = neck_after - neck_before
+    if neck_growth < BODY_MASS_MIN_NECK_GROWTH_M:
+        raise RuntimeError(
+            f"build_orc_body_mass: the neck only grew "
+            f"{neck_growth * 1000:.1f} mm (need "
+            f"{BODY_MASS_MIN_NECK_GROWTH_M * 1000:.0f} mm), from "
+            f"{neck_before * 1000:.1f} to {neck_after * 1000:.1f} mm. Neck mass "
+            f"is the single thing that carries at body distance, so a pass that "
+            f"does not deliver it has not done its job"
+        )
+    assert_all_skin_verts_bound(arm, "after body mass build")
+    log(
+        f"built orc body mass on {body.name!r} moved={moved}/{len(me.vertices)} "
+        f"worst_offset={worst * 1000:.1f}mm at vert {worst_index} "
+        f"neighbour_step {raw_step * 1000:.1f} -> {worst_step * 1000:.2f}mm "
+        f"after {BODY_MASS_SMOOTH_ITERATIONS} smoothing pass(es); "
+        f"pure-head bleed={head_bleed * 1000:.1f}mm at vert {head_bleed_index}; "
+        f"neck_width {neck_before * 1000:.1f} -> {neck_after * 1000:.1f}mm "
+        f"(+{neck_growth * 1000:.1f}) shoulder_span={shoulder_after} "
+        + "gains="
+        + str(
+            {
+                n: tuple(round(c, 3) for c in g)
+                for *_, g, n in sorted(frames.values(), key=lambda f: f[-1])
+            }
+        )
+    )
+    return moved
+
+
+def body_cross_section_width(me, arm, bone_name: str, *, span: bool = False) -> float:
+    """Width of the mesh across a bone, for reporting what the mass pass did.
+
+    Without a measured before/after the pass can only be judged by eye, which is
+    the situation this whole branch exists to get out of. Verts are gathered by
+    proximity to the bone's mid-point rather than by weight, so the number does
+    not move when the weights are smoothed.
+
+    ``span`` measures the full left-to-right extent instead of the width about
+    the bone, which is what "shoulders" means.
+    """
+    start, axis, length = bone_axis_frame(arm, bone_name)
+    mid = start + axis * (0.5 * length)
+    reach = max(0.25 * length, 0.02)
+    xs = [
+        float(v.co.x)
+        for v in me.vertices
+        if abs(float(v.co.z) - float(mid.z)) <= reach
+        and (span or abs(float(v.co.x) - float(mid.x)) <= 0.5 * BODY_MASS_MAX_RADIUS_M)
+    ]
+    if not xs:
+        raise RuntimeError(
+            f"body_cross_section_width: no verts within {reach:.4f} of the "
+            f"{bone_name!r} mid-point z={mid.z:.4f}"
+        )
+    return max(xs) - min(xs)
 
 
 def build_orc_brow_ridge(arm, landmarks) -> int:
@@ -5613,60 +6083,80 @@ def _preview_render_settings(width: int, height: int) -> None:
 
 
 def setup_standing_preview(center, extent, *, look_at=None, show_head: bool = False) -> None:
+    """Frame the whole figure from its measured bbox and the lens.
+
+    The distance used to be ``span * 1.55`` / ``span * 2.25`` aimed at the head.
+    That put a 1.8 m figure across about half the frame height and hanging below
+    centre, with the top third empty wall -- roughly 4.4 mm of orc per pixel, at
+    which scale a body change cannot be judged at all. Since the body stills are
+    the only evidence for anything that reads at gameplay distance, that made
+    them close to useless as a review artefact.
+
+    Solving for the distance instead removes both magic numbers: the vertical
+    half-angle follows from the pinned lens and sensor, so the distance that puts
+    a known height across a known fraction of the frame is arithmetic. At
+    STILL_BODY_FILL_FRAC the same figure spans 92% of 800 px, about 2.4 mm per
+    pixel.
+
+    ``look_at`` only biases the aim upward now, it does not replace it. Aiming at
+    the head directly is what pushed the feet out of frame, and the caller's old
+    trick of raising ``center`` to compensate is gone with it.
+    """
     _preview_stage()
-    span = max(float(extent.x), float(extent.y), float(extent.z), 0.8)
-    if look_at is None:
-        target = Vector((center.x, center.y, max(center.z, 0.9)))
-    else:
-        target = Vector(look_at)
-    if show_head:
-        # Pull back / raise so Punch keeps dest head + tusks in frame.
-        location = Vector(
-            (
-                center.x + span * 1.55,
-                center.y - span * 2.25,
-                max(target.z + span * 0.20, center.z + span * 0.55, 1.75),
-            )
-        )
-    else:
-        location = Vector(
-            (
-                center.x + span * 1.35,
-                center.y - span * 1.85,
-                max(center.z + span * 0.35, 1.55),
-            )
-        )
-    cam = _preview_camera(location, target, lens=STILL_LENS_MM)
+    target = Vector((center.x, center.y, center.z))
+    if look_at is not None:
+        target.z += STILL_BODY_HEAD_BIAS * (float(look_at.z) - float(center.z))
+    # A standing figure is vertical in a portrait frame, so its height is what
+    # has to fit -- but the aim is biased toward the head, so the figure is no
+    # longer centred on it and the far end needs the offset added twice.
+    height = max(float(extent.z), 0.8) + 2.0 * abs(target.z - float(center.z))
+    # The 36 mm sensor lands on the long axis, which is the 800 px height.
+    half_angle = math.atan(0.5 * STILL_SENSOR_MM / STILL_LENS_MM)
+    dist = (0.5 * height / STILL_BODY_FILL_FRAC) / math.tan(half_angle)
+    direction = Vector(STILL_BODY_DIR).normalized()
+    cam = _preview_camera(target + direction * dist, target, lens=STILL_LENS_MM)
     _preview_lights()
     _preview_render_settings(640, 800)
-    if show_head:
-        log(
-            f"standing cam (head) loc={tuple(round(c, 3) for c in cam.location)} "
-            f"look={tuple(round(c, 3) for c in target)}"
-        )
+    log(
+        f"standing cam{' (head-biased)' if show_head else ''} "
+        f"loc={tuple(round(c, 3) for c in cam.location)} "
+        f"look={tuple(round(c, 3) for c in target)} "
+        f"fit_height={height:.3f} dist={dist:.3f} "
+        f"fill={STILL_BODY_FILL_FRAC}"
+    )
 
 
 def setup_death_preview(center, extent, *, look_at=None) -> None:
-    """Camera framing from preview_bandit_death / bake_bandit_death."""
+    """Frame a lying figure from its bbox, looking down from a three-quarter view.
+
+    Same solved distance as the standing stills, for the same reason -- the
+    hand-tuned ``span * 2.05`` put the body across about a third of the frame. A
+    lying figure is not aligned with any one axis, so the size used is the bbox
+    DIAGONAL, which is a conservative bound on its projected extent whichever way
+    the corpse fell. Conservative is right here: over-estimating loses a little
+    frame, under-estimating crops a limb.
+    """
     _preview_stage()
-    span = max(float(extent.x), float(extent.y), float(extent.z), 0.8)
-    location = Vector(
-        (
-            center.x + span * 1.55,
-            center.y - span * 2.05,
-            max(center.z + span * 1.15, 1.35),
-        )
+    target = Vector((center.x, center.y, center.z))
+    if look_at is not None:
+        target += (Vector(look_at) - target) * STILL_BODY_HEAD_BIAS
+    # Biasing the aim toward the head moves the far end of the body further from
+    # frame centre, so the size to fit is the diagonal plus twice that offset.
+    # Without this the first version clipped a foot off the frame edge.
+    size = (
+        max(float(Vector(extent).length), 0.8)
+        + 2.0 * float((target - Vector(center)).length)
     )
-    if look_at is None:
-        target = Vector((center.x, center.y, max(center.z, 0.15)))
-    else:
-        target = Vector(look_at)
-    cam = _preview_camera(location, target, lens=STILL_LENS_MM)
+    half_angle = math.atan(0.5 * STILL_SENSOR_MM / STILL_LENS_MM)
+    dist = (0.5 * size / STILL_BODY_FILL_FRAC) / math.tan(half_angle)
+    direction = Vector(STILL_DEATH_DIR).normalized()
+    cam = _preview_camera(target + direction * dist, target, lens=STILL_LENS_MM)
     _preview_lights()
     _preview_render_settings(800, 1000)
     log(
         f"death cam={tuple(round(c, 3) for c in cam.location)} "
-        f"look={tuple(round(c, 3) for c in target)}"
+        f"look={tuple(round(c, 3) for c in target)} "
+        f"bbox_diagonal={size:.3f} dist={dist:.3f} fill={STILL_BODY_FILL_FRAC}"
     )
 
 
@@ -6179,15 +6669,13 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
         if label == "Death":
             head = head_world_pos(arm)
             setup_death_preview(center, extent, look_at=head)
-        elif label == "Punch":
-            head = head_world_pos(arm)
-            center = Vector((center.x, center.y, max(center.z, head.z * 0.55 + 0.35)))
-            setup_standing_preview(center, extent, look_at=head, show_head=True)
         else:
-            # Idle/Walk: same head-aware framing as Punch so 50mm mouth tusks
-            # read in the PNG (full-body far cam hid a4a5c61 ivory).
+            # Idle / Walk / Punch all frame the whole figure from its bbox, with
+            # the aim biased slightly toward the head. Raising `center` by hand
+            # to keep the head in shot is no longer needed: the camera solves for
+            # a distance that fits the figure, which was the actual fix for the
+            # a4a5c61 "far cam hid the ivory" problem.
             head = head_world_pos(arm)
-            center = Vector((center.x, center.y, max(center.z, head.z * 0.55 + 0.35)))
             setup_standing_preview(center, extent, look_at=head, show_head=True)
 
         # Re-assert after camera setup (must not have broken bone parent).
@@ -6297,6 +6785,10 @@ def run_restyle() -> dict:
     log("--- mouth aperture pass 1: landmarks on the untouched donor face ---")
     donor_landmarks = resolve_mouth_aperture(arm)
     restyle_face(arm, donor_landmarks)  # jaw + brow ridge, no mouth, no chest
+    # Body mass before the aperture is re-measured, so the mouth is solved on the
+    # mesh that ships, and before repair_bind_seams, so the seam repair sees the
+    # thickened trunk rather than the donor's.
+    build_orc_body_mass(arm)
     log("--- mouth aperture pass 2: measured on the built orc face ---")
     aperture = resolve_mouth_aperture(arm)
     log(
