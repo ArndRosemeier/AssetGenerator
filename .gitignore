@@ -39,6 +39,8 @@ __pycache__/
 
 # Local human/monster bake scratch and diagnostics
 tools/_human_bake/
-tools/_human_orc_bake/
+tools/_human_orc_bake/*
+!tools/_human_orc_bake/lookdev/
+!tools/_human_orc_bake/lookdev/**
 tools/_tribal_veteran_bake/
 tools/_inspect_human_glb.py
