@@ -9,8 +9,8 @@ Arnd nude lock (PR #1): same creature / same dest — not a new body plan.
   - Finished olive-grey skin on male_body MH UVs (no UV-grid / checker).
   - NO invented look-dev clothes: do not call add_lookdev_gear; no OrcGear_*,
     harness, spaulder, belt, loincloth, arm/ankle wraps, cubes/tori.
-  - Part the lips (rest mesh); tusks IN the mouth opening (gum-seated, head-bound),
-    visible on Idle/Walk/Punch_Cross/Death01 — not cheeks, not through the chest.
+  - A widened mouth with tusks IN it (head-bound), visible on
+    Idle/Walk/Punch_Cross/Death01 — not cheeks, not through the chest.
   - Brow spikes are male_body verts from an oversized face restyle band — NOT Eyes,
     NOT Icosphere, NOT an authored brow mesh. Flatten those verts. Hide Eyes
     separately if present as junk. Script never authors eyebrows.
@@ -65,17 +65,53 @@ Full restyle path:
   1. Import Orrun worksuit READ-ONLY into the live Blender scene (UAL clips).
      Do NOT copy ANIM_DONOR onto dest. Scratch bake fallback never touches dest.
   2. Strip worksuit garments; attach nude male_base body on the same armature.
-  3. Mesh-only restyle (bulk + mouth/jaw) + flatten brow-ridge spikes on male_body
-     + mouth-opening tusks (aperture axis). No gear.
+  3. Measure the mouth aperture ONCE on the untouched face, then jaw/brow/chest
+     restyle, then carve the oral cavity, then seat tusks in it. No gear.
   4. Hide junk Eyes mesh if present. Olive on male_body.
   5. AFTER stills on the live restyled scene (must succeed before any dest write).
+     Two stills per clip: body framing plus a mouth close-up.
   6. Only then export skinned dest (fake_user + NLA). Scratch export path must
      not clobber the protected restyle backups.
   7. Art Reviewer packet under tools/_human_orc_bake/previews/.
 
+Mouth / tusk approach (this pass; read before changing anything below):
+
+  The mouth is measured, not hunted. ``tools/orc_mouth_geometry.py`` finds the
+  nose tip and the chin on the mid-sagittal forward profile and places one
+  aperture (centre, half-width, half-height, depth) as fractions of the
+  measured head width. That aperture is the single authority for the carve, the
+  tusks, the still gate and the close-up camera; nothing re-derives the mouth.
+
+  Three root causes this replaces, all of them from the same family of mistake:
+
+  1. The mouth was defined as a box in Y anchored on the mouth corners, but the
+     corner hunt returned jaw-side verts at |x-cx| ~ 82 mm (a 164 mm wide
+     "mouth"), and the mid-sagittal lips protrude ~30 mm in front of the jaw
+     sides. The box therefore could only ever contain lateral verts
+     (``pool=36 min_|x-cx|=0.0649``) and the lip part refused a mouth it was
+     measuring in the wrong place. Tusks authored off those anchors sat near
+     the jaw angle, which is why "no visible tusks" survived EXIT 0 twice.
+  2. Parting lip verts cannot open a mouth: the outer rim moves and the inner
+     loop seals the hole, and there is nothing behind it but more face. This
+     pass bores a real concave cavity (subdividing the region first when the
+     mesh is too coarse to represent one) and paints it with a dark interior
+     material, so there is somewhere for a tusk to be.
+  3. The restyle authored its artefacts on purpose: every offset was a step
+     function of a hard selection box (jaw dz band, pec box, "dy > 10 mm"
+     outlier test), so two adjacent verts straddling a boundary were torn apart
+     by the full amplitude -- the chin needle, the pec spike, the torso strand.
+     Every offset now runs through a smooth falloff. Separately, clearing a
+     pec vert's only vertex group left it unweighted, frozen at rest while the
+     mesh deformed: weights are now transferred, never deleted, and
+     ``assert_all_skin_verts_bound`` enforces that centrally.
+
+  Do not reintroduce absolute millimetre windows for the mouth. If a number
+  needs to change, change the fraction in ``orc_mouth_geometry`` and re-run its
+  self-test (``python tools/orc_mouth_geometry.py``).
+
 Restyle rules:
   - MESH only on the existing 53-bone bind (BONE_MAP from bake_human_quaternius).
-  - Tusks BONE-parented to head (mouth opening, aperture axis); no new bones.
+  - Tusks BONE-parented to head, seated in the carved cavity; no new bones.
   - Do NOT scale thigh / calf / pelvis bones. No invented clothes / gait.
   - Log hip_height_z before/after; fail if pelvis rest Z moves more than ~1 cm.
   - After export, every donor clip name must still exist on dest (loud fail).
@@ -102,6 +138,7 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 import bake_human_quaternius as HQ  # noqa: E402
+import orc_mouth_geometry as MG  # noqa: E402
 
 AG = Path(r"C:\Projekte\AssetGenerator")
 AG_HUMANS = AG / "assets" / "humans"
@@ -157,6 +194,9 @@ OLIVE = (0.34, 0.38, 0.28)
 OLIVE_SHADOW = (0.22, 0.26, 0.18)
 OLIVE_WARM = (0.40, 0.36, 0.26)
 TUSK = (0.92, 0.88, 0.78)
+# Oral cavity interior. Dark enough that the carved maw reads as an opening in
+# a still and ivory tusks separate from it.
+MOUTH_INTERIOR = (0.10, 0.055, 0.055)
 JSON_FOURCC = 0x4E4F534A
 BIN_FOURCC = 0x004E4942
 
@@ -170,61 +210,118 @@ BBOX_LYING_MAX_Z = 0.70  # posed mesh AABB max Z when lying on ground
 BBOX_LYING_MAX_HEIGHT = 0.90  # standing ~1.7–1.9; lying flattens
 CHEST_ON_BACK_MIN_Z = 0.20  # chest forward world-Z; on-back faces sky
 CHEST_FACEPLANT_MAX_Z = -0.05  # chest forward toward ground
-# MH head bone origin is at the skull base, not the lips. Real mouth-corner
-# distance in head-rest space is ~0.20 (local bake: 0.2053). Do not use a
-# tight 0.08–0.14 cap — that rejects every real mouth vert.
+# MH head bone origin is at the skull base, not the lips. Real mouth distance
+# in head-rest space is ~0.20 (local bake: 0.2053). Do not use a tight
+# 0.08–0.14 cap — that rejects every real mouth vert.
 HEAD_MOUTH_MAX_LOCAL = 0.28
-# MH mouth corners sit at |x-cx| ~0.08–0.09 (local L |x|~0.082 tonight;
-# 7e5ee8a rejected 0.088 under a tighter 0.085 cheek refuse). Keep cheek
-# refuse above that family — do not invent closer dummy anchors.
-MOUTH_CORNER_MAX_ABS_X = 0.095
-# Lip-corner surface → lower-gum seat in MH body space (face is -Y).
-# Keep this SHALLOW: 24mm+ inset + skull-axis cones buried the tusks on Idle/Walk
-# and exited the throat as Death chest spikes (1116245 / ac21975).
-CAVITY_IN_Y = 0.009  # +Y into the head — gum, not maxilla
-CAVITY_IN_X = 0.014  # toward the visible opening (canine, not the commissure)
-CAVITY_DOWN_Z = 0.000  # any hang punched the 0706a32 Idle chin needle
-TUSK_DEPTH = 0.048
-TUSK_RADIUS_BASE = 0.008
-TUSK_RADIUS_TIP = 0.0024
-TUSK_MAX_BELOW_LIP = 0.016  # refuse chin-needle (0706a32 Idle white spike)
-# Still gate: seated in the gum AND occupying the mouth OPENING the camera sees.
-# Do not revive TUSK_CAVITY_INSIDE_FRAC — requiring verts deep along +Y hid tusks.
-TUSK_CAVITY_Y_EPS = 0.004
-TUSK_MIN_SEATED_FRAC = 0.15  # some verts in the gum (not hovering on the lip)
-TUSK_OPENING_NEAR_LIP = 0.014  # depth from lip that still counts as the aperture
-TUSK_OPENING_FRAC = 0.40  # verts near lip plane AND risen through the gap
-TUSK_MIN_TIP_RISE = 0.022  # tip must clear the parted lips (Idle/Walk visibility)
-TUSK_MAX_INTO_SKULL = 0.032  # refuse maxilla / throat punch (Death chest class)
-TUSK_MAX_APERTURE_RADIUS = 0.028  # refuse cheek (off the opening axis)
-# Max any tusk vert may sit past the posed lip toward outside the mouth
-# (opposite cavity dir). Do not raise — 21:56 Punch chin-float class.
-TUSK_MAX_OUT_PAST_LIP = 0.025
-# Rest-pose lip gap after open_orc_mouth_aperture (Idle/Walk have no jaw clip).
-# 0.018 passed while 15:26 stills still read closed — the outer rim moved
-# and the inner loop sealed the hole. Refuse a gape the camera cannot see.
-MOUTH_APERTURE_MIN_Z = 0.028
-# Commissure slab (corner Z/Y). 597492c: this box held 36 verts, all
-# |x-cx|>42mm — center lips sit on a taller mid-mouth band (cupid's bow /
-# lower-lip center), not on the corner Z. Hunt those separately. Do not
-# revive the 108mm face-wide window (e1ec980: 580 verts).
-LIP_SLAB_Z = 0.022
-LIP_INNER_Y = 0.028  # +Y from the outer lip plane into the oral opening
-LIP_OUTER_Y = 0.008  # slightly in front of the corner (outer vermilion)
-LIP_POOL_MAX = 90
-LIP_VERTS_EACH = 14
-# Mouth-height band used to pick the most-central lip verts (not a fixed
-# x_half that dies when restyle has piled everything at 65mm).
-MOUTH_HEIGHT_Z = 0.045
-MOUTH_CENTER_MAX_ABS_X = 0.048
-LIP_CENTER_EACH = 12
-# Minimum gum→opening rise in body +Z. 57f9616 parted 887 face verts, the
-# "upper" hunt landed 3mm below the corner, and gum→opening collapsed to 6.2mm
-# (just the 5mm cavity inset). Never let that vector be the axis.
-APERTURE_MIN_RISE_Z = 0.024
-APERTURE_MAX_RISE_Z = 0.034
+
+# --- oral cavity + tusks ----------------------------------------------------
+# Every number below is a fraction of the aperture that
+# ``orc_mouth_geometry.solve_mouth_aperture`` measured on this head, never an
+# absolute millimetre. That is the point: the failed bakes hunted the mouth
+# with absolute windows (a 24 mm forward allowance anchored on the jaw sides,
+# a 48 mm cap on |x-cx|, a 28 mm minimum lip gap) and the windows, not the
+# mesh, decided the answer.
+#
+# Skull-vert selection for the head cloud and the carve. Mouth skin on the MH
+# 53-bone bind is pure head; anything with neck/spine influence is jaw seam.
+SKULL_HEAD_W_MIN = 0.55
+SKULL_NECK_W_MAX = 0.20
+SKULL_SPINE_W_MAX = 0.15
+# The carve must actually open the maw: this fraction of the measured cavity
+# depth has to be reached by real geometry, over at least this many verts.
+# A rim that moves while the middle stays put is the 15:26 "reads closed"
+# failure, and it is caught here rather than in the Reviewer's eyes.
+CAVITY_MIN_ACHIEVED_DEPTH_FRAC = 0.60
+CAVITY_MIN_CARVED_VERTS = 24
+# Refine the mouth neighbourhood until the aperture half-width is sampled this
+# many times, so the bore is a cavity rather than a triangular dent.
+CAVITY_SUBDIV_TARGET_SAMPLES = 5
+CAVITY_SUBDIV_REGION_R = 1.6  # normalised aperture radius gathered for cutting
+CAVITY_SUBDIV_MAX_PASSES = 3
+# The mouth neighbourhood is a small part of the body, so an absolute floor
+# matters more than a percentage; the percentage only caps very dense meshes.
+CAVITY_SUBDIV_MIN_BUDGET = 600
+CAVITY_SUBDIV_MAX_ADDED_FRAC = 0.25  # of the male_body vert count
+# Polygons at or above this mean falloff are painted with the interior
+# material, so the bore reads dark and the lip rim stays skin.
+CAVITY_INTERIOR_POLY_FALLOFF = 0.35
+
+# Tusk seat, in aperture coordinates (u along +X, w along +Z, d into the head).
+TUSK_SEAT_U_FRAC = 0.45  # canine line, not the commissure
+TUSK_SEAT_W_FRAC = -0.52  # lower gum, inside the rim ellipse
+TUSK_SEAT_D_FRAC = 0.55  # off the rim plane, in front of the cavity floor
+TUSK_AXIS_MEDIAL = 0.18  # dental-arch convergence toward the midline
+TUSK_AXIS_OUTWARD = 0.35  # rises toward the rim so the tip stays camera-facing
+TUSK_LENGTH_HH_FRAC = 1.45  # multiples of the aperture half-height
+TUSK_RADIUS_BASE_HH_FRAC = 0.28
+TUSK_RADIUS_TIP_HH_FRAC = 0.08
+TUSK_SEGMENTS = 12
+
+# Still gate, in posed aperture coordinates. One containment test replaces the
+# seven overlapping distance caps that each encoded a different guess about
+# where the mouth was. The pixel-failure classes those caps defended against
+# are all still refused, by construction:
+#   cheek float (21:10)        -> ellipse radius > 1
+#   chin needle (0706a32)      -> w < -half_height
+#   tip past the lip (21:56)   -> d < 0
+#   buried / invisible (1116245) -> front-fraction below TUSK_MIN_FRONT_FRAC
+#   Death chest spike (ac21975)  -> d > depth
+TUSK_APERTURE_MARGIN = 0.0015  # ~1.5 mm of numeric slack, not a new knob
+# Rigid-bind proof: an authored centroid must land where the head pose puts it.
+TUSK_BIND_MAX_M = 0.004
+# Fraction of tusk verts that must sit in the camera-facing front of the bore.
+TUSK_FRONT_D_FRAC = 0.70  # "front" = d <= 0.70 * depth
+TUSK_MIN_FRONT_FRAC = 0.50
+# The tusk must span a real part of the aperture height, or it is a stub the
+# still cannot show.
+TUSK_MIN_W_SPAN_HH_FRAC = 0.80
+# Posed rim-tracking: the mouth rim anchor vert must keep following the head
+# bone rigidly, proving the maw and the tusks have not parted company. Measured
+# as deviation from its own head-rest-local position, so it is 0 at rest.
+MOUTH_RIM_TRACK_MAX_M = 0.012
+# Rim anchors must be near-pure head verts, or neck bleed alone would trip the
+# tracking check under Death.
+MOUTH_RIM_HEAD_W_MIN = 0.90
+
+# --- jaw muzzle -------------------------------------------------------------
+# Heavy-jaw offset band, measured from the head bone origin (skull base).
+JAW_BAND_DZ = (-0.145, -0.055)
+# Eased in/out over this much dz. Without it the band edge is a 1-vert cliff
+# with the full amplitude across it, which is exactly how a needle is authored.
+JAW_BAND_EDGE = 0.030
+# 48 mm of forward push on a 100 mm deep face was a caricature and it also
+# out-projected the nose, which destroys every landmark the mouth solver needs.
+JAW_FORWARD_M = 0.012
+JAW_DROP_RATIO = 0.20
+# Jaw offset fades to zero inside this normalised aperture radius.
+JAW_APERTURE_KEEPOUT = 1.35
+
+# --- brow-ridge flatten -----------------------------------------------------
+BROW_BAND_EDGE = 0.020  # z_rel easing at the band ends
+BROW_X_EDGE = 0.018
+# A vert this far forward of the forehead plane gets the full pull; nearer
+# verts get a proportional share, so the "is a spike" test is not a step.
+BROW_SPIKE_FULL_M = 0.012
+
+# --- chest / pec plate ------------------------------------------------------
+# Y offsets from the pec median beyond which a vert is an outlier. Both are now
+# ramps, not cliffs: the pull scales from 0 at the threshold to full at
+# threshold + CHEST_PINCH_RAMP_M.
+CHEST_PINCH_FORWARD_M = 0.010
+CHEST_PINCH_BACK_M = 0.022
+CHEST_PINCH_RAMP_M = 0.012
+CHEST_PINCH_MAX_BLEND = 0.80
 # Posed torso-vert outlier (Idle pec pinch / Death through-torso spike).
 TORSO_SPIKE_MAX_M = 0.36
+
+# --- mouth close-up still ---------------------------------------------------
+# Keep the close-up camera above the preview ground plane (Death puts the head
+# on the floor, and a camera under the plane renders the plane).
+MOUTH_CLOSEUP_MIN_CAM_Z = 0.10
+# A concave cavity is self-shadowing; without a dedicated key the maw renders
+# as a black hole and takes the ivory with it.
+MOUTH_CLOSEUP_KEY_ENERGY = 45.0
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
@@ -508,8 +605,12 @@ def preserve_all_actions_for_export(arm) -> list[str]:
     return sorted(names)
 
 
-def still_path(tag: str, label: str) -> Path:
-    return PREVIEW_DIR / f"male_orc_01_{tag}_{label.lower()}.png"
+def still_path(tag: str, label: str, view: str = "body") -> Path:
+    if view == "body":
+        return PREVIEW_DIR / f"male_orc_01_{tag}_{label.lower()}.png"
+    if view == "mouth":
+        return PREVIEW_DIR / f"male_orc_01_{tag}_{label.lower()}_mouth.png"
+    raise RuntimeError(f"still_path: unknown view {view!r}")
 
 
 def write_art_review_packet(
@@ -519,6 +620,7 @@ def write_art_review_packet(
     dest_clips: list[str],
     resolved: dict[str, str],
     after_previews: dict[str, str],
+    mouth_previews: dict[str, str],
     hip_before: float,
     hip_after: float,
     tusks: list[str],
@@ -542,15 +644,27 @@ def write_art_review_packet(
         p = Path(after_previews[label])
         if not p.is_file():
             raise RuntimeError(f"Art Reviewer AFTER still missing ({label}): {p}")
+        m = Path(mouth_previews[label])
+        if not m.is_file():
+            raise RuntimeError(
+                f"Art Reviewer AFTER mouth close-up missing ({label}): {m} — "
+                f"the body still is too wide to show a tusk"
+            )
 
     stills = {
         "after": {k: after_previews[k] for k in PREVIEW_CLIPS},
+        "after_mouth": {k: mouth_previews[k] for k in PREVIEW_CLIPS},
         "expected_filenames": {
             "after": [still_path("after", lab).name for lab in PREVIEW_CLIPS],
+            "after_mouth": [
+                still_path("after", lab, view="mouth").name for lab in PREVIEW_CLIPS
+            ],
         },
         "note": (
-            "AFTER stills only (HOLD reshoot). Poses: Idle, Walk, Death01, Punch_Cross "
-            "via resolved aliases — never invent clips."
+            "Two stills per clip: the body still for silhouette, the *_mouth "
+            "close-up for the maw. Poses: Idle, Walk, Death01, Punch_Cross via "
+            "resolved aliases — never invent clips. Judge tusks on the close-up: "
+            "at body framing a 30 mm tusk is about ten pixels."
         ),
     }
     if before_previews:
@@ -580,19 +694,34 @@ def write_art_review_packet(
             "DEST is written only after AFTER stills succeed (no early Orrun copy onto dest).",
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
-            "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
-            "mesh authored from shallow lower gum along the rest-pose mouth "
-            "aperture (gum → lip-plane opening), not bone local +Y. "
-            "Rest-pose lips: do not copysign-X the midline (d1f412a emptied "
-            "the center — min|x-cx|=65mm, hunt found only commissures). "
-            "Part the most-central mouth-height verts in Z. Do not use a "
-            "108mm face pool. Tusks: 8mm / 48mm, no chin hang, gum→lip-plane. "
-            "Zero torso/arm radial bulk. Do NOT seat unbind edges. "
-            "Pec-box 1876/1891 weight copy only. Stretched-edge gate 0.14.",
-            "AFTER stills gate: gum bind + lip-corner (0.085) + opening occupancy "
-            "+ skull-punch refuse + chin-needle refuse + torso-spike refuse + "
-            "max tip past posed lip; junk Eyes unlinked from collections.",
-            "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
+            "Mouth is measured once by tools/orc_mouth_geometry.py (nose tip + "
+            "chin on the mid-sagittal profile, sizes as fractions of the "
+            "measured head width) and that aperture is the only authority for "
+            "the carve, the tusks, the still gate and the close-up camera.",
+            "The maw is a real bored cavity with a dark interior material, not "
+            "parted lip verts: parting moves the outer rim while the inner loop "
+            "seals the hole, and skin behind the 'opening' hid the tusks in "
+            "0706a32 and 0240d6e. The mouth neighbourhood is subdivided first "
+            "when it is too coarse to represent a cavity.",
+            "Tusks BONE-parented to head with Identity matrix_parent_inverse, "
+            "seated and scaled entirely in aperture coordinates. Zero torso/arm "
+            "radial bulk. Do NOT seat unbind edges. Stretched-edge gate 0.14.",
+            "Every restyle offset runs through a smooth falloff. Hard selection "
+            "boxes with step displacement authored the chin needle, the pec "
+            "spike and the torso strand; the box boundary itself was the tear.",
+            "Pec head/neck weight is transferred to spine_02/spine_03, never "
+            "deleted: deleting a pec vert's only group left it unweighted and "
+            "frozen at rest, which draws the strand. "
+            "assert_all_skin_verts_bound enforces this after every weight edit.",
+            "AFTER stills gate: aperture containment (radius, depth, front "
+            "fraction, height span) + rigid-bind proof + mouth-rim tracking + "
+            "torso-spike refuse; junk Eyes unlinked from collections.",
+            "Two stills per clip. The body still cannot show a tusk: it frames "
+            "a 1.8 m figure from ~5 m on a 50 mm lens at 640x800, about 4.4 mm "
+            "per pixel. Judge the maw on the *_mouth close-up.",
+            "Jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred) and "
+            "fades out across the mouth aperture so the carve still sees the "
+            "face the aperture was solved on.",
             "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
             "Punch AFTER uses Orrun Punch_Cross @ ~55% on dest with head camera.",
@@ -644,7 +773,8 @@ def write_art_review_packet(
     for label in PREVIEW_CLIPS:
         actual = resolved[label]
         lines.append(
-            f"- **{label}** (`{actual}`): `{still_path('after', label).name}`"
+            f"- **{label}** (`{actual}`): body `{still_path('after', label).name}`, "
+            f"maw `{still_path('after', label, view='mouth').name}`"
         )
     lines.append("")
     CLIP_LIST_MD.write_text("\n".join(lines), encoding="utf-8")
@@ -856,21 +986,44 @@ def _leg_weight(vert, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r) -> float
     )
 
 
-def _in_front_pec_box(v, cx: float, cy: float, z0: float, height: float) -> bool:
-    """Front pectoral plate — not clavicle, not neck, not armpit.
+# Front pectoral plate bounds (z_rel band, |x| half-width) plus the eased
+# margins that keep displacement continuous across the boundary.
+PEC_BOX_Z_REL = (0.56, 0.70)
+PEC_BOX_HALF_X = 0.070
+PEC_BOX_Z_REL_EDGE = 0.035
+PEC_BOX_X_EDGE = 0.020
 
-    0240d6e treated any long spine=1 / spine=0 edge as this class and
-    seated clavicle verts onto the chest. Idle then read as a neck
-    pinched off the shoulders.
+
+def pec_box_weight(v, cx: float, cy: float, z0: float, height: float) -> float:
+    """Membership weight in the front pectoral plate, eased to 0 at the edges.
+
+    A hard box is how the pec spikes were authored. ``flatten_chest_pinch``
+    yanked a vert 8 mm toward the chest plane if it was 1 µm inside the box and
+    left its neighbour untouched 1 µm outside, so the box boundary itself became
+    a torn edge — the 0240d6e "torso/pec strand" and "pec spike". Scaling every
+    chest displacement by this weight makes that tear impossible: the offset
+    difference between two adjacent verts is bounded by the falloff slope times
+    their spacing.
+
+    Still excludes clavicle / neck / armpit: 0240d6e treated any long
+    spine=1 / spine=0 edge as this class and seated clavicle verts onto the
+    chest, and Idle then read as a neck pinched off the shoulders.
     """
-    z_rel = (float(v.co.z) - z0) / height
-    if not (0.56 <= z_rel <= 0.70):
-        return False
-    if abs(float(v.co.x) - cx) > 0.070:
-        return False
     if float(v.co.y) > cy:
-        return False
-    return True
+        return 0.0
+    z_rel = (float(v.co.z) - z0) / height
+    w_z = MG.band_falloff(z_rel, PEC_BOX_Z_REL[0], PEC_BOX_Z_REL[1], PEC_BOX_Z_REL_EDGE)
+    if w_z <= 0.0:
+        return 0.0
+    w_x = MG.band_falloff(
+        abs(float(v.co.x) - cx), -PEC_BOX_HALF_X, PEC_BOX_HALF_X, PEC_BOX_X_EDGE
+    )
+    return w_z * w_x
+
+
+def _in_front_pec_box(v, cx: float, cy: float, z0: float, height: float) -> bool:
+    """Membership test for callers that only need "is this a pec vert"."""
+    return pec_box_weight(v, cx, cy, z0, height) > 0.0
 
 
 def assert_no_leg_bone_scale(arm) -> None:
@@ -889,14 +1042,31 @@ def assert_no_leg_bone_scale(arm) -> None:
             log(f"note: {name} use_inherit_rotation=False")
 
 
-def restyle_bulk_and_jaw(arm) -> None:
-    """Conservative bulk + orc mouth/jaw. Does NOT invent brow spikes.
+def restyle_face_and_chest(arm, aperture) -> None:
+    """Heavy jaw + brow flatten + chest repair. No bulk, no invented gear.
 
-    Neck/chest tear fix: mouth/jaw/widen only on head-dominant face verts —
-    never on neck_01 / spine_03–heavy verts (those sat in the old dz band and
-    shredded under Walk). Brow flatten stays face-only. No new neck mesh.
+    Radial torso/arm bulk is gone rather than multiplied by zero: it drew the
+    0706a32 pec-armpit spike and the Walk neck tear, and the orc read comes
+    from the maw, the tusks and the skin. What remains is a jaw offset and the
+    chest/weight repairs.
+
+    Neck/chest tear guard: jaw edits only on head-dominant face verts, never on
+    neck_01 / spine_03-heavy verts. Those sat in the old dz band and shredded
+    under Walk.
+
+    Chin-needle fix: the jaw offset used to be a step function of ``dz`` over a
+    hard [-0.145, -0.055] band with amplitude up to 48 mm, so two adjacent verts
+    straddling the band edge were torn 48 mm apart. That is the 0706a32 Idle
+    "chin needle" -- authored on purpose by the selection box. The offset is now
+    eased in over ``JAW_BAND_EDGE``, its amplitude is a sane muzzle, and it
+    fades out across the measured mouth aperture so the carve that follows still
+    sees the face the aperture was solved on. A 48 mm muzzle also out-projected
+    the nose, which destroys the landmarks the aperture is measured from.
     """
     assert_no_leg_bone_scale(arm)
+    if "head" not in arm.data.bones:
+        raise RuntimeError("53-bone bind missing head bone for jaw restyle")
+    head_z = float(HQ.rest_world(arm, "head").to_translation().z)
     for obj in skinned_meshes(arm):
         me = obj.data
         if not me.vertices:
@@ -908,83 +1078,35 @@ def restyle_bulk_and_jaw(arm) -> None:
             continue
         head_i = vg_index(obj, "head")
         neck_i = vg_index(obj, "neck_01") or vg_index(obj, "neck")
-        upper_l = vg_index(obj, "upperarm_l")
-        upper_r = vg_index(obj, "upperarm_r")
-        lower_l = vg_index(obj, "lowerarm_l")
-        lower_r = vg_index(obj, "lowerarm_r")
-        hand_l = vg_index(obj, "hand_l")
-        hand_r = vg_index(obj, "hand_r")
-        torso_groups = [
-            vg_index(obj, "spine_01"),
-            vg_index(obj, "spine_02"),
-            vg_index(obj, "spine_03"),
-            vg_index(obj, "pelvis"),
-        ]
         spine3_i = vg_index(obj, "spine_03")
-        spine_only = [
-            vg_index(obj, "spine_01"),
-            vg_index(obj, "spine_02"),
-            vg_index(obj, "spine_03"),
-        ]
-        adj = [[] for _ in me.vertices]
-        for e in me.edges:
-            ia, ib = int(e.vertices[0]), int(e.vertices[1])
-            adj[ia].append(ib)
-            adj[ib].append(ia)
-
-        xs = [v.co.x for v in me.vertices]
+        arm_groups = (
+            vg_index(obj, "upperarm_l"),
+            vg_index(obj, "upperarm_r"),
+            vg_index(obj, "lowerarm_l"),
+            vg_index(obj, "lowerarm_r"),
+            vg_index(obj, "hand_l"),
+            vg_index(obj, "hand_r"),
+        )
         ys = [v.co.y for v in me.vertices]
-        zs = [v.co.z for v in me.vertices]
-        cx = 0.5 * (min(xs) + max(xs))
         cy = 0.5 * (min(ys) + max(ys))
-        z0, z1 = min(zs), max(zs)
-        height = max(z1 - z0, 1e-3)
-        if "head" not in arm.data.bones:
-            raise RuntimeError("53-bone bind missing head bone for mouth/jaw restyle")
-        head_z = float(HQ.rest_world(arm, "head").to_translation().z)
 
         face_edits = 0
-        neck_skipped = 0
+        seam_skipped = 0
+        worst_offset = 0.0
         for v in me.vertices:
             hw = vg_weight(v, head_i)
             nw = vg_weight(v, neck_i)
             s3w = vg_weight(v, spine3_i)
-            tw = max(vg_weight(v, gi) for gi in torso_groups)
-            arm_w = max(
-                vg_weight(v, upper_l),
-                vg_weight(v, upper_r),
-                vg_weight(v, lower_l),
-                vg_weight(v, lower_r),
-                vg_weight(v, hand_l),
-                vg_weight(v, hand_r),
-            )
-            radial = Vector((v.co.x - cx, v.co.y - cy, 0.0))
-            if radial.length < 1e-6:
-                radial = Vector((0.0, -1.0, 0.0))
-            else:
-                radial.normalize()
-
-            # 0706a32 pixels: torso/arm radial bulk drew the pec-armpit spike
-            # and Walk neck tear. Mouth/tusks are the orc; do not inflate the chest.
-            bulk = 0.0
-
-            # Idle/Walk neck shred: never jaw-edit neck_01. Do NOT zero bulk on
-            # spine_03 pecs while spine_02 moves 38mm — that cliff pinched the
-            # sternum (Idle) and Death stretched it into a through-torso spike.
-            neck_seam = nw >= 0.05
-            upper_chest = (
+            arm_w = _arm_weight(v, *arm_groups)
+            # Idle/Walk neck shred: never jaw-edit the neck seam or the upper
+            # chest. A cliff between spine_03 pecs and spine_02 pinched the
+            # sternum on Idle and Death stretched it into a through-torso spike.
+            if nw >= 0.05 or (
                 (s3w >= 0.22 and hw < 0.55 and arm_w < 0.30)
                 or (s3w >= 0.40 and hw < 0.70)
-            )
-            if neck_seam:
-                bulk = 0.0
-                neck_skipped += 1
-            elif upper_chest:
-                bulk *= 0.45
-                neck_skipped += 1
-
-            dz = v.co.z - head_z
-            # Face-only: strong head dominance; no neck blend seam.
+            ):
+                seam_skipped += 1
+                continue
             is_face = (
                 hw >= 0.60
                 and hw >= nw + 0.35
@@ -992,66 +1114,59 @@ def restyle_bulk_and_jaw(arm) -> None:
                 and nw < 0.12
                 and s3w < 0.25
             )
-
-            if (not neck_seam) and (not upper_chest) and is_face:
-                if -0.145 <= dz <= -0.055 and v.co.y < cy + 0.02:
-                    jaw = (hw - 0.18) * 0.070
-                    v.co.y -= jaw * 0.85
-                    v.co.z -= jaw * 0.18
-                    # Do NOT copysign-X the midline. d1f412a: every mouth
-                    # vert was shoved ~50mm out; commissure_pool min|x-cx|
-                    # was 65mm and the mid-mouth hunt found nothing.
-                    if abs(v.co.x - cx) >= 0.050:
-                        v.co.x += math.copysign(jaw * 0.40, v.co.x - cx)
-                    face_edits += 1
-
-                # No mouth-band X widen. copysign(18mm) on |dz|<110mm emptied
-                # the camera-facing center (same 65mm commissure pile).
-
-            if bulk > 0.0 and tw >= 0.50:
-                # Skip bulk on a 100% spine vert glued to an unbound neighbor
-                # (1876 spine=1.00 / 1891 spine=0 — Punch opened that edge 21cm).
-                for j in adj[v.index]:
-                    nv = me.vertices[j]
-                    ns = max(vg_weight(nv, gi) for gi in spine_only)
-                    if (
-                        ns < 0.15
-                        and vg_weight(nv, head_i) < 0.15
-                        and _arm_weight(
-                            nv, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r
-                        )
-                        < 0.25
-                    ):
-                        bulk = 0.0
-                        break
-
-            if bulk > 0.0:
-                v.co.x += radial.x * bulk
-                v.co.y += radial.y * bulk
+            if not is_face or v.co.y >= cy + 0.02:
+                continue
+            band = MG.band_falloff(
+                float(v.co.z) - head_z, JAW_BAND_DZ[0], JAW_BAND_DZ[1], JAW_BAND_EDGE
+            )
+            if band <= 0.0:
+                continue
+            u, w, _d = aperture.aperture_coords(
+                (float(v.co.x), float(v.co.y), float(v.co.z))
+            )
+            keep_out = MG.smoothstep(
+                min(1.0, aperture.radial(u, w) / JAW_APERTURE_KEEPOUT)
+            )
+            amp = JAW_FORWARD_M * band * keep_out * min(1.0, hw)
+            if amp <= 0.0:
+                continue
+            # Do NOT copysign-X the midline. d1f412a shoved every mouth vert
+            # ~50 mm out, the commissure pool bottomed out at |x-cx|=65 mm, and
+            # the mid-mouth hunt then found nothing.
+            v.co.y -= amp
+            v.co.z -= amp * JAW_DROP_RATIO
+            worst_offset = max(worst_offset, amp)
+            face_edits += 1
 
         me.update()
         log(
             f"restyled mesh {obj.name!r} verts={len(me.vertices)} "
-            f"head_z={head_z:.4f} face_edits={face_edits} "
-            f"neck_bulk_damped={neck_skipped}"
+            f"head_z={head_z:.4f} jaw_edits={face_edits} "
+            f"worst_jaw_offset={worst_offset:.4f} seam_skipped={seam_skipped}"
         )
 
-    flatten_male_body_brow_spikes(arm)
+    flatten_male_body_brow_spikes(arm, aperture)
     flatten_chest_pinch(arm)
-    clear_chest_head_weights(arm)
+    reassign_chest_head_weights(arm)
     # Do not seat unbind edges. 0240d6e pulled clavicle/shoulder verts
     # onto the chest; Idle read as a neck pinched off the shoulders.
     repair_spine_unbind_edges(arm)
-    open_orc_mouth_aperture(arm)
-
-
-def flatten_male_body_brow_spikes(arm) -> int:
+    # One invariant covering every weight edit above: a skin vert with no
+    # remaining group weight is frozen at rest object space while the rest of
+    # the mesh deforms, which draws exactly the 0240d6e "torso/pec strand".
+    assert_all_skin_verts_bound(arm, "after restyle weight edits")
+def flatten_male_body_brow_spikes(arm, aperture) -> int:
     """Flatten forward brow-ridge spikes on male_body (not Eyes, not a brow mesh).
 
     Dest GLB has Eyes + male_body (+ tusks/gear historically). Look-dev only painted
     a 2D heavy brow — the script never authors eyebrows. Spikes that remain after
     hiding Eyes are male_body verts (oversized prior face band / residual ridge).
     Pull those verts back toward the forehead plane.
+
+    Like the jaw and the pec plate, the pull is eased across the band and across
+    the "is this a spike" threshold, so flattening a ridge cannot itself tear a
+    new one at the band edge. ``aperture`` is only used to keep the flatten off
+    the mouth.
     """
     bodies = [
         o
@@ -1099,19 +1214,29 @@ def flatten_male_body_brow_spikes(arm) -> int:
             if hw < s3w + 0.10:
                 continue
             z_rel = (v.co.z - z0) / height
-            if not (0.875 <= z_rel <= 0.955):
+            band = MG.band_falloff(z_rel, 0.875, 0.955, BROW_BAND_EDGE)
+            if band <= 0.0:
                 continue
-            if abs(v.co.x - cx) > 0.090:
+            side = MG.band_falloff(abs(v.co.x - cx), -0.090, 0.090, BROW_X_EDGE)
+            if side <= 0.0:
                 continue  # temples / sides — leave
+            u, w, _d = aperture.aperture_coords(
+                (float(v.co.x), float(v.co.y), float(v.co.z))
+            )
+            if aperture.radial(u, w) <= 1.0:
+                continue  # the mouth aperture is not a brow ridge
             # Spike = verts pushed forward of the forehead plane (-Y in MH rest).
-            if v.co.y < forehead_y - 0.008:
-                # Blend back toward forehead; keep a mild ridge, kill spikes.
-                target_y = forehead_y - 0.004
-                v.co.y = 0.25 * v.co.y + 0.75 * target_y
-                # Slightly flatten upward protrusion.
-                if z_rel > 0.93:
-                    v.co.z -= 0.003 * hw
-                flattened += 1
+            protrusion = (forehead_y - 0.008) - float(v.co.y)
+            if protrusion <= 0.0:
+                continue
+            ramp = MG.smoothstep(min(1.0, protrusion / BROW_SPIKE_FULL_M))
+            weight = 0.75 * band * side * ramp
+            if weight <= 0.0:
+                continue
+            target_y = forehead_y - 0.004
+            v.co.y = (1.0 - weight) * float(v.co.y) + weight * target_y
+            v.co.z -= 0.003 * hw * band * ramp
+            flattened += 1
         me.update()
         log(
             f"brow-spike flatten mesh={obj.name!r} verts_adjusted={flattened} "
@@ -1126,11 +1251,15 @@ def flatten_chest_pinch(arm) -> int:
     Include head-weighted pec verts — those are the Punch/Death stretch class
     (b4d8e66 Punch edge 1876–1891 at 0.213m). Skipping hw>=0.40 left the
     pinch in place.
+
+    Both discontinuities that made this function an artefact factory are gone:
+    the pec box is now a weight (``pec_box_weight``) rather than a hard bound,
+    and the outlier test is a ramp rather than "dy > 10 mm ⇒ yank 80 % of the
+    way to the median". Together those were the 0240d6e "torso/pec strand" and
+    "Death pec spike": the flatten itself tore the boundary it selected on.
     """
     body = male_body_mesh(arm)
     me = body.data
-    spine2_i = vg_index(body, "spine_02")
-    spine3_i = vg_index(body, "spine_03")
     xs = [v.co.x for v in me.vertices]
     ys = [v.co.y for v in me.vertices]
     zs = [v.co.z for v in me.vertices]
@@ -1138,39 +1267,76 @@ def flatten_chest_pinch(arm) -> int:
     cy = 0.5 * (min(ys) + max(ys))
     z0, z1 = min(zs), max(zs)
     height = max(z1 - z0, 1e-3)
-    pec_ys = []
-    pec_idx = []
+    pec = []
     for i, v in enumerate(me.vertices):
-        if not _in_front_pec_box(v, cx, cy, z0, height):
+        w = pec_box_weight(v, cx, cy, z0, height)
+        if w <= 0.0:
             continue
-        pec_ys.append(float(v.co.y))
-        pec_idx.append(i)
-    if len(pec_idx) < 8:
-        log(f"chest-pinch flatten: too few pec verts ({len(pec_idx)}); skip")
+        pec.append((i, w, float(v.co.y)))
+    if len(pec) < 8:
+        log(f"chest-pinch flatten: too few pec verts ({len(pec)}); skip")
         return 0
-    pec_ys.sort()
-    median_y = pec_ys[len(pec_ys) // 2]
+    core_ys = sorted(y for _i, w, y in pec if w >= 0.75)
+    if len(core_ys) < 4:
+        core_ys = sorted(y for _i, _w, y in pec)
+    median_y = core_ys[len(core_ys) // 2]
     pulled = 0
-    for i in pec_idx:
+    worst_move = 0.0
+    for i, box_w, _y in pec:
         v = me.vertices[i]
         dy = float(v.co.y) - median_y
-        if dy > 0.010 or dy < -0.022:
-            v.co.y = 0.20 * float(v.co.y) + 0.80 * median_y
-            pulled += 1
+        if dy > CHEST_PINCH_FORWARD_M:
+            excess = dy - CHEST_PINCH_FORWARD_M
+        elif dy < -CHEST_PINCH_BACK_M:
+            excess = -CHEST_PINCH_BACK_M - dy
+        else:
+            continue
+        ramp = MG.smoothstep(min(1.0, excess / CHEST_PINCH_RAMP_M))
+        blend = CHEST_PINCH_MAX_BLEND * box_w * ramp
+        if blend <= 0.0:
+            continue
+        before = float(v.co.y)
+        v.co.y = (1.0 - blend) * before + blend * median_y
+        worst_move = max(worst_move, abs(float(v.co.y) - before))
+        pulled += 1
     me.update()
     log(
-        f"chest-pinch flatten verts_adjusted={pulled} pec_n={len(pec_idx)} "
-        f"median_y={median_y:.4f} (includes head-weighted pecs)"
+        f"chest-pinch flatten verts_adjusted={pulled} pec_n={len(pec)} "
+        f"median_y={median_y:.4f} worst_move={worst_move:.4f} "
+        f"(eased pec box + ramped outlier pull; includes head-weighted pecs)"
     )
     return pulled
 
 
-def clear_chest_head_weights(arm) -> int:
-    """Remove head/neck weights from pec-box verts.
+def vg_by_index(obj, group_index):
+    if group_index is None:
+        return None
+    for g in obj.vertex_groups:
+        if g.index == group_index:
+            return g
+    return None
 
-    Punch/Death rotate the head; a sternum vert with leftover head weight
-    flies off and grows a 20cm+ edge (b4d8e66 Punch 1876–1891). Same 53-bone
-    names — only misplaced pec weights are cleared.
+
+def total_vert_weight(vert) -> float:
+    return sum(float(g.weight) for g in vert.groups)
+
+
+def reassign_chest_head_weights(arm) -> int:
+    """Move misplaced head/neck weight on pec verts onto the chest spine.
+
+    Punch/Death rotate the head; a sternum vert with leftover head weight flies
+    off and grows a 20 cm+ edge (b4d8e66 Punch 1876–1891). That part was right.
+    Deleting the weight was not: ``vertex_group.remove`` on a pec vert whose
+    only group was ``head`` left it with **no** groups at all. An unweighted vert
+    on an armature-deformed mesh stays at its rest object-space position while
+    every neighbour follows the bones, so it draws a strand from the chest to
+    wherever the body moved — the 0240d6e "torso/pec strand" and the
+    "neck/clavicle pinch". The old guard (``tw < 0.08 and hw < 0.20 -> skip``)
+    explicitly let the pure-head case through.
+
+    So this is a transfer, not a delete: validate first, compute the whole new
+    weight set, and only then write it. If there is nowhere to transfer to, that
+    is a bind we do not understand and it fails loudly.
     """
     body = male_body_mesh(arm)
     me = body.data
@@ -1180,6 +1346,11 @@ def clear_chest_head_weights(arm) -> int:
     spine3_i = vg_index(body, "spine_03")
     upper_l = vg_index(body, "upperarm_l")
     upper_r = vg_index(body, "upperarm_r")
+    if spine2_i is None and spine3_i is None:
+        raise RuntimeError(
+            "male_body has neither spine_02 nor spine_03 — cannot re-home "
+            "misplaced pec head/neck weight on the 53-bone bind"
+        )
     xs = [v.co.x for v in me.vertices]
     zs = [v.co.z for v in me.vertices]
     ys = [v.co.y for v in me.vertices]
@@ -1187,29 +1358,90 @@ def clear_chest_head_weights(arm) -> int:
     cy = 0.5 * (min(ys) + max(ys))
     z0, z1 = min(zs), max(zs)
     height = max(z1 - z0, 1e-3)
-    cleared = 0
+    moved = 0
     for i, v in enumerate(me.vertices):
         if not _in_front_pec_box(v, cx, cy, z0, height):
             continue
         if _arm_weight(v, upper_l, upper_r, None, None, None, None) >= 0.35:
             continue
-        tw = max(vg_weight(v, spine2_i), vg_weight(v, spine3_i))
+        s2 = vg_weight(v, spine2_i)
+        s3 = vg_weight(v, spine3_i)
+        tw = max(s2, s3)
         hw = vg_weight(v, head_i)
         nw = vg_weight(v, neck_i)
-        if hw < 0.08 and nw < 0.08:
-            continue
-        # Pec with head/neck influence — Punch pulls this into a torso spike.
-        if tw < 0.08 and hw < 0.20:
-            continue
-        did = False
+        transfer = 0.0
         if hw >= 0.08:
-            did = _clear_vg(body, i, head_i) or did
+            transfer += hw
         if nw >= 0.08:
-            did = _clear_vg(body, i, neck_i) or did
-        if did:
-            cleared += 1
-    log(f"cleared head/neck weights on pec verts n={cleared}")
-    return cleared
+            transfer += nw
+        if transfer <= 0.0:
+            continue
+        # Prefer the spine group this vert already leans on; spine_03 is the
+        # upper chest and is the right home for a sternum vert with none.
+        if s3 >= s2 and spine3_i is not None:
+            host_i = spine3_i
+        elif spine2_i is not None:
+            host_i = spine2_i
+        else:
+            host_i = spine3_i
+        host = vg_by_index(body, host_i)
+        if host is None:
+            raise RuntimeError(
+                f"male_body vert {i}: chest host group index {host_i} has no "
+                f"vertex group — refusing to strip head/neck weight with "
+                f"nowhere to put it"
+            )
+        new_host_w = min(1.0, vg_weight(v, host_i) + transfer)
+        if new_host_w <= 0.0:
+            raise RuntimeError(
+                f"male_body vert {i}: chest transfer produced weight "
+                f"{new_host_w:.4f} (head={hw:.3f} neck={nw:.3f} spine={tw:.3f}) "
+                f"— would leave the vert unbound"
+            )
+        host.add([int(i)], float(new_host_w), "REPLACE")
+        if hw >= 0.08:
+            _clear_vg(body, i, head_i)
+        if nw >= 0.08:
+            _clear_vg(body, i, neck_i)
+        if total_vert_weight(me.vertices[i]) <= 1e-6:
+            raise RuntimeError(
+                f"male_body vert {i} left unbound after chest weight transfer "
+                f"(host={host.name!r} target={new_host_w:.4f}) — this is the "
+                f"frozen-vert strand class; refusing to continue"
+            )
+        moved += 1
+    log(
+        f"re-homed head/neck weight on pec verts n={moved} "
+        f"(transferred to spine_02/spine_03, never deleted)"
+    )
+    return moved
+
+
+def assert_all_skin_verts_bound(arm, label: str) -> None:
+    """Every skin vert must keep some bone weight, on every skinned mesh.
+
+    This is the single invariant behind the strand artefacts. A vert with zero
+    total weight does not follow the armature at all: it sits at rest object
+    space while its neighbours move, and the edges to those neighbours render
+    as a spike from the body to nowhere. Weight edits are allowed to move
+    influence around; they are never allowed to remove all of it.
+    """
+    for obj in skinned_meshes(arm):
+        if is_junk_companion_mesh(obj):
+            continue
+        if obj.name.startswith("OrcTusk_"):
+            continue
+        unbound = [
+            int(v.index) for v in obj.data.vertices if total_vert_weight(v) <= 1e-6
+        ]
+        if unbound:
+            raise RuntimeError(
+                f"{label}: {obj.name!r} has {len(unbound)} unbound vert(s) "
+                f"{unbound[:12]}{'...' if len(unbound) > 12 else ''} — an "
+                f"unweighted vert stays at rest while the mesh deforms and "
+                f"draws the pec/torso strand; refusing to continue"
+            )
+        log(f"{label}: {obj.name!r} all {len(obj.data.vertices)} verts bound")
 
 
 def _copy_vertex_groups(obj, src_index: int, dst_index: int) -> int:
@@ -1229,6 +1461,11 @@ def _copy_vertex_groups(obj, src_index: int, dst_index: int) -> int:
             continue
         vg.add([int(dst_index)], float(g.weight), "REPLACE")
         copied += 1
+    if total_vert_weight(obj.data.vertices[dst_index]) <= 1e-6:
+        raise RuntimeError(
+            f"{obj.name!r} vert {dst_index} left unbound after copying groups "
+            f"from {src_index} (copied={copied}) — frozen-vert strand class"
+        )
     return copied
 
 
@@ -1301,163 +1538,535 @@ def repair_spine_unbind_edges(arm) -> int:
     return repaired
 
 
-def _lip_band_samples(
-    samples: list,
-    *,
-    cx: float,
-    cz: float,
-    lip_y: float,
-    x_max: float,
-    z_half: float,
-    y_front: float,
-    y_in: float,
-    neck_i,
-    spine3_i,
-    hw_min: float = 0.22,
-) -> list:
-    """Head-front verts in a mouth rectangle. Not a face-wide dz window."""
+def assert_body_space_is_world_aligned(body) -> None:
+    """Refuse a rotated/skewed male_body object matrix.
+
+    Everything in this module mixes body object space with world space on
+    purpose: vertex coordinates are compared against ``rest_world`` bone
+    heights, the mouth aperture is solved in object space and then used as a
+    world frame, and the face is assumed to look down ``-Y`` with ``+Z`` up.
+    That is true for the MakeHuman glTF imports this bake uses, and it has been
+    true for every logged run. If it ever stops being true, the numbers stay
+    plausible while the geometry is silently wrong, so check it once, loudly.
+    """
+    mw = body.matrix_world
+    rot = mw.to_3x3()
+    scale = mw.to_scale()
+    ident = Matrix.Identity(3)
+    worst = 0.0
+    for i in range(3):
+        for j in range(3):
+            worst = max(worst, abs(float(rot[i][j]) / max(float(scale[j]), 1e-9)
+                                   - float(ident[i][j])))
+    log(
+        f"{body.name!r} matrix_world translation="
+        f"{tuple(round(c, 4) for c in mw.to_translation())} "
+        f"scale={tuple(round(c, 4) for c in scale)} rot_dev={worst:.6f}"
+    )
+    if worst > 1e-3:
+        raise RuntimeError(
+            f"{body.name!r} object matrix is rotated/skewed (rot_dev={worst:.6f}). "
+            f"This module treats body object space as world-aligned (-Y forward, "
+            f"+Z up); a rotated bind would make every mouth/tusk coordinate "
+            f"wrong while still looking plausible. matrix_world={mw}"
+        )
+    for axis, s in zip("xyz", scale):
+        if abs(float(s) - 1.0) > 1e-3:
+            raise RuntimeError(
+                f"{body.name!r} object matrix scales {axis} by {float(s):.6f}; "
+                f"aperture sizes are measured in metres on the mesh data"
+            )
+
+
+def skull_vert_indices(body) -> list[int]:
+    """male_body vert indices that belong to the skull, not the neck seam.
+
+    Mouth skin on the MH 53-bone bind is pure ``head``. Requiring head
+    dominance and excluding neck/spine influence keeps the cloud on the skull,
+    which is what makes the head bounding box a usable measuring stick.
+    """
+    head_i = vg_index(body, "head")
+    if head_i is None:
+        raise RuntimeError(f"{body.name!r} missing head vertex group for mouth anchors")
+    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
+    spine3_i = vg_index(body, "spine_03")
     out = []
-    for s in samples:
-        if s["hw"] < hw_min:
+    for v in body.data.vertices:
+        if vg_weight(v, head_i) < SKULL_HEAD_W_MIN:
             continue
-        if abs(s["x"] - cx) > x_max:
+        if vg_weight(v, neck_i) > SKULL_NECK_W_MAX:
             continue
-        if abs(s["z"] - cz) > z_half:
+        if vg_weight(v, spine3_i) > SKULL_SPINE_W_MAX:
             continue
-        if s["y"] < lip_y - y_front:
-            continue
-        if s["y"] > lip_y + y_in:
-            continue
-        v = s["v"]
-        if vg_weight(v, neck_i) >= 0.10 or vg_weight(v, spine3_i) >= 0.22:
-            continue
-        out.append(s)
+        out.append(int(v.index))
     return out
 
 
-def open_orc_mouth_aperture(arm) -> int:
-    """Part the most-central mouth-height verts the still cameras see.
+def resolve_mouth_aperture(arm):
+    """Measure the one authoritative mouth aperture on male_body.
 
-    d1f412a: jaw/widen used copysign(constant, x-cx) on the whole mouth
-    band. Every lip vert piled at the commissures (min|x-cx|=65mm) and
-    the mid-mouth x_half ladder found nothing. Restyle no longer shoves
-    the midline. Here: take the most-central verts in a mouth-height
-    band and part those in Z. Not a 108mm face pool. Not commissures only.
+    This is the single owner of "where the mouth is". The carve, the tusk
+    author, the tusk still gate and the head close-up camera all read this
+    frame; none of them re-derives it. The previous bakes had three
+    disagreeing derivations, which is how tusks ended up seated near the jaw
+    angle while a lip-part gate refused a mouth it was measuring in the wrong
+    place. See ``tools/orc_mouth_geometry.py`` for the measurement itself.
     """
-    body, samples = collect_head_front_face_samples(arm)
-    if not samples:
-        raise RuntimeError("open_orc_mouth_aperture: no head-front samples")
+    body = male_body_mesh(arm)
+    assert_body_space_is_world_aligned(body)
+    if "head" not in arm.data.bones:
+        raise RuntimeError("53-bone bind missing head bone for mouth anchors")
+    idx = skull_vert_indices(body)
+    points = [
+        (
+            float(body.data.vertices[i].co.x),
+            float(body.data.vertices[i].co.y),
+            float(body.data.vertices[i].co.z),
+        )
+        for i in idx
+    ]
+    log(
+        f"skull cloud verts={len(points)} of {len(body.data.vertices)} "
+        f"(head>={SKULL_HEAD_W_MIN}, neck<={SKULL_NECK_W_MAX}, "
+        f"spine_03<={SKULL_SPINE_W_MAX})"
+    )
+    try:
+        aperture = MG.solve_mouth_aperture(points)
+    except MG.MouthGeometryError as exc:
+        # Dump the profile the solver was looking at so a local bake explains
+        # itself instead of leaving the next run to guess.
+        prof = MG.forward_profile(points, bins=32)
+        for z, y, n in prof:
+            log(f"  midline-ish profile z={z:.4f} y_front={y:.4f} n={n}")
+        raise RuntimeError(f"mouth aperture not measurable: {exc}") from exc
+    log(f"mouth aperture {aperture.describe()}")
+    head_z = float(HQ.rest_world(arm, "head").to_translation().z)
+    log(
+        f"mouth aperture vs head bone: head_rest_z={head_z:.4f} "
+        f"dz_center={aperture.center_z - head_z:.4f} "
+        f"dz_nose={aperture.nose_z - head_z:.4f} "
+        f"dz_chin={aperture.chin_z - head_z:.4f}"
+    )
+    mid = [
+        p
+        for p in points
+        if abs(p[0] - aperture.head_center_x) <= aperture.midline_strip_half
+    ]
+    for z, y, n in MG.forward_profile(mid, bins=28):
+        log(f"  mid-sagittal profile z={z:.4f} y_front={y:.4f} n={n}")
+    return aperture
+
+
+def mouth_aperture_report(aperture) -> dict:
+    """Measured aperture as JSON for the Art Reviewer packet."""
+    return {
+        "center": [round(float(c), 5) for c in aperture.center],
+        "half_width": round(float(aperture.half_width), 5),
+        "half_height": round(float(aperture.half_height), 5),
+        "depth": round(float(aperture.depth), 5),
+        "head_width": round(float(aperture.head_width), 5),
+        "nose_z": round(float(aperture.nose_z), 5),
+        "chin_z": round(float(aperture.chin_z), 5),
+        "lip_slit_from_chin": round(float(aperture.mouth_z_from_chin), 5),
+        "lip_slit_from_nose": round(float(aperture.mouth_z_from_nose), 5),
+        "face_half_width_at_mouth": round(float(aperture.face_half_width_at_mouth), 5),
+        "skull_cloud_verts": int(aperture.cloud_points),
+        "midline_verts": int(aperture.midline_points),
+    }
+
+
+def store_mouth_aperture(arm, aperture) -> None:
+    """Publish the aperture in head-bone-rest space on the body object.
+
+    Stored in head space, not body space, because that is the frame the still
+    gate needs: the mouth is rigidly attached to the head bone, so the posed
+    aperture is just ``head_pose_matrix @ stored``. The measured numbers also
+    go into the Art Reviewer packet via ``mouth_aperture_report``.
+    """
+    body = male_body_mesh(arm)
+    # The published frame is head-*rest* local, so the armature must be at rest
+    # when it is captured. A leftover donor action here would bake a posed head
+    # into the frame and every later gate would measure against a phantom mouth.
+    force_armature_rest(arm)
+    head_inv = head_pose_world_matrix(arm).inverted()
+    rot_inv = head_pose_world_matrix(arm).to_3x3().inverted()
+    center_w = body_local_to_world(body, Vector(aperture.center))
+    center_hl = head_inv @ center_w
+    body_rot = body.matrix_world.to_3x3()
+    axes = {}
+    for name, axis_b in (
+        ("right", Vector((1.0, 0.0, 0.0))),
+        ("up", Vector((0.0, 0.0, 1.0))),
+        ("inward", Vector((0.0, 1.0, 0.0))),
+    ):
+        axes[name] = (rot_inv @ (body_rot @ axis_b)).normalized()
+    body["orc_aperture_head_center"] = [float(c) for c in center_hl]
+    body["orc_aperture_head_right"] = [float(c) for c in axes["right"]]
+    body["orc_aperture_head_up"] = [float(c) for c in axes["up"]]
+    body["orc_aperture_head_inward"] = [float(c) for c in axes["inward"]]
+    body["orc_aperture_half_width"] = float(aperture.half_width)
+    body["orc_aperture_half_height"] = float(aperture.half_height)
+    body["orc_aperture_depth"] = float(aperture.depth)
+    log(
+        f"published aperture in head-rest space center="
+        f"{tuple(round(c, 4) for c in center_hl)} "
+        f"right={tuple(round(c, 3) for c in axes['right'])} "
+        f"up={tuple(round(c, 3) for c in axes['up'])} "
+        f"inward={tuple(round(c, 3) for c in axes['inward'])} "
+        f"half=({aperture.half_width:.4f},{aperture.half_height:.4f}) "
+        f"depth={aperture.depth:.4f}"
+    )
+    if center_hl.length > HEAD_MOUTH_MAX_LOCAL:
+        raise RuntimeError(
+            f"aperture centre is {center_hl.length:.4f} from the head bone origin "
+            f"(> {HEAD_MOUTH_MAX_LOCAL}) — that is not a mouth on this skull"
+        )
+
+
+def posed_aperture_frame(arm) -> dict:
+    """The aperture in world space for the current pose.
+
+    Reads the frame published by ``store_mouth_aperture`` and rides the head
+    bone. One function, so the carve proof, the tusk gate and the close-up
+    camera cannot drift apart.
+    """
+    body = male_body_mesh(arm)
+    for key in (
+        "orc_aperture_head_center",
+        "orc_aperture_head_right",
+        "orc_aperture_head_up",
+        "orc_aperture_head_inward",
+        "orc_aperture_half_width",
+        "orc_aperture_half_height",
+        "orc_aperture_depth",
+    ):
+        if key not in body:
+            raise RuntimeError(
+                f"{body.name!r} missing {key} — the mouth aperture was never "
+                f"published; resolve_mouth_aperture/store_mouth_aperture must "
+                f"run before any mouth gate"
+            )
+    m = head_pose_world_matrix(arm)
+    rot = m.to_3x3()
+
+    def vec(key: str) -> Vector:
+        raw = body[key]
+        return Vector((float(raw[0]), float(raw[1]), float(raw[2])))
+
+    right = (rot @ vec("orc_aperture_head_right")).normalized()
+    up = (rot @ vec("orc_aperture_head_up")).normalized()
+    inward = (rot @ vec("orc_aperture_head_inward")).normalized()
+    return {
+        "center": m @ vec("orc_aperture_head_center"),
+        "right": right,
+        "up": up,
+        "inward": inward,
+        "half_width": float(body["orc_aperture_half_width"]),
+        "half_height": float(body["orc_aperture_half_height"]),
+        "depth": float(body["orc_aperture_depth"]),
+    }
+
+
+def aperture_coords_world(frame: dict, p: Vector) -> tuple[float, float, float]:
+    rel = Vector(p) - frame["center"]
+    return (
+        float(rel.dot(frame["right"])),
+        float(rel.dot(frame["up"])),
+        float(rel.dot(frame["inward"])),
+    )
+
+
+def aperture_radial(frame: dict, u: float, w: float, *, margin: float = 0.0) -> float:
+    """Normalised rim-ellipse radius; ``<= 1`` is inside the aperture."""
+    return math.hypot(
+        u / (frame["half_width"] + margin), w / (frame["half_height"] + margin)
+    )
+
+
+def mouth_interior_material():
+    return make_opaque_mat("OrcMouthInterior", MOUTH_INTERIOR, 0.65)
+
+
+def aperture_region_edge_stats(me, aperture) -> tuple[list[int], float]:
+    """Edges touching the aperture neighbourhood, and their mean length.
+
+    An edge qualifies when either end is inside ``CAVITY_SUBDIV_REGION_R`` of
+    the aperture, so a mouth that currently holds only a handful of verts still
+    gathers the surrounding edges to refine.
+    """
+    inside = []
+    for v in me.vertices:
+        u, w, _d = aperture.aperture_coords(
+            (float(v.co.x), float(v.co.y), float(v.co.z))
+        )
+        inside.append(aperture.radial(u, w) <= CAVITY_SUBDIV_REGION_R)
+    picked = []
+    total = 0.0
+    for e in me.edges:
+        a, b = int(e.vertices[0]), int(e.vertices[1])
+        if not (inside[a] or inside[b]):
+            continue
+        picked.append(int(e.index))
+        total += (me.vertices[a].co - me.vertices[b].co).length
+    mean = (total / len(picked)) if picked else 0.0
+    return picked, mean
+
+
+def subdivide_for_cavity(body, aperture) -> int:
+    """Refine the mouth neighbourhood until a smooth bore is representable.
+
+    A 62 x 40 mm maw cannot be carved into geometry that has three verts there:
+    the "cavity" comes out as a triangular dent with 30 mm steps between
+    neighbours, which is a hole punched in the face rather than a mouth. So
+    measure the local edge length and cut until the aperture is sampled at
+    least ``CAVITY_SUBDIV_TARGET_SAMPLES`` times across its half-width.
+
+    Only the mouth neighbourhood is touched, the vert budget is capped, and
+    nothing downstream captured a vertex index before this point (the rim
+    anchors are chosen after the carve), so adding verts here is safe.
+    """
     me = body.data
-    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
-    spine3_i = vg_index(body, "spine_03")
-    left_p, right_p, _li, _ri = find_mouth_corner_anchors(arm)
-    cx = 0.5 * (float(left_p.x) + float(right_p.x))
-    cz = 0.5 * (float(left_p.z) + float(right_p.z))
-    lip_y = min(float(left_p.y), float(right_p.y))
-    half_w = 0.5 * abs(float(left_p.x) - float(right_p.x)) + 0.006
-    band_kw = dict(cx=cx, cz=cz, lip_y=lip_y, neck_i=neck_i, spine3_i=spine3_i)
+    target = aperture.half_width / float(CAVITY_SUBDIV_TARGET_SAMPLES)
+    budget = max(
+        CAVITY_SUBDIV_MIN_BUDGET,
+        int(CAVITY_SUBDIV_MAX_ADDED_FRAC * len(me.vertices)),
+    )
+    added_total = 0
+    for step in range(CAVITY_SUBDIV_MAX_PASSES):
+        edges, mean = aperture_region_edge_stats(me, aperture)
+        if not edges:
+            raise RuntimeError(
+                f"subdivide_for_cavity: no edges near the aperture "
+                f"({aperture.describe()}) — the solver placed the mouth off the mesh"
+            )
+        log(
+            f"cavity subdiv pass {step}: region_edges={len(edges)} "
+            f"mean_edge={mean:.4f} target={target:.4f} verts={len(me.vertices)}"
+        )
+        if mean <= target:
+            break
+        before = len(me.vertices)
+        if added_total + len(edges) > budget:
+            log(
+                f"cavity subdiv stopping: {len(edges)} cuts would exceed the "
+                f"{budget}-vert budget (added={added_total})"
+            )
+            break
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.edges.ensure_lookup_table()
+        pick = [bm.edges[i] for i in edges]
+        bmesh.ops.subdivide_edges(bm, edges=pick, cuts=1, use_grid_fill=True)
+        bm.to_mesh(me)
+        bm.free()
+        me.update()
+        added_total += len(me.vertices) - before
+        log(
+            f"cavity subdiv pass {step}: verts {before} -> {len(me.vertices)} "
+            f"(+{len(me.vertices) - before}, total +{added_total})"
+        )
+    else:
+        _edges, mean = aperture_region_edge_stats(me, aperture)
+        if mean > target:
+            log(
+                f"cavity subdiv hit {CAVITY_SUBDIV_MAX_PASSES} passes with "
+                f"mean_edge={mean:.4f} > target={target:.4f}; carving anyway "
+                f"(the carve gates below decide whether that is enough)"
+            )
+    if added_total:
+        bind_new_cavity_verts_to_head(body, aperture)
+    return added_total
 
-    mouth = _lip_band_samples(
-        samples,
-        x_max=half_w,
-        z_half=MOUTH_HEIGHT_Z,
-        y_front=0.024,
-        y_in=0.040,
-        **band_kw,
-    )
-    if len(mouth) > LIP_POOL_MAX:
-        raise RuntimeError(
-            f"open_orc_mouth_aperture: mouth-height band too wide "
-            f"(n={len(mouth)} > {LIP_POOL_MAX}). Not inventing a face-wide part."
+
+def bind_new_cavity_verts_to_head(body, aperture) -> int:
+    """Guarantee every vert the subdivision added is head-bound.
+
+    ``bmesh.ops.subdivide_edges`` interpolates the deform layer, so new verts
+    normally arrive with their parents' weights. This makes that explicit
+    rather than assumed, because the failure mode is the worst one in this
+    script: an unweighted vert sits at rest object space while the mesh
+    deforms, and the edges to its neighbours render as a strand.
+
+    Anything unbound *outside* the mouth neighbourhood means the subdivision
+    touched geometry it was not aimed at, so that is a hard error rather than
+    something to patch up.
+    """
+    me = body.data
+    head_vg = body.vertex_groups.get("head")
+    if head_vg is None:
+        raise RuntimeError(f"{body.name!r} has no head vertex group to bind cavity verts")
+    fixed = 0
+    for v in me.vertices:
+        if total_vert_weight(v) > 1e-6:
+            continue
+        u, w, _d = aperture.aperture_coords(
+            (float(v.co.x), float(v.co.y), float(v.co.z))
         )
-    lo = [s for s in mouth if s["z"] <= cz]
-    hi = [s for s in mouth if s["z"] > cz]
-    lo.sort(key=lambda s: abs(s["x"] - cx))
-    hi.sort(key=lambda s: abs(s["x"] - cx))
-    lo_abs = abs(lo[0]["x"] - cx) if lo else 1e9
-    hi_abs = abs(hi[0]["x"] - cx) if hi else 1e9
-    xs = sorted(abs(s["x"] - cx) for s in mouth)
+        r = aperture.radial(u, w)
+        if r > CAVITY_SUBDIV_REGION_R:
+            raise RuntimeError(
+                f"{body.name!r} vert {int(v.index)} is unbound at aperture radius "
+                f"{r:.3f} — outside the mouth neighbourhood the cavity subdivision "
+                f"was aimed at; refusing to guess a bone for it"
+            )
+        head_vg.add([int(v.index)], 1.0, "REPLACE")
+        fixed += 1
     log(
-        f"open_orc_mouth_aperture mouth_n={len(mouth)} "
-        f"lo={len(lo)} hi={len(hi)} "
-        f"nearest_|x-cx|=({lo_abs:.4f},{hi_abs:.4f}) "
-        f"x_abs_p50={xs[len(xs)//2] if xs else -1:.4f} "
-        f"corner_z={cz:.4f} lip_y={lip_y:.4f} half_w={half_w:.4f}"
+        f"cavity subdivision verts needing an explicit head bind: {fixed} "
+        f"(0 means bmesh interpolated the deform layer as expected)"
     )
-    if lo_abs > MOUTH_CENTER_MAX_ABS_X or hi_abs > MOUTH_CENTER_MAX_ABS_X:
-        raise RuntimeError(
-            f"open_orc_mouth_aperture: most-central mouth-height vert is "
-            f"still a commissure (nearest_|x-cx|=({lo_abs:.4f},{hi_abs:.4f}) "
-            f"> {MOUTH_CENTER_MAX_ABS_X}, n={len(mouth)}). Midline emptied "
-            f"or not lips. Not parting corners. Not a 108mm face pool."
+    return fixed
+
+
+def carve_orc_mouth_cavity(arm, aperture) -> int:
+    """Bore a real oral cavity into male_body at the measured aperture.
+
+    New hypothesis, replacing "part the lips in Z".
+
+    Pushing a handful of surface verts apart never worked and could not work:
+    the outer rim moved while the inner loop sealed the hole (the 15:26 stills
+    read closed at a gap that passed the numeric gate), and the skin left
+    behind the "opening" then hid anything seated in it — which is why two
+    EXIT-0 bakes shipped stills with no visible tusks. There was nothing behind
+    the parted lips except more face.
+
+    So do not part the lips. Displace the skin inside the aperture ellipse
+    *into the head*, onto a raised-cosine bore profile, and paint the bore with
+    a dark interior material. The result is a genuine concave maw with room in
+    it.
+
+    The profile is continuous and reaches exactly zero at the rim, and each
+    vert is only ever moved to the profile (never past it), so the carve cannot
+    invert geometry or overshoot.
+    """
+    body = male_body_mesh(arm)
+    subdivide_for_cavity(body, aperture)
+    me = body.data
+    skull = set(skull_vert_indices(body))
+    if not skull:
+        raise RuntimeError("carve_orc_mouth_cavity: empty skull cloud")
+    carved = 0
+    deepest = 0.0
+    falloffs = [0.0] * len(me.vertices)
+    for i in sorted(skull):
+        v = me.vertices[i]
+        u, w, d = aperture.aperture_coords(
+            (float(v.co.x), float(v.co.y), float(v.co.z))
         )
-    center_lo = [s for s in lo if abs(s["x"] - cx) <= MOUTH_CENTER_MAX_ABS_X]
-    center_hi = [s for s in hi if abs(s["x"] - cx) <= MOUTH_CENTER_MAX_ABS_X]
-    center_lo = center_lo[:LIP_CENTER_EACH]
-    center_hi = center_hi[:LIP_CENTER_EACH]
-    if len(center_lo) < 3 or len(center_hi) < 3:
-        raise RuntimeError(
-            f"open_orc_mouth_aperture: not enough midline lips "
-            f"(center_lo={len(center_lo)} center_hi={len(center_hi)} "
-            f"nearest_|x-cx|=({lo_abs:.4f},{hi_abs:.4f}))"
-        )
-    corners = _lip_band_samples(
-        samples,
-        x_max=half_w,
-        z_half=LIP_SLAB_Z,
-        y_front=LIP_OUTER_Y,
-        y_in=LIP_INNER_Y,
-        **band_kw,
-    )
-    center_idx = {int(s["v"].index) for s in center_lo + center_hi}
-    corner_lo = [
-        s
-        for s in corners
-        if s["z"] <= cz and int(s["v"].index) not in center_idx
-    ]
-    corner_hi = [
-        s
-        for s in corners
-        if s["z"] > cz and int(s["v"].index) not in center_idx
-    ]
-    if len(center_lo) + len(center_hi) + len(corner_lo) + len(corner_hi) > LIP_POOL_MAX:
-        raise RuntimeError(
-            f"open_orc_mouth_aperture: too many lip verts "
-            f"(center={len(center_lo)+len(center_hi)} "
-            f"corners={len(corner_lo)+len(corner_hi)}). "
-            f"Not inventing a face-wide part."
-        )
-    lower = center_lo + corner_lo
-    upper = center_hi + corner_hi
-    center_ids = {id(s) for s in center_lo + center_hi}
-    for s in lower:
-        v = s["v"]
-        drop = 0.022 if id(s) in center_ids else 0.012
-        v.co.z -= max(drop, 0.028 * s["hw"])
-    for s in upper:
-        v = s["v"]
-        lift = 0.018 if id(s) in center_ids else 0.010
-        v.co.z += max(lift, 0.022 * s["hw"])
+        f = aperture.falloff(u, w)
+        if f <= 0.0:
+            continue
+        falloffs[i] = f
+        target_d = aperture.depth * f
+        if d >= target_d:
+            continue  # already at or behind the bore profile
+        v.co.y += target_d - d
+        deepest = max(deepest, target_d)
+        carved += 1
     me.update()
-    low_z = [float(me.vertices[s["v"].index].co.z) for s in center_lo]
-    high_z = [float(me.vertices[s["v"].index].co.z) for s in center_hi]
-    low_z.sort()
-    high_z.sort()
-    gap = high_z[len(high_z) // 2] - low_z[len(low_z) // 2]
-    if gap < MOUTH_APERTURE_MIN_Z:
+
+    if carved < CAVITY_MIN_CARVED_VERTS:
         raise RuntimeError(
-            f"open_orc_mouth_aperture: rest mid-mouth gap {gap:.4f} "
-            f"< {MOUTH_APERTURE_MIN_Z} — Idle/Walk would still read closed "
-            f"(center={len(center_lo)+len(center_hi)})"
+            f"carve_orc_mouth_cavity: only {carved} verts inside the measured "
+            f"aperture (need {CAVITY_MIN_CARVED_VERTS}); "
+            f"aperture={aperture.describe()} — the mouth would still read closed"
         )
+    min_depth = CAVITY_MIN_ACHIEVED_DEPTH_FRAC * aperture.depth
+    if deepest < min_depth:
+        raise RuntimeError(
+            f"carve_orc_mouth_cavity: deepest bore reached {deepest:.4f} < "
+            f"{min_depth:.4f} ({CAVITY_MIN_ACHIEVED_DEPTH_FRAC} of "
+            f"{aperture.depth:.4f}) over {carved} verts — the mesh has no "
+            f"geometry near the aperture centre, so the camera would still see "
+            f"a closed mouth"
+        )
+
+    # Paint the bore. Slot 1 is the interior; apply_finished_olive_skin rebuilds
+    # the slots in that order so this survives every re-paint.
+    interior = mouth_interior_material()
+    me.materials.clear()
+    me.materials.append(make_opaque_mat(f"OrcSkin_{body.name}", OLIVE, 0.88))
+    me.materials.append(interior)
+    body["orc_mouth_interior_slot"] = 1
+    painted = 0
+    for poly in me.polygons:
+        vids = list(poly.vertices)
+        mean_f = sum(falloffs[int(j)] for j in vids) / float(len(vids))
+        if mean_f >= CAVITY_INTERIOR_POLY_FALLOFF:
+            poly.material_index = 1
+            painted += 1
+        else:
+            poly.material_index = 0
+    if painted <= 0:
+        raise RuntimeError(
+            f"carve_orc_mouth_cavity: no polygon reached mean falloff "
+            f"{CAVITY_INTERIOR_POLY_FALLOFF} — the maw would render as skin "
+            f"and read closed (carved={carved} deepest={deepest:.4f})"
+        )
+    me.update()
+    assert_all_skin_verts_bound(arm, "after mouth cavity carve")
     log(
-        f"opened orc mouth aperture center=({len(center_lo)},{len(center_hi)}) "
-        f"corners=({len(corner_lo)},{len(corner_hi)}) "
-        f"rest_mid_gap={gap:.4f} nearest_|x-cx|=({lo_abs:.4f},{hi_abs:.4f})"
+        f"carved orc mouth cavity verts={carved} deepest={deepest:.4f} "
+        f"(target {aperture.depth:.4f}) interior_polys={painted} "
+        f"rim=({aperture.half_width:.4f},{aperture.half_height:.4f}) "
+        f"center_z={aperture.center_z:.4f}"
     )
-    return len(lower) + len(upper)
+    return carved
 
 
+def mouth_rim_anchor_verts(arm, aperture) -> tuple[int, int]:
+    """male_body verts nearest the left/right aperture rim.
+
+    Kept so the still gate can prove the mouth *skin* still follows the head,
+    not just that the tusks follow the bone. These are real rim verts by
+    construction now — the old corner hunt returned jaw-side verts at
+    |x-cx|=82 mm, i.e. a 164 mm wide "mouth", and seated the tusks there.
+
+    Only near-pure head verts qualify: an anchor with neck bleed would drift
+    under Death and the gate could not tell that from a broken bind.
+    """
+    body = male_body_mesh(arm)
+    me = body.data
+    head_i = vg_index(body, "head")
+    candidates = [
+        i
+        for i in skull_vert_indices(body)
+        if vg_weight(me.vertices[i], head_i) >= MOUTH_RIM_HEAD_W_MIN
+    ]
+    if not candidates:
+        raise RuntimeError(
+            f"no male_body vert with head weight >= {MOUTH_RIM_HEAD_W_MIN} near the "
+            f"mouth — cannot anchor the rim-tracking proof"
+        )
+    picked = {}
+    for side, sign in (("L", -1.0), ("R", 1.0)):
+        target = Vector(
+            (
+                aperture.center_x + sign * aperture.half_width,
+                aperture.center_y,
+                aperture.center_z,
+            )
+        )
+        pick = -1
+        pick_d = 1e9
+        for i in candidates:
+            d = (me.vertices[i].co - target).length
+            if d < pick_d:
+                pick_d = d
+                pick = int(i)
+        if pick_d > aperture.half_width:
+            raise RuntimeError(
+                f"nearest head-bound vert to the {side} aperture rim is {pick_d:.4f} "
+                f"away (> half_width {aperture.half_width:.4f}) — the mesh has "
+                f"no geometry on this rim"
+            )
+        picked[side] = pick
+        log(
+            f"mouth rim anchor {side} vert={pick} dist={pick_d:.4f} "
+            f"head_w={vg_weight(me.vertices[pick], head_i):.3f} "
+            f"co={tuple(round(c, 4) for c in me.vertices[pick].co)}"
+        )
+    return picked["L"], picked["R"]
 def is_junk_companion_mesh(obj) -> bool:
     """True for leftover companion meshes that are not the nude orc identity.
 
@@ -1529,342 +2138,6 @@ def male_body_mesh(arm):
         if obj.name == "male_body" or obj.name.lower() == "male_body":
             return obj
     raise RuntimeError("male_body mesh required for mouth/tusk placement")
-
-
-def _log_zrel_histogram(label: str, zrels: list[float], *, lo: float, hi: float, step: float) -> None:
-    """Log a coarse histogram so empty mouth bands are diagnosable locally."""
-    if not zrels:
-        log(f"{label}: empty (no samples)")
-        return
-    bins = []
-    edge = lo
-    while edge < hi - 1e-9:
-        bins.append((edge, edge + step, 0))
-        edge += step
-    for z in zrels:
-        for i, (a, b, _) in enumerate(bins):
-            if a <= z < b or (b >= hi - 1e-9 and a <= z <= b):
-                a0, b0, c0 = bins[i]
-                bins[i] = (a0, b0, c0 + 1)
-                break
-    parts = [f"[{a:.2f},{b:.2f})={c}" for a, b, c in bins if c]
-    log(
-        f"{label}: n={len(zrels)} min={min(zrels):.3f} max={max(zrels):.3f} "
-        f"hist={parts or '(all outside range)'}"
-    )
-
-
-def collect_head_front_face_samples(arm) -> tuple[object, list[dict]]:
-    """Head-weighted front-hemisphere samples on male_body for mouth hunting."""
-    body = male_body_mesh(arm)
-    me = body.data
-    head_i = vg_index(body, "head")
-    if head_i is None:
-        raise RuntimeError("male_body missing head vertex group for mouth anchors")
-    if "head" not in arm.data.bones:
-        raise RuntimeError("53-bone bind missing head bone for mouth anchors")
-    head_z = float(HQ.rest_world(arm, "head").to_translation().z)
-    xs = [v.co.x for v in me.vertices]
-    ys = [v.co.y for v in me.vertices]
-    zs = [v.co.z for v in me.vertices]
-    cx = 0.5 * (min(xs) + max(xs))
-    cy = 0.5 * (min(ys) + max(ys))
-    z0, z1 = min(zs), max(zs)
-    height = max(z1 - z0, 1e-3)
-    samples = []
-    for v in me.vertices:
-        hw = vg_weight(v, head_i)
-        if hw < 0.20:
-            continue
-        if v.co.y > cy:
-            continue  # back half of bbox — not the face
-        z_rel = (v.co.z - z0) / height
-        dz = v.co.z - head_z
-        samples.append(
-            {
-                "v": v,
-                "hw": hw,
-                "x": float(v.co.x),
-                "y": float(v.co.y),
-                "z": float(v.co.z),
-                "z_rel": z_rel,
-                "dz": dz,
-                "cx": cx,
-                "cy": cy,
-                "z0": z0,
-                "height": height,
-                "head_z": head_z,
-            }
-        )
-    _log_zrel_histogram(
-        "head-front z_rel",
-        [s["z_rel"] for s in samples],
-        lo=0.70,
-        hi=1.001,
-        step=0.02,
-    )
-    _log_zrel_histogram(
-        "head-front dz(head)",
-        [s["dz"] for s in samples],
-        lo=-0.20,
-        hi=0.16,
-        step=0.02,
-    )
-    return body, samples
-
-
-def resolve_mouth_zrel_band(samples: list[dict]) -> tuple[float, float, float]:
-    """Derive mouth z_rel band from forward head verts (not a fixed 0.80–0.87).
-
-    Returns (mouth_lo, mouth_hi, brow_lo). Mouth is the lower portion of the
-    forward face cluster; brow_lo is the refuse floor for cheek/brow.
-    """
-    if len(samples) < 20:
-        raise RuntimeError(
-            f"too few head-front samples for mouth band ({len(samples)})"
-        )
-    # Most-forward subset (MH faces -Y).
-    ordered = sorted(samples, key=lambda s: s["y"])
-    fwd = ordered[: max(40, len(ordered) * 45 // 100)]
-    zrels = sorted(s["z_rel"] for s in fwd)
-
-    def pct(p: float) -> float:
-        i = int(round((len(zrels) - 1) * p))
-        return zrels[max(0, min(len(zrels) - 1, i))]
-
-    face_lo = pct(0.05)
-    face_hi = pct(0.95)
-    span = max(face_hi - face_lo, 1e-3)
-    # Lower ~40% of forward face = mouth/lips; brow from ~55% up.
-    mouth_lo = face_lo + 0.05 * span
-    mouth_hi = face_lo + 0.45 * span
-    brow_lo = face_lo + 0.55 * span
-    log(
-        f"mouth band from forward face: face_z_rel=[{face_lo:.3f},{face_hi:.3f}] "
-        f"mouth=[{mouth_lo:.3f},{mouth_hi:.3f}] brow_lo={brow_lo:.3f} "
-        f"(fwd_n={len(fwd)})"
-    )
-    return mouth_lo, mouth_hi, brow_lo
-
-
-def find_mouth_corner_anchors(arm) -> tuple[Vector, Vector, int, int]:
-    """Head-weighted lower-lip / mouth-corner verts on male_body (object space).
-
-    Full-body z_rel 0.80–0.87 was empty on MH male_body (face lives ~0.88+).
-    Logs a head-front histogram, derives an adaptive mouth band, then expands
-    until real L/R corners exist. Still refuses cheek/brow. Tusk bases are
-    offset from these lip-corner verts into the lower gum in ``add_tusks``.
-
-    Returns ``(left_pos, right_pos, left_vert_index, right_vert_index)``.
-    """
-    _body, samples = collect_head_front_face_samples(arm)
-    if not samples:
-        raise RuntimeError("no head-weighted front verts on male_body for mouth anchors")
-    cx = samples[0]["cx"]
-    cy = samples[0]["cy"]
-    z0 = samples[0]["z0"]
-    height = samples[0]["height"]
-    head_z = samples[0]["head_z"]
-    mouth_lo, mouth_hi, brow_lo = resolve_mouth_zrel_band(samples)
-
-    # Parallel head-relative dz windows (expand if z_rel band is sparse).
-    dz_windows = (
-        (-0.110, -0.018),
-        (-0.130, -0.012),
-        (-0.150, -0.008),
-        (-0.160, -0.005),
-    )
-
-    def pick_candidates(z_lo: float, z_hi: float, dz_lo: float, dz_hi: float, hw_min: float):
-        out = []
-        for s in samples:
-            if s["hw"] < hw_min:
-                continue
-            if s["y"] > cy - 0.005:
-                continue
-            in_z = z_lo <= s["z_rel"] <= z_hi
-            in_dz = dz_lo <= s["dz"] <= dz_hi
-            if not (in_z or in_dz):
-                continue
-            if s["z_rel"] >= brow_lo:
-                continue  # cheek/brow refuse
-            if s["dz"] > -0.005:
-                continue  # at/above head bone — brow/forehead
-            if abs(s["x"] - cx) > MOUTH_CORNER_MAX_ABS_X:
-                continue
-            out.append(s)
-        return out
-
-    candidates = []
-    used = None
-    # Widen/shift mouth_hi toward brow_lo until we have corners.
-    for expand in (0.0, 0.03, 0.06, 0.09, 0.12):
-        z_hi = min(mouth_hi + expand, brow_lo - 0.005)
-        z_lo = mouth_lo - 0.5 * expand
-        for dz_lo, dz_hi in dz_windows:
-            for hw_min in (0.35, 0.28, 0.22, 0.18):
-                cand = pick_candidates(z_lo, z_hi, dz_lo, dz_hi, hw_min)
-                if len(cand) >= 6:
-                    left_side = [s for s in cand if s["x"] < cx]
-                    right_side = [s for s in cand if s["x"] >= cx]
-                    if left_side and right_side:
-                        candidates = cand
-                        used = (z_lo, z_hi, dz_lo, dz_hi, hw_min, len(cand))
-                        break
-            if candidates:
-                break
-        if candidates:
-            break
-
-    if len(candidates) < 6 or used is None:
-        raise RuntimeError(
-            f"too few mouth-band verts for tusk anchors ({len(candidates)}); "
-            f"mouth_lo={mouth_lo:.3f} mouth_hi={mouth_hi:.3f} brow_lo={brow_lo:.3f} "
-            f"head_z={head_z:.4f}. See head-front z_rel/dz histograms above."
-        )
-    log(
-        f"mouth candidates n={used[5]} z_rel=[{used[0]:.3f},{used[1]:.3f}] "
-        f"dz=[{used[2]:.3f},{used[3]:.3f}] hw_min={used[4]}"
-    )
-
-    # Prefer forward half of mouth band, then extreme X as corners.
-    candidates.sort(key=lambda s: s["y"])
-    front = candidates[: max(8, len(candidates) // 2)]
-    left_side = [s for s in front if s["x"] < cx]
-    right_side = [s for s in front if s["x"] >= cx]
-    if not left_side or not right_side:
-        # Fall back to full candidate set if forward half is one-sided.
-        left_side = [s for s in candidates if s["x"] < cx]
-        right_side = [s for s in candidates if s["x"] >= cx]
-    if not left_side or not right_side:
-        raise RuntimeError(
-            f"mouth anchors missing L/R split "
-            f"(L={len(left_side)} R={len(right_side)} cand={len(candidates)})"
-        )
-
-    # Among each side, prefer forward verts that still have some |x| (true corners).
-    def pick_corner(side: list[dict], want_left: bool) -> dict:
-        side_sorted = sorted(side, key=lambda s: s["y"])
-        forward_side = side_sorted[: max(4, len(side_sorted) // 2)]
-        if want_left:
-            return min(forward_side, key=lambda s: s["x"])
-        return max(forward_side, key=lambda s: s["x"])
-
-    left = pick_corner(left_side, True)
-    right = pick_corner(right_side, False)
-
-    # Author and PNG gate share these exact male_body verts — no fictional
-    # into_mouth offset (that made rest-bind OK vs bind_w while the gate's
-    # eval-vert target sat ~0.10m away).
-    left_p = Vector((float(left["x"]), float(left["y"]), float(left["z"])))
-    right_p = Vector((float(right["x"]), float(right["y"]), float(right["z"])))
-
-    for label, p, src in (("L", left_p, left), ("R", right_p, right)):
-        z_rel = (p.z - z0) / height
-        dz = p.z - head_z
-        if z_rel >= brow_lo or dz > -0.005:
-            raise RuntimeError(
-                f"tusk anchor {label} looks like cheek/brow "
-                f"(z_rel={z_rel:.3f} brow_lo={brow_lo:.3f} dz={dz:.3f} "
-                f"src_z_rel={src['z_rel']:.3f})"
-            )
-        if abs(p.x - cx) > MOUTH_CORNER_MAX_ABS_X:
-            raise RuntimeError(
-                f"tusk anchor {label} |x|={abs(p.x - cx):.3f} looks like cheek, not mouth "
-                f"(MH mouth corners ~0.08–0.09; refuse > {MOUTH_CORNER_MAX_ABS_X})"
-            )
-        if abs(p.x - cx) < 0.012:
-            raise RuntimeError(
-                f"tusk anchor {label} |x|={abs(p.x - cx):.3f} too centered — not a corner"
-            )
-    left_idx = int(left["v"].index)
-    right_idx = int(right["v"].index)
-    log(
-        f"mouth anchors L={tuple(round(c, 4) for c in left_p)} "
-        f"R={tuple(round(c, 4) for c in right_p)} "
-        f"verts=({left_idx},{right_idx}) "
-        f"z_rel=({(left_p.z - z0) / height:.3f},{(right_p.z - z0) / height:.3f}) "
-        f"dz=({left_p.z - head_z:.3f},{right_p.z - head_z:.3f}) "
-        f"(male_body corner verts — same indices the still gate evaluates)"
-    )
-    return left_p, right_p, left_idx, right_idx
-
-
-def find_upper_lip_vert_index(arm, corner_idx: int) -> int:
-    """Head-weighted upper-lip vert on the same mouth corner (mesh index).
-
-    Builds the rest-pose mouth-aperture axis (gum → opening). Bone local +Y is
-    the skull axis — that class left Idle empty and spiked the Death chest.
-    """
-    body, samples = collect_head_front_face_samples(arm)
-    if not samples:
-        raise RuntimeError("no head-front samples for upper-lip hunt")
-    me = body.data
-    nverts = len(me.vertices)
-    if corner_idx < 0 or corner_idx >= nverts:
-        raise RuntimeError(
-            f"upper-lip hunt: corner_idx {corner_idx} out of range n={nverts}"
-        )
-    corner = me.vertices[corner_idx]
-    cx = samples[0]["cx"]
-    _mouth_lo, _mouth_hi, brow_lo = resolve_mouth_zrel_band(samples)
-    side = 1.0 if float(corner.co.x) >= cx else -1.0
-    hits = []
-    for s in samples:
-        if int(s["v"].index) == int(corner_idx):
-            continue
-        if (s["x"] - cx) * side < 0.0:
-            continue
-        if s["hw"] < 0.22:
-            continue
-        if s["z"] < float(corner.co.z) + 0.012:
-            continue
-        if s["z"] > float(corner.co.z) + 0.038:
-            continue
-        if s["z_rel"] >= brow_lo:
-            continue
-        if abs(s["x"] - float(corner.co.x)) > 0.038:
-            continue
-        hits.append(s)
-    if not hits:
-        raise RuntimeError(
-            f"upper-lip hunt failed for corner {corner_idx} "
-            f"(z={float(corner.co.z):.4f} x={float(corner.co.x):.4f}). "
-            f"Cannot build mouth-aperture axis (not inventing a brow/cheek stand-in)."
-        )
-    hits.sort(key=lambda s: (abs(s["x"] - float(corner.co.x)), s["y"], -s["z"]))
-    picked = hits[0]
-    log(
-        f"upper-lip vert={int(picked['v'].index)} for corner {corner_idx} "
-        f"p={tuple(round(c, 4) for c in (picked['x'], picked['y'], picked['z']))} "
-        f"z_rel={picked['z_rel']:.3f} n_hits={len(hits)}"
-    )
-    return int(picked["v"].index)
-
-
-def upper_lip_world_for_corner(arm, body, corner_idx: int, corner_w: Vector) -> tuple[int, Vector]:
-    """Upper-lip world point for aperture rise, or body-+Z stand-in.
-
-    A collapsed hunt must not abort the bake — ``mouth_aperture_axis_world``
-    already floors rise at ``APERTURE_MIN_RISE_Z``.
-    """
-    try:
-        idx = find_upper_lip_vert_index(arm, corner_idx)
-        return idx, evaluated_vertex_world(body, idx)
-    except RuntimeError as exc:
-        inv = body.matrix_world.inverted()
-        corner_b = inv @ Vector(corner_w)
-        stand_b = Vector(
-            (float(corner_b.x), float(corner_b.y), float(corner_b.z) + APERTURE_MIN_RISE_Z)
-        )
-        stand_w = body.matrix_world @ stand_b
-        log(
-            f"upper-lip hunt failed for corner {corner_idx} ({exc}); "
-            f"using body-up stand-in {tuple(round(c, 4) for c in stand_w)}"
-        )
-        return -1, stand_w
-
-
 def make_opaque_mat(name: str, color, roughness: float = 0.9):
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
@@ -1972,96 +2245,12 @@ def _evaluated_mesh_verts_world(obj) -> list[Vector]:
         ev.to_mesh_clear()
 
 
-def mouth_cavity_world_from_corner(
-    body, corner_world: Vector, *, sign_x: float
-) -> Vector:
-    """Offset a lip-corner world point into the lower gum (shallow).
-
-    MH faces -Y: into the gum is +Y (into the head), toward midline, slightly
-    down. Deep insets (24mm+) hid the cone behind the face and punched the
-    skull — Idle empty, Death chest spike.
-    """
-    inv = body.matrix_world.inverted()
-    corner_b = inv @ Vector(corner_world)
-    cavity_b = Vector(
-        (
-            float(corner_b.x) - float(sign_x) * CAVITY_IN_X,
-            float(corner_b.y) + CAVITY_IN_Y,
-            float(corner_b.z) - CAVITY_DOWN_Z,
-        )
-    )
-    return body.matrix_world @ cavity_b
-
-
-def mouth_aperture_axis_world(
-    body, gum_w: Vector, corner_w: Vector, upper_w: Vector
-) -> Vector:
-    """Unit world axis from gum through the mouth opening (rest face).
-
-    Not bone local +Y (skull axis). Opening is on the lip plane (corner Y),
-    canine line (gum X), and *above* the gum by a guaranteed body-+Z rise.
-
-    57f9616: blending corner/upper Z put opening 6.2mm from the gum when the
-    upper hunt sat below the corner. That is not an axis — refuse collapse by
-    construction, not by loosening the length check.
-    """
-    inv = body.matrix_world.inverted()
-    rot = body.matrix_world.to_3x3()
-    gum_b = inv @ Vector(gum_w)
-    corner_b = inv @ Vector(corner_w)
-    upper_b = inv @ Vector(upper_w)
-    measured = float(upper_b.z) - float(gum_b.z)
-    if measured >= MOUTH_APERTURE_MIN_Z:
-        rise = min(measured, APERTURE_MAX_RISE_Z)
-    else:
-        rise = APERTURE_MIN_RISE_Z
-    opening_b = Vector(
-        (
-            float(gum_b.x),
-            float(corner_b.y),
-            float(gum_b.z) + rise,
-        )
-    )
-    delta_b = opening_b - gum_b
-    if delta_b.length < 0.012:
-        raise RuntimeError(
-            f"mouth aperture axis collapsed ({delta_b.length:.4f}); "
-            f"gum_b={tuple(round(c, 4) for c in gum_b)} "
-            f"opening_b={tuple(round(c, 4) for c in opening_b)} "
-            f"rise={rise:.4f} upper_z={float(upper_b.z):.4f} "
-            f"corner_z={float(corner_b.z):.4f}"
-        )
-    axis_b = delta_b.normalized()
-    # Must rise through the lips (body +Z), not along the skull or into it.
-    if axis_b.z < 0.55:
-        raise RuntimeError(
-            f"mouth aperture axis not upright in body space (z={axis_b.z:.3f}); "
-            f"axis_b={tuple(round(c, 3) for c in axis_b)} — refusing skull-axis class"
-        )
-    if axis_b.y > 0.15:
-        raise RuntimeError(
-            f"mouth aperture axis points into the skull (y={axis_b.y:.3f}); "
-            f"axis_b={tuple(round(c, 3) for c in axis_b)}"
-        )
-    axis_w = (rot @ axis_b).normalized()
-    log(
-        f"mouth aperture axis body={tuple(round(c, 3) for c in axis_b)} "
-        f"world={tuple(round(c, 3) for c in axis_w)} "
-        f"opening_b={tuple(round(c, 4) for c in opening_b)} "
-        f"rise={rise:.4f} measured_upper_from_gum={measured:.4f} "
-        f"corner_z={float(corner_b.z):.4f} upper_z={float(upper_b.z):.4f}"
-    )
-    return axis_w
-
-
 def world_dir_to_head_local(arm, world_dir: Vector) -> Vector:
     """Rotate a world direction into head-bone / tip-parent space (no translation)."""
     local = head_pose_world_matrix(arm).to_3x3().inverted() @ Vector(world_dir)
     if local.length < 1e-8:
         raise RuntimeError("world_dir_to_head_local: collapsed direction")
     return local.normalized()
-
-
 def _axis_frame(axis: Vector) -> tuple[Vector, Vector, Vector]:
     """Orthonormal (right, binormal, axis) for authoring a cone along ``axis``."""
     a = Vector(axis).normalized()
@@ -2141,12 +2330,6 @@ def bind_tusk_to_head_bone(obj, arm) -> None:
         f"tusk {obj.name!r} BONE-parented to head "
         f"(matrix_parent_inverse=Identity, tip-space mesh, no Armature modifier)"
     )
-
-
-# Max world distance from tusk centroid to the posed mouth-corner vert on the
-# still frame. Cone centroid sits ~2–3cm from the base. 20:52 float-off was
-# ~head-bone-length (~15–25cm) — must fail that class. Do not raise this cap.
-TUSK_MOUTH_WORLD_MAX = 0.085
 
 
 def assert_no_torso_spike(arm, label: str) -> None:
@@ -2279,24 +2462,69 @@ def force_armature_rest(arm) -> None:
     bpy.context.evaluated_depsgraph_get().update()
 
 
+def assert_tusk_rigid_bind(arm, tusk, label: str) -> float:
+    """The authored centroid must land exactly where the head pose puts it.
+
+    Single owner of the rigid-bind proof: a drifting ``matrix_parent_inverse``,
+    a stray Armature modifier or a re-parent shows up here as millimetres long
+    before it shows up as a floating cone in a PNG.
+    """
+    if "orc_tusk_centroid_head_local" not in tusk:
+        raise RuntimeError(
+            f"{label}: {tusk.name!r} missing orc_tusk_centroid_head_local — "
+            f"cannot prove the tusk is rigidly bound to the head"
+        )
+    chl = tusk["orc_tusk_centroid_head_local"]
+    expected = head_pose_world_matrix(arm) @ Vector(
+        (float(chl[0]), float(chl[1]), float(chl[2]))
+    )
+    centroid = _evaluated_mesh_centroid_world(tusk)
+    drift = (centroid - expected).length
+    if drift > TUSK_BIND_MAX_M:
+        raise RuntimeError(
+            f"{label}: {tusk.name!r} centroid is {drift:.4f} from its head-local "
+            f"bind target (> {TUSK_BIND_MAX_M}) "
+            f"tusk_w={tuple(round(c, 3) for c in centroid)} "
+            f"bind_w={tuple(round(c, 3) for c in expected)} — not rigidly "
+            f"attached to the head"
+        )
+    return drift
+
+
 def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None:
-    """Gate the PNG the Reviewer sees — tusks visible in the mouth opening.
+    """Gate the PNG the Reviewer sees: tusks inside the posed maw.
 
-    Failed classes this must still refuse (do not loosen numbers to paper over):
-    - Cheek/chin float (21:10): centroid off the posed corner / off aperture axis.
-    - Punch tip past lip (21:56): max_out_past_lip.
-    - Buried / invisible (1116245): verts deep in the maxilla, nothing in the
-      aperture the camera sees.
-    - Death chest spike (ac21975): cone along skull +Y exits the throat.
+    One containment test in the posed aperture frame replaces the seven
+    overlapping world-distance caps this used to carry. Those caps each encoded
+    a different guess about where the mouth was (gum offset, lip-corner
+    distance, opening depth, aperture radius, tip rise, skull punch, chin
+    hang), they were tuned against different failed bakes, and they could all
+    pass while the tusk sat under the ear -- because the "mouth corner" they
+    all measured from was a jaw-side vert.
 
-    Requiring verts *deeper* than the lip (old inside_frac) hid tusks. Gate
-    now requires gum seat + aperture occupancy + skull-punch refuse.
+    Every pixel-failure class they defended against is still refused here, and
+    now by construction rather than by a tuned number:
+
+      cheek float (21:10)          -> ellipse radius > 1
+      chin needle (0706a32)        -> w below the rim ellipse
+      tip past the posed lip (21:56) -> d < 0
+      buried / invisible (1116245) -> front fraction below TUSK_MIN_FRONT_FRAC
+      Death chest spike (ac21975)  -> d > depth
+
+    It also adds what the old gate could not check: that the mouth *skin* is
+    still tracking the head (``MOUTH_RIM_TRACK_MAX_M``), and that the tusk is
+    rigidly bound rather than drifting (``TUSK_BIND_MAX_M``).
     """
     if not tusks:
         raise RuntimeError(f"{label}: no tusks for in-mouth still gate")
     body = male_body_mesh(arm)
     bpy.context.view_layer.update()
     bpy.context.evaluated_depsgraph_get().update()
+    frame = posed_aperture_frame(arm)
+    depth = frame["depth"]
+    half_h = frame["half_height"]
+    margin = TUSK_APERTURE_MARGIN
+
     for tusk in tusks:
         if tusk.parent != arm or tusk.parent_type != "BONE" or tusk.parent_bone != "head":
             raise RuntimeError(
@@ -2304,157 +2532,106 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"(parent={getattr(tusk.parent, 'name', None)!r} "
                 f"type={tusk.parent_type!r} bone={tusk.parent_bone!r})"
             )
-        pinv = tusk.matrix_parent_inverse
-        if not _matrix_is_identity(pinv):
+        if not _matrix_is_identity(tusk.matrix_parent_inverse):
             raise RuntimeError(
                 f"{label} still: {tusk.name!r} matrix_parent_inverse not Identity"
             )
-        if "orc_mouth_vert" not in tusk:
-            raise RuntimeError(
-                f"{label} still: {tusk.name!r} missing orc_mouth_vert custom prop "
-                f"— cannot prove mouth coincidence"
-            )
-        if "orc_mouth_head_local" not in tusk:
-            raise RuntimeError(
-                f"{label} still: {tusk.name!r} missing orc_mouth_head_local"
-            )
-        if "orc_aperture_head_local" not in tusk:
-            raise RuntimeError(
-                f"{label} still: {tusk.name!r} missing orc_aperture_head_local "
-                f"— cannot prove mouth-opening occupancy"
-            )
-        mouth_idx = int(tusk["orc_mouth_vert"])
-        corner_w = evaluated_vertex_world(body, mouth_idx)
-        hl = tusk["orc_mouth_head_local"]
-        expected = head_pose_world_matrix(arm) @ Vector(
-            (float(hl[0]), float(hl[1]), float(hl[2]))
+        for key in (
+            "orc_mouth_vert",
+            "orc_mouth_vert_head_local",
+            "orc_tusk_centroid_head_local",
+            "orc_tusk_axis_head_local",
+        ):
+            if key not in tusk:
+                raise RuntimeError(
+                    f"{label} still: {tusk.name!r} missing {key} — cannot prove "
+                    f"the tusk is seated in the measured aperture"
+                )
+
+        dist_bind = assert_tusk_rigid_bind(arm, tusk, f"{label} still")
+
+        # The mouth skin must still ride the head, or the maw and the tusks
+        # part company under Punch/Death whatever the tusk numbers say.
+        rim_idx = int(tusk["orc_mouth_vert"])
+        rim_w = evaluated_vertex_world(body, rim_idx)
+        rhl = tusk["orc_mouth_vert_head_local"]
+        rim_expected = head_pose_world_matrix(arm) @ Vector(
+            (float(rhl[0]), float(rhl[1]), float(rhl[2]))
         )
-        ah = tusk["orc_aperture_head_local"]
-        aperture_n = (
-            head_pose_world_matrix(arm).to_3x3()
-            @ Vector((float(ah[0]), float(ah[1]), float(ah[2])))
-        )
-        if aperture_n.length < 1e-8:
+        rim_drift = (rim_w - rim_expected).length
+        if rim_drift > MOUTH_RIM_TRACK_MAX_M:
             raise RuntimeError(
-                f"{label} still: {tusk.name!r} aperture axis collapsed"
+                f"{label} still: mouth rim vert {rim_idx} deviates {rim_drift:.4f} "
+                f"from rigid head motion (> {MOUTH_RIM_TRACK_MAX_M}) "
+                f"vert_w={tuple(round(c, 3) for c in rim_w)} "
+                f"rigid_w={tuple(round(c, 3) for c in rim_expected)} — the mouth skin "
+                f"and the head bone have parted; refusing PNG"
             )
-        aperture_n.normalize()
-        c = _evaluated_mesh_centroid_world(tusk)
-        dist_corner = (c - corner_w).length
-        dist_bind = (c - expected).length
-        if dist_bind > TUSK_MOUTH_WORLD_MAX:
-            raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} missed cavity bind target "
-                f"(dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
-                f"tusk_w={tuple(round(x, 3) for x in c)} "
-                f"bind_w={tuple(round(x, 3) for x in expected)} "
-                f"corner_w={tuple(round(x, 3) for x in corner_w)} — "
-                f"pixels would float; refusing PNG"
-            )
-        if dist_corner > TUSK_MOUTH_WORLD_MAX:
-            raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} not at posed mouth corner "
-                f"(dist_mouth_vert={dist_corner:.4f} > {TUSK_MOUTH_WORLD_MAX}) "
-                f"tusk_w={tuple(round(x, 3) for x in c)} "
-                f"corner_w={tuple(round(x, 3) for x in corner_w)} "
-                f"bind_w={tuple(round(x, 3) for x in expected)} — "
-                f"pixels would float; refusing PNG"
-            )
-        into = expected - corner_w
-        if into.length < 0.008:
-            raise RuntimeError(
-                f"{label} still: {tusk.name!r} cavity bind collapsed onto lip "
-                f"corner (into_len={into.length:.4f}) — cannot prove seating"
-            )
-        into_n = into.normalized()
-        out_n = -into_n
+
         verts_w = _evaluated_mesh_verts_world(tusk)
-        seated = 0
-        in_opening = 0
-        max_out = -1e9
-        max_into = -1e9
-        max_rise = -1e9
-        max_radial = -1e9
+        worst_radial = 0.0
+        worst_radial_uw = (0.0, 0.0)
+        min_d = 1e9
+        max_d = -1e9
+        w_lo = 1e9
+        w_hi = -1e9
+        front = 0
+        front_limit = TUSK_FRONT_D_FRAC * depth
         for vw in verts_w:
-            rel_lip = vw - corner_w
-            rel_gum = vw - expected
-            depth = float(rel_lip.dot(into_n))
-            out = float(rel_lip.dot(out_n))
-            rise = float(rel_gum.dot(aperture_n))
-            radial = (rel_gum - rise * aperture_n).length
-            max_out = max(max_out, out)
-            max_into = max(max_into, depth)
-            max_rise = max(max_rise, rise)
-            max_radial = max(max_radial, float(radial))
-            if depth >= TUSK_CAVITY_Y_EPS:
-                seated += 1
-            if depth <= TUSK_OPENING_NEAR_LIP and rise >= 0.004:
-                in_opening += 1
-        nverts = float(len(verts_w))
-        seated_frac = seated / nverts
-        opening_frac = in_opening / nverts
-        if max_into > TUSK_MAX_INTO_SKULL:
+            u, w, d = aperture_coords_world(frame, vw)
+            r = aperture_radial(frame, u, w, margin=margin)
+            if r > worst_radial:
+                worst_radial = r
+                worst_radial_uw = (u, w)
+            min_d = min(min_d, d)
+            max_d = max(max_d, d)
+            w_lo = min(w_lo, w)
+            w_hi = max(w_hi, w)
+            if d <= front_limit:
+                front += 1
+        front_frac = front / float(len(verts_w))
+        w_span = w_hi - w_lo
+
+        if worst_radial > 1.0:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} punches through skull/maxilla "
-                f"(max_into_skull={max_into:.4f} > {TUSK_MAX_INTO_SKULL}) — "
-                f"Idle-invisible / Death chest-spike class; refusing PNG"
+                f"{label} still: {tusk.name!r} leaves the mouth aperture "
+                f"(radial={worst_radial:.3f} > 1 at u={worst_radial_uw[0]:.4f} "
+                f"w={worst_radial_uw[1]:.4f}; rim=({frame['half_width']:.4f},"
+                f"{half_h:.4f})) — cheek-float / chin-needle class; refusing PNG"
             )
-        if opening_frac < TUSK_OPENING_FRAC:
+        if min_d < -margin:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} not occupying the mouth opening "
-                f"(opening_frac={opening_frac:.3f} < {TUSK_OPENING_FRAC}; "
-                f"need verts near the lip plane rising through the aperture). "
-                f"Buried-in-cavity class; refusing PNG"
+                f"{label} still: {tusk.name!r} pokes out past the posed lip plane "
+                f"(min_d={min_d:.4f} < {-margin:.4f}) — 21:56 Punch class; "
+                f"refusing PNG"
             )
-        if max_rise < TUSK_MIN_TIP_RISE:
+        if max_d > depth + margin:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} tip does not rise through "
-                f"the mouth (tip_rise={max_rise:.4f} < {TUSK_MIN_TIP_RISE}) — "
-                f"invisible in stills; refusing PNG"
+                f"{label} still: {tusk.name!r} punches through the cavity floor "
+                f"into the skull (max_d={max_d:.4f} > depth {depth:.4f}) — "
+                f"Death chest-spike class; refusing PNG"
             )
-        if max_radial > TUSK_MAX_APERTURE_RADIUS:
+        if front_frac < TUSK_MIN_FRONT_FRAC:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} off the mouth-aperture axis "
-                f"(max_radial={max_radial:.4f} > {TUSK_MAX_APERTURE_RADIUS}) — "
-                f"21:10 cheek class; refusing PNG"
+                f"{label} still: {tusk.name!r} sits at the back of the maw "
+                f"(front_frac={front_frac:.3f} < {TUSK_MIN_FRONT_FRAC}; "
+                f"front means d <= {front_limit:.4f} of depth {depth:.4f}) — "
+                f"buried-in-cavity class, invisible in stills; refusing PNG"
             )
-        if max_out > TUSK_MAX_OUT_PAST_LIP:
+        if w_span < TUSK_MIN_W_SPAN_HH_FRAC * half_h:
             raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} tip floats past posed lip "
-                f"(max_out_past_lip={max_out:.4f} > {TUSK_MAX_OUT_PAST_LIP}) "
-                f"opening_frac={opening_frac:.3f} dist_corner={dist_corner:.4f} — "
-                f"21:56 Punch pixel class; refusing PNG"
-            )
-        # Chin needle: ivory hanging opposite the oral opening (0706a32 Idle
-        # white pin under a closed mouth). Measure along -aperture from the
-        # posed lip — not a looser world-Z, which Death hyperextension lies.
-        max_below = 0.0
-        for vw in verts_w:
-            below = float((vw - corner_w).dot(-aperture_n))
-            if below > max_below:
-                max_below = below
-        if max_below > TUSK_MAX_BELOW_LIP:
-            raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} hangs below the lip "
-                f"(max_below={max_below:.4f} > {TUSK_MAX_BELOW_LIP}) — "
-                f"0706a32 chin-needle class; refusing PNG"
-            )
-        if seated_frac < TUSK_MIN_SEATED_FRAC:
-            raise RuntimeError(
-                f"{label} still: tusk {tusk.name!r} not seated in the gum "
-                f"(seated_frac={seated_frac:.3f} < {TUSK_MIN_SEATED_FRAC})"
+                f"{label} still: {tusk.name!r} spans only {w_span:.4f} of the "
+                f"aperture height (< {TUSK_MIN_W_SPAN_HH_FRAC} * {half_h:.4f}) — "
+                f"a stub the still cannot show; refusing PNG"
             )
         log(
-            f"{label} still gate: {tusk.name} mouth_vert_dist={dist_corner:.4f} "
-            f"bind_dist={dist_bind:.4f} opening_frac={opening_frac:.3f} "
-            f"seated_frac={seated_frac:.3f} tip_rise={max_rise:.4f} "
-            f"max_into_skull={max_into:.4f} max_radial={max_radial:.4f} "
-            f"max_out_past_lip={max_out:.4f} max_below={max_below:.4f}"
+            f"{label} still gate: {tusk.name} bind={dist_bind:.4f} "
+            f"rim_drift={rim_drift:.4f} radial={worst_radial:.3f} "
+            f"d=[{min_d:.4f},{max_d:.4f}] of {depth:.4f} "
+            f"front_frac={front_frac:.3f} w_span={w_span:.4f}"
         )
-    log(f"{label} still gate: tusks seated in mouth opening")
+    log(f"{label} still gate: tusks inside the posed mouth aperture")
     assert_no_torso_spike(arm, label)
-
-
 def assert_tusks_follow_head(arm, tusks: list) -> None:
     """Fail unless tusks track the head under Idle, Walk, AND Death (large delta).
 
@@ -2523,17 +2700,7 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                         f"tusk {tusk.name!r} head-local length={posed_l.length:.4f} "
                         f"> {HEAD_MOUTH_MAX_LOCAL} under {label}"
                     )
-                if "orc_mouth_head_local" in tusk:
-                    hl = tusk["orc_mouth_head_local"]
-                    expected = head_pose_world_matrix(arm) @ Vector(
-                        (float(hl[0]), float(hl[1]), float(hl[2]))
-                    )
-                    dist_bind = (posed_w - expected).length
-                    if dist_bind > TUSK_MOUTH_WORLD_MAX:
-                        raise RuntimeError(
-                            f"tusk {tusk.name!r} off bind mouth under {label}: "
-                            f"dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}"
-                        )
+                assert_tusk_rigid_bind(arm, tusk, label)
             return head_delta
 
         # 1) Forced head rotate via Euler on bone; delta from bone.tail.
@@ -2586,17 +2753,7 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                         f"tusk {tusk.name!r} head-local length={posed_l.length:.4f} "
                         f"under {label}@{frame}"
                     )
-                if "orc_mouth_head_local" in tusk:
-                    hl = tusk["orc_mouth_head_local"]
-                    expected = head_pose_world_matrix(arm) @ Vector(
-                        (float(hl[0]), float(hl[1]), float(hl[2]))
-                    )
-                    dist_bind = (posed_w - expected).length
-                    if dist_bind > TUSK_MOUTH_WORLD_MAX:
-                        raise RuntimeError(
-                            f"tusk {tusk.name!r} off bind mouth under {label}@{frame}: "
-                            f"dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}"
-                        )
+                assert_tusk_rigid_bind(arm, tusk, f"{label}@{frame}")
             tested.append(f"{label}:{act.name}@{frame}Δ={head_delta:.3f}")
             assert_tusks_in_mouth_for_current_pose(
                 arm, tusks, f"{label}:{act.name}@{frame}"
@@ -2658,130 +2815,106 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
         force_armature_rest(arm)
 
 
-def add_tusks(arm) -> list:
-    """Tusks in the mouth opening, BONE-parented to head (follow all clips).
+def tusk_seat_in_body_space(aperture, sign_x: float) -> tuple[Vector, Vector, float, float, float]:
+    """Where one tusk starts, which way it grows, and how big it is.
 
-    Lip-corner verts from male_body → shallow lower-gum offset → head-rest →
-    **tip / BONE-parent object space** → parent_type=BONE / parent_bone=head
-    with Identity ``matrix_parent_inverse``. No Armature modifier. No new bones.
+    Everything is a fraction of the measured aperture, so the tusk scales with
+    the maw instead of being a 48 mm constant hoping to land inside it. The
+    axis rises (``+Z``), converges toward the midline (dental arch) and leans
+    back out of the mouth (``-Y``) so the tip ends up near the rim plane where
+    a camera can see it, rather than deep at the cavity floor.
 
-    Cone axis is the rest-pose **mouth aperture** (gum → lip-plane opening),
-    not bone local +Y. Bone +Y is the skull axis: 8°/31° pitch from that axis
-    buried Idle/Walk tusks and drew Death chest spikes (ac21975 / 1116245).
+    Returns ``(base, axis, length, radius_base, radius_tip)`` in body object
+    space.
+    """
+    hw = float(aperture.half_width)
+    hh = float(aperture.half_height)
+    dp = float(aperture.depth)
+    base = Vector(
+        (
+            aperture.center_x + sign_x * TUSK_SEAT_U_FRAC * hw,
+            aperture.center_y + TUSK_SEAT_D_FRAC * dp,
+            aperture.center_z + TUSK_SEAT_W_FRAC * hh,
+        )
+    )
+    axis = Vector((-sign_x * TUSK_AXIS_MEDIAL, -TUSK_AXIS_OUTWARD, 1.0)).normalized()
+    return (
+        base,
+        axis,
+        TUSK_LENGTH_HH_FRAC * hh,
+        TUSK_RADIUS_BASE_HH_FRAC * hh,
+        TUSK_RADIUS_TIP_HH_FRAC * hh,
+    )
+
+
+def add_tusks(arm, aperture) -> list:
+    """Tusks inside the carved maw, BONE-parented to head (follow all clips).
+
+    Author path: measured aperture -> gum seat in body object space -> world ->
+    head rest local -> **tip / BONE-parent object space** -> ``parent_type=BONE``
+    with Identity ``matrix_parent_inverse``. No Armature modifier, no new bones.
+
+    The cone lives entirely inside the cavity that ``carve_orc_mouth_cavity``
+    just bored, which is what makes it visible: there is dark interior behind
+    it and open air in front of it. Earlier passes seated cones against an
+    unbroken face, so even a numerically perfect placement rendered as skin.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
     force_armature_rest(arm)
 
     body = male_body_mesh(arm)
-    _left_body, _right_body, left_idx, right_idx = find_mouth_corner_anchors(arm)
-    left_corner_w = evaluated_vertex_world(body, left_idx)
-    right_corner_w = evaluated_vertex_world(body, right_idx)
-    left_upper_idx, left_upper_w = upper_lip_world_for_corner(
-        arm, body, left_idx, left_corner_w
-    )
-    right_upper_idx, right_upper_w = upper_lip_world_for_corner(
-        arm, body, right_idx, right_corner_w
-    )
-    left_world = mouth_cavity_world_from_corner(body, left_corner_w, sign_x=-1.0)
-    right_world = mouth_cavity_world_from_corner(body, right_corner_w, sign_x=1.0)
-    left_axis_w = mouth_aperture_axis_world(
-        body, left_world, left_corner_w, left_upper_w
-    )
-    right_axis_w = mouth_aperture_axis_world(
-        body, right_world, right_corner_w, right_upper_w
-    )
+    left_rim_idx, right_rim_idx = mouth_rim_anchor_verts(arm, aperture)
     head_rest = head_pose_world_matrix(arm)
     head_rest_inv = head_rest.inverted()
-    left_head = head_rest_inv @ left_world
-    right_head = head_rest_inv @ right_world
-    left_axis_l = world_dir_to_head_local(arm, left_axis_w)
-    right_axis_l = world_dir_to_head_local(arm, right_axis_w)
+    body_rot = body.matrix_world.to_3x3()
     bone_len = head_bone_length(arm)
-    left_local = head_local_to_bone_parent_local(arm, left_head)
-    right_local = head_local_to_bone_parent_local(arm, right_head)
-    log(
-        f"tusk bases head-rest-local L={tuple(round(c, 4) for c in left_head)} "
-        f"R={tuple(round(c, 4) for c in right_head)} "
-        f"tip-parent-local L={tuple(round(c, 4) for c in left_local)} "
-        f"R={tuple(round(c, 4) for c in right_local)} "
-        f"aperture_head L={tuple(round(c, 3) for c in left_axis_l)} "
-        f"R={tuple(round(c, 3) for c in right_axis_l)} "
-        f"head_bone_length={bone_len:.4f} "
-        f"corner_w L={tuple(round(c, 4) for c in left_corner_w)} "
-        f"R={tuple(round(c, 4) for c in right_corner_w)} "
-        f"upper_w L={tuple(round(c, 4) for c in left_upper_w)} "
-        f"R={tuple(round(c, 4) for c in right_upper_w)} "
-        f"gum_w L={tuple(round(c, 4) for c in left_world)} "
-        f"R={tuple(round(c, 4) for c in right_world)} "
-        f"(eval lip → shallow gum → aperture axis → BONE tip parent space)"
-    )
-    # Mouth sits below/forward of the skull-base head origin (~0.20 on MH).
-    for label, p in (("L", left_head), ("R", right_head)):
-        if p.length > HEAD_MOUTH_MAX_LOCAL:
-            raise RuntimeError(
-                f"tusk anchor {label} head-local length={p.length:.4f} "
-                f"> {HEAD_MOUTH_MAX_LOCAL} — beyond MH mouth (not inventing closer anchors)"
-            )
-        if p.length < 0.08:
-            raise RuntimeError(
-                f"tusk anchor {label} head-local length={p.length:.4f} too close to "
-                f"head origin — likely cheek/skull, not mouth (MH mouth ~0.20)"
-            )
 
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
     created = []
-    specs = [
-        (
-            "OrcTusk_L",
-            left_local,
-            left_head,
-            left_idx,
-            left_upper_idx,
-            left_world,
-            left_axis_l,
-            -1.0,
-        ),
-        (
-            "OrcTusk_R",
-            right_local,
-            right_head,
-            right_idx,
-            right_upper_idx,
-            right_world,
-            right_axis_l,
-            1.0,
-        ),
-    ]
-    for (
-        name,
-        base,
-        head_local,
-        mouth_idx,
-        upper_idx,
-        _mouth_world,
-        axis_local,
-        sign_x,
-    ) in specs:
-        # Slight inward tilt toward the midline (dental arch), still in the opening.
-        midline_l = world_dir_to_head_local(arm, Vector((-float(sign_x), 0.0, 0.0)))
-        axis = (Vector(axis_local) + 0.10 * midline_l).normalized()
-        right, binormal, along = _axis_frame(axis)
+    for name, sign_x, rim_idx in (
+        ("OrcTusk_L", -1.0, left_rim_idx),
+        ("OrcTusk_R", 1.0, right_rim_idx),
+    ):
+        base_b, axis_b, length, r_base, r_tip = tusk_seat_in_body_space(
+            aperture, sign_x
+        )
+        base_w = body_local_to_world(body, base_b)
+        axis_w = (body_rot @ axis_b).normalized()
+        base_hl = head_rest_inv @ base_w
+        axis_hl = world_dir_to_head_local(arm, axis_w)
+        base_tp = head_local_to_bone_parent_local(arm, base_hl)
+        right, binormal, along = _axis_frame(axis_hl)
+        log(
+            f"{name} seat body={tuple(round(c, 4) for c in base_b)} "
+            f"axis_body={tuple(round(c, 3) for c in axis_b)} "
+            f"len={length:.4f} r=({r_base:.4f},{r_tip:.4f}) "
+            f"head_local={tuple(round(c, 4) for c in base_hl)} "
+            f"axis_head={tuple(round(c, 3) for c in axis_hl)} "
+            f"tip_parent={tuple(round(c, 4) for c in base_tp)} "
+            f"head_bone_length={bone_len:.4f}"
+        )
+        if base_hl.length > HEAD_MOUTH_MAX_LOCAL:
+            raise RuntimeError(
+                f"{name} seat is {base_hl.length:.4f} from the head bone origin "
+                f"(> {HEAD_MOUTH_MAX_LOCAL}) — not a mouth on this skull"
+            )
+
         bm = bmesh.new()
         bmesh.ops.create_cone(
             bm,
             cap_ends=True,
             cap_tris=True,
-            segments=12,
-            radius1=TUSK_RADIUS_BASE,
-            radius2=TUSK_RADIUS_TIP,
-            depth=TUSK_DEPTH,
+            segments=TUSK_SEGMENTS,
+            radius1=r_base,
+            radius2=r_tip,
+            depth=length,
         )
-        half = 0.5 * TUSK_DEPTH
+        half = 0.5 * length
         for v in bm.verts:
             rise = float(v.co.z) + half
             v.co = (
-                Vector(base)
+                Vector(base_tp)
                 + float(v.co.x) * right
                 + float(v.co.y) * binormal
                 + rise * along
@@ -2789,57 +2922,37 @@ def add_tusks(arm) -> list:
         me = bpy.data.meshes.new(name)
         bm.to_mesh(me)
         bm.free()
+        if not me.vertices:
+            raise RuntimeError(f"{name}: cone build produced no vertices")
         obj = bpy.data.objects.new(name, me)
         bpy.context.scene.collection.objects.link(obj)
         obj.data.materials.append(mat)
-        obj["orc_mouth_vert"] = int(mouth_idx)
-        obj["orc_upper_lip_vert"] = int(upper_idx)
-        obj["orc_mouth_head_local"] = [
-            float(head_local.x),
-            float(head_local.y),
-            float(head_local.z),
-        ]
-        obj["orc_aperture_head_local"] = [
-            float(axis.x),
-            float(axis.y),
-            float(axis.z),
-        ]
+
+        tip_offset = Vector((0.0, bone_len, 0.0))
+        acc = Vector((0.0, 0.0, 0.0))
+        for v in me.vertices:
+            acc += Vector(v.co) + tip_offset
+        centroid_hl = acc / float(len(me.vertices))
+        rim_hl = head_rest_inv @ evaluated_vertex_world(body, rim_idx)
+        obj["orc_tusk_side"] = "R" if sign_x > 0.0 else "L"
+        obj["orc_mouth_vert"] = int(rim_idx)
+        obj["orc_mouth_vert_head_local"] = [float(c) for c in rim_hl]
+        obj["orc_tusk_base_head_local"] = [float(c) for c in base_hl]
+        obj["orc_tusk_axis_head_local"] = [float(c) for c in axis_hl]
+        obj["orc_tusk_centroid_head_local"] = [float(c) for c in centroid_hl]
         bind_tusk_to_head_bone(obj, arm)
         created.append(obj)
 
-    # Rest-pose proof vs gum bind + opening occupancy (same gate stills use).
     force_armature_rest(arm)
-    for obj, cavity_w in (
-        (created[0], left_world),
-        (created[1], right_world),
-    ):
-        c = _evaluated_mesh_centroid_world(obj)
-        dist = (c - Vector(cavity_w)).length
-        if dist > TUSK_MOUTH_WORLD_MAX:
-            raise RuntimeError(
-                f"rest bind: {obj.name!r} centroid world dist to gum="
-                f"{dist:.4f} > {TUSK_MOUTH_WORLD_MAX} "
-                f"(head_bone_length={bone_len:.4f}). "
-                f"tusk={tuple(round(x, 3) for x in c)} "
-                f"gum={tuple(round(x, 3) for x in cavity_w)}. "
-                f"Likely head-space authored into tip BONE parent."
-            )
-        log(
-            f"rest bind OK {obj.name}: gum_dist={dist:.4f} "
-            f"(tip-parent space + Identity pinv; gum from eval lip corner)"
-        )
-
     assert_tusks_in_mouth_for_current_pose(arm, created, "rest_before_follow")
     assert_tusks_follow_head(arm, created)
     force_armature_rest(arm)
     assert_tusks_in_mouth_for_current_pose(arm, created, "rest_after_bind")
     log(
         f"tusks: {[o.name for o in created]} BONE-parented to head "
-        f"(mouth opening, aperture axis, tip-space)"
+        f"(inside the carved maw, aperture-relative seat and scale)"
     )
     return created
-
-
 def body_like_meshes(arm):
     """Skin / basemesh targets for finished olive albedo (no garments).
 
@@ -2947,8 +3060,28 @@ def apply_finished_olive_skin(arm) -> None:
                 pass
         me.materials.clear()
         me.materials.append(mat)
+        # The carve painted the oral cavity with material_index 1, and polygon
+        # material indices survive a slot rebuild. Re-appending the interior in
+        # the same slot is what keeps the maw dark through every re-paint;
+        # render_clip_stills calls this twice per still.
+        interior_slot = int(obj.get("orc_mouth_interior_slot", -1))
+        if interior_slot >= 0:
+            if interior_slot != 1:
+                raise RuntimeError(
+                    f"{obj.name!r} records mouth interior in slot {interior_slot}; "
+                    f"this bake only ever authors slot 1"
+                )
+            me.materials.append(mouth_interior_material())
+        worst_slot = max((int(p.material_index) for p in me.polygons), default=0)
+        if worst_slot >= len(me.materials):
+            raise RuntimeError(
+                f"{obj.name!r} has a polygon on material slot {worst_slot} but only "
+                f"{len(me.materials)} slot(s) — the mouth interior would render as "
+                f"skin and the maw would read closed"
+            )
         log(
             f"finished olive-grey skin on mesh={obj.name!r} mat={mat_name!r} "
+            f"slots={[m.name for m in me.materials]} "
             f"(Principled+noise, no UV-grid, uv={me.uv_layers.active.name!r})"
         )
 
@@ -3851,15 +3984,15 @@ def posed_bbox(meshes):
     return (mins + maxs) * 0.5, (maxs - mins)
 
 
-def setup_standing_preview(center, extent, *, look_at=None, show_head: bool = False) -> None:
+def _preview_stage(*, ground: bool = True) -> None:
+    """Ground plane + world background shared by every preview camera."""
     clear_preview_helpers()
-
-    ground_mat = make_opaque_mat("PreviewGround", (0.18, 0.175, 0.165), 1.0)
-    bpy.ops.mesh.primitive_plane_add(size=12.0, location=(0.0, 0.0, 0.0))
-    ground = bpy.context.active_object
-    ground.name = "PreviewGround"
-    ground.data.materials.append(ground_mat)
-
+    if ground:
+        ground_mat = make_opaque_mat("PreviewGround", (0.18, 0.175, 0.165), 1.0)
+        bpy.ops.mesh.primitive_plane_add(size=12.0, location=(0.0, 0.0, 0.0))
+        plane = bpy.context.active_object
+        plane.name = "PreviewGround"
+        plane.data.materials.append(ground_mat)
     world = bpy.data.worlds.new("PreviewWorld")
     bpy.context.scene.world = world
     world.use_nodes = True
@@ -3868,35 +4001,9 @@ def setup_standing_preview(center, extent, *, look_at=None, show_head: bool = Fa
         bg.inputs[0].default_value = (0.14, 0.145, 0.155, 1.0)
         bg.inputs[1].default_value = 1.0
 
-    span = max(float(extent.x), float(extent.y), float(extent.z), 0.8)
-    if look_at is None:
-        target = Vector((center.x, center.y, max(center.z, 0.9)))
-    else:
-        target = Vector(look_at)
 
-    cam_data = bpy.data.cameras.new("PreviewCam")
-    cam_data.lens = 50.0
-    cam = bpy.data.objects.new("PreviewCam", cam_data)
-    bpy.context.scene.collection.objects.link(cam)
-    if show_head:
-        # Pull back / raise so Punch keeps dest head + tusks in frame.
-        cam.location = Vector(
-            (
-                center.x + span * 1.55,
-                center.y - span * 2.25,
-                max(target.z + span * 0.20, center.z + span * 0.55, 1.75),
-            )
-        )
-    else:
-        cam.location = Vector(
-            (
-                center.x + span * 1.35,
-                center.y - span * 1.85,
-                max(center.z + span * 0.35, 1.55),
-            )
-        )
-    cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
-    bpy.context.scene.camera = cam
+def _preview_lights(scale: float = 1.0) -> None:
+    """Key / fill / rim rig shared by every preview camera."""
 
     def add_light(name, ltype, loc, energy, size=0.6, rot=None):
         data = bpy.data.lights.new(name, ltype)
@@ -3916,12 +4023,25 @@ def setup_standing_preview(center, extent, *, look_at=None, show_head: bool = Fa
         3.4,
         rot=(math.radians(50), math.radians(15), math.radians(35)),
     )
-    add_light("Fill", "AREA", (-3.2, -2.0, 2.4), 200.0, size=2.4)
-    add_light("Rim", "AREA", (0.4, 3.4, 3.2), 140.0, size=1.6)
+    add_light("Fill", "AREA", (-3.2, -2.0, 2.4), 200.0 * scale, size=2.4)
+    add_light("Rim", "AREA", (0.4, 3.4, 3.2), 140.0 * scale, size=1.6)
 
+
+def _preview_camera(location: Vector, target: Vector, *, lens: float = 50.0):
+    cam_data = bpy.data.cameras.new("PreviewCam")
+    cam_data.lens = lens
+    cam = bpy.data.objects.new("PreviewCam", cam_data)
+    bpy.context.scene.collection.objects.link(cam)
+    cam.location = Vector(location)
+    cam.rotation_euler = (Vector(target) - cam.location).to_track_quat("-Z", "Y").to_euler()
+    bpy.context.scene.camera = cam
+    return cam
+
+
+def _preview_render_settings(width: int, height: int) -> None:
     scene = bpy.context.scene
-    scene.render.resolution_x = 640
-    scene.render.resolution_y = 800
+    scene.render.resolution_x = width
+    scene.render.resolution_y = height
     scene.render.film_transparent = False
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
@@ -3931,6 +4051,35 @@ def setup_standing_preview(center, extent, *, look_at=None, show_head: bool = Fa
             break
         except Exception:
             continue
+
+
+def setup_standing_preview(center, extent, *, look_at=None, show_head: bool = False) -> None:
+    _preview_stage()
+    span = max(float(extent.x), float(extent.y), float(extent.z), 0.8)
+    if look_at is None:
+        target = Vector((center.x, center.y, max(center.z, 0.9)))
+    else:
+        target = Vector(look_at)
+    if show_head:
+        # Pull back / raise so Punch keeps dest head + tusks in frame.
+        location = Vector(
+            (
+                center.x + span * 1.55,
+                center.y - span * 2.25,
+                max(target.z + span * 0.20, center.z + span * 0.55, 1.75),
+            )
+        )
+    else:
+        location = Vector(
+            (
+                center.x + span * 1.35,
+                center.y - span * 1.85,
+                max(center.z + span * 0.35, 1.55),
+            )
+        )
+    cam = _preview_camera(location, target)
+    _preview_lights()
+    _preview_render_settings(640, 800)
     if show_head:
         log(
             f"standing cam (head) loc={tuple(round(c, 3) for c in cam.location)} "
@@ -3940,28 +4089,9 @@ def setup_standing_preview(center, extent, *, look_at=None, show_head: bool = Fa
 
 def setup_death_preview(center, extent, *, look_at=None) -> None:
     """Camera framing from preview_bandit_death / bake_bandit_death."""
-    clear_preview_helpers()
-
-    ground_mat = make_opaque_mat("PreviewGround", (0.18, 0.175, 0.165), 1.0)
-    bpy.ops.mesh.primitive_plane_add(size=12.0, location=(0.0, 0.0, 0.0))
-    ground = bpy.context.active_object
-    ground.name = "PreviewGround"
-    ground.data.materials.append(ground_mat)
-
-    world = bpy.data.worlds.new("PreviewWorld")
-    bpy.context.scene.world = world
-    world.use_nodes = True
-    bg = world.node_tree.nodes.get("Background")
-    if bg:
-        bg.inputs[0].default_value = (0.14, 0.145, 0.155, 1.0)
-        bg.inputs[1].default_value = 1.0
-
+    _preview_stage()
     span = max(float(extent.x), float(extent.y), float(extent.z), 0.8)
-    cam_data = bpy.data.cameras.new("PreviewCam")
-    cam_data.lens = 50.0
-    cam = bpy.data.objects.new("PreviewCam", cam_data)
-    bpy.context.scene.collection.objects.link(cam)
-    cam.location = Vector(
+    location = Vector(
         (
             center.x + span * 1.55,
             center.y - span * 2.05,
@@ -3972,48 +4102,76 @@ def setup_death_preview(center, extent, *, look_at=None) -> None:
         target = Vector((center.x, center.y, max(center.z, 0.15)))
     else:
         target = Vector(look_at)
-    cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
-    bpy.context.scene.camera = cam
-
-    def add_light(name, ltype, loc, energy, size=0.6, rot=None):
-        data = bpy.data.lights.new(name, ltype)
-        data.energy = energy
-        if ltype == "AREA":
-            data.size = size
-        obj = bpy.data.objects.new(name, data)
-        obj.location = loc
-        if rot:
-            obj.rotation_euler = rot
-        bpy.context.scene.collection.objects.link(obj)
-
-    add_light(
-        "Key",
-        "SUN",
-        (3.0, -2.5, 6.0),
-        3.4,
-        rot=(math.radians(50), math.radians(15), math.radians(35)),
-    )
-    add_light("Fill", "AREA", (-3.2, -2.0, 2.4), 200.0, size=2.4)
-    add_light("Rim", "AREA", (0.4, 3.4, 3.2), 140.0, size=1.6)
-
-    scene = bpy.context.scene
-    scene.render.resolution_x = 800
-    scene.render.resolution_y = 1000
-    scene.render.film_transparent = False
-    scene.render.image_settings.file_format = "PNG"
-    scene.render.image_settings.color_mode = "RGB"
-    for eng in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
-        try:
-            scene.render.engine = eng
-            break
-        except Exception:
-            continue
+    cam = _preview_camera(location, target)
+    _preview_lights()
+    _preview_render_settings(800, 1000)
     log(
         f"death cam={tuple(round(c, 3) for c in cam.location)} "
         f"look={tuple(round(c, 3) for c in target)}"
     )
 
 
+def setup_mouth_closeup_preview(arm) -> dict:
+    """Frame the posed maw so the tusks are actually made of pixels.
+
+    This is the other half of the "EXIT 0 but no visible tusks" failure. The
+    body stills frame a ~1.8 m figure from ~5 m on a 50 mm lens at 640x800,
+    which is about 4.4 mm per pixel: a tusk the length of a thumb joint is
+    roughly ten pixels tall, inside a mouth, at a three-quarter angle. Both
+    0706a32 and 0240d6e passed every numeric gate and were then reported as
+    having no visible tusks -- there was nothing to see at that scale even if
+    the geometry had been perfect.
+
+    So render a second still per clip from the aperture's own frame: on the
+    mouth axis, one head-height away. At that framing the same tusk is ~100 px.
+    """
+    frame = posed_aperture_frame(arm)
+    center = frame["center"]
+    out = -Vector(frame["inward"])
+    up = Vector(frame["up"])
+    right = Vector(frame["right"])
+    # Head height sets the distance, so this frames a head regardless of scale.
+    reach = max(6.0 * float(frame["half_height"]), 0.18)
+    location = center + out * reach + right * (0.30 * reach) + up * (0.18 * reach)
+    lifted = False
+    if float(location.z) < MOUTH_CLOSEUP_MIN_CAM_Z:
+        # Death lays the head on the ground; a camera below the ground plane
+        # would render the plane, not the face. Swing up instead of clipping.
+        location = center + up * (0.20 * reach) + out * (0.55 * reach)
+        location = Vector(
+            (
+                float(location.x),
+                float(location.y),
+                max(float(location.z), MOUTH_CLOSEUP_MIN_CAM_Z),
+            )
+        )
+        lifted = True
+    _preview_stage()
+    cam = _preview_camera(location, center, lens=50.0)
+    _preview_lights(scale=0.35)
+    # A dedicated fill on the mouth axis: an unlit cavity renders as a black
+    # hole and the ivory in it disappears with it.
+    mouth_key = bpy.data.lights.new("MouthKey", "AREA")
+    mouth_key.energy = MOUTH_CLOSEUP_KEY_ENERGY
+    mouth_key.size = 0.25
+    key_obj = bpy.data.objects.new("MouthKey", mouth_key)
+    key_obj.location = center + out * (0.45 * reach) + up * (0.30 * reach)
+    key_obj.rotation_euler = (
+        (center - key_obj.location).to_track_quat("-Z", "Y").to_euler()
+    )
+    bpy.context.scene.collection.objects.link(key_obj)
+    _preview_render_settings(720, 720)
+    log(
+        f"mouth close-up cam loc={tuple(round(c, 3) for c in cam.location)} "
+        f"look={tuple(round(c, 3) for c in center)} reach={reach:.3f} "
+        f"ground_lift={lifted}"
+    )
+    return {
+        "camera": [round(float(c), 4) for c in cam.location],
+        "look_at": [round(float(c), 4) for c in center],
+        "reach_m": round(reach, 4),
+        "ground_lift": lifted,
+    }
 def render_png(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     bpy.context.scene.render.filepath = str(path)
@@ -4107,6 +4265,8 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
     )
 
     out = {}
+    mouth_out = {}
+    mouth_cams = {}
     for label in PREVIEW_CLIPS:
         frame = frames[label]
         if label == "Death":
@@ -4164,12 +4324,26 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
         path = still_path(tag, label)
         render_png(path)
         out[label] = str(path)
+
+        # Second still on the mouth axis. The body still proves the silhouette;
+        # only this one can show whether the tusks are in the maw.
+        cam_info = setup_mouth_closeup_preview(arm)
+        assert_tusks_in_mouth_for_current_pose(
+            arm, tusks_live, f"{label}_pre_mouth_render"
+        )
+        mouth_path = still_path(tag, label, view="mouth")
+        render_png(mouth_path)
+        mouth_out[label] = str(mouth_path)
+        mouth_cams[label] = cam_info
         log(
             f"still {tag}/{label} arm={arm.name!r} action={clip_label!r} "
-            f"frame={frame} meshes={sorted(o.name for o in meshes)} -> {path.name}"
+            f"frame={frame} meshes={sorted(o.name for o in meshes)} -> "
+            f"{path.name} + {mouth_path.name}"
         )
     out["_frames"] = {k: frames[k] for k in PREVIEW_CLIPS}
     out["_actions"] = {k: action_for[k] for k in PREVIEW_CLIPS}
+    out["_mouth"] = mouth_out
+    out["_mouth_cams"] = mouth_cams
     return out
 
 
@@ -4224,8 +4398,15 @@ def run_restyle() -> dict:
 
     drop_weapons()
     _body_meshes, removed_garments = strip_dressed_meshes_attach_male_base(arm)
-    restyle_bulk_and_jaw(arm)  # includes brow-spike flatten on male_body
-    tusks = add_tusks(arm)
+    # Measure the mouth ONCE, on the untouched male_base face, before any
+    # restyle offset can move the landmarks it is measured from. Everything
+    # downstream reads this frame instead of re-deriving the mouth.
+    aperture = resolve_mouth_aperture(arm)
+    assert_all_skin_verts_bound(arm, "male_base attach")
+    restyle_face_and_chest(arm, aperture)  # jaw + brow flatten + chest, no mouth
+    carve_orc_mouth_cavity(arm, aperture)
+    store_mouth_aperture(arm, aperture)
+    tusks = add_tusks(arm, aperture)
     hidden_junk = hide_junk_companion_meshes(arm)
     assert_no_invented_gear()
     apply_finished_olive_skin(arm)
@@ -4276,6 +4457,8 @@ def run_restyle() -> dict:
     after_previews = render_clip_stills(arm, resolved_scene, "after")
     still_frames = after_previews.pop("_frames", {})
     still_actions = after_previews.pop("_actions", {})
+    mouth_previews = after_previews.pop("_mouth", {})
+    mouth_cams = after_previews.pop("_mouth_cams", {})
     assert_untouched(dest_before, "DEST after AFTER stills (export not started)")
 
     preserved = preserve_all_actions_for_export(arm)
@@ -4307,6 +4490,7 @@ def run_restyle() -> dict:
         dest_clips=dest_clips,
         resolved=resolved_out,
         after_previews=after_previews,
+        mouth_previews=mouth_previews,
         hip_before=hip_before,
         hip_after=hip_after,
         tusks=[o.name for o in tusks],
@@ -4315,6 +4499,8 @@ def run_restyle() -> dict:
     )
     packet["still_frames"] = still_frames
     packet["still_actions"] = still_actions
+    packet["mouth_cameras"] = mouth_cams
+    packet["mouth_aperture"] = mouth_aperture_report(aperture)
     packet["dest_write"] = "after_stills_only"
     packet["hidden_junk"] = hidden_junk
     packet["nude_pass"] = True
@@ -4341,6 +4527,9 @@ def run_restyle() -> dict:
         "hidden_junk": hidden_junk,
         "removed_garments": removed_garments,
         "previews_after": after_previews,
+        "previews_after_mouth": mouth_previews,
+        "mouth_cameras": mouth_cams,
+        "mouth_aperture": mouth_aperture_report(aperture),
         "still_frames": still_frames,
         "still_actions": still_actions,
         "art_review_packet": str(ART_REVIEW_PACKET),
@@ -4348,9 +4537,10 @@ def run_restyle() -> dict:
         "uv_layout_hint": str(UV_LAYOUT),
         "lookdev": str(LOOKDEV),
         "note": (
-            "Nude pass: DEST after stills; mouth tusks; male_body brow flatten; "
-            "no OrcGear; Punch=Orrun Punch_Cross; Death=dest-native metrics "
-            "(not root_z=0 FP); olive on male_body"
+            "Nude pass: DEST after stills; measured mouth aperture -> bored "
+            "cavity -> tusks seated in it; male_body brow flatten; no OrcGear; "
+            "Punch=Orrun Punch_Cross; Death=dest-native metrics (not root_z=0 "
+            "FP); olive on male_body; mouth close-up still per clip"
         ),
         "packet_notes": packet.get("notes"),
     }
