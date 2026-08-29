@@ -180,12 +180,17 @@ MOUTH_CORNER_MAX_ABS_X = 0.095
 # Lip-corner surface → mouth cavity in MH body space (face is -Y).
 # 21:10: base ON the corner vert passed mouth_vert_dist=0.026 while Idle/Walk
 # pixels showed cones on cheeks — move the authored base into the cavity.
-CAVITY_IN_Y = 0.024  # +Y into the head from the lip surface
-CAVITY_IN_X = 0.016  # toward midline
-CAVITY_DOWN_Z = 0.010
+# 21:56: Idle/Walk improved but Punch still floated a tip in front of the lip —
+# deepen cavity and limit tip protrusion past the posed lip plane.
+CAVITY_IN_Y = 0.038  # +Y into the head from the lip surface
+CAVITY_IN_X = 0.018  # toward midline
+CAVITY_DOWN_Z = 0.012
 # Still gate: fraction of tusk verts that must sit deeper than the lip (+Y).
-TUSK_CAVITY_INSIDE_FRAC = 0.30
+TUSK_CAVITY_INSIDE_FRAC = 0.40
 TUSK_CAVITY_Y_EPS = 0.004
+# Max any tusk vert may sit past the posed lip toward outside the mouth
+# (opposite cavity dir). 21:56 Punch tip-in-front-of-chin class.
+TUSK_MAX_OUT_PAST_LIP = 0.028
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
@@ -542,10 +547,10 @@ def write_art_review_packet(
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
-            "mesh authored in tip/BONE-parent space from lip-corner → mouth cavity "
-            "(+Y into MH head) so Idle/Walk do not park cones on cheeks.",
-            "AFTER stills gate: cavity bind + lip-corner dist (0.085) + "
-            "cavity-inside frac (cheek refuse) before each PNG.",
+            "mesh authored in tip/BONE-parent space from lip-corner → deep mouth "
+            "cavity; shorter tip (21:56 Punch tip-past-lip class).",
+            "AFTER stills gate: cavity bind + lip-corner (0.085) + inside frac + "
+            "max tip past posed lip before each PNG; junk Eyes/spheres hidden.",
             "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
             "male_base attach preserves bind transforms (no matrix_basis identity hack).",
             "Death AFTER: dest-native Death01 on-back; bbox/pelvis lying — not root_z=0.",
@@ -994,22 +999,39 @@ def is_junk_companion_mesh(obj) -> bool:
     """True for leftover companion meshes that are not the nude orc identity.
 
     Eyes may exist as a separate MH export mesh — hide as junk. Icosphere may
-    appear on some imports. These are NOT the brow spikes (spikes = male_body).
+    appear on some imports. Thin stray spikes on Idle/Death stills (21:56) are
+    typically these leftovers, not male_body brow verts.
     """
     low = obj.name.lower()
-    if low in ("eyes", "eye") or low.startswith("eyes"):
+    if low in ("eyes", "eye") or low.startswith("eyes") or low.startswith("eye"):
         return True
-    if "icosphere" in low:
+    if any(
+        k in low
+        for k in (
+            "icosphere",
+            "sphere",
+            "cornea",
+            "pupil",
+            "sclera",
+            "lash",
+            "eyebrow",
+            "tearduct",
+            "eye_",
+            "_eye",
+        )
+    ):
         return True
     return False
 
 
 def hide_junk_companion_meshes(arm) -> list[str]:
-    """Hide Eyes / Icosphere junk. Separate from brow-spike flatten on male_body."""
+    """Hide Eyes / Icosphere / eye-sphere junk. Not brow-spike flatten."""
     hidden = []
     for obj in list(mesh_objects()):
         if not is_junk_companion_mesh(obj):
             continue
+        # Keep them out of view-layer draw; hide flags alone missed some
+        # Idle/Death spike stills when a junk mesh stayed in a rendered collection.
         obj.hide_render = True
         obj.hide_viewport = True
         try:
@@ -1585,9 +1607,7 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"bind_w={tuple(round(x, 3) for x in expected)} — "
                 f"pixels would float; refusing PNG"
             )
-        # Cheek refuse: enough of the cone must sit along the authored
-        # cavity direction from the posed lip corner (pose-aware — body +Y
-        # alone fails on Death when the face no longer points -Y).
+        # Cheek refuse + tip-past-lip refuse (pose-aware via cavity dir).
         into = expected - corner_w
         if into.length < 0.008:
             raise RuntimeError(
@@ -1595,11 +1615,15 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"corner (into_len={into.length:.4f}) — cannot prove seating"
             )
         into_n = into.normalized()
+        out_n = -into_n
         verts_w = _evaluated_mesh_verts_world(tusk)
         inside = 0
+        max_out = -1e9
         for vw in verts_w:
-            if (vw - corner_w).dot(into_n) >= TUSK_CAVITY_Y_EPS:
+            rel = vw - corner_w
+            if rel.dot(into_n) >= TUSK_CAVITY_Y_EPS:
                 inside += 1
+            max_out = max(max_out, float(rel.dot(out_n)))
         frac = inside / float(len(verts_w))
         if frac < TUSK_CAVITY_INSIDE_FRAC:
             raise RuntimeError(
@@ -1609,9 +1633,17 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"dist_bind={dist_bind:.4f} dist_corner={dist_corner:.4f} — "
                 f"21:10 Idle/Walk pixel class; refusing PNG"
             )
+        if max_out > TUSK_MAX_OUT_PAST_LIP:
+            raise RuntimeError(
+                f"{label} still: tusk {tusk.name!r} tip floats past posed lip "
+                f"(max_out_past_lip={max_out:.4f} > {TUSK_MAX_OUT_PAST_LIP}) "
+                f"inside_frac={frac:.3f} dist_corner={dist_corner:.4f} — "
+                f"21:56 Punch pixel class; refusing PNG"
+            )
         log(
             f"{label} still gate: {tusk.name} mouth_vert_dist={dist_corner:.4f} "
-            f"bind_dist={dist_bind:.4f} cavity_inside_frac={frac:.3f}"
+            f"bind_dist={dist_bind:.4f} cavity_inside_frac={frac:.3f} "
+            f"max_out_past_lip={max_out:.4f}"
         )
     log(f"{label} still gate: tusks seated in mouth cavity")
 
@@ -1759,8 +1791,36 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
                             f"dist_bind_target={dist_bind:.4f} > {TUSK_MOUTH_WORLD_MAX}"
                         )
             tested.append(f"{label}:{act.name}@{frame}Δ={head_delta:.3f}")
+            assert_tusks_in_mouth_for_current_pose(
+                arm, tusks, f"{label}:{act.name}@{frame}"
+            )
             if arm.animation_data is not None:
                 arm.animation_data.action = None
+
+        # 2b) Punch still frame — 21:56 tip floated past lip while Idle/Walk OK.
+        punch = None
+        for name in ("Punch_Cross", "Punch"):
+            punch = bpy.data.actions.get(name)
+            if punch is not None:
+                break
+        if punch is not None:
+            punch_frame = action_frame_for_action(punch, "punch")
+            HQ.reset_pose(arm)
+            HQ.assign_action(arm, punch)
+            bpy.context.scene.frame_set(int(punch_frame))
+            bpy.context.view_layer.update()
+            bpy.context.evaluated_depsgraph_get().update()
+            assert_tusks_in_mouth_for_current_pose(
+                arm, tusks, f"Punch:{punch.name}@{punch_frame}"
+            )
+            tested.append(f"Punch:{punch.name}@{punch_frame}")
+            if arm.animation_data is not None:
+                arm.animation_data.action = None
+        else:
+            log(
+                "assert_tusks_follow_head: no Punch/Punch_Cross in scene yet "
+                "(Orrun still import may add it later); still gate will catch Punch"
+            )
 
         # 3) Death last/hold frame — large head motion; must not float above face.
         death = None
@@ -1781,6 +1841,9 @@ def assert_tusks_follow_head(arm, tusks: list) -> None:
             f"Death:{death.name}@{death_frame}", require_head_delta=0.08
         )
         tested.append(f"Death:{death.name}@{death_frame}Δ={d_death:.3f}")
+        assert_tusks_in_mouth_for_current_pose(
+            arm, tusks, f"Death:{death.name}@{death_frame}"
+        )
         log(f"tusk head-local lock OK on clips {tested}")
     finally:
         # Do NOT restore the prior action/NLA mute state here — that left the
@@ -1799,6 +1862,7 @@ def add_tusks(arm) -> list:
     21:10: authoring the cone base on the lip-corner surface passed
     mouth_vert_dist=0.026 while Idle/Walk pixels showed cheek cones — the
     visible mesh must start inside the cavity, not on the cheek.
+    21:56: deeper cavity + shorter tip so Punch does not float past the lip.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
@@ -1856,14 +1920,16 @@ def add_tusks(arm) -> list:
             cap_ends=True,
             cap_tris=True,
             segments=10,
-            radius1=0.013,
-            radius2=0.0030,
-            depth=0.052,
+            radius1=0.011,
+            radius2=0.0025,
+            depth=0.038,
         )
-        # Tip up / out of mouth opening; base stays at cavity (tip-parent local).
+        # Tip mostly up out of the mouth opening (not far forward of the lip).
+        # 21:56 Punch floated a long tip in front of the chin — shorter cone,
+        # milder pitch, deeper cavity base.
         for v in bm.verts:
-            v.co.z += 0.026
-            a = math.radians(-42.0)
+            v.co.z += 0.019
+            a = math.radians(-28.0)
             cy = v.co.y * math.cos(a) - v.co.z * math.sin(a)
             cz = v.co.y * math.sin(a) + v.co.z * math.cos(a)
             v.co.y = cy
@@ -3220,6 +3286,7 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
                 and (o.name.startswith("OrcTusk_") or "tusk" in o.name.lower())
             ]
         # Gate the PNG Reviewer sees — numeric lock alone passed while stills floated.
+        hide_junk_companion_meshes(arm)
         assert_tusks_in_mouth_for_current_pose(arm, tusks_live, label)
 
         center, extent = posed_bbox(meshes)
@@ -3234,6 +3301,7 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
             setup_standing_preview(center, extent)
 
         # Re-assert after camera setup (must not have broken bone parent).
+        hide_junk_companion_meshes(arm)
         assert_tusks_in_mouth_for_current_pose(arm, tusks_live, f"{label}_pre_render")
         path = still_path(tag, label)
         render_png(path)
