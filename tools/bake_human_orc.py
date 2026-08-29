@@ -2834,13 +2834,25 @@ def aperture_region_edge_stats(me, aperture) -> tuple[list[int], float]:
     An edge qualifies when either end is inside ``CAVITY_SUBDIV_REGION_R`` of
     the aperture, so a mouth that currently holds only a handful of verts still
     gathers the surrounding edges to refine.
+
+    Front sheet only. Rim radius is a cylinder along the view axis, so a radius
+    test on its own also selects the matching ring on the back of the skull:
+    that ring was being subdivided along with the mouth, and -- worse -- its edge
+    lengths were averaged into the ``mean`` that decides whether the mouth is
+    refined enough, so a coarse occiput kept the mouth subdividing. The
+    ``2 * depth`` cut-off is generous: mouth-region verts sit within a cavity
+    depth of the rim plane, while the far side of the head is several times that
+    away.
     """
     inside = []
     for v in me.vertices:
-        u, w, _d = aperture.aperture_coords(
+        u, w, d = aperture.aperture_coords(
             (float(v.co.x), float(v.co.y), float(v.co.z))
         )
-        inside.append(aperture.radial(u, w) <= CAVITY_SUBDIV_REGION_R)
+        inside.append(
+            d < 2.0 * aperture.depth
+            and aperture.radial(u, w) <= CAVITY_SUBDIV_REGION_R
+        )
     picked = []
     total = 0.0
     for e in me.edges:

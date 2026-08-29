@@ -390,8 +390,11 @@ def _dist(p: Vec, q: Vec) -> float:
 def region_edges(
     pts: list[Vec], faces: list[Face], ap: MG.MouthAperture
 ) -> tuple[list[Edge], float]:
+    # Front sheet only, mirroring aperture_region_edge_stats: rim radius is a
+    # cylinder, so a radius test alone also picks up the back of the skull.
     inside = [
-        ap.radial(*ap.aperture_coords(p)[:2]) <= K["CAVITY_SUBDIV_REGION_R"]
+        ap.aperture_coords(p)[2] < 2.0 * ap.depth
+        and ap.radial(*ap.aperture_coords(p)[:2]) <= K["CAVITY_SUBDIV_REGION_R"]
         for p in pts
     ]
     picked = [e for e in unique_edges(faces) if inside[e[0]] or inside[e[1]]]
