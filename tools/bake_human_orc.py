@@ -1302,6 +1302,7 @@ def restyle_face(arm, aperture) -> None:
     the nose, which destroys the landmarks the aperture is measured from.
     """
     assert_no_leg_bone_scale(arm)
+    assert_vertex_positions_authoritative(arm, "restyle_face")
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone for jaw restyle")
     head_z = float(HQ.rest_world(arm, "head").to_translation().z)
@@ -1698,6 +1699,115 @@ def assert_all_skin_verts_bound(arm, label: str) -> None:
         log(
             f"{label}: {obj.name!r} all {len(obj.data.vertices)} verts driven by "
             f"{len(bone_groups)} bone group(s)"
+        )
+
+
+def restyled_meshes(arm) -> list:
+    """The meshes whose vertex positions this script authors.
+
+    Tusks are authored whole rather than restyled, and junk companions are
+    hidden and never exported, so neither is subject to the position-authority
+    invariant below.
+    """
+    return [
+        obj
+        for obj in skinned_meshes(arm)
+        if not obj.name.startswith("OrcTusk_") and not is_junk_companion_mesh(obj)
+    ]
+
+
+def drop_morph_shape_keys(arm) -> int:
+    """Make ``mesh.vertices`` the only authority on where a skin vert is.
+
+    male_base.glb ships the MakeHuman face sliders as 29 relative shape keys
+    (``face_jaw_width__pos``, ``face_lip_fullness__neg``, ...). While a mesh
+    has shape keys, Blender builds the evaluated mesh from the key blocks and
+    ignores ``mesh.vertices[i].co`` entirely — so every vertex edit in this
+    script was written to a copy nothing reads.
+
+    That is the whole reason two EXIT-0 bakes shipped stills with no visible
+    tusks, and it is invisible to every gate here, because each gate re-reads
+    the base mesh it just wrote and is told exactly what it wrote. Measured on
+    a rest-pose bake: ``carve_orc_mouth_cavity`` moved the mouth-centre vert
+    35.3 mm back and reported ``deepest=0.0353``; the Basis key still held the
+    original position, a ray down the mouth axis hit skin 5.2 mm behind the lip
+    plane, and the render was a closed human mouth with two tusk tips poking
+    through the lower lip. The jaw muzzle and the brow flatten were discarded
+    the same way, which is why the face kept coming back human.
+
+    The keys are all at value 0 and are authoring sliders for a character
+    generator, not animation this asset plays, so the fix is to delete them
+    rather than to mirror every edit into a second authority. Anything that
+    would change the shipped shape — a key already driven, absolute keys, a
+    base mesh that has already diverged from its reference key — is refused
+    instead of silently resolved.
+    """
+    cleared = 0
+    for obj in restyled_meshes(arm):
+        me = obj.data
+        keys = me.shape_keys
+        if keys is None:
+            continue
+        if not keys.use_relative:
+            raise RuntimeError(
+                f"{obj.name!r} has absolute shape keys {[k.name for k in keys.key_blocks]}; "
+                f"dropping them would change the shipped shape"
+            )
+        reference = keys.reference_key
+        driven = [
+            f"{k.name}={k.value:.3f}"
+            for k in keys.key_blocks
+            if k is not reference and abs(float(k.value)) > 1e-9
+        ]
+        if driven:
+            raise RuntimeError(
+                f"{obj.name!r} has shape key(s) driven away from the reference "
+                f"shape: {driven}. Deleting them would change the body; resolve "
+                f"the morph deliberately instead"
+            )
+        worst = 0.0
+        worst_index = -1
+        for v in me.vertices:
+            dev = (v.co - reference.data[int(v.index)].co).length
+            if dev > worst:
+                worst, worst_index = dev, int(v.index)
+        if worst > 1e-6:
+            raise RuntimeError(
+                f"{obj.name!r} base mesh already differs from its reference key "
+                f"{reference.name!r} by {worst * 1000:.3f} mm at vert {worst_index} — "
+                f"two competing vertex authorities have already diverged, so "
+                f"there is no safe one to keep"
+            )
+        names = [k.name for k in keys.key_blocks]
+        obj.shape_key_clear()
+        me.update()
+        cleared += len(names)
+        log(
+            f"dropped {len(names)} MakeHuman morph shape key(s) from {obj.name!r} "
+            f"(reference {reference.name!r}, base mesh identical to it); "
+            f"mesh.vertices is now the only vertex authority. keys={names}"
+        )
+    assert_vertex_positions_authoritative(arm, "after drop_morph_shape_keys")
+    return cleared
+
+
+def assert_vertex_positions_authoritative(arm, label: str) -> None:
+    """No restyled mesh may carry shape keys when its verts are edited.
+
+    A shape key silently outranks ``mesh.vertices``: the edit lands, reads back
+    correctly, and never reaches the depsgraph. Every mesh editor asserts this
+    first so a future donor that ships morphs fails at the edit rather than in
+    an Art Reviewer packet.
+    """
+    for obj in restyled_meshes(arm):
+        keys = obj.data.shape_keys
+        if keys is None:
+            continue
+        raise RuntimeError(
+            f"{label}: {obj.name!r} carries {len(keys.key_blocks)} shape key(s) "
+            f"{[k.name for k in keys.key_blocks][:6]} — Blender evaluates those "
+            f"instead of mesh.vertices, so vertex edits would be discarded "
+            f"silently. drop_morph_shape_keys must run before any mesh edit"
         )
 
 
@@ -2637,6 +2747,7 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
     vert is only ever moved to the profile (never past it), so the carve cannot
     invert geometry or overshoot.
     """
+    assert_vertex_positions_authoritative(arm, "carve_orc_mouth_cavity")
     body = male_body_mesh(arm)
     subdivide_for_cavity(arm, body, aperture)
     me = body.data
@@ -5564,6 +5675,11 @@ def run_restyle() -> dict:
     # downstream assumes that cannot happen.
     rehome_unbound_verts(arm, "male_base attach")
     assert_all_skin_verts_bound(arm, "male_base attach")
+    # male_base ships the MakeHuman face sliders as shape keys, and a mesh with
+    # shape keys is evaluated from those instead of from mesh.vertices. Drop
+    # them before the first vertex edit or every edit below is written to
+    # something nothing renders or exports.
+    drop_morph_shape_keys(arm)
     # Measure the mouth ONCE, on the untouched male_base face, before any
     # restyle offset can move the landmarks it is measured from. Everything
     # downstream reads this frame instead of re-deriving the mouth.
