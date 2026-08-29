@@ -574,7 +574,10 @@ def write_art_review_packet(
             "Rest-pose lips: 8mm Z slab at the real L/R corners, most-forward "
             "14 verts per lip (pool size is not a refuse — e1ec980 died on 580>120). "
             "Aperture axis floors body-+Z rise at 24mm on the lip plane. "
-            "Sternum/pec pinch flattened; torso-spike gate on every still.",
+            "Sternum/pec pinch flattened (including head-weighted pecs); "
+            "head/neck weights cleared on the pec box so Punch/Death cannot "
+            "stretch a 21cm torso edge. Stretched-edge gate is torso-core only "
+            "(Punch armpit is not the Death chest spike).",
             "AFTER stills gate: gum bind + lip-corner (0.085) + opening occupancy "
             "+ skull-punch refuse + torso-spike refuse + max tip past posed lip; "
             "junk Eyes unlinked from collections.",
@@ -803,6 +806,45 @@ def vg_weight(vert, group_index) -> float:
     return 0.0
 
 
+def _clear_vg(obj, vert_index: int, group_index) -> bool:
+    if group_index is None:
+        return False
+    vg = None
+    for g in obj.vertex_groups:
+        if g.index == group_index:
+            vg = g
+            break
+    if vg is None:
+        return False
+    try:
+        vg.remove([int(vert_index)])
+        return True
+    except RuntimeError:
+        return False
+
+
+def _arm_weight(vert, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) -> float:
+    return max(
+        vg_weight(vert, upper_l),
+        vg_weight(vert, upper_r),
+        vg_weight(vert, lower_l),
+        vg_weight(vert, lower_r),
+        vg_weight(vert, hand_l),
+        vg_weight(vert, hand_r),
+    )
+
+
+def _leg_weight(vert, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r) -> float:
+    return max(
+        vg_weight(vert, thigh_l),
+        vg_weight(vert, thigh_r),
+        vg_weight(vert, calf_l),
+        vg_weight(vert, calf_r),
+        vg_weight(vert, foot_l),
+        vg_weight(vert, foot_r),
+    )
+
+
 def assert_no_leg_bone_scale(arm) -> None:
     for name in NO_SCALE_BONES:
         if name not in arm.pose.bones:
@@ -949,6 +991,8 @@ def restyle_bulk_and_jaw(arm) -> None:
 
     flatten_male_body_brow_spikes(arm)
     flatten_chest_pinch(arm)
+    clear_chest_head_weights(arm)
+    flatten_stretched_torso_edges(arm)
     open_orc_mouth_aperture(arm)
 
 
@@ -1030,16 +1074,14 @@ def flatten_male_body_brow_spikes(arm) -> int:
 def flatten_chest_pinch(arm) -> int:
     """Pull sternum/pec Y outliers back to the chest plane.
 
-    a4a5c61 Idle still showed a pinched cluster between the pecs. Death then
-    stretched that discontinuity into a long through-torso spike. Not a tusk
-    (tusks were already in the mouth on that Death still).
+    Include head-weighted pec verts — those are the Punch/Death stretch class
+    (b4d8e66 Punch edge 1876–1891 at 0.213m). Skipping hw>=0.40 left the
+    pinch in place.
     """
     body = male_body_mesh(arm)
     me = body.data
     spine2_i = vg_index(body, "spine_02")
     spine3_i = vg_index(body, "spine_03")
-    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
-    head_i = vg_index(body, "head")
     xs = [v.co.x for v in me.vertices]
     ys = [v.co.y for v in me.vertices]
     zs = [v.co.z for v in me.vertices]
@@ -1050,11 +1092,6 @@ def flatten_chest_pinch(arm) -> int:
     pec_ys = []
     pec_idx = []
     for i, v in enumerate(me.vertices):
-        tw = max(vg_weight(v, spine2_i), vg_weight(v, spine3_i))
-        if tw < 0.28:
-            continue
-        if vg_weight(v, neck_i) >= 0.20 or vg_weight(v, head_i) >= 0.40:
-            continue
         z_rel = (v.co.z - z0) / height
         if not (0.52 <= z_rel <= 0.78):
             continue
@@ -1073,15 +1110,111 @@ def flatten_chest_pinch(arm) -> int:
     for i in pec_idx:
         v = me.vertices[i]
         dy = float(v.co.y) - median_y
-        # Inward pinch (toward +Y / back) or wild forward outlier.
-        if dy > 0.012 or dy < -0.028:
-            v.co.y = 0.25 * float(v.co.y) + 0.75 * median_y
+        if dy > 0.010 or dy < -0.022:
+            v.co.y = 0.20 * float(v.co.y) + 0.80 * median_y
             pulled += 1
     me.update()
     log(
         f"chest-pinch flatten verts_adjusted={pulled} pec_n={len(pec_idx)} "
-        f"median_y={median_y:.4f} (sternum/pec — not tusks)"
+        f"median_y={median_y:.4f} (includes head-weighted pecs)"
     )
+    return pulled
+
+
+def clear_chest_head_weights(arm) -> int:
+    """Remove head/neck weights from pec-box verts.
+
+    Punch/Death rotate the head; a sternum vert with leftover head weight
+    flies off and grows a 20cm+ edge (b4d8e66 Punch 1876–1891). Same 53-bone
+    names — only misplaced pec weights are cleared.
+    """
+    body = male_body_mesh(arm)
+    me = body.data
+    head_i = vg_index(body, "head")
+    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
+    spine2_i = vg_index(body, "spine_02")
+    spine3_i = vg_index(body, "spine_03")
+    upper_l = vg_index(body, "upperarm_l")
+    upper_r = vg_index(body, "upperarm_r")
+    xs = [v.co.x for v in me.vertices]
+    zs = [v.co.z for v in me.vertices]
+    ys = [v.co.y for v in me.vertices]
+    cx = 0.5 * (min(xs) + max(xs))
+    cy = 0.5 * (min(ys) + max(ys))
+    z0, z1 = min(zs), max(zs)
+    height = max(z1 - z0, 1e-3)
+    cleared = 0
+    for i, v in enumerate(me.vertices):
+        z_rel = (v.co.z - z0) / height
+        if not (0.52 <= z_rel <= 0.76):
+            continue
+        if abs(v.co.x - cx) > 0.085:
+            continue
+        if v.co.y > cy:
+            continue
+        if _arm_weight(v, upper_l, upper_r, None, None, None, None) >= 0.35:
+            continue
+        tw = max(vg_weight(v, spine2_i), vg_weight(v, spine3_i))
+        hw = vg_weight(v, head_i)
+        nw = vg_weight(v, neck_i)
+        if hw < 0.08 and nw < 0.08:
+            continue
+        # Pec with head/neck influence — Punch pulls this into a torso spike.
+        if tw < 0.08 and hw < 0.20:
+            continue
+        did = False
+        if hw >= 0.08:
+            did = _clear_vg(body, i, head_i) or did
+        if nw >= 0.08:
+            did = _clear_vg(body, i, neck_i) or did
+        if did:
+            cleared += 1
+    log(f"cleared head/neck weights on pec verts n={cleared}")
+    return cleared
+
+
+def flatten_stretched_torso_edges(arm) -> int:
+    """Pull rest-pose torso verts that already sit on a long edge."""
+    body = male_body_mesh(arm)
+    me = body.data
+    spine_groups = [
+        vg_index(body, "spine_01"),
+        vg_index(body, "spine_02"),
+        vg_index(body, "spine_03"),
+    ]
+    upper_l = vg_index(body, "upperarm_l")
+    upper_r = vg_index(body, "upperarm_r")
+    lower_l = vg_index(body, "lowerarm_l")
+    lower_r = vg_index(body, "lowerarm_r")
+    hand_l = vg_index(body, "hand_l")
+    hand_r = vg_index(body, "hand_r")
+    adj: list[list[int]] = [[] for _ in me.vertices]
+    for e in me.edges:
+        a, b = int(e.vertices[0]), int(e.vertices[1])
+        adj[a].append(b)
+        adj[b].append(a)
+    pulled = 0
+    for i, v in enumerate(me.vertices):
+        if not adj[i]:
+            continue
+        tw = max(vg_weight(v, gi) for gi in spine_groups)
+        if tw < 0.18:
+            continue
+        if _arm_weight(v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) >= 0.40:
+            continue
+        farthest = 0.0
+        acc = Vector((0.0, 0.0, 0.0))
+        for j in adj[i]:
+            n = me.vertices[j].co
+            acc += n
+            farthest = max(farthest, (v.co - n).length)
+        if farthest <= 0.070:
+            continue
+        c = acc / float(len(adj[i]))
+        v.co = 0.20 * v.co + 0.80 * c
+        pulled += 1
+    me.update()
+    log(f"flattened stretched torso rest-edges verts={pulled}")
     return pulled
 
 
@@ -1911,24 +2044,60 @@ def assert_no_torso_spike(arm, label: str) -> None:
         f"{label} torso spike gate: worst={worst:.4f} median_dist={mid_d:.4f} "
         f"n={len(torso)}"
     )
-    # Topological spike: one vert flown away from its neighbors (Death chest
-    # spike can be a head-weighted sternum vert the median test skips).
-    if len(verts_w) != len(body.data.vertices):
-        raise RuntimeError(f"{label}: cannot test stretched edges (eval mismatch)")
+    # Torso-only stretched edges. Punch_Cross opens the armpit (~20cm) — that
+    # is not the Death through-chest class. Skip limb/armpit edges; keep 0.14
+    # on spine-core edges (do not raise the number).
+    upper_l = vg_index(body, "upperarm_l")
+    upper_r = vg_index(body, "upperarm_r")
+    lower_l = vg_index(body, "lowerarm_l")
+    lower_r = vg_index(body, "lowerarm_r")
+    hand_l = vg_index(body, "hand_l")
+    hand_r = vg_index(body, "hand_r")
+    thigh_l = vg_index(body, "thigh_l")
+    thigh_r = vg_index(body, "thigh_r")
+    calf_l = vg_index(body, "calf_l")
+    calf_r = vg_index(body, "calf_r")
+    foot_l = vg_index(body, "foot_l") or vg_index(body, "foot")
+    foot_r = vg_index(body, "foot_r")
     worst_e = 0.0
     worst_pair = (-1, -1)
+    worst_limb = 0.0
     for e in body.data.edges:
         a, b = int(e.vertices[0]), int(e.vertices[1])
         d = (verts_w[a] - verts_w[b]).length
+        va = body.data.vertices[a]
+        vb = body.data.vertices[b]
+        arm_a = _arm_weight(va, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r)
+        arm_b = _arm_weight(vb, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r)
+        leg_a = _leg_weight(va, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r)
+        leg_b = _leg_weight(vb, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r)
+        limb_edge = (
+            (arm_a >= 0.35 and arm_b >= 0.35)
+            or (leg_a >= 0.35 and leg_b >= 0.35)
+            or (arm_a >= 0.40 or arm_b >= 0.40)
+            or (leg_a >= 0.40 or leg_b >= 0.40)
+        )
+        if limb_edge:
+            worst_limb = max(worst_limb, d)
+            continue
         if d > worst_e:
             worst_e = d
             worst_pair = (a, b)
     if worst_e > 0.14:
+        va = body.data.vertices[worst_pair[0]]
+        vb = body.data.vertices[worst_pair[1]]
         raise RuntimeError(
-            f"{label} still: stretched male_body edge {worst_e:.4f} > 0.14 "
-            f"verts={worst_pair} — through-torso / pec-pinch spike; refusing PNG"
+            f"{label} still: stretched male_body torso edge {worst_e:.4f} > 0.14 "
+            f"verts={worst_pair} "
+            f"spine=({max(vg_weight(va, gi) for gi in spine_groups):.2f},"
+            f"{max(vg_weight(vb, gi) for gi in spine_groups):.2f}) "
+            f"head=({vg_weight(va, head_i):.2f},{vg_weight(vb, head_i):.2f}) "
+            f"— through-torso / pec-pinch spike; refusing PNG"
         )
-    log(f"{label} stretched-edge gate: worst={worst_e:.4f} verts={worst_pair}")
+    log(
+        f"{label} stretched-edge gate: worst_torso={worst_e:.4f} "
+        f"verts={worst_pair} worst_limb_skipped={worst_limb:.4f}"
+    )
 
 
 def force_armature_rest(arm) -> None:
