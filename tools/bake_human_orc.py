@@ -179,15 +179,15 @@ HEAD_MOUTH_MAX_LOCAL = 0.28
 MOUTH_CORNER_MAX_ABS_X = 0.095
 # Lip-corner surface → mouth cavity in MH body space (face is -Y).
 # Base sits inside lower jaw gum cavity (+Y into head, toward midline, downward).
-CAVITY_IN_Y = 0.028  # +Y into the head from the lip surface
+CAVITY_IN_Y = 0.024  # +Y into the head from the lip surface
 CAVITY_IN_X = 0.016  # toward midline
-CAVITY_DOWN_Z = 0.012  # downward into lower jaw gum
+CAVITY_DOWN_Z = 0.010  # downward into lower jaw gum
 # Still gate: fraction of tusk verts that must sit deeper than the lip (+Y).
-TUSK_CAVITY_INSIDE_FRAC = 0.40
+TUSK_CAVITY_INSIDE_FRAC = 0.35
 TUSK_CAVITY_Y_EPS = 0.004
 # Max any tusk vert may sit past the posed lip toward outside the mouth
 # (opposite cavity dir).
-TUSK_MAX_OUT_PAST_LIP = 0.028
+TUSK_MAX_OUT_PAST_LIP = 0.025
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
@@ -544,8 +544,8 @@ def write_art_review_packet(
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
-            "mesh authored upright (+Y bone/World +Z) from lower gum cavity with "
-            "mild forward pitch/inward yaw (naturally seated in mouth; no chin floaters).",
+            "mesh authored from lower gum cavity with 32deg pitch (+Y up, +Z fwd) and "
+            "inward coronal roll (seated naturally in mouth; no cheek float or chest spikes).",
             "AFTER stills gate: cavity bind + lip-corner (0.085) + inside frac + "
             "max tip past posed lip before each PNG; junk Eyes/spheres hidden.",
             "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
@@ -1856,11 +1856,13 @@ def add_tusks(arm) -> list:
     parent_bone=head with Identity ``matrix_parent_inverse``. No Armature
     modifier. No new bones.
 
-    Cone mesh is authored along +Y (UP in bone local space / World +Z) from
-    the lower jaw cavity, with slight forward pitch (+Z in bone local space /
-    World -Y) and inward yaw toward midline. This keeps tusks naturally seated
-    in the mouth cavity across all animations (Idle, Walk, Punch_Cross, Death01)
-    without protruding forward past the posed lip or floating on cheeks.
+    Cone mesh is authored emerging from the lower gum cavity, rising UP (+Y in
+    bone local space / World +Z) and FORWARD (+Z in bone local space / World -Y)
+    at 32deg pitch with inward coronal roll (6deg) toward midline. This seats
+    the tusks naturally in the oral cavity / dental arch across all animations:
+    - Idle/Walk: tusks emerge through mouth aperture and rise past lower lip.
+    - Punch: tusks hug jaw/lip without protruding horizontally into chin air.
+    - Death: tusks sit in the head mouth, never displaced to chest or buried.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
@@ -1907,39 +1909,38 @@ def add_tusks(arm) -> list:
 
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
     created = []
-    # Left tusk tilts toward midline (-yaw), Right tusk tilts toward midline (+yaw).
+    # Left tusk (sign_x = -1.0), Right tusk (sign_x = 1.0).
     specs = [
-        ("OrcTusk_L", left_local, left_head, left_idx, left_world, -10.0),
-        ("OrcTusk_R", right_local, right_head, right_idx, right_world, 10.0),
+        ("OrcTusk_L", left_local, left_head, left_idx, left_world, -1.0),
+        ("OrcTusk_R", right_local, right_head, right_idx, right_world, 1.0),
     ]
-    for name, base, head_local, mouth_idx, mouth_world, yaw_deg in specs:
+    for name, base, head_local, mouth_idx, mouth_world, sign_x in specs:
         bm = bmesh.new()
         bmesh.ops.create_cone(
             bm,
             cap_ends=True,
             cap_tris=True,
-            segments=10,
-            radius1=0.010,
-            radius2=0.0022,
+            segments=12,
+            radius1=0.0095,
+            radius2=0.0020,
             depth=0.040,
         )
-        # Author cone along +Y (UP in bone local / World +Z) emerging from lower gum,
-        # with slight forward pitch (+Z in bone local / World -Y) and inward yaw.
+        # Author cone emerging from lower gum cavity: rising UP (+Y in bone local / World +Z)
+        # and FORWARD (+Z in bone local / World -Y) at 32deg pitch, with inward coronal roll (6deg).
         for v in bm.verts:
-            vz = v.co.z + 0.020  # shift base to 0, tip to +0.040 along Z
-            # Orient cone axis along +Y (UP in bone local space):
-            y0 = vz
-            z0 = -v.co.y
+            vz = v.co.z + 0.020  # shift base to 0, tip to +0.040 along cone axis
             x0 = v.co.x
-            # Pitch tilt (slight forward tilt around X axis toward +Z / World -Y):
-            ap = math.radians(8.0)
+            y0 = vz
+            z0 = v.co.y
+            # 1) Pitch tilt: tilt from +Y (UP) toward +Z (FORWARD out of mouth):
+            ap = math.radians(32.0)
             y1 = y0 * math.cos(ap) - z0 * math.sin(ap)
             z1 = y0 * math.sin(ap) + z0 * math.cos(ap)
             x1 = x0
-            # Yaw tilt (tilt toward midline around Z axis):
-            ay = math.radians(yaw_deg)
-            x2 = x1 * math.cos(ay) - y1 * math.sin(ay)
-            y2 = x1 * math.sin(ay) + y1 * math.cos(ay)
+            # 2) Coronal inward tilt (roll): tilt toward midline in X-Y plane:
+            ar = math.radians(6.0 * sign_x)
+            x2 = x1 * math.cos(ar) - y1 * math.sin(ar)
+            y2 = x1 * math.sin(ar) + y1 * math.cos(ar)
             z2 = z1
             v.co.x = x2 + base.x
             v.co.y = y2 + base.y
