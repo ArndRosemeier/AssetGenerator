@@ -115,14 +115,30 @@ Mouth / tusk approach (this pass; read before changing anything below):
      tear, re-measure — and the gate now names the bones on both ends instead
      of reporting only spine and head, which are 1.00 and 0.00 on that pair and
      say nothing about what drives it.
+  5. An absolute cap on posed edge length cannot express the defect. f4d2059
+     passed with ``worst_torso=0.0911``, comfortably under 0.14 m, and the Punch
+     still showed a jagged band across the chest: chest edges are ~10 mm at
+     rest, so that edge was stretched ~9x. The gate and the repair now measure
+     stretch relative to REST length, which is scale-free, and log the
+     percentiles so the limits can be calibrated from one bake instead of
+     guessed at.
+  6. A still cannot prove tusks it cannot see. f4d2059's Punch still is a
+     picture of the character's own guard hand, and its Death still is an
+     overhead view of the top of a supine head. Both are correct renders of
+     correct geometry. So the close-up camera direction is now chosen by
+     measuring occlusion (``orc_still_visibility``, exact segment-triangle, not
+     a vertex-radius test that sees through a mesh's gaps), the Punch still
+     frame moves within Punch_Cross only if no angle can see past the hand, and
+     a still that cannot show the tusks fails instead of shipping.
 
   Do not reintroduce absolute millimetre windows for the mouth. If a number
   needs to change, change the fraction and re-run the offline checks -- they
   need no Blender and take about a second each::
 
-    python tools/orc_mouth_geometry.py    # the mouth solver's own self-test
-    python tools/orc_mouth_selfcheck.py   # maw carve + tusk containment
-    python tools/orc_bind_repair.py       # seam repair on modelled skinning
+    python tools/orc_mouth_geometry.py     # the mouth solver's own self-test
+    python tools/orc_mouth_selfcheck.py    # maw carve + tusk containment
+    python tools/orc_bind_repair.py        # seam repair on modelled skinning
+    python tools/orc_still_visibility.py   # projection + occlusion for stills
 
   The second one reads the tusk and cavity constants straight out of this file
   and replays the carve and the still gate against synthetic heads over a range
@@ -160,6 +176,7 @@ if str(TOOLS) not in sys.path:
 import bake_human_quaternius as HQ  # noqa: E402
 import orc_bind_repair as BR  # noqa: E402
 import orc_mouth_geometry as MG  # noqa: E402
+import orc_still_visibility as SV  # noqa: E402
 
 AG = Path(r"C:\Projekte\AssetGenerator")
 AG_HUMANS = AG / "assets" / "humans"
@@ -338,18 +355,23 @@ BROW_X_EDGE = 0.018
 # verts get a proportional share, so the "is a spike" test is not a step.
 BROW_SPIKE_FULL_M = 0.012
 
-# --- chest / pec plate ------------------------------------------------------
-# Y offsets from the pec median beyond which a vert is an outlier. Both are now
-# ramps, not cliffs: the pull scales from 0 at the threshold to full at
-# threshold + CHEST_PINCH_RAMP_M.
-CHEST_PINCH_FORWARD_M = 0.010
-CHEST_PINCH_BACK_M = 0.022
-CHEST_PINCH_RAMP_M = 0.012
-CHEST_PINCH_MAX_BLEND = 0.80
+# --- torso / bind seam ------------------------------------------------------
 # Posed torso-vert outlier (Idle pec pinch / Death through-torso spike).
 TORSO_SPIKE_MAX_M = 0.36
 # Longest non-limb posed edge the still gate will accept. Do not raise it.
 TORSO_EDGE_MAX_M = 0.14
+# ...and how far a non-limb edge may stretch relative to its REST length. This
+# is the criterion that matters and the absolute cap above cannot express.
+# f4d2059 passed with worst_torso=0.0911: comfortably under 0.14 m, but chest
+# edges on this mesh are ~10 mm at rest, so that edge was stretched ~9x and the
+# Punch still showed it as a jagged band across the chest. Stretch is scale-free
+# and catches a 40 mm edge that was 4 mm at rest, which no metre value can.
+# Normal skin deformation stretches a well-blended edge by well under 2x; a
+# weight discontinuity is what produces the rest.
+TORSO_EDGE_MAX_STRETCH = 2.6
+# Rest edges shorter than this are treated as this long, so a degenerate edge
+# cannot report an enormous ratio.
+TORSO_REST_EDGE_FLOOR_M = 0.002
 
 # --- donor bind seam repair -------------------------------------------------
 # The Punch edge (1876, 1891) at 0.2129 with spine=(1.00, 0.00) is a bind with
@@ -358,8 +380,9 @@ TORSO_EDGE_MAX_M = 0.14
 # restyles sharing almost no torso code, which is how we know the restyle never
 # touched it. Repair the bind, and verify by measurement.
 #
-# Repair target, below TORSO_EDGE_MAX_M so the gate has margin.
+# Repair targets, inside the gate's limits so the gate has margin.
 BIND_SEAM_TARGET_M = 0.12
+BIND_SEAM_TARGET_STRETCH = 2.0
 # Frames sampled per clip. The Death still chooses its on-back frame at render
 # time, so one frame per clip does not prove the bind survives the still.
 BIND_SEAM_PROBE_FRAMES = 6
@@ -370,11 +393,50 @@ BIND_SEAM_PROBE_FRAMES = 6
 BIND_SEAM_ATTEMPTS = ((2, 10), (3, 16), (4, 24))
 BIND_SMOOTH_LAMBDA = 0.5
 # Beyond this share of male_body the "seam" is a broken bind, not a seam, and
-# re-weighting that much of the character is not a repair.
-BIND_SEAM_MAX_SEED_FRAC = 0.10
+# re-weighting that much of the character is not a repair. Sized for a whole
+# seam RING rather than a single pair: the stretch criterion is expected to
+# flag the clavicle-to-spine transition around the axilla, which is a loop of
+# verts and is also where the "pec/axilla pinch" keeps being reported.
+BIND_SEAM_MAX_SEED_FRAC = 0.20
 REHOME_MAX_PASSES = 8
 
+# --- still visibility -------------------------------------------------------
+# The one thing a reviewer asks of a still: can I see the tusks? f4d2059 passed
+# every numeric gate and was reported "tusks not readable" on Punch and Death,
+# because Punch_Cross holds the guard hand in front of the mouth and the Death
+# camera looks at the top of a supine head. No tusk-placement gate can see
+# that; only measuring the camera can.
+STILL_LENS_MM = 50.0
+STILL_SENSOR_MM = 36.0  # Blender's default sensor width
+# Tusk samples per tusk for the visibility sweep. Occlusion is exact
+# segment-triangle work, so the whole cone is not needed to know whether a
+# reviewer can see it.
+STILL_TUSK_SAMPLES_PER_TUSK = 6
+# Occluder triangles are gathered within this many measured head widths of the
+# mouth: the head, the shoulders, and in Punch the hands.
+STILL_OCCLUDER_RADIUS_HEAD_WIDTHS = 3.0
+# The close-up must clear both of these or the bake refuses.
+STILL_MIN_VISIBLE_FRAC = 0.30
+# Screen extent of the visible tusks, measured on the LARGER axis so the answer
+# does not depend on camera roll — Death looks straight down the mouth axis,
+# where roll is arbitrary for both the render and the measurement.
+STILL_MIN_TUSK_PX = 24.0
+# Blender's to_track_quat("-Z", "Y") rolls the camera to keep world +Z up, so
+# the measurement has to use the same hint or its pixel extents would be
+# rotated relative to the render.
+STILL_CAMERA_UP = (0.0, 0.0, 1.0)
+
 # --- mouth close-up still ---------------------------------------------------
+MOUTH_CLOSEUP_RES = 720
+# View directions swept around the mouth axis, straight-on first. The sweep
+# exists for the poses where something is in front of the mouth.
+MOUTH_CLOSEUP_AZIMUTHS = (0, 20, -20, 40, -40, 60, -60, 80, -80, 100, -100)
+# Negative elevation looks up into the mouth from below, which is the natural
+# way to see past a tucked chin — and Punch tucks the chin.
+MOUTH_CLOSEUP_ELEVATIONS = (0, -18, 18, -36, 36)
+# Fractions of Punch_Cross tried for the Punch still, nearest the canonical 55 %
+# first. Only used when no camera angle at the current frame can see the maw.
+PUNCH_STILL_FRAME_FRACS = (0.55, 0.50, 0.60, 0.45, 0.65, 0.40, 0.70, 0.35, 0.75)
 # Camera standoff as a multiple of the measured head width. At 1.8 with a 50 mm
 # lens on a 720x720 frame the shot covers ~1.35 head widths, so brow to chin is
 # in frame and a 26 mm tusk is ~90 px tall. The body still, for comparison, is
@@ -777,8 +839,9 @@ def write_art_review_packet(
             "maw). Zero torso/arm radial bulk. Do NOT seat unbind edges. "
             "Stretched-edge gate 0.14.",
             "Offline checks, no Blender needed: python tools/orc_mouth_geometry.py, "
-            "python tools/orc_mouth_selfcheck.py and python tools/orc_bind_repair.py. "
-            "Run them after changing any mouth, tusk or bind-repair constant.",
+            "tools/orc_mouth_selfcheck.py, tools/orc_bind_repair.py and "
+            "tools/orc_still_visibility.py. Run them after changing any mouth, "
+            "tusk, bind-repair or still-framing constant.",
             "Every restyle offset runs through a smooth falloff. Hard selection "
             "boxes with step displacement authored the chin needle, the pec "
             "spike and the torso strand; the box boundary itself was the tear.",
@@ -794,12 +857,30 @@ def write_art_review_packet(
             "still poses, Laplacian-blends the weights across seams that tear, "
             "and re-measures against the pre-repair edge classification so it "
             "cannot pass by reclassifying a torso edge as a limb edge.",
+            "Torso edges are gated on stretch relative to REST length, not only "
+            "on metres. f4d2059 passed at worst_torso=0.0911 m and still showed "
+            "a jagged band on Punch, because a ~10 mm chest edge stretched to "
+            "91 mm is a tear that no metre cap catches. The log carries the "
+            "stretch percentiles so the limit is calibrated, not guessed.",
+            "No chest mesh or weight edits. flatten_chest_pinch and "
+            "reassign_chest_head_weights both existed to chase that Punch edge; "
+            "they reshaped the pec region, every bake carrying them was reported "
+            "with a pec pinch, and their purpose is now served at the bind.",
+            "Close-up camera direction is chosen by measuring occlusion, and the "
+            "Punch still frame moves inside Punch_Cross only when no angle can "
+            "see past the guard hand. A still that cannot show the tusks fails "
+            "rather than shipping: f4d2059's Punch still was a picture of the "
+            "character's own hand and its Death still was the top of a head.",
             "AFTER stills gate: aperture containment (radius, depth, front "
             "fraction, height span) + rigid-bind proof + mouth-rim tracking + "
             "torso-spike refuse; junk Eyes unlinked from collections.",
-            "Two stills per clip. The body still cannot show a tusk: it frames "
-            "a 1.8 m figure from ~5 m on a 50 mm lens at 640x800, about 4.4 mm "
-            "per pixel. Judge the maw on the *_mouth close-up.",
+            "TWO STILLS PER CLIP — judge the maw on the *_mouth close-up, not "
+            "on the body still. The body still frames a 1.8 m figure from ~5 m "
+            "on a 50 mm lens at 640x800, about 4.4 mm per pixel, and on Punch "
+            "the guard hand covers the mouth while on Death the camera sees the "
+            "top of a supine head. body_still_tusk_visibility records what each "
+            "body still actually shows; mouth_cameras records the close-up "
+            "angle and the measured tusk pixel size.",
             "Jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred) and "
             "fades out across the mouth aperture so the carve still sees the "
             "face the aperture was solved on.",
@@ -1074,46 +1155,6 @@ def _leg_weight(vert, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r) -> float
     )
 
 
-# Front pectoral plate bounds (z_rel band, |x| half-width) plus the eased
-# margins that keep displacement continuous across the boundary.
-PEC_BOX_Z_REL = (0.56, 0.70)
-PEC_BOX_HALF_X = 0.070
-PEC_BOX_Z_REL_EDGE = 0.035
-PEC_BOX_X_EDGE = 0.020
-
-
-def pec_box_weight(v, cx: float, cy: float, z0: float, height: float) -> float:
-    """Membership weight in the front pectoral plate, eased to 0 at the edges.
-
-    A hard box is how the pec spikes were authored. ``flatten_chest_pinch``
-    yanked a vert 8 mm toward the chest plane if it was 1 µm inside the box and
-    left its neighbour untouched 1 µm outside, so the box boundary itself became
-    a torn edge — the 0240d6e "torso/pec strand" and "pec spike". Scaling every
-    chest displacement by this weight makes that tear impossible: the offset
-    difference between two adjacent verts is bounded by the falloff slope times
-    their spacing.
-
-    Still excludes clavicle / neck / armpit: 0240d6e treated any long
-    spine=1 / spine=0 edge as this class and seated clavicle verts onto the
-    chest, and Idle then read as a neck pinched off the shoulders.
-    """
-    if float(v.co.y) > cy:
-        return 0.0
-    z_rel = (float(v.co.z) - z0) / height
-    w_z = MG.band_falloff(z_rel, PEC_BOX_Z_REL[0], PEC_BOX_Z_REL[1], PEC_BOX_Z_REL_EDGE)
-    if w_z <= 0.0:
-        return 0.0
-    w_x = MG.band_falloff(
-        abs(float(v.co.x) - cx), -PEC_BOX_HALF_X, PEC_BOX_HALF_X, PEC_BOX_X_EDGE
-    )
-    return w_z * w_x
-
-
-def _in_front_pec_box(v, cx: float, cy: float, z0: float, height: float) -> bool:
-    """Membership test for callers that only need "is this a pec vert"."""
-    return pec_box_weight(v, cx, cy, z0, height) > 0.0
-
-
 def assert_no_leg_bone_scale(arm) -> None:
     for name in NO_SCALE_BONES:
         if name not in arm.pose.bones:
@@ -1130,13 +1171,13 @@ def assert_no_leg_bone_scale(arm) -> None:
             log(f"note: {name} use_inherit_rotation=False")
 
 
-def restyle_face_and_chest(arm, aperture) -> None:
-    """Heavy jaw + brow flatten + chest repair. No bulk, no invented gear.
+def restyle_face(arm, aperture) -> None:
+    """Heavy jaw + brow flatten. No bulk, no chest edits, no invented gear.
 
     Radial torso/arm bulk is gone rather than multiplied by zero: it drew the
     0706a32 pec-armpit spike and the Walk neck tear, and the orc read comes
-    from the maw, the tusks and the skin. What remains is a jaw offset and the
-    chest/weight repairs.
+    from the maw, the tusks and the skin. The chest edits are gone too (see
+    below), so what remains is the jaw offset and the brow flatten.
 
     Neck/chest tear guard: jaw edits only on head-dominant face verts, never on
     neck_01 / spine_03-heavy verts. Those sat in the old dz band and shredded
@@ -1234,8 +1275,14 @@ def restyle_face_and_chest(arm, aperture) -> None:
         )
 
     flatten_male_body_brow_spikes(arm, aperture)
-    flatten_chest_pinch(arm)
-    reassign_chest_head_weights(arm)
+    # No chest edits. flatten_chest_pinch and reassign_chest_head_weights both
+    # existed to chase the Punch edge (1876, 1891), which f4d2059 established is
+    # a donor bind seam and repair_bind_seams now fixes at its actual root. What
+    # they left behind was a reshaped pec region: the flatten pulled the pec
+    # apex back toward a box median and pushed the sternum forward, and every
+    # bake carrying it was reported with a "pec pinch". They are the only code
+    # deliberately deforming the area the artefact keeps appearing in, and their
+    # stated purpose is now served by a measured repair, so they are gone.
     # One invariant covering every weight edit above: a skin vert with no
     # remaining bone influence is frozen at rest object space while the rest of
     # the mesh deforms, which draws exactly the 0240d6e "torso/pec strand".
@@ -1334,69 +1381,6 @@ def flatten_male_body_brow_spikes(arm, aperture) -> int:
     return flattened
 
 
-def flatten_chest_pinch(arm) -> int:
-    """Pull sternum/pec Y outliers back to the chest plane.
-
-    Include head-weighted pec verts — those are the Punch/Death stretch class
-    (b4d8e66 Punch edge 1876–1891 at 0.213m). Skipping hw>=0.40 left the
-    pinch in place.
-
-    Both discontinuities that made this function an artefact factory are gone:
-    the pec box is now a weight (``pec_box_weight``) rather than a hard bound,
-    and the outlier test is a ramp rather than "dy > 10 mm ⇒ yank 80 % of the
-    way to the median". Together those were the 0240d6e "torso/pec strand" and
-    "Death pec spike": the flatten itself tore the boundary it selected on.
-    """
-    body = male_body_mesh(arm)
-    me = body.data
-    xs = [v.co.x for v in me.vertices]
-    ys = [v.co.y for v in me.vertices]
-    zs = [v.co.z for v in me.vertices]
-    cx = 0.5 * (min(xs) + max(xs))
-    cy = 0.5 * (min(ys) + max(ys))
-    z0, z1 = min(zs), max(zs)
-    height = max(z1 - z0, 1e-3)
-    pec = []
-    for i, v in enumerate(me.vertices):
-        w = pec_box_weight(v, cx, cy, z0, height)
-        if w <= 0.0:
-            continue
-        pec.append((i, w, float(v.co.y)))
-    if len(pec) < 8:
-        log(f"chest-pinch flatten: too few pec verts ({len(pec)}); skip")
-        return 0
-    core_ys = sorted(y for _i, w, y in pec if w >= 0.75)
-    if len(core_ys) < 4:
-        core_ys = sorted(y for _i, _w, y in pec)
-    median_y = core_ys[len(core_ys) // 2]
-    pulled = 0
-    worst_move = 0.0
-    for i, box_w, _y in pec:
-        v = me.vertices[i]
-        dy = float(v.co.y) - median_y
-        if dy > CHEST_PINCH_FORWARD_M:
-            excess = dy - CHEST_PINCH_FORWARD_M
-        elif dy < -CHEST_PINCH_BACK_M:
-            excess = -CHEST_PINCH_BACK_M - dy
-        else:
-            continue
-        ramp = MG.smoothstep(min(1.0, excess / CHEST_PINCH_RAMP_M))
-        blend = CHEST_PINCH_MAX_BLEND * box_w * ramp
-        if blend <= 0.0:
-            continue
-        before = float(v.co.y)
-        v.co.y = (1.0 - blend) * before + blend * median_y
-        worst_move = max(worst_move, abs(float(v.co.y) - before))
-        pulled += 1
-    me.update()
-    log(
-        f"chest-pinch flatten verts_adjusted={pulled} pec_n={len(pec)} "
-        f"median_y={median_y:.4f} worst_move={worst_move:.4f} "
-        f"(eased pec box + ramped outlier pull; includes head-weighted pecs)"
-    )
-    return pulled
-
-
 def vg_by_index(obj, group_index):
     if group_index is None:
         return None
@@ -1404,103 +1388,6 @@ def vg_by_index(obj, group_index):
         if g.index == group_index:
             return g
     return None
-
-
-def reassign_chest_head_weights(arm) -> int:
-    """Move misplaced head/neck weight on pec verts onto the chest spine.
-
-    Punch/Death rotate the head; a sternum vert with leftover head weight flies
-    off and grows a 20 cm+ edge (b4d8e66 Punch 1876–1891). That part was right.
-    Deleting the weight was not: ``vertex_group.remove`` on a pec vert whose
-    only group was ``head`` left it with **no** groups at all. An unweighted vert
-    on an armature-deformed mesh stays at its rest object-space position while
-    every neighbour follows the bones, so it draws a strand from the chest to
-    wherever the body moved — the 0240d6e "torso/pec strand" and the
-    "neck/clavicle pinch". The old guard (``tw < 0.08 and hw < 0.20 -> skip``)
-    explicitly let the pure-head case through.
-
-    So this is a transfer, not a delete: validate first, compute the whole new
-    weight set, and only then write it. If there is nowhere to transfer to, that
-    is a bind we do not understand and it fails loudly.
-    """
-    body = male_body_mesh(arm)
-    me = body.data
-    bone_groups = armature_bone_groups(body, arm)
-    head_i = vg_index(body, "head")
-    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
-    spine2_i = vg_index(body, "spine_02")
-    spine3_i = vg_index(body, "spine_03")
-    upper_l = vg_index(body, "upperarm_l")
-    upper_r = vg_index(body, "upperarm_r")
-    if spine2_i is None and spine3_i is None:
-        raise RuntimeError(
-            "male_body has neither spine_02 nor spine_03 — cannot re-home "
-            "misplaced pec head/neck weight on the 53-bone bind"
-        )
-    xs = [v.co.x for v in me.vertices]
-    zs = [v.co.z for v in me.vertices]
-    ys = [v.co.y for v in me.vertices]
-    cx = 0.5 * (min(xs) + max(xs))
-    cy = 0.5 * (min(ys) + max(ys))
-    z0, z1 = min(zs), max(zs)
-    height = max(z1 - z0, 1e-3)
-    moved = 0
-    for i, v in enumerate(me.vertices):
-        if not _in_front_pec_box(v, cx, cy, z0, height):
-            continue
-        if _arm_weight(v, upper_l, upper_r, None, None, None, None) >= 0.35:
-            continue
-        s2 = vg_weight(v, spine2_i)
-        s3 = vg_weight(v, spine3_i)
-        tw = max(s2, s3)
-        hw = vg_weight(v, head_i)
-        nw = vg_weight(v, neck_i)
-        transfer = 0.0
-        if hw >= 0.08:
-            transfer += hw
-        if nw >= 0.08:
-            transfer += nw
-        if transfer <= 0.0:
-            continue
-        # Prefer the spine group this vert already leans on; spine_03 is the
-        # upper chest and is the right home for a sternum vert with none.
-        if s3 >= s2 and spine3_i is not None:
-            host_i = spine3_i
-        elif spine2_i is not None:
-            host_i = spine2_i
-        else:
-            host_i = spine3_i
-        host = vg_by_index(body, host_i)
-        if host is None:
-            raise RuntimeError(
-                f"male_body vert {i}: chest host group index {host_i} has no "
-                f"vertex group — refusing to strip head/neck weight with "
-                f"nowhere to put it"
-            )
-        new_host_w = min(1.0, vg_weight(v, host_i) + transfer)
-        if new_host_w <= 0.0:
-            raise RuntimeError(
-                f"male_body vert {i}: chest transfer produced weight "
-                f"{new_host_w:.4f} (head={hw:.3f} neck={nw:.3f} spine={tw:.3f}) "
-                f"— would leave the vert unbound"
-            )
-        host.add([int(i)], float(new_host_w), "REPLACE")
-        if hw >= 0.08:
-            _clear_vg(body, i, head_i)
-        if nw >= 0.08:
-            _clear_vg(body, i, neck_i)
-        if effective_bind_weight(me.vertices[i], bone_groups) <= 1e-6:
-            raise RuntimeError(
-                f"male_body vert {i} left with no bone influence after chest "
-                f"weight transfer (host={host.name!r} target={new_host_w:.4f}) — "
-                f"this is the frozen-vert strand class; refusing to continue"
-            )
-        moved += 1
-    log(
-        f"re-homed head/neck weight on pec verts n={moved} "
-        f"(transferred to spine_02/spine_03, never deleted)"
-    )
-    return moved
 
 
 def vertex_group_name(obj, group_index) -> str:
@@ -1706,10 +1593,11 @@ def assert_all_skin_verts_bound(arm, label: str) -> None:
 
 
 def stretch_gate_context(body) -> dict:
-    """Per-vert limb weights and the edge list for the stretched-edge scan.
+    """Per-vert limb weights, the edge list, and REST edge lengths.
 
     Built once and shared by ``assert_no_torso_spike`` and the bind repair, so
-    the repair cannot disagree with the gate about which edges are torso edges.
+    the repair cannot disagree with the gate about which edges are torso edges
+    or about how far they have stretched.
     """
     me = body.data
     upper_l = vg_index(body, "upperarm_l")
@@ -1731,11 +1619,19 @@ def stretch_gate_context(body) -> dict:
             _arm_weight(v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r)
         )
         leg_w.append(_leg_weight(v, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r))
-    return {
-        "arm": arm_w,
-        "leg": leg_w,
-        "edges": [(int(e.vertices[0]), int(e.vertices[1])) for e in me.edges],
-    }
+    scale = body_world_scale(body)
+    edges = []
+    rest = []
+    for e in me.edges:
+        a, b = int(e.vertices[0]), int(e.vertices[1])
+        edges.append((a, b))
+        rest.append(
+            max(
+                (me.vertices[a].co - me.vertices[b].co).length * scale,
+                TORSO_REST_EDGE_FLOOR_M,
+            )
+        )
+    return {"arm": arm_w, "leg": leg_w, "edges": edges, "rest": rest}
 
 
 def is_limb_edge(ctx: dict, a: int, b: int) -> bool:
@@ -1750,24 +1646,77 @@ def is_limb_edge(ctx: dict, a: int, b: int) -> bool:
     )
 
 
-def scan_torso_edges(ctx: dict, verts_w: list, limit: float) -> dict:
-    """Longest non-limb posed edge, plus every non-limb edge over ``limit``."""
-    worst = 0.0
-    pair = (-1, -1)
+def scan_torso_edges(
+    ctx: dict, verts_w: list, *, limit_m: float, limit_stretch: float
+) -> dict:
+    """Measure every non-limb posed edge against both limits.
+
+    Absolute length catches a through-body spike. Stretch relative to rest
+    length catches the thing that got through f4d2059: a band of chest edges
+    at 9x their rest length, only 91 mm long, which the eye reads as a tear and
+    a metre threshold does not see. An edge is "over" if it fails either.
+    """
+    worst_m = 0.0
+    worst_m_pair = (-1, -1)
+    worst_s = 0.0
+    worst_s_pair = (-1, -1)
+    worst_s_len = 0.0
     worst_limb = 0.0
     over = []
-    for a, b in ctx["edges"]:
+    stretches = []
+    for k, (a, b) in enumerate(ctx["edges"]):
         d = (verts_w[a] - verts_w[b]).length
         if is_limb_edge(ctx, a, b):
             if d > worst_limb:
                 worst_limb = d
             continue
-        if d > worst:
-            worst = d
-            pair = (a, b)
-        if d > limit:
-            over.append((d, a, b))
-    return {"worst": worst, "pair": pair, "worst_limb": worst_limb, "over": over}
+        s = d / ctx["rest"][k]
+        stretches.append(s)
+        if d > worst_m:
+            worst_m = d
+            worst_m_pair = (a, b)
+        if s > worst_s:
+            worst_s = s
+            worst_s_pair = (a, b)
+            worst_s_len = d
+        if d > limit_m or s > limit_stretch:
+            over.append((d, s, a, b))
+    stretches.sort()
+
+    def pct(f: float) -> float:
+        if not stretches:
+            return 0.0
+        i = int(round(f * (len(stretches) - 1)))
+        return stretches[max(0, min(len(stretches) - 1, i))]
+
+    return {
+        "worst_m": worst_m,
+        "worst_m_pair": worst_m_pair,
+        "worst_stretch": worst_s,
+        "worst_stretch_pair": worst_s_pair,
+        "worst_stretch_len": worst_s_len,
+        "worst_limb": worst_limb,
+        "over": over,
+        "n": len(stretches),
+        "p50": pct(0.50),
+        "p90": pct(0.90),
+        "p99": pct(0.99),
+        "p999": pct(0.999),
+    }
+
+
+def format_stretch_stats(scan: dict) -> str:
+    """Percentiles of non-limb edge stretch, so the limits can be calibrated.
+
+    A bake that refuses on stretch should also say what a normal edge on this
+    mesh does, otherwise the next run is guessing at the threshold again.
+    """
+    return (
+        f"n={scan['n']} stretch p50={scan['p50']:.2f} p90={scan['p90']:.2f} "
+        f"p99={scan['p99']:.2f} p99.9={scan['p999']:.2f} "
+        f"max={scan['worst_stretch']:.2f} at {scan['worst_stretch_pair']} "
+        f"({scan['worst_stretch_len']:.4f} m)"
+    )
 
 
 def describe_vert_bind(body, arm, index: int) -> str:
@@ -1861,13 +1810,17 @@ def bind_probe_poses(arm) -> list:
     return out
 
 
-def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list, limit: float) -> tuple:
-    """Worst non-limb posed edge across every probe pose."""
+def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list) -> tuple:
+    """Worst non-limb posed edge, absolute and relative, across every probe pose."""
     over = {}
-    worst = 0.0
-    worst_pair = (-1, -1)
+    worst_m = 0.0
+    worst_m_pair = (-1, -1)
+    worst_s = 0.0
+    worst_s_pair = (-1, -1)
+    worst_s_len = 0.0
     worst_at = "(none)"
     worst_limb = 0.0
+    worst_scan = None
     for label, act, frames in poses:
         for f in frames:
             apply_action_datablock(arm, act, int(f), quiet=True)
@@ -1877,21 +1830,36 @@ def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list, limit: float) 
                     f"bind probe {label}@{f}: eval vert count {len(verts_w)} != "
                     f"{len(body.data.vertices)}"
                 )
-            scan = scan_torso_edges(ctx, verts_w, limit)
-            if scan["worst"] > worst:
-                worst = scan["worst"]
-                worst_pair = scan["pair"]
+            scan = scan_torso_edges(
+                ctx,
+                verts_w,
+                limit_m=BIND_SEAM_TARGET_M,
+                limit_stretch=BIND_SEAM_TARGET_STRETCH,
+            )
+            if scan["worst_m"] > worst_m:
+                worst_m = scan["worst_m"]
+                worst_m_pair = scan["worst_m_pair"]
+            if scan["worst_stretch"] > worst_s:
+                worst_s = scan["worst_stretch"]
+                worst_s_pair = scan["worst_stretch_pair"]
+                worst_s_len = scan["worst_stretch_len"]
                 worst_at = f"{label}:{act.name}@{f}"
+                worst_scan = scan
             worst_limb = max(worst_limb, scan["worst_limb"])
-            for d, a, b in scan["over"]:
+            for d, s, a, b in scan["over"]:
                 key = (a, b)
-                if d > over.get(key, 0.0):
-                    over[key] = d
+                prev = over.get(key)
+                if prev is None or s > prev[1]:
+                    over[key] = (d, s)
     return over, {
-        "worst": worst,
-        "pair": worst_pair,
+        "worst_m": worst_m,
+        "worst_m_pair": worst_m_pair,
+        "worst_stretch": worst_s,
+        "worst_stretch_pair": worst_s_pair,
+        "worst_stretch_len": worst_s_len,
         "at": worst_at,
         "worst_limb": worst_limb,
+        "stats": format_stretch_stats(worst_scan) if worst_scan else "(no scan)",
     }
 
 
@@ -1933,23 +1901,27 @@ def repair_bind_seams(arm) -> int:
     smoothed = 0
     stats = {}
     for attempt, (rings, iterations) in enumerate(BIND_SEAM_ATTEMPTS):
-        over, stats = probe_stretched_bind_seams(
-            arm, body, ctx, poses, BIND_SEAM_TARGET_M
-        )
+        over, stats = probe_stretched_bind_seams(arm, body, ctx, poses)
         log(
-            f"bind seam probe {attempt}: worst non-limb edge {stats['worst']:.4f} "
-            f"at {stats['at']} verts={stats['pair']} "
+            f"bind seam probe {attempt}: worst non-limb edge "
+            f"{stats['worst_m']:.4f} m at {stats['worst_m_pair']}, worst stretch "
+            f"{stats['worst_stretch']:.2f}x ({stats['worst_stretch_len']:.4f} m) "
+            f"at {stats['worst_stretch_pair']} on {stats['at']} "
             f"(limb edges up to {stats['worst_limb']:.4f} ignored); "
-            f"{len(over)} edge(s) over {BIND_SEAM_TARGET_M}"
+            f"{len(over)} edge(s) over {BIND_SEAM_TARGET_M} m / "
+            f"{BIND_SEAM_TARGET_STRETCH}x. {stats['stats']}"
         )
         if not over:
             arm.matrix_basis = arm_basis
             force_armature_rest(arm)
-            log(f"bind seams within {BIND_SEAM_TARGET_M} on every probe pose")
-            return smoothed
-        for (a, b), d in sorted(over.items(), key=lambda kv: -kv[1])[:6]:
             log(
-                f"  torn seam {d:.4f} ({a},{b}) "
+                f"bind seams within {BIND_SEAM_TARGET_M} m and "
+                f"{BIND_SEAM_TARGET_STRETCH}x on every probe pose"
+            )
+            return smoothed
+        for (a, b), (d, sr) in sorted(over.items(), key=lambda kv: -kv[1][1])[:6]:
+            log(
+                f"  torn seam {d:.4f} m ({sr:.2f}x) ({a},{b}) "
                 f"[{describe_vert_bind(body, arm, a)}] "
                 f"[{describe_vert_bind(body, arm, b)}]"
             )
@@ -1966,8 +1938,8 @@ def repair_bind_seams(arm) -> int:
                 f"bind seam repair: {len(over)} torn edge(s) touch {len(seed)} "
                 f"vert(s), over the {cap}-vert cap "
                 f"({BIND_SEAM_MAX_SEED_FRAC} of male_body). That is not a seam, "
-                f"it is a broken bind. Worst {stats['worst']:.4f} at "
-                f"{stats['at']} verts={stats['pair']}"
+                f"it is a broken bind. Worst {stats['worst_m']:.4f} m / "
+                f"{stats['worst_stretch']:.2f}x on {stats['at']}. {stats['stats']}"
             )
         arm.matrix_basis = arm_basis
         force_armature_rest(arm)
@@ -1976,24 +1948,28 @@ def repair_bind_seams(arm) -> int:
         )
         assert_all_skin_verts_bound(arm, f"after bind seam smoothing {attempt}")
 
-    over, stats = probe_stretched_bind_seams(arm, body, ctx, poses, BIND_SEAM_TARGET_M)
+    over, stats = probe_stretched_bind_seams(arm, body, ctx, poses)
     arm.matrix_basis = arm_basis
     force_armature_rest(arm)
     if over:
-        a, b = stats["pair"]
+        a, b = stats["worst_stretch_pair"]
         raise RuntimeError(
             f"bind seam repair did not converge after {len(BIND_SEAM_ATTEMPTS)} "
-            f"attempts: worst non-limb edge {stats['worst']:.4f} > "
-            f"{BIND_SEAM_TARGET_M} at {stats['at']} verts=({a},{b}) "
+            f"attempts: worst non-limb edge {stats['worst_m']:.4f} m "
+            f"(limit {BIND_SEAM_TARGET_M}), worst stretch "
+            f"{stats['worst_stretch']:.2f}x (limit {BIND_SEAM_TARGET_STRETCH}) at "
+            f"{stats['worst_stretch_len']:.4f} m on {stats['at']} verts=({a},{b}) "
             f"[{describe_vert_bind(body, arm, a)}] "
             f"[{describe_vert_bind(body, arm, b)}] "
-            f"({len(over)} edge(s) still over). The bones named above are the "
-            f"seam that tears; widen BIND_SEAM_ATTEMPTS or fix the donor bind."
+            f"({len(over)} edge(s) still over). {stats['stats']} — the "
+            f"percentiles say what a normal edge on this mesh does; the bones "
+            f"named above are the seam that tears."
         )
     log(
-        f"bind seams repaired: worst non-limb edge {stats['worst']:.4f} at "
-        f"{stats['at']} over {sum(len(f) for _l, _a, f in poses)} probe poses "
-        f"({smoothed} vert weight writes)"
+        f"bind seams repaired: worst non-limb edge {stats['worst_m']:.4f} m / "
+        f"{stats['worst_stretch']:.2f}x on {stats['at']} over "
+        f"{sum(len(f) for _l, _a, f in poses)} probe poses "
+        f"({smoothed} vert weight writes). {stats['stats']}"
     )
     return smoothed
 
@@ -2869,11 +2845,17 @@ def assert_no_torso_spike(arm, label: str) -> None:
         f"n={len(torso)}"
     )
     ctx = stretch_gate_context(body)
-    scan = scan_torso_edges(ctx, verts_w, TORSO_EDGE_MAX_M)
-    if scan["worst"] > TORSO_EDGE_MAX_M:
-        a, b = scan["pair"]
+    scan = scan_torso_edges(
+        ctx,
+        verts_w,
+        limit_m=TORSO_EDGE_MAX_M,
+        limit_stretch=TORSO_EDGE_MAX_STRETCH,
+    )
+    log(f"{label} torso edge stats: {format_stretch_stats(scan)}")
+    if scan["worst_m"] > TORSO_EDGE_MAX_M:
+        a, b = scan["worst_m_pair"]
         raise RuntimeError(
-            f"{label} still: stretched male_body torso edge {scan['worst']:.4f} > "
+            f"{label} still: stretched male_body torso edge {scan['worst_m']:.4f} > "
             f"{TORSO_EDGE_MAX_M} verts=({a},{b}) "
             f"[{describe_vert_bind(body, arm, a)}] "
             f"[{describe_vert_bind(body, arm, b)}] "
@@ -2881,9 +2863,24 @@ def assert_no_torso_spike(arm, label: str) -> None:
             f"spike; refusing PNG. The bones named above are the seam that "
             f"tears; repair_bind_seams should have blended them"
         )
+    if scan["worst_stretch"] > TORSO_EDGE_MAX_STRETCH:
+        a, b = scan["worst_stretch_pair"]
+        raise RuntimeError(
+            f"{label} still: male_body torso edge stretched "
+            f"{scan['worst_stretch']:.2f}x its rest length "
+            f"(> {TORSO_EDGE_MAX_STRETCH}) at only "
+            f"{scan['worst_stretch_len']:.4f} m verts=({a},{b}) "
+            f"[{describe_vert_bind(body, arm, a)}] "
+            f"[{describe_vert_bind(body, arm, b)}] "
+            f"({len(scan['over'])} edge(s) over). {format_stretch_stats(scan)}. "
+            f"This is the f4d2059 pixel class: short enough to pass a metre cap, "
+            f"stretched enough to read as a jagged band; refusing PNG"
+        )
     log(
-        f"{label} stretched-edge gate: worst_torso={scan['worst']:.4f} "
-        f"verts={scan['pair']} worst_limb_skipped={scan['worst_limb']:.4f}"
+        f"{label} stretched-edge gate: worst_torso={scan['worst_m']:.4f} "
+        f"verts={scan['worst_m_pair']} "
+        f"worst_stretch={scan['worst_stretch']:.2f}x "
+        f"worst_limb_skipped={scan['worst_limb']:.4f}"
     )
 
 
@@ -4535,9 +4532,14 @@ def _preview_lights(scale: float = 1.0) -> None:
     add_light("Rim", "AREA", (0.4, 3.4, 3.2), 140.0 * scale, size=1.6)
 
 
-def _preview_camera(location: Vector, target: Vector, *, lens: float = 50.0):
+def _preview_camera(location: Vector, target: Vector, *, lens: float = STILL_LENS_MM):
     cam_data = bpy.data.cameras.new("PreviewCam")
     cam_data.lens = lens
+    # Pin the sensor: orc_still_visibility measures the tusk footprint in pixels
+    # against these exact numbers, and a default that drifted would make the
+    # measurement and the render disagree.
+    cam_data.sensor_fit = "AUTO"
+    cam_data.sensor_width = STILL_SENSOR_MM
     # The mouth close-up stands ~0.3 m off the face, so the nose is within the
     # 0.1 m default near plane and would be clipped out of the frame.
     cam_data.clip_start = 0.01
@@ -4588,7 +4590,7 @@ def setup_standing_preview(center, extent, *, look_at=None, show_head: bool = Fa
                 max(center.z + span * 0.35, 1.55),
             )
         )
-    cam = _preview_camera(location, target)
+    cam = _preview_camera(location, target, lens=STILL_LENS_MM)
     _preview_lights()
     _preview_render_settings(640, 800)
     if show_head:
@@ -4613,7 +4615,7 @@ def setup_death_preview(center, extent, *, look_at=None) -> None:
         target = Vector((center.x, center.y, max(center.z, 0.15)))
     else:
         target = Vector(look_at)
-    cam = _preview_camera(location, target)
+    cam = _preview_camera(location, target, lens=STILL_LENS_MM)
     _preview_lights()
     _preview_render_settings(800, 1000)
     log(
@@ -4622,45 +4624,192 @@ def setup_death_preview(center, extent, *, look_at=None) -> None:
     )
 
 
-def setup_mouth_closeup_preview(arm) -> dict:
-    """Frame the posed maw so the tusks are actually made of pixels.
+def _t3(v) -> tuple:
+    return (float(v[0]), float(v[1]), float(v[2]))
 
-    This is the other half of the "EXIT 0 but no visible tusks" failure. The
-    body stills frame a ~1.8 m figure from ~5 m on a 50 mm lens at 640x800,
-    which is about 4.4 mm per pixel: a tusk the length of a thumb joint is
-    roughly ten pixels tall, inside a mouth, at a three-quarter angle. Both
-    0706a32 and 0240d6e passed every numeric gate and were then reported as
-    having no visible tusks -- there was nothing to see at that scale even if
-    the geometry had been perfect.
 
-    So render a second still per clip from the aperture's own frame, standing
-    off by a fixed multiple of the measured head width. The shot then covers
-    about one head height whatever the head scale, and the same tusk is ~90 px.
+def tusk_target_points(tusks: list) -> list:
+    """Sampled tusk world points for the visibility measurement.
+
+    Subsampled because occlusion is exact segment-triangle work and the sweep
+    tries many camera directions; the whole cone is not needed to know whether
+    a reviewer can see it.
+    """
+    pts = []
+    for tusk in tusks:
+        verts = _evaluated_mesh_verts_world(tusk)
+        if not verts:
+            raise RuntimeError(f"{tusk.name!r} evaluated to no vertices")
+        step = max(1, len(verts) // max(1, STILL_TUSK_SAMPLES_PER_TUSK))
+        pts.extend(_t3(v) for v in verts[::step])
+    if not pts:
+        raise RuntimeError("tusk_target_points: no tusk vertices to measure")
+    return pts
+
+
+def near_head_occluder_tris(arm, tusks: list, centre, radius: float) -> list:
+    """Triangles near the mouth from everything except the tusks themselves.
+
+    Includes the head: from an oblique angle the cheek is exactly what blocks
+    the view into the maw, and a sweep that ignored it would happily pick a
+    camera looking through the face.
+    """
+    skip = {t.name for t in tusks}
+    c = Vector(centre)
+    r2 = radius * radius
+    tris = []
+    deps = bpy.context.evaluated_depsgraph_get()
+    for obj in bpy.data.objects:
+        if obj.type != "MESH" or obj.name in skip:
+            continue
+        if obj.name.startswith("Preview") or obj.name == "PreviewGround":
+            continue
+        if obj.hide_render or obj.hide_viewport:
+            continue
+        if not obj.users_collection:
+            continue  # unlinked junk (hidden Eyes) cannot occlude a render
+        ev = obj.evaluated_get(deps)
+        me = ev.to_mesh()
+        try:
+            if not me.vertices:
+                continue
+            mw = ev.matrix_world
+            world = [mw @ v.co for v in me.vertices]
+            near = [(p - c).length_squared <= r2 for p in world]
+            if hasattr(me, "calc_loop_triangles"):
+                me.calc_loop_triangles()
+            if me.polygons and not me.loop_triangles:
+                raise RuntimeError(
+                    f"{obj.name!r} evaluated mesh has {len(me.polygons)} polygon(s) "
+                    f"but no loop triangles — cannot test what occludes the mouth"
+                )
+            for lt in me.loop_triangles:
+                a, b, d = (int(i) for i in lt.vertices)
+                if not (near[a] or near[b] or near[d]):
+                    continue
+                tris.append((_t3(world[a]), _t3(world[b]), _t3(world[d])))
+        finally:
+            ev.to_mesh_clear()
+    return tris
+
+
+def measure_tusk_visibility(
+    cam_origin, look_at, up_hint, targets: list, tris: list, *, res_x: int, res_y: int
+) -> dict:
+    """Visibility of the tusks from one camera placement, in pixels."""
+    return SV.visibility_report(
+        _t3(cam_origin),
+        _t3(look_at),
+        _t3(up_hint),
+        targets,
+        tris,
+        lens=STILL_LENS_MM,
+        sensor_width=STILL_SENSOR_MM,
+        sensor_height=STILL_SENSOR_MM,
+        res_x=int(res_x),
+        res_y=int(res_y),
+    )
+
+
+def choose_mouth_closeup_view(arm, tusks: list, *, strict: bool = True):
+    """Pick a close-up camera placement that can actually see the tusks.
+
+    Sweeps azimuth and elevation around the mouth axis and takes the first
+    placement that clears ``STILL_MIN_VISIBLE_FRAC`` and
+    ``STILL_MIN_TUSK_PX``, straight-on first. This is the fix for "Punch: tusks
+    not readable on this still": Punch_Cross holds the guard hand in front of
+    the mouth, so the straight-on view is a picture of the back of a hand. No
+    tusk-placement gate can detect that — only measuring the camera can.
     """
     frame = posed_aperture_frame(arm)
-    center = frame["center"]
+    centre = frame["center"]
     out = -Vector(frame["inward"])
     up = Vector(frame["up"])
-    right = Vector(frame["right"])
-    # Distance from the measured head width, so this frames about one head
-    # height whatever the head scale, rather than a fixed metre figure.
     reach = MOUTH_CLOSEUP_REACH_HEAD_WIDTHS * float(frame["head_width"])
-    location = center + out * reach + right * (0.30 * reach) + up * (0.18 * reach)
-    lifted = False
-    if float(location.z) < MOUTH_CLOSEUP_MIN_CAM_Z:
-        # A face pointing at the ground would put the camera under the preview
-        # ground plane, which renders the plane instead of the maw. Mirror the
-        # view direction into the upper hemisphere rather than clamping Z,
-        # which would keep the standoff and only change the angle. Death is
-        # asserted on-back upstream, so this should not normally trigger.
-        flipped = Vector((float(out.x), float(out.y), abs(float(out.z))))
-        if flipped.length < 1e-6:
-            flipped = Vector((0.0, 0.0, 1.0))
-        flipped.normalize()
-        location = center + flipped * reach + right * (0.30 * reach)
-        lifted = True
+    targets = tusk_target_points(tusks)
+    tris = near_head_occluder_tris(
+        arm, tusks, centre, STILL_OCCLUDER_RADIUS_HEAD_WIDTHS * float(frame["head_width"])
+    )
+    candidates = SV.view_directions(
+        _t3(out), _t3(up), MOUTH_CLOSEUP_AZIMUTHS, MOUTH_CLOSEUP_ELEVATIONS
+    )
+    best = None
+    tried = 0
+    for az, el, d in candidates:
+        direction = Vector(d)
+        location = centre + direction * reach
+        if float(location.z) < MOUTH_CLOSEUP_MIN_CAM_Z:
+            continue  # under the preview ground plane; it would render the plane
+        report = measure_tusk_visibility(
+            location,
+            centre,
+            STILL_CAMERA_UP,
+            targets,
+            tris,
+            res_x=MOUTH_CLOSEUP_RES,
+            res_y=MOUTH_CLOSEUP_RES,
+        )
+        tried += 1
+        scored = {
+            "azimuth": az,
+            "elevation": el,
+            "location": location,
+            "reach": reach,
+            "report": report,
+        }
+        if best is None or report["visible_frac"] > best["report"]["visible_frac"]:
+            best = scored
+        if (
+            report["visible_frac"] >= STILL_MIN_VISIBLE_FRAC
+            and max(report["px_w"], report["px_h"]) >= STILL_MIN_TUSK_PX
+        ):
+            scored["ok"] = True
+            log(
+                f"mouth close-up view azimuth={az:.0f} elevation={el:.0f} "
+                f"visible_frac={report['visible_frac']:.2f} "
+                f"px={report['px_w']:.0f}x{report['px_h']:.0f} "
+                f"(candidate {tried} of {len(candidates)}, "
+                f"{len(tris)} occluder tris, {len(targets)} tusk samples)"
+            )
+            return scored
+    if best is None:
+        raise RuntimeError(
+            "mouth close-up: every candidate camera fell below the ground plane "
+            f"(reach={reach:.3f}, centre={tuple(round(c, 3) for c in centre)})"
+        )
+    best["ok"] = False
+    r = best["report"]
+    if not strict:
+        return best
+    raise RuntimeError(
+        f"mouth close-up cannot see the tusks from any of {tried} view(s): best "
+        f"visible_frac={r['visible_frac']:.2f} (need {STILL_MIN_VISIBLE_FRAC}) "
+        f"px={r['px_w']:.0f}x{r['px_h']:.0f} (need {STILL_MIN_TUSK_PX} on the "
+        f"larger axis) "
+        f"at azimuth={best['azimuth']:.0f} elevation={best['elevation']:.0f}; "
+        f"{len(tris)} occluder tris within "
+        f"{STILL_OCCLUDER_RADIUS_HEAD_WIDTHS} head widths. Something is in front "
+        f"of the mouth in this pose — refusing a still that cannot show the maw"
+    )
+
+
+def setup_mouth_closeup_preview(arm, tusks: list) -> dict:
+    """Frame the posed maw so the tusks are actually made of pixels.
+
+    The body stills cannot do this job. They frame a ~1.8 m figure from ~5 m on
+    a 50 mm lens at 640x800, about 4.4 mm per pixel, so a 26 mm tusk is around
+    ten pixels — and on Punch the guard hand covers the mouth outright while on
+    Death the overhead camera sees the top of a supine head. So render a second
+    still per clip on a view direction chosen by measuring what it can see.
+    """
+    view = choose_mouth_closeup_view(arm, tusks)
+    frame = posed_aperture_frame(arm)
+    centre = frame["center"]
+    up = Vector(frame["up"])
+    location = view["location"]
+    reach = view["reach"]
     _preview_stage()
-    cam = _preview_camera(location, center, lens=50.0)
+    cam = _preview_camera(location, centre, lens=STILL_LENS_MM)
     _preview_lights(scale=0.35)
     # A dedicated fill on the mouth axis: a concave cavity is self-shadowing,
     # so without it the maw renders as a black hole and takes the ivory with it.
@@ -4668,30 +4817,136 @@ def setup_mouth_closeup_preview(arm) -> dict:
     # light sits ~0.3 m from the face, where the body rig's 200 W fill at 3 m
     # would be a hundred times too bright.
     key_distance = MOUTH_CLOSEUP_KEY_STANDOFF * reach
+    key_dir = (location - centre).normalized()
     mouth_key = bpy.data.lights.new("MouthKey", "AREA")
     mouth_key.energy = (
         MOUTH_CLOSEUP_KEY_IRRADIANCE * 2.0 * math.pi * key_distance * key_distance
     )
     mouth_key.size = max(0.5 * reach, 0.05)
     key_obj = bpy.data.objects.new("MouthKey", mouth_key)
-    key_obj.location = center + out * key_distance + up * (0.35 * key_distance)
+    key_obj.location = centre + key_dir * key_distance + up * (0.35 * key_distance)
     key_obj.rotation_euler = (
-        (center - key_obj.location).to_track_quat("-Z", "Y").to_euler()
+        (centre - key_obj.location).to_track_quat("-Z", "Y").to_euler()
     )
     bpy.context.scene.collection.objects.link(key_obj)
-    _preview_render_settings(720, 720)
+    _preview_render_settings(MOUTH_CLOSEUP_RES, MOUTH_CLOSEUP_RES)
+    report = view["report"]
     log(
         f"mouth close-up cam loc={tuple(round(c, 3) for c in cam.location)} "
-        f"look={tuple(round(c, 3) for c in center)} reach={reach:.3f} "
-        f"key_dist={key_distance:.3f} key_energy={mouth_key.energy:.2f}W "
-        f"ground_lift={lifted}"
+        f"look={tuple(round(c, 3) for c in centre)} reach={reach:.3f} "
+        f"azimuth={view['azimuth']:.0f} elevation={view['elevation']:.0f} "
+        f"tusk_visible_frac={report['visible_frac']:.2f} "
+        f"tusk_px={report['px_w']:.0f}x{report['px_h']:.0f} "
+        f"key_dist={key_distance:.3f} key_energy={mouth_key.energy:.2f}W"
     )
     return {
         "camera": [round(float(c), 4) for c in cam.location],
-        "look_at": [round(float(c), 4) for c in center],
+        "look_at": [round(float(c), 4) for c in centre],
         "reach_m": round(reach, 4),
-        "ground_lift": lifted,
+        "azimuth_deg": round(float(view["azimuth"]), 1),
+        "elevation_deg": round(float(view["elevation"]), 1),
+        "tusk_visible_frac": round(float(report["visible_frac"]), 3),
+        "tusk_px_w": round(float(report["px_w"]), 1),
+        "tusk_px_h": round(float(report["px_h"]), 1),
     }
+
+
+def live_tusk_meshes(arm) -> list:
+    """The tusk objects for the stills, from the visible set or the whole scene."""
+    meshes = ensure_dest_identity_visible(arm)
+    tusks = [
+        o
+        for o in meshes
+        if o.name.startswith("OrcTusk_") or "tusk" in o.name.lower()
+    ]
+    if len(tusks) < 2:
+        tusks = [
+            o
+            for o in bpy.data.objects
+            if o.type == "MESH"
+            and (o.name.startswith("OrcTusk_") or "tusk" in o.name.lower())
+        ]
+    if len(tusks) < 2:
+        raise RuntimeError(
+            f"expected two tusk meshes for the stills, found "
+            f"{[o.name for o in tusks]}"
+        )
+    return tusks
+
+
+def choose_punch_still_frame(arm, punch_act, tusks: list) -> int:
+    """Pick the Punch still frame by measuring whether the mouth is visible.
+
+    Punch_Cross keeps the guard hand at the chin through much of the throw, so
+    a fixed 55 % frame can be a picture of the back of a hand — which is
+    exactly what f4d2059's Punch still was. Same clip and no invented pose:
+    only the frame moves, and only inside a band that still reads as a punch.
+    The direction sweep is tried at each frame first, so the frame only moves
+    when no camera angle can see past the hand.
+    """
+    fr = tuple(punch_act.frame_range)
+    lo, hi = int(round(fr[0])), int(round(fr[1]))
+    if hi <= lo:
+        return int(action_frame_for_action(punch_act, "punch"))
+    tried = []
+    for frac in PUNCH_STILL_FRAME_FRACS:
+        frame = lo + max(1, int(round((hi - lo) * frac)))
+        apply_action_datablock(arm, punch_act, frame, quiet=True)
+        view = choose_mouth_closeup_view(arm, tusks, strict=False)
+        report = view["report"]
+        tried.append(
+            f"{frac:.0%}@{frame}: visible_frac={report['visible_frac']:.2f} "
+            f"px_h={report['px_h']:.0f}"
+        )
+        if view.get("ok"):
+            log(
+                f"Punch still frame {frame} ({frac:.0%} of {punch_act.name!r}) "
+                "shows the maw; tried " + "; ".join(tried)
+            )
+            return frame
+    raise RuntimeError(
+        f"no {punch_act.name!r} frame in the "
+        f"{min(PUNCH_STILL_FRAME_FRACS):.0%}-{max(PUNCH_STILL_FRAME_FRACS):.0%} "
+        "band lets any camera see the maw: " + "; ".join(tried) + ". Something "
+        "covers the mouth throughout the throw. Do not invent a clip."
+    )
+
+
+def log_body_still_tusk_visibility(arm, tusks: list, label: str) -> dict:
+    """Report what the body still shows of the tusks. Logged, never gated.
+
+    The body still exists to show silhouette and torso; whether it happens to
+    read the tusks depends on the pose, and on Punch and Death it does not.
+    Measuring it anyway keeps that a number in the log rather than an argument.
+    """
+    scene = bpy.context.scene
+    cam = scene.camera
+    if cam is None:
+        raise RuntimeError(f"{label}: no scene camera to measure tusk visibility")
+    frame = posed_aperture_frame(arm)
+    targets = tusk_target_points(tusks)
+    tris = near_head_occluder_tris(
+        arm,
+        tusks,
+        frame["center"],
+        STILL_OCCLUDER_RADIUS_HEAD_WIDTHS * float(frame["head_width"]),
+    )
+    report = measure_tusk_visibility(
+        cam.location,
+        frame["center"],
+        STILL_CAMERA_UP,
+        targets,
+        tris,
+        res_x=scene.render.resolution_x,
+        res_y=scene.render.resolution_y,
+    )
+    log(
+        f"{label} body still tusk visibility: visible_frac="
+        f"{report['visible_frac']:.2f} in_frame_frac={report['in_frame_frac']:.2f} "
+        f"px={report['px_w']:.0f}x{report['px_h']:.0f} — the *_mouth close-up is "
+        f"the tusk evidence for this clip"
+    )
+    return report
 
 
 def render_png(path: Path) -> None:
@@ -4769,10 +5024,13 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
             + " || ".join(death_errors)
         )
 
+    # Tusks are the same objects for every clip; the Punch frame choice needs
+    # them before the render loop starts.
+    tusks_live = live_tusk_meshes(arm)
     frames = {
         "Idle": action_frame(resolved["Idle"], "idle"),
         "Walk": action_frame(resolved["Walk"], "walk"),
-        "Punch": action_frame_for_action(punch_act, "punch"),
+        "Punch": choose_punch_still_frame(arm, punch_act, tusks_live),
         "Death": death_frame,
     }
     action_for = {
@@ -4789,6 +5047,7 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
     out = {}
     mouth_out = {}
     mouth_cams = {}
+    body_vis = {}
     for label in PREVIEW_CLIPS:
         frame = frames[label]
         if label == "Death":
@@ -4809,18 +5068,6 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
                 f"AFTER {label} missing male_body in visible meshes; "
                 f"have={sorted(o.name for o in meshes)}"
             )
-        tusks_live = [
-            o
-            for o in meshes
-            if o.name.startswith("OrcTusk_") or "tusk" in o.name.lower()
-        ]
-        if len(tusks_live) < 2:
-            tusks_live = [
-                o
-                for o in bpy.data.objects
-                if o.type == "MESH"
-                and (o.name.startswith("OrcTusk_") or "tusk" in o.name.lower())
-            ]
         # Gate the PNG Reviewer sees — numeric lock alone passed while stills floated.
         hide_junk_companion_meshes(arm)
         assert_tusks_in_mouth_for_current_pose(arm, tusks_live, label)
@@ -4843,13 +5090,17 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
         # Re-assert after camera setup (must not have broken bone parent).
         hide_junk_companion_meshes(arm)
         assert_tusks_in_mouth_for_current_pose(arm, tusks_live, f"{label}_pre_render")
+        body_vis[label] = {
+            k: round(float(v), 3)
+            for k, v in log_body_still_tusk_visibility(arm, tusks_live, label).items()
+        }
         path = still_path(tag, label)
         render_png(path)
         out[label] = str(path)
 
         # Second still on the mouth axis. The body still proves the silhouette;
         # only this one can show whether the tusks are in the maw.
-        cam_info = setup_mouth_closeup_preview(arm)
+        cam_info = setup_mouth_closeup_preview(arm, tusks_live)
         assert_tusks_in_mouth_for_current_pose(
             arm, tusks_live, f"{label}_pre_mouth_render"
         )
@@ -4866,6 +5117,7 @@ def render_clip_stills(arm, resolved: dict[str, str], tag: str) -> dict[str, str
     out["_actions"] = {k: action_for[k] for k in PREVIEW_CLIPS}
     out["_mouth"] = mouth_out
     out["_mouth_cams"] = mouth_cams
+    out["_body_vis"] = body_vis
     return out
 
 
@@ -4929,7 +5181,7 @@ def run_restyle() -> dict:
     # restyle offset can move the landmarks it is measured from. Everything
     # downstream reads this frame instead of re-deriving the mouth.
     aperture = resolve_mouth_aperture(arm)
-    restyle_face_and_chest(arm, aperture)  # jaw + brow flatten + chest, no mouth
+    restyle_face(arm, aperture)  # jaw + brow flatten only, no mouth, no chest
     carve_orc_mouth_cavity(arm, aperture)
     # Repair torso seams that tear under the still poses, measured on the
     # shipped mesh. Must precede add_tusks: its Punch/Death follow probes run
@@ -4989,6 +5241,7 @@ def run_restyle() -> dict:
     still_actions = after_previews.pop("_actions", {})
     mouth_previews = after_previews.pop("_mouth", {})
     mouth_cams = after_previews.pop("_mouth_cams", {})
+    body_vis = after_previews.pop("_body_vis", {})
     assert_untouched(dest_before, "DEST after AFTER stills (export not started)")
 
     preserved = preserve_all_actions_for_export(arm)
@@ -5030,6 +5283,7 @@ def run_restyle() -> dict:
     packet["still_frames"] = still_frames
     packet["still_actions"] = still_actions
     packet["mouth_cameras"] = mouth_cams
+    packet["body_still_tusk_visibility"] = body_vis
     packet["mouth_aperture"] = mouth_aperture_report(aperture)
     packet["dest_write"] = "after_stills_only"
     packet["hidden_junk"] = hidden_junk
@@ -5059,6 +5313,7 @@ def run_restyle() -> dict:
         "previews_after": after_previews,
         "previews_after_mouth": mouth_previews,
         "mouth_cameras": mouth_cams,
+        "body_still_tusk_visibility": body_vis,
         "mouth_aperture": mouth_aperture_report(aperture),
         "still_frames": still_frames,
         "still_actions": still_actions,
