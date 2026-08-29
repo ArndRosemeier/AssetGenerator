@@ -11,9 +11,9 @@ Arnd nude lock (PR #1): same creature / same dest — not a new body plan.
     harness, spaulder, belt, loincloth, arm/ankle wraps, cubes/tori.
   - A widened mouth with tusks IN it (head-bound), visible on
     Idle/Walk/Punch_Cross/Death01 — not cheeks, not through the chest.
-  - Brow spikes are male_body verts from an oversized face restyle band — NOT Eyes,
-    NOT Icosphere, NOT an authored brow mesh. Flatten those verts. Hide Eyes
-    separately if present as junk. Script never authors eyebrows.
+  - The donor eyeballs ('Eyes' from male_base) are identity geometry: bound,
+    rendered and exported, never vertex-edited. Hide Icosphere / eyebrow /
+    eyelash leftovers as junk. Script never authors eyebrows.
   - AFTER stills: Idle, Walk, Punch_Cross, Death01 on nude dest (tusks visible).
   - Do NOT copy ANIM_DONOR onto dest as a first step. Live-import Orrun read-only;
     write dest only after AFTER stills succeed.
@@ -67,7 +67,8 @@ Full restyle path:
   2. Strip worksuit garments; attach nude male_base body on the same armature.
   3. Measure the mouth aperture ONCE on the untouched face, then jaw/brow/chest
      restyle, then carve the oral cavity, then seat tusks in it. No gear.
-  4. Hide junk Eyes mesh if present. Olive on male_body.
+  4. Hide Icosphere/eyebrow junk if present. Olive on male_body; eyes keep the
+     donor iris material.
   5. AFTER stills on the live restyled scene (must succeed before any dest write).
      Two stills per clip: body framing plus a mouth close-up.
   6. Only then export skinned dest (fake_user + NLA). Scratch export path must
@@ -1008,7 +1009,8 @@ def write_art_review_packet(
             "character's own hand and its Death still was the top of a head.",
             "AFTER stills gate: aperture containment (radius, depth, front "
             "fraction, height span) + rigid-bind proof + mouth-rim tracking + "
-            "torso-spike refuse; junk Eyes unlinked from collections.",
+            "torso-spike refuse; Icosphere/eyebrow junk unlinked from "
+            "collections, eyeballs kept as shipped identity.",
             "TWO STILLS PER CLIP — judge the maw on the *_mouth close-up, not "
             "on the body still. The body still frames a 1.8 m figure from ~5 m "
             "on a 50 mm lens at 640x800, about 4.4 mm per pixel, and on Punch "
@@ -1321,14 +1323,11 @@ def restyle_face(arm, aperture) -> None:
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone for jaw restyle")
     head_z = float(HQ.rest_world(arm, "head").to_translation().z)
-    for obj in skinned_meshes(arm):
+    # restyled_meshes is the single owner of "what may this script move" — it
+    # already excludes tusks, gear, junk and the eyeballs.
+    for obj in restyled_meshes(arm):
         me = obj.data
         if not me.vertices:
-            continue
-        # Only restyle skin body — never Eyes / junk companions.
-        if is_junk_companion_mesh(obj):
-            continue
-        if obj.name.startswith("OrcTusk_") or obj.name.startswith("OrcGear_"):
             continue
         head_i = vg_index(obj, "head")
         neck_i = vg_index(obj, "neck_01") or vg_index(obj, "neck")
@@ -1720,14 +1719,25 @@ def assert_all_skin_verts_bound(arm, label: str) -> None:
 def restyled_meshes(arm) -> list:
     """The meshes whose vertex positions this script authors.
 
-    Tusks are authored whole rather than restyled, and junk companions are
-    hidden and never exported, so neither is subject to the position-authority
-    invariant below.
+    The one owner of that set: every mesh editor and the vertex-authority
+    invariant read it, so no pass can disagree with another about what it is
+    allowed to move.
+
+    Excluded, and why:
+      * ``OrcTusk_*`` are authored whole rather than restyled.
+      * ``OrcGear_*`` is forbidden on the nude pass entirely.
+      * junk companions are hidden and never exported.
+      * the eyeballs are shipped identity geometry this script must not
+        reshape — a jaw or brow offset applied to an eye sphere drags the pupil
+        out of the socket. They are still bound, rendered and exported.
     """
     return [
         obj
         for obj in skinned_meshes(arm)
-        if not obj.name.startswith("OrcTusk_") and not is_junk_companion_mesh(obj)
+        if not obj.name.startswith("OrcTusk_")
+        and not obj.name.startswith("OrcGear_")
+        and not is_junk_companion_mesh(obj)
+        and not is_orc_eye_mesh(obj)
     ]
 
 
@@ -2957,16 +2967,40 @@ def mouth_rim_anchor_verts(arm, aperture) -> tuple[int, int]:
     return picked["L"], picked["R"]
 
 
+def is_orc_eye_mesh(obj) -> bool:
+    """True for the donor eyeball mesh. One owner of "these are the eyes".
+
+    ``tools/character_studio/blender_export_humans.py`` fits the MakeHuman
+    low-poly eyeballs onto every ``{sex}_base.glb``, weights them to ``head``
+    and assigns the brown iris texture, so male_base ships an ``Eyes`` mesh as
+    part of the body's identity.
+
+    This script used to classify that mesh as junk and unlink it from every
+    collection, which removed it from the render *and* from the exported GLB.
+    The stills show what that costs: two empty sockets read as a corpse, and a
+    face that reads dead turns the maw into a wound instead of a mouth. Eyes
+    are identity geometry — exported, rendered, bound to the head — and the
+    only thing this script must not do to them is edit their vertices, since a
+    jaw or brow offset applied to an eyeball drags the pupil out of its socket.
+
+    Matched on the exact object name (plus any glTF ``.001`` suffix) rather
+    than a prefix, so ``eyebrow001`` and ``eyelash`` stay junk.
+    """
+    return obj.name.split(".")[0].strip().lower() in ("eyes", "eye")
+
+
 def is_junk_companion_mesh(obj) -> bool:
     """True for leftover companion meshes that are not the nude orc identity.
 
-    Eyes may exist as a separate MH export mesh — hide as junk. Icosphere may
-    appear on some imports. Thin stray spikes on Idle/Death stills (21:56) are
-    typically these leftovers, not male_body brow verts.
+    Icosphere may appear on some imports, and eyebrow / eyelash / high-poly
+    eye-part meshes are not authored by this pass. Thin stray spikes on
+    Idle/Death stills (21:56) are typically these leftovers, not male_body brow
+    verts. The eyeballs themselves are identity, not junk — see
+    ``is_orc_eye_mesh``.
     """
+    if is_orc_eye_mesh(obj):
+        return False
     low = obj.name.lower()
-    if low in ("eyes", "eye") or low.startswith("eyes") or low.startswith("eye"):
-        return True
     if any(
         k in low
         for k in (
@@ -2987,7 +3021,7 @@ def is_junk_companion_mesh(obj) -> bool:
 
 
 def hide_junk_companion_meshes(arm) -> list[str]:
-    """Hide Eyes / Icosphere / eye-sphere junk. Not brow-spike flatten."""
+    """Hide Icosphere / eyebrow / eyelash junk. Never the eyeballs, never brows."""
     hidden = []
     for obj in list(mesh_objects()):
         if not is_junk_companion_mesh(obj):
@@ -3000,14 +3034,14 @@ def hide_junk_companion_meshes(arm) -> list[str]:
             obj.hide_set(True)
         except Exception:
             pass
-        # hide flags alone left Eyes in a rendered collection (Idle/Death spikes).
+        # Hide flags alone left junk in a rendered collection (Idle/Death spikes).
         for col in list(obj.users_collection):
             col.objects.unlink(obj)
         hidden.append(obj.name)
     if hidden:
-        log(f"hidden junk companion meshes (not brow spikes): {hidden}")
+        log(f"hidden junk companion meshes (not eyes, not brow spikes): {hidden}")
     else:
-        log("no Eyes/Icosphere junk companions to hide")
+        log("no Icosphere/eyebrow/eyelash junk companions to hide")
     return hidden
 
 
@@ -3977,9 +4011,9 @@ def add_tusks(arm, aperture) -> list:
 def body_like_meshes(arm):
     """Skin / basemesh targets for finished olive albedo (no garments).
 
-    After glTF the MH skin mesh is named ``male_body``. Eyes may exist as a
-    separate junk companion (hidden — not an olive target). Brow spikes are
-    male_body verts, not a separate mesh.
+    After glTF the MH skin mesh is named ``male_body``. The ``Eyes`` mesh is
+    shipped identity geometry but keeps its donor iris material, so it is never
+    an olive target. Brow spikes are male_body verts, not a separate mesh.
     """
     skins = []
     # Prefer exact male_body first (dest / male_base export name).
@@ -4857,11 +4891,11 @@ def dest_owned_meshes(arm) -> list:
 
 
 def is_dest_identity_mesh(obj) -> bool:
-    """Nude body + tusks that must stay visible in AFTER stills.
+    """Nude body + eyes + tusks that must stay visible in AFTER stills.
 
-    male_body is the skin. OrcTusk_* are mouth tusks. Eyes/Icosphere are junk
-    (hidden separately). OrcGear_* is forbidden on this nude pass. Brow spikes
-    are male_body verts — flattened in restyle, not a separate mesh.
+    male_body is the skin, Eyes are the donor eyeballs, OrcTusk_* are the mouth
+    tusks. Icosphere / eyebrow / eyelash leftovers are junk (hidden
+    separately). OrcGear_* is forbidden on this nude pass.
     """
     n = obj.name
     low = n.lower()
@@ -4869,6 +4903,8 @@ def is_dest_identity_mesh(obj) -> bool:
         return False
     if n.startswith("OrcGear_") or "orcgear" in low:
         return False
+    if is_orc_eye_mesh(obj):
+        return True
     if n == "male_body" or low == "male_body":
         return True
     if n.startswith("OrcSkin_") or n.startswith("OrcTusk_"):
@@ -4881,7 +4917,7 @@ def is_dest_identity_mesh(obj) -> bool:
 
 
 def ensure_dest_identity_visible(arm) -> list:
-    """Show nude body+tusks; keep junk hidden; refuse invented gear."""
+    """Show nude body+eyes+tusks; keep junk hidden; refuse invented gear."""
     hide_junk_companion_meshes(arm)
     assert_no_invented_gear()
     owned = dest_owned_meshes(arm)
@@ -4905,6 +4941,14 @@ def ensure_dest_identity_visible(arm) -> list:
         raise RuntimeError(
             f"dest still meshes missing tusks; have={sorted(names)}. "
             f"Refusing AFTER stills that are not nude male_orc_01."
+        )
+    if not any(is_orc_eye_mesh(o) for o in owned):
+        raise RuntimeError(
+            f"dest still meshes have no eyeballs; have={sorted(names)}. "
+            f"male_base.glb ships an 'Eyes' mesh (see "
+            f"tools/character_studio/blender_export_humans.py); without it the "
+            f"orc renders with empty sockets and reads as a corpse. Refusing "
+            f"AFTER stills."
         )
     if any(n.startswith("OrcGear_") for n in names):
         raise RuntimeError(f"OrcGear_* must not appear on nude pass; have={sorted(names)}")
@@ -5240,7 +5284,7 @@ def near_head_occluder_tris(arm, tusks: list, centre, radius: float) -> list:
         if obj.hide_render or obj.hide_viewport:
             continue
         if not obj.users_collection:
-            continue  # unlinked junk (hidden Eyes) cannot occlude a render
+            continue  # unlinked junk cannot occlude a render
         ev = obj.evaluated_get(deps)
         me = ev.to_mesh()
         try:
