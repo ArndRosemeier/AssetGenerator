@@ -502,7 +502,12 @@ def carve_metrics(
 
 
 def run_head(
-    name: str, rings: int, per_ring: int, *, expect_refusal: bool = False, **kw
+    name: str,
+    rings: int,
+    per_ring: int,
+    *,
+    expect_refusal: bool = False,
+    **kw: float | int,
 ) -> list[str]:
     pts, faces = meshed_head(rings, per_ring, **kw)
     try:
@@ -666,9 +671,21 @@ def main() -> int:
         ("short face", 64, 48, {"chin_z": 1.562, "nose_z": 1.628, "mouth_z": 1.603}),
         ("receding chin", 64, 48, {"chin_front_y": -0.072}),
         ("jutting chin", 64, 48, {"chin_front_y": -0.098}),
+        # Both of these sample the region between lip and nostrils at 8-11 mm,
+        # which on a ring-topology head is 3-4 distinct heights with no philtrum
+        # recess among them. The solver refuses rather than gating the aperture
+        # top rim against a landmark that is not in the data. The real donor
+        # resolves 708 midline verts there, so this only bites on proxies.
         ("low-poly proxy", 26, 20, {"expect_refusal": True}),
-        ("coarse-ish", 34, 26, {}),
+        ("coarse-ish", 34, 26, {"expect_refusal": True}),
         ("dense", 96, 72, {}),
+        # The real donor's proportions, measured off assets/humans/male_base.glb.
+        # Without these the sweep is variations on a head the bake never sees:
+        # the real skull cloud is 176 mm wide with a 61 mm face where the default
+        # fixture is 155 mm wide with an 87 mm face, so everything sized off head
+        # width comes out a third larger on a face with a third less room.
+        ("makehuman male_base", 64, 48, dict(MG.MAKEHUMAN_MALE_BASE)),
+        ("makehuman male_base dense", 96, 72, dict(MG.MAKEHUMAN_MALE_BASE)),
     )
     failed = []
     for name, rings, per_ring, kw in cases:

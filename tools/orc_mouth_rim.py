@@ -143,8 +143,8 @@ def cut_rim_loop(
     mouth sit at ``d`` around zero while the back of the head is a whole head
     depth away, so a single threshold separates them cleanly.
 
-    Afterwards every face is wholly inside or wholly outside the rim, and the
-    returned vertices lie exactly on it.
+    Returns ``(rim_vertices, stats)``. Afterwards every face is wholly inside or
+    wholly outside the rim, and the returned vertices lie exactly on it.
     """
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
@@ -245,18 +245,42 @@ def cut_rim_loop(
     bm.edges.ensure_lookup_table()
     bm.faces.ensure_lookup_table()
 
-    assert_closed_loop(bm, loop_verts, half_width, half_height, to_uwd, tol)
-    return loop_verts
+    stats = assert_rim_is_clean(
+        bm, loop_verts, half_width, half_height, to_uwd, front_max_d, tol
+    )
+    return loop_verts, stats
 
 
-def assert_closed_loop(
-    bm, rim_verts: list, half_width, half_height, to_uwd, tol: float
-) -> None:
-    """The cut must be one closed ring, and every vertex of it must be on the rim.
+def assert_rim_is_clean(
+    bm, rim_verts: list, half_width, half_height, to_uwd, front_max_d, tol: float
+) -> dict:
+    """Check what the cut is actually for, not a proxy for it.
 
-    An open or branching rim means the connect step did not find the pairs it
-    needed, which downstream would show up as the interior material leaking
-    across a gap -- a much worse artefact than the ragged edge this replaces.
+    The property the carve and the interior paint depend on is that **no polygon
+    straddles the rim** -- every face wholly inside it or wholly outside. That is
+    what makes the displacement boundary and the material boundary the ellipse
+    rather than the topology.
+
+    This used to assert instead that the rim was one simple closed ring, on the
+    reasoning that an open rim means ``connect_verts`` missed a pair. On the real
+    donor that reasoning is wrong twice over:
+
+    * the glTF importer splits a mesh along its UV seams, so ``male_body``
+      arrives with 1137 duplicate vertices and 2266 boundary edges and the
+      surface is cut into patches. A contour crossing a seam cannot be one ring
+      in that representation however correct the cut is;
+    * MakeHuman's base mesh carries an inner mouth bag, a second sheet 20-35 mm
+      behind the lip. The rim ellipse is a cylinder, so it cuts that too, and the
+      chain there ends where the bag does. No depth threshold separates the two
+      sheets: measured on the donor, verts near the rim contour run continuously
+      from 0 to 50 mm deep, because a 71 mm wide aperture reaches out to where
+      the face itself curves back as far as the bag is.
+
+    The ring property is therefore unattainable, and it was never the thing that
+    mattered. A missed ``connect_verts`` pair leaves a face with verts on both
+    sides of the contour, so the straddling check above catches it; the degree
+    count adds nothing the straddling check does not already prove. It is logged
+    instead, so a regression still shows up as a number.
     """
     rim_set = set(rim_verts)
     worst_r = 0.0
@@ -270,22 +294,44 @@ def assert_closed_loop(
             f"be held to; the crossing solve and the placement disagree"
         )
 
+    straddling = []
+    for f in bm.faces:
+        radii = []
+        for v in f.verts:
+            u, w, d = to_uwd(v.co)
+            if d >= front_max_d:
+                radii = []
+                break
+            radii.append(math.hypot(u / half_width, w / half_height))
+        if not radii:
+            continue
+        if min(radii) < 1.0 - tol and max(radii) > 1.0 + tol:
+            straddling.append(f)
+    if straddling:
+        sample = [
+            tuple(round(c, 4) for c in f.calc_center_median()) for f in straddling[:6]
+        ]
+        raise RimCutError(
+            f"{len(straddling)} face(s) of {len(bm.faces)} still straddle the rim "
+            f"after the cut, e.g. centred at {sample} — the displacement and the "
+            f"interior paint would fall back to following the topology, which is "
+            f"the ragged edge this cut exists to remove"
+        )
+
     degree = {v: 0 for v in rim_verts}
     for e in bm.edges:
         va, vb = e.verts
         if va in rim_set and vb in rim_set:
             degree[va] += 1
             degree[vb] += 1
-    bad = {v: d for v, d in degree.items() if d != 2}
-    if bad:
-        sample = [
-            (tuple(round(c, 4) for c in v.co), d) for v, d in list(bad.items())[:6]
-        ]
-        raise RimCutError(
-            f"rim loop is not a simple closed ring: {len(bad)} of "
-            f"{len(rim_verts)} cut vertices have {sorted({d for d in bad.values()})} "
-            f"rim neighbours instead of 2, e.g. {sample}"
-        )
+    ends = sum(1 for d in degree.values() if d < 2)
+    branches = sum(1 for d in degree.values() if d > 2)
+    return {
+        "rim_verts": len(rim_verts),
+        "chain_ends": ends,
+        "branches": branches,
+        "worst_radial_error": worst_r,
+    }
 
 
 def _selftest() -> int:
@@ -330,7 +376,7 @@ def _selftest() -> int:
             v.co = (v.co.x, 0.0, v.co.y + lift)
         before_faces = len(bm.faces)
         try:
-            rim = cut_rim_loop(
+            rim, _stats = cut_rim_loop(
                 bm,
                 to_uwd=to_uwd,
                 half_width=half_width,
@@ -400,7 +446,7 @@ def _selftest() -> int:
         x, z = float(v.co.x), float(v.co.y)
         v.co = (x, 0.35 * (x * x + z * z), z)  # bulges away from the camera
     try:
-        rim = cut_rim_loop(
+        rim, _stats = cut_rim_loop(
             bm,
             to_uwd=to_uwd,
             half_width=half_width,
@@ -451,7 +497,7 @@ def _selftest() -> int:
     back.free()
     tmp.verts.ensure_lookup_table()
     try:
-        rim = cut_rim_loop(
+        rim, _stats = cut_rim_loop(
             tmp,
             to_uwd=to_uwd,
             half_width=half_width,

@@ -30,12 +30,16 @@ and look wrong. That is what the mouth close-up stills are for.
 """
 from __future__ import annotations
 
-import math
 import sys
 from pathlib import Path
 
-import bpy  # noqa: F401  (must precede bmesh so the submodule resolves)
+# isort: off
+# bpy first: under the `bpy` PyPI module `bmesh` only resolves once `bpy` has
+# been imported. See the same note in bake_human_orc.py.
+import bpy
 import bmesh
+
+# isort: on
 
 TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
@@ -44,7 +48,7 @@ if str(TOOLS) not in sys.path:
 import orc_mouth_geometry as MG  # noqa: E402
 
 
-def build_synthetic_skinned_head(**kw) -> tuple:
+def build_synthetic_skinned_head(**kw: float | int) -> tuple:
     """A quad-grid synthetic head skinned to a 3-bone stand-in rig.
 
     Ring-major topology matching ``_synthetic_head``, so the quad grid closes
