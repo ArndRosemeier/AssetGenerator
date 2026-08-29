@@ -280,11 +280,20 @@ REQUIRED_CLIP_GROUPS = (
 PREVIEW_CLIPS = ("Idle", "Walk", "Death", "Punch")
 PELVIS_MAX_DELTA_M = 0.011  # ~1 cm
 TEX_SIZE = 1024
-# Finished olive-grey skin (look-dev target). Not a UV-grid / checker.
-OLIVE = (0.34, 0.38, 0.28)
-OLIVE_SHADOW = (0.22, 0.26, 0.18)
-OLIVE_WARM = (0.40, 0.36, 0.26)
-TUSK = (0.92, 0.88, 0.78)
+# Finished olive skin (look-dev target). Not a UV-grid / checker.
+#
+# The previous values were nearly grey -- (0.34, 0.38, 0.28) is only 26%
+# saturated -- and under the preview rig they render as the pale sage that makes
+# three of the four 18:50 stills read as a drowned man before they read as an
+# orc. Combined with the missing eyeballs that was most of the corpse look. 41%
+# saturation is a clear olive green without going lurid.
+OLIVE = (0.28, 0.34, 0.20)
+OLIVE_SHADOW = (0.16, 0.21, 0.12)
+OLIVE_WARM = (0.34, 0.32, 0.19)
+# Ivory, not paper. 0.92 albedo is brighter than the olive skin and reads as a
+# folded paper dart in every 18:50 still; real ivory is a warm cream around 0.65
+# and picks up a highlight rather than blowing out.
+TUSK = (0.68, 0.62, 0.47)
 # Oral cavity interior. Dark enough that the carved maw reads as an opening in
 # a still and ivory tusks separate from it.
 MOUTH_INTERIOR = (0.10, 0.055, 0.055)
@@ -393,7 +402,7 @@ TUSK_RADIUS_TIP_HEAD_W_FRAC = 0.005  # near-point, not a 1.6 mm flat cap
 # of the aperture, because it has to stay deeper than the base cap's own
 # half-thickness, which is set by the tusk radius.
 TUSK_ROOT_BURY_HEAD_W_FRAC = 0.045
-TUSK_SEGMENTS = 12
+TUSK_SEGMENTS = 16
 
 # Still gate, in posed aperture coordinates.
 #
@@ -4251,6 +4260,40 @@ def tusk_seat_in_body_space(aperture, sign_x: float) -> tuple[Vector, Vector, fl
     )
 
 
+def shade_tusk_smooth(me, label: str) -> None:
+    """Smooth the shaft, keep the caps flat, so the tusk is ivory not origami.
+
+    ``create_cone`` leaves every polygon flat-shaded, so a 16-segment cone renders
+    as sixteen visible facets. At the size a tusk occupies in a mouth close-up
+    that is the single loudest thing about it -- all four 18:50 stills read the
+    ivory as folded paper.
+
+    Smoothing the shaft while leaving the end caps flat needs no auto-smooth or
+    modifier (``use_auto_smooth`` is gone in Blender 4.x): a vertex shared between
+    a smooth side and a flat cap takes the interpolated normal for the side
+    corner and the face normal for the cap corner, which is the correct hard edge
+    at the cap ring. ``create_cone(cap_tris=True)`` makes the shaft from quads and
+    both caps from triangle fans, so the side/cap split is the polygon size.
+    """
+    sides = 0
+    caps = 0
+    for poly in me.polygons:
+        if len(poly.vertices) == 4:
+            poly.use_smooth = True
+            sides += 1
+        else:
+            poly.use_smooth = False
+            caps += 1
+    if not sides:
+        raise RuntimeError(
+            f"{label}: no quad shaft polygons to smooth among "
+            f"{len(me.polygons)} faces — create_cone's topology changed, and "
+            f"flat-shading the shaft is what made the tusks read as paper"
+        )
+    me.update()
+    log(f"{label}: shaded {sides} shaft quad(s) smooth, {caps} cap tri(s) flat")
+
+
 def add_tusks(arm, aperture) -> list:
     """Tusks inside the carved maw, BONE-parented to head (follow all clips).
 
@@ -4274,7 +4317,7 @@ def add_tusks(arm, aperture) -> list:
     body_rot = body.matrix_world.to_3x3()
     bone_len = head_bone_length(arm)
 
-    mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
+    mat = make_opaque_mat("OrcTusk", TUSK, 0.42)
     created = []
     for name, sign_x, rim_idx in (
         ("OrcTusk_L", -1.0, left_rim_idx),
@@ -4328,6 +4371,7 @@ def add_tusks(arm, aperture) -> list:
         bm.free()
         if not me.vertices:
             raise RuntimeError(f"{name}: cone build produced no vertices")
+        shade_tusk_smooth(me, name)
         obj = bpy.data.objects.new(name, me)
         bpy.context.scene.collection.objects.link(obj)
         obj.data.materials.append(mat)
