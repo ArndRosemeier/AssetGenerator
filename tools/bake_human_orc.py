@@ -141,7 +141,17 @@ Mouth / tusk approach (this pass; read before changing anything below):
      edges by growth with their weight gaps, flagged or not, so a passing bake
      still says what the chest is doing.
 
-  6. A still cannot prove tusks it cannot see. f4d2059's Punch still is a
+  6. Geometry inside the aperture volume is not the same as ivory that reads as
+     ivory. e99b3a1 shipped tusks that every numeric gate accepted and the Walk
+     still showed as cones painted on the lower lip. Two measurable reasons: the
+     base floated 22 mm in FRONT of the gum surface, so nothing rooted it, and
+     the front vertex sat 2 mm behind the lip plane, so a three-quarter
+     silhouette passed the lip contour. A tusk grows out of the gum, so the seat
+     is now defined by where it is rooted -- base behind the cavity wall at its
+     own (u, w) -- and gated on ``TUSK_ROOT_MIN_BURY_M``, ``TUSK_MIN_INSET_M``
+     and ``TUSK_MIN_EMERGENT_M``. That last one replaced a blanket "no vert may
+     be buried" rule which forbade the rooting outright.
+  7. A still cannot prove tusks it cannot see. f4d2059's Punch still is a
      picture of the character's own guard hand, and its Death still is an
      overhead view of the top of a supine head. Both are correct renders of
      correct geometry. So the close-up camera direction is now chosen by
@@ -305,16 +315,20 @@ CAVITY_SUBDIV_MAX_ADDED_FRAC = 0.25  # of the male_body vert count
 CAVITY_INTERIOR_POLY_FALLOFF = 0.35
 
 # Tusk seat, in aperture coordinates (u along +X, w along +Z, d into the head).
-TUSK_SEAT_U_FRAC = 0.38  # canine line, not the commissure
-TUSK_SEAT_W_FRAC = -0.55  # lower gum, inside the rim ellipse
-# Shallow on purpose. The cavity wall ramps back out toward the rim, so depth
-# off the centre line is limited; a deep seat buries the tusk in the wall
-# instead of standing it in open air. TUSK_BORE_CLEARANCE_M is what enforces
-# that, and this is the value that satisfies it with room to spare.
-TUSK_SEAT_D_FRAC = 0.24
-TUSK_AXIS_MEDIAL = 0.18  # dental-arch convergence toward the midline
-TUSK_AXIS_OUTWARD = 0.15  # slight outward lean; more and the tip leaves the maw
-TUSK_LENGTH_HH_FRAC = 1.30  # multiples of the aperture half-height
+# A tusk grows OUT OF the gum. e99b3a1 authored one whose base floated 22 mm in
+# front of the gum surface, with its front vertex 2 mm behind the lip plane, so
+# it had no visible root and its silhouette reached the lip contour -- which is
+# why the Walk still read it as a cone painted on the lower lip rather than
+# ivory coming out of the mouth. The seat is now defined by where it is ROOTED.
+TUSK_SEAT_U_FRAC = 0.34  # canine line, not the commissure
+TUSK_SEAT_W_FRAC = -0.76  # on the lower gum ramp, not floating mid-cavity
+# How far BEHIND the cavity wall the base sits, as a fraction of the aperture
+# half-height. This is what roots the tusk: the base is inside the flesh, so the
+# gum hides it and only the emergent length shows.
+TUSK_ROOT_BURY_HH_FRAC = 0.25
+TUSK_AXIS_MEDIAL = 0.22  # dental-arch convergence toward the midline
+TUSK_AXIS_OUTWARD = 0.22  # leans out of the gum as it rises
+TUSK_LENGTH_HH_FRAC = 1.60  # multiples of the aperture half-height
 TUSK_RADIUS_BASE_HH_FRAC = 0.28
 TUSK_RADIUS_TIP_HH_FRAC = 0.08
 TUSK_SEGMENTS = 12
@@ -340,12 +354,22 @@ TUSK_MIN_W_SPAN_HH_FRAC = 0.80
 # The axis must still rise through the maw rather than down the throat. With
 # TUSK_AXIS_MEDIAL/OUTWARD as authored the up component is ~0.97.
 TUSK_MIN_AXIS_RISE_DOT = 0.75
-# Every tusk vert must stand this far in front of the cavity wall at its own
-# (u, w). Without it a tusk can satisfy "inside the aperture volume" while
-# being embedded in the wall: the wall ramps back out toward the rim, so depth
-# available on the canine line is a fraction of the depth on the centre line.
-# This is the check that separates "in the maw" from "in the flesh".
-TUSK_BORE_CLEARANCE_M = 0.003
+# The whole cone must stay at least this far BEHIND the lip plane. e99b3a1 let
+# the front vertex reach 2 mm, so from a three-quarter angle the silhouette
+# extended past the lip contour and read as sitting on the lip. With a real
+# inset the lip rim is always in front of the ivory.
+TUSK_MIN_INSET_M = 0.004
+# The base must sit at least this far behind the cavity wall at its own (u, w).
+# A cone floating in the middle of the maw has no root, and that is what makes
+# it look painted on.
+TUSK_ROOT_MIN_BURY_M = 0.002
+# A point counts as emergent when it is this far in front of the wall, and this
+# much of the centre line must be emergent -- that is the visible ivory. This
+# replaces a blanket "no vert may be buried" rule, which forbade the very
+# rooting that makes a tusk read as a tusk.
+TUSK_EMERGENT_CLEARANCE_M = 0.003
+TUSK_MIN_EMERGENT_M = 0.012
+TUSK_EMERGENT_SAMPLES = 24
 # Posed rim-tracking: the mouth rim anchor vert must keep following the head
 # bone rigidly, proving the maw and the tusks have not parted company. Measured
 # as deviation from its own head-rest-local position, so it is 0 at rest.
@@ -935,6 +959,12 @@ def write_art_review_packet(
             "reassign_chest_head_weights both existed to chase that Punch edge; "
             "they reshaped the pec region, every bake carrying them was reported "
             "with a pec pinch, and their purpose is now served at the bind.",
+            "Tusks are seated by where they are ROOTED: base behind the cavity "
+            "wall so the gum hides it, whole cone inset behind the lip plane, and "
+            "a measured length of centre line in open air. e99b3a1 passed every "
+            "numeric gate with a base floating 22 mm in front of the gum and a "
+            "front vertex 2 mm from the lip plane, and its Walk still read as "
+            "cones painted on the lip.",
             "Close-up camera direction is chosen by measuring occlusion, and the "
             "Punch still frame moves inside Punch_Cross only when no angle can "
             "see past the guard hand. A still that cannot show the tusks fails "
@@ -3113,6 +3143,52 @@ def force_armature_rest(arm) -> None:
     bpy.context.evaluated_depsgraph_get().update()
 
 
+def posed_cavity_depth(frame: dict, u: float, w: float) -> float:
+    """Depth of the carved cavity at ``(u, w)`` in the posed aperture frame.
+
+    A lower bound on how far the skin was pushed back there: the carve only ever
+    moves a vert *to* the bore profile, never in front of it. Anything shallower
+    than this is in open air, which is what "visible ivory" means.
+    """
+    return frame["depth"] * MG.bore_frac(aperture_radial(frame, u, w))
+
+
+def tusk_root_and_emergence(arm, tusk, frame: dict) -> tuple[float, float]:
+    """How far the tusk is rooted in the gum, and how much of it is in open air.
+
+    Returns ``(root_bury, emergent_length)`` in metres. Together these are what
+    makes a tusk read as a tusk rather than as a cone laid on the lip:
+
+    * ``root_bury`` -- the base sits behind the cavity wall, so the gum hides it
+      and the ivory appears to grow out of the mouth. e99b3a1's base floated
+      22 mm in *front* of the gum, rooted in nothing.
+    * ``emergent_length`` -- the run of the centre line that is in open air. This
+      replaces a blanket "no vert may be buried" rule, which forbade the rooting
+      outright.
+    """
+    m = head_pose_world_matrix(arm)
+    base_hl = tusk["orc_tusk_base_head_local"]
+    axis_hl = tusk["orc_tusk_axis_head_local"]
+    base_w = m @ Vector((float(base_hl[0]), float(base_hl[1]), float(base_hl[2])))
+    axis_w = (
+        m.to_3x3()
+        @ Vector((float(axis_hl[0]), float(axis_hl[1]), float(axis_hl[2])))
+    ).normalized()
+    length = float(tusk["orc_tusk_length"])
+
+    u, w, d = aperture_coords_world(frame, base_w)
+    root_bury = d - posed_cavity_depth(frame, u, w)
+
+    step = length / float(TUSK_EMERGENT_SAMPLES)
+    emergent = 0.0
+    for i in range(TUSK_EMERGENT_SAMPLES):
+        p = base_w + axis_w * ((i + 0.5) * step)
+        pu, pw, pd = aperture_coords_world(frame, p)
+        if pd < posed_cavity_depth(frame, pu, pw) - TUSK_EMERGENT_CLEARANCE_M:
+            emergent += step
+    return root_bury, emergent
+
+
 def assert_tusk_rigid_bind(arm, tusk, label: str) -> float:
     """The authored centroid must land exactly where the head pose puts it.
 
@@ -3192,6 +3268,7 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
             "orc_mouth_vert_head_local",
             "orc_tusk_side",
             "orc_tusk_base_head_local",
+            "orc_tusk_length",
             "orc_tusk_centroid_head_local",
             "orc_tusk_axis_head_local",
         ):
@@ -3264,19 +3341,15 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
         w_hi = -1e9
         front = 0
         front_limit = TUSK_FRONT_D_FRAC * depth
-        worst_buried = -1e9
-        worst_buried_uw = (0.0, 0.0, 0.0)
+        emergent_verts = 0
         for vw in verts_w:
             u, w, d = aperture_coords_world(frame, vw)
             r = aperture_radial(frame, u, w, margin=margin)
             if r > worst_radial:
                 worst_radial = r
                 worst_radial_uw = (u, w)
-            wall = depth * MG.bore_frac(aperture_radial(frame, u, w))
-            buried = d - (wall - TUSK_BORE_CLEARANCE_M)
-            if buried > worst_buried:
-                worst_buried = buried
-                worst_buried_uw = (u, w, wall)
+            if d < posed_cavity_depth(frame, u, w) - TUSK_EMERGENT_CLEARANCE_M:
+                emergent_verts += 1
             min_d = min(min_d, d)
             max_d = max(max_d, d)
             w_lo = min(w_lo, w)
@@ -3285,6 +3358,7 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 front += 1
         front_frac = front / float(len(verts_w))
         w_span = w_hi - w_lo
+        root_bury, emergent_len = tusk_root_and_emergence(arm, tusk, frame)
 
         if worst_radial > 1.0:
             raise RuntimeError(
@@ -3293,11 +3367,13 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"w={worst_radial_uw[1]:.4f}; rim=({frame['half_width']:.4f},"
                 f"{half_h:.4f})) — cheek-float / chin-needle class; refusing PNG"
             )
-        if min_d < -margin:
+        if min_d < TUSK_MIN_INSET_M:
             raise RuntimeError(
-                f"{label} still: {tusk.name!r} pokes out past the posed lip plane "
-                f"(min_d={min_d:.4f} < {-margin:.4f}) — 21:56 Punch class; "
-                f"refusing PNG"
+                f"{label} still: {tusk.name!r} reaches the posed lip plane "
+                f"(min_d={min_d * 1000:.1f} mm < {TUSK_MIN_INSET_M * 1000:.0f} mm "
+                f"inset) — at a three-quarter angle its silhouette would pass the "
+                f"lip contour and read as a cone painted on the lip, which is what "
+                f"e99b3a1's Walk still showed; refusing PNG"
             )
         if max_d > depth + margin:
             raise RuntimeError(
@@ -3305,14 +3381,19 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"into the skull (max_d={max_d:.4f} > depth {depth:.4f}) — "
                 f"Death chest-spike class; refusing PNG"
             )
-        if worst_buried > 0.0:
+        if root_bury < TUSK_ROOT_MIN_BURY_M:
             raise RuntimeError(
-                f"{label} still: {tusk.name!r} is embedded in the cavity wall "
-                f"(worst vert is {worst_buried:.4f} past the wall at "
-                f"u={worst_buried_uw[0]:.4f} w={worst_buried_uw[1]:.4f}, where the "
-                f"bore is only {worst_buried_uw[2]:.4f} deep and clearance is "
-                f"{TUSK_BORE_CLEARANCE_M}) — in the flesh, not in the maw; "
-                f"refusing PNG"
+                f"{label} still: {tusk.name!r} is not rooted in the gum "
+                f"(base sits {root_bury * 1000:.1f} mm behind the cavity wall, "
+                f"need {TUSK_ROOT_MIN_BURY_M * 1000:.0f} mm) — a cone floating in "
+                f"the maw has no visible root and reads as painted on; refusing PNG"
+            )
+        if emergent_len < TUSK_MIN_EMERGENT_M:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} has only {emergent_len * 1000:.1f} mm "
+                f"of its length in open air (need "
+                f"{TUSK_MIN_EMERGENT_M * 1000:.0f} mm) — the rest is inside the "
+                f"cavity wall, so there is no ivory to see; refusing PNG"
             )
         if front_frac < TUSK_MIN_FRONT_FRAC:
             raise RuntimeError(
@@ -3332,7 +3413,9 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
             f"bind={dist_bind:.4f} rim_drift={rim_drift:.4f} "
             f"radial={worst_radial:.3f} d=[{min_d:.4f},{max_d:.4f}] of {depth:.4f} "
             f"front_frac={front_frac:.3f} w_span={w_span:.4f} "
-            f"wall_clearance={-worst_buried:.4f} "
+            f"inset={min_d * 1000:.1f}mm root_bury={root_bury * 1000:.1f}mm "
+            f"emergent_len={emergent_len * 1000:.1f}mm "
+            f"emergent_verts={emergent_verts}/{len(verts_w)} "
             f"axis_up={rise_dot:.3f} axis_inward={inward_dot:.3f}"
         )
     log(f"{label} still gate: tusks inside the posed mouth aperture")
@@ -3537,11 +3620,24 @@ def tusk_seat_in_body_space(aperture, sign_x: float) -> tuple[Vector, Vector, fl
     hw = float(aperture.half_width)
     hh = float(aperture.half_height)
     dp = float(aperture.depth)
+    u0 = sign_x * TUSK_SEAT_U_FRAC * hw
+    w0 = TUSK_SEAT_W_FRAC * hh
+    # Root the base BEHIND the cavity wall at its own (u, w). The wall ramps
+    # back out toward the rim, so the gum surface on the lower canine line is
+    # only part way in; sitting the base behind it is what gives the tusk a root
+    # instead of leaving it floating in the middle of the maw.
+    gum_d = aperture.bore_depth(u0, w0)
+    d0 = gum_d + TUSK_ROOT_BURY_HH_FRAC * hh
+    if d0 > dp:
+        raise RuntimeError(
+            f"tusk root would sit past the cavity floor (d={d0:.4f} > depth "
+            f"{dp:.4f}); gum at this seat is {gum_d:.4f} deep"
+        )
     base = Vector(
         (
-            aperture.center_x + sign_x * TUSK_SEAT_U_FRAC * hw,
-            aperture.center_y + TUSK_SEAT_D_FRAC * dp,
-            aperture.center_z + TUSK_SEAT_W_FRAC * hh,
+            aperture.center_x + u0,
+            aperture.center_y + d0,
+            aperture.center_z + w0,
         )
     )
     axis = Vector((-sign_x * TUSK_AXIS_MEDIAL, -TUSK_AXIS_OUTWARD, 1.0)).normalized()
@@ -3645,6 +3741,7 @@ def add_tusks(arm, aperture) -> list:
         obj["orc_mouth_vert"] = int(rim_idx)
         obj["orc_mouth_vert_head_local"] = [float(c) for c in rim_hl]
         obj["orc_tusk_base_head_local"] = [float(c) for c in base_hl]
+        obj["orc_tusk_length"] = float(length)
         obj["orc_tusk_axis_head_local"] = [float(c) for c in axis_hl]
         obj["orc_tusk_centroid_head_local"] = [float(c) for c in centroid_hl]
         bind_tusk_to_head_bone(obj, arm)

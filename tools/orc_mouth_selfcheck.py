@@ -37,7 +37,7 @@ BAKE = Path(__file__).resolve().parent / "bake_human_orc.py"
 WANTED = (
     "TUSK_SEAT_U_FRAC",
     "TUSK_SEAT_W_FRAC",
-    "TUSK_SEAT_D_FRAC",
+    "TUSK_ROOT_BURY_HH_FRAC",
     "TUSK_AXIS_MEDIAL",
     "TUSK_AXIS_OUTWARD",
     "TUSK_LENGTH_HH_FRAC",
@@ -49,7 +49,11 @@ WANTED = (
     "TUSK_MIN_FRONT_FRAC",
     "TUSK_MIN_W_SPAN_HH_FRAC",
     "TUSK_MIN_AXIS_RISE_DOT",
-    "TUSK_BORE_CLEARANCE_M",
+    "TUSK_MIN_INSET_M",
+    "TUSK_ROOT_MIN_BURY_M",
+    "TUSK_EMERGENT_CLEARANCE_M",
+    "TUSK_MIN_EMERGENT_M",
+    "TUSK_EMERGENT_SAMPLES",
     "CAVITY_MIN_ACHIEVED_DEPTH_FRAC",
     "CAVITY_MIN_CARVED_VERTS",
     "CAVITY_INTERIOR_POLY_FALLOFF",
@@ -134,13 +138,17 @@ def _axis_frame(axis: Vec, phase: float) -> tuple[Vec, Vec]:
 def tusk_seat(
     ap: MG.MouthAperture, sign_x: float
 ) -> tuple[Vec, Vec, float, float, float]:
-    """Mirror of ``tusk_seat_in_body_space``."""
-    hw, hh, dp = ap.half_width, ap.half_height, ap.depth
-    base = (
-        ap.center_x + sign_x * K["TUSK_SEAT_U_FRAC"] * hw,
-        ap.center_y + K["TUSK_SEAT_D_FRAC"] * dp,
-        ap.center_z + K["TUSK_SEAT_W_FRAC"] * hh,
-    )
+    """Mirror of ``tusk_seat_in_body_space``.
+
+    The base is placed BEHIND the cavity wall at its own (u, w): that is what
+    roots the tusk in the gum. e99b3a1 placed it at a fixed fraction of the
+    nominal depth, which left it floating 22 mm in front of the gum surface.
+    """
+    hw, hh = ap.half_width, ap.half_height
+    u0 = sign_x * K["TUSK_SEAT_U_FRAC"] * hw
+    w0 = K["TUSK_SEAT_W_FRAC"] * hh
+    d0 = ap.bore_depth(u0, w0) + K["TUSK_ROOT_BURY_HH_FRAC"] * hh
+    base = (ap.center_x + u0, ap.center_y + d0, ap.center_z + w0)
     axis = _norm((-sign_x * K["TUSK_AXIS_MEDIAL"], -K["TUSK_AXIS_OUTWARD"], 1.0))
     return (
         base,
@@ -187,7 +195,7 @@ def gate_tusk(
     r_base: float,
     r_tip: float,
     phase: float,
-) -> list[str]:
+) -> tuple[list[str], dict[str, float]]:
     """Every check from ``assert_tusks_in_mouth_for_current_pose``."""
     verts = cone_verts(base, axis, length, r_base, r_tip, phase)
     margin = K["TUSK_APERTURE_MARGIN"]
@@ -195,7 +203,6 @@ def gate_tusk(
     min_d, max_d = 1e9, -1e9
     w_lo, w_hi = 1e9, -1e9
     front = 0
-    worst_buried = -1e9
     front_limit = K["TUSK_FRONT_D_FRAC"] * ap.depth
     for p in verts:
         u, w, d = ap.aperture_coords(p)
@@ -203,22 +210,37 @@ def gate_tusk(
             worst_radial,
             math.hypot(u / (ap.half_width + margin), w / (ap.half_height + margin)),
         )
-        wall = ap.depth * MG.bore_frac(ap.radial(u, w))
-        worst_buried = max(worst_buried, d - (wall - K["TUSK_BORE_CLEARANCE_M"]))
         min_d, max_d = min(min_d, d), max(max_d, d)
         w_lo, w_hi = min(w_lo, w), max(w_hi, w)
         if d <= front_limit:
             front += 1
     front_frac = front / float(len(verts))
+
+    # Rooting and emergence, mirroring tusk_root_and_emergence.
+    bu, bw, bd = ap.aperture_coords(base)
+    root_bury = bd - ap.bore_depth(bu, bw)
+    samples = int(K["TUSK_EMERGENT_SAMPLES"])
+    step = length / samples
+    emergent = 0.0
+    for i in range(samples):
+        q = _add(base, _mul(axis, (i + 0.5) * step))
+        qu, qw, qd = ap.aperture_coords(q)
+        if qd < ap.bore_depth(qu, qw) - K["TUSK_EMERGENT_CLEARANCE_M"]:
+            emergent += step
+
     fails = []
     if worst_radial > 1.0:
         fails.append(f"radial={worst_radial:.3f} > 1 (cheek / chin-needle class)")
-    if min_d < -margin:
-        fails.append(f"min_d={min_d * 1000:.1f}mm past the lip plane")
+    if min_d < K["TUSK_MIN_INSET_M"]:
+        fails.append(
+            f"inset={min_d * 1000:.1f}mm reaches the lip plane (painted-on class)"
+        )
     if max_d > ap.depth + margin:
         fails.append(f"max_d={max_d * 1000:.1f}mm through the cavity floor")
-    if worst_buried > 0.0:
-        fails.append(f"buried {worst_buried * 1000:.1f}mm in the cavity wall")
+    if root_bury < K["TUSK_ROOT_MIN_BURY_M"]:
+        fails.append(f"root_bury={root_bury * 1000:.1f}mm — not rooted in the gum")
+    if emergent < K["TUSK_MIN_EMERGENT_M"]:
+        fails.append(f"emergent={emergent * 1000:.1f}mm of ivory in open air")
     if front_frac < K["TUSK_MIN_FRONT_FRAC"]:
         fails.append(f"front_frac={front_frac:.3f} (buried at the back)")
     if (w_hi - w_lo) < K["TUSK_MIN_W_SPAN_HH_FRAC"] * ap.half_height:
@@ -229,7 +251,17 @@ def gate_tusk(
         fails.append("axis leans into the throat")
     if base[2] >= ap.center_z:
         fails.append("rooted at or above the aperture centre line")
-    return fails
+    metrics = {
+        "radial": worst_radial,
+        "min_d": min_d,
+        "max_d": max_d,
+        "root_bury": root_bury,
+        "emergent": emergent,
+        "w_span": w_hi - w_lo,
+        "tip_w_frac": ap.aperture_coords(_add(base, _mul(axis, length)))[1]
+        / ap.half_height,
+    }
+    return fails, metrics
 
 
 def tusk_metrics(
@@ -240,28 +272,26 @@ def tusk_metrics(
         "radial": 0.0,
         "min_d": 1e9,
         "max_d": -1e9,
-        "clearance": 1e9,
-        "front_frac": 1.0,
+        "root_bury": 1e9,
+        "emergent": 1e9,
         "w_span": 1e9,
+        "tip_w_frac": 0.0,
     }
     fails = []
     for sign_x in (-1.0, 1.0):
         base, axis, length, rb, rt = tusk_seat(ap, sign_x)
         for k in range(36):
             phase = 2.0 * math.pi * k / 36
-            f = gate_tusk(ap, base, axis, length, rb, rt, phase)
+            f, m = gate_tusk(ap, base, axis, length, rb, rt, phase)
             if f:
                 fails.append((sign_x, round(phase, 3), f))
-            verts = cone_verts(base, axis, length, rb, rt, phase)
-            for p in verts:
-                u, w, d = ap.aperture_coords(p)
-                worst["radial"] = max(worst["radial"], ap.radial(u, w))
-                worst["min_d"] = min(worst["min_d"], d)
-                worst["max_d"] = max(worst["max_d"], d)
-                wall = ap.depth * MG.bore_frac(ap.radial(u, w))
-                worst["clearance"] = min(worst["clearance"], wall - d)
-            ws = [ap.aperture_coords(p)[1] for p in verts]
-            worst["w_span"] = min(worst["w_span"], max(ws) - min(ws))
+            worst["radial"] = max(worst["radial"], m["radial"])
+            worst["min_d"] = min(worst["min_d"], m["min_d"])
+            worst["max_d"] = max(worst["max_d"], m["max_d"])
+            worst["root_bury"] = min(worst["root_bury"], m["root_bury"])
+            worst["emergent"] = min(worst["emergent"], m["emergent"])
+            worst["w_span"] = min(worst["w_span"], m["w_span"])
+            worst["tip_w_frac"] = m["tip_w_frac"]
     return worst, fails
 
 
@@ -419,12 +449,61 @@ def run_head(
         f"{ap.depth * 1000:.0f}mm  verts {start}->{len(pts)} (+{passes} subdiv)  "
         f"carved={carve['carved']} deepest={carve['deepest'] * 1000:.0f}mm "
         f"interior_polys={carve['painted']} bore_edge<={carve['worst_edge'] * 1000:.0f}mm  "
-        f"tusk radial<={tusk['radial']:.2f} d=[{tusk['min_d'] * 1000:.1f},"
-        f"{tusk['max_d'] * 1000:.1f}]mm wall_clear>={tusk['clearance'] * 1000:.1f}mm "
+        f"tusk radial<={tusk['radial']:.2f} inset>={tusk['min_d'] * 1000:.1f}mm "
+        f"root_bury>={tusk['root_bury'] * 1000:.1f}mm "
+        f"emergent>={tusk['emergent'] * 1000:.1f}mm "
+        f"tip_w={tusk['tip_w_frac']:+.2f}hh "
         f"len={K['TUSK_LENGTH_HH_FRAC'] * ap.half_height * 1000:.0f}mm"
     )
     for p in problems:
         print(f"       {p}")
+    return problems
+
+
+def legacy_seat_e99b3a1(
+    ap: MG.MouthAperture, sign_x: float
+) -> tuple[Vec, Vec, float, float, float]:
+    """The seat e99b3a1 shipped: base at a fixed fraction of the NOMINAL depth.
+
+    Kept so the fix cannot silently regress. The Walk still of that bake read
+    the tusks as cones painted on the lower lip, and these numbers say why: the
+    base landed 22 mm in front of the gum surface (rooted in nothing) and the
+    front vertex reached 2 mm behind the lip plane (so a three-quarter
+    silhouette passed the lip contour).
+    """
+    hw, hh, dp = ap.half_width, ap.half_height, ap.depth
+    base = (
+        ap.center_x + sign_x * 0.38 * hw,
+        ap.center_y + 0.24 * dp,
+        ap.center_z - 0.55 * hh,
+    )
+    axis = _norm((-sign_x * 0.18, -0.15, 1.0))
+    return base, axis, 1.30 * hh, 0.28 * hh, 0.08 * hh
+
+
+def check_legacy_seat_refused() -> list[str]:
+    """The previous seat must fail the rooting and inset checks."""
+    ap = MG.solve_mouth_aperture(MG._synthetic_head())
+    base, axis, length, rb, rt = legacy_seat_e99b3a1(ap, 1.0)
+    fails, m = gate_tusk(ap, base, axis, length, rb, rt, 0.0)
+    print(
+        f"e99b3a1 seat under the new gate: inset={m['min_d'] * 1000:.1f}mm "
+        f"root_bury={m['root_bury'] * 1000:.1f}mm "
+        f"emergent={m['emergent'] * 1000:.1f}mm radial={m['radial']:.2f}"
+    )
+    problems = []
+    if not any("root_bury" in f for f in fails):
+        problems.append("the new gate does not catch the unrooted base")
+    if not any("inset" in f for f in fails):
+        problems.append("the new gate does not catch the lip-flush front vertex")
+    for f in fails:
+        print(f"  refused: {f}")
+    if problems:
+        for p in problems:
+            print(f"[FAIL] legacy seat regression: {p}")
+    else:
+        print("[ok  ] legacy seat regression: the e99b3a1 seat is refused, for "
+              "both the unrooted base and the lip-flush front vertex")
     return problems
 
 
@@ -446,6 +525,9 @@ def main() -> int:
     for name, rings, per_ring, kw in cases:
         if run_head(name, rings, per_ring, **kw):
             failed.append(name)
+    print()
+    if check_legacy_seat_refused():
+        failed.append("legacy seat regression")
     if failed:
         print(f"\nSELFCHECK FAILED on {failed}")
         return 1
