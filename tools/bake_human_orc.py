@@ -201,6 +201,11 @@ TUSK_MAX_APERTURE_RADIUS = 0.028  # refuse cheek (off the opening axis)
 TUSK_MAX_OUT_PAST_LIP = 0.025
 # Rest-pose lip gap after open_orc_mouth_aperture (Idle/Walk have no jaw clip).
 MOUTH_APERTURE_MIN_Z = 0.018
+# Minimum gum→opening rise in body +Z. 57f9616 parted 887 face verts, the
+# "upper" hunt landed 3mm below the corner, and gum→opening collapsed to 6.2mm
+# (just the 5mm cavity inset). Never let that vector be the axis.
+APERTURE_MIN_RISE_Z = 0.024
+APERTURE_MAX_RISE_Z = 0.034
 # Posed torso-vert outlier (Idle pec pinch / Death through-torso spike).
 TORSO_SPIKE_MAX_M = 0.36
 
@@ -561,7 +566,9 @@ def write_art_review_packet(
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
             "mesh authored from shallow lower gum along the rest-pose mouth "
             "aperture (gum → lip-plane opening), not bone local +Y. "
-            "Rest-pose lips are parted (Idle/Walk have no jaw clip). "
+            "Rest-pose lips are parted on the lip dz window only (not the whole "
+            "face — 57f9616 moved 887 verts and collapsed gum→opening to 6.2mm). "
+            "Aperture axis floors body-+Z rise at 24mm on the lip plane. "
             "Sternum/pec pinch flattened; torso-spike gate on every still.",
             "AFTER stills gate: gum bind + lip-corner (0.085) + opening occupancy "
             "+ skull-punch refuse + torso-spike refuse + max tip past posed lip; "
@@ -1077,8 +1084,9 @@ def open_orc_mouth_aperture(arm) -> int:
     """Part the lips so Idle/Walk stills show gum-seated tusks.
 
     Punch/Death open the jaw via clip. Idle/Walk do not — a4a5c61 left a closed
-    human mouth and hidden ivory. Edit the same mouth-band verts the tusk hunt
-    uses. Skip neck_01 / heavy spine_03 (Walk shred class).
+    human mouth. 57f9616 used a wide z_rel band and moved 887 face verts; the
+    "upper" hunt then sat 3mm below the corner and gum→opening collapsed.
+    Edit only forward lip verts in the tusk-corner dz window.
     """
     body, samples = collect_head_front_face_samples(arm)
     if not samples:
@@ -1087,52 +1095,56 @@ def open_orc_mouth_aperture(arm) -> int:
     neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
     spine3_i = vg_index(body, "spine_03")
     cx = samples[0]["cx"]
-    mouth_lo, mouth_hi, brow_lo = resolve_mouth_zrel_band(samples)
-    zs = [s["z"] for s in samples if mouth_lo <= s["z_rel"] <= min(mouth_hi + 0.04, brow_lo - 0.005)]
-    if len(zs) < 8:
-        raise RuntimeError(
-            f"open_orc_mouth_aperture: too few mouth-band verts ({len(zs)}); "
-            f"mouth=[{mouth_lo:.3f},{mouth_hi:.3f}]"
-        )
-    zs.sort()
-    mid_z = zs[len(zs) // 2]
-    edited = 0
+    _mouth_lo, _mouth_hi, brow_lo = resolve_mouth_zrel_band(samples)
+    lips = []
     for s in samples:
-        if s["hw"] < 0.22:
+        if s["hw"] < 0.28:
             continue
-        if s["z_rel"] < mouth_lo - 0.02 or s["z_rel"] >= brow_lo:
+        if not (-0.120 <= s["dz"] <= -0.012):
             continue
-        if s["y"] > s["cy"] - 0.005:
+        if s["y"] > s["cy"] - 0.018:
             continue
         if abs(s["x"] - cx) > MOUTH_CORNER_MAX_ABS_X:
             continue
-        v = s["v"]
-        if vg_weight(v, neck_i) >= 0.12 or vg_weight(v, spine3_i) >= 0.28:
+        if s["z_rel"] >= brow_lo:
             continue
-        # Widen corners; part lips along Z (down / up). Little extra -Y so the
-        # lip flesh does not slide forward over the tusk tips.
+        v = s["v"]
+        if vg_weight(v, neck_i) >= 0.10 or vg_weight(v, spine3_i) >= 0.22:
+            continue
+        lips.append(s)
+    if len(lips) < 12:
+        raise RuntimeError(
+            f"open_orc_mouth_aperture: too few lip verts ({len(lips)}); "
+            f"refusing to part the whole face"
+        )
+    if len(lips) > 120:
+        raise RuntimeError(
+            f"open_orc_mouth_aperture: lip set too wide ({len(lips)} > 120); "
+            f"57f9616 edited 887 and collapsed the aperture axis"
+        )
+    zs = sorted(s["z"] for s in lips)
+    mid_z = zs[len(zs) // 2]
+    edited = 0
+    for s in lips:
+        v = s["v"]
         if abs(s["x"] - cx) > 0.030:
             v.co.x += math.copysign(0.010 * s["hw"], s["x"] - cx)
         if s["z"] < mid_z:
-            v.co.z -= 0.020 * s["hw"]
-            v.co.y -= 0.003 * s["hw"]
-        else:
-            v.co.z += 0.016 * s["hw"]
+            v.co.z -= 0.018 * s["hw"]
             v.co.y -= 0.002 * s["hw"]
+        else:
+            v.co.z += 0.014 * s["hw"]
+            v.co.y -= 0.001 * s["hw"]
         edited += 1
     me.update()
     low_z = []
     high_z = []
-    for s in samples:
-        v = me.vertices[s["v"].index]
-        if s["hw"] < 0.22 or abs(s["x"] - cx) > MOUTH_CORNER_MAX_ABS_X:
-            continue
-        if s["z_rel"] < mouth_lo - 0.02 or s["z_rel"] >= brow_lo:
-            continue
-        if v.co.z < mid_z:
-            low_z.append(float(v.co.z))
+    for s in lips:
+        z = float(me.vertices[s["v"].index].co.z)
+        if z < mid_z:
+            low_z.append(z)
         else:
-            high_z.append(float(v.co.z))
+            high_z.append(z)
     if not low_z or not high_z:
         raise RuntimeError("open_orc_mouth_aperture: missing lower or upper lip after edit")
     low_z.sort()
@@ -1145,7 +1157,7 @@ def open_orc_mouth_aperture(arm) -> int:
         )
     log(
         f"opened orc mouth aperture verts={edited} rest_lip_gap={gap:.4f} "
-        f"mid_z={mid_z:.4f} (Idle/Walk visibility; neck skipped)"
+        f"mid_z={mid_z:.4f} (lips only; 57f9616 face-band refused)"
     )
     return edited
 
@@ -1509,9 +1521,9 @@ def find_upper_lip_vert_index(arm, corner_idx: int) -> int:
             continue
         if s["hw"] < 0.22:
             continue
-        if s["z"] < float(corner.co.z) + 0.006:
+        if s["z"] < float(corner.co.z) + 0.012:
             continue
-        if s["z"] > float(corner.co.z) + 0.042:
+        if s["z"] > float(corner.co.z) + 0.038:
             continue
         if s["z_rel"] >= brow_lo:
             continue
@@ -1532,6 +1544,29 @@ def find_upper_lip_vert_index(arm, corner_idx: int) -> int:
         f"z_rel={picked['z_rel']:.3f} n_hits={len(hits)}"
     )
     return int(picked["v"].index)
+
+
+def upper_lip_world_for_corner(arm, body, corner_idx: int, corner_w: Vector) -> tuple[int, Vector]:
+    """Upper-lip world point for aperture rise, or body-+Z stand-in.
+
+    A collapsed hunt must not abort the bake — ``mouth_aperture_axis_world``
+    already floors rise at ``APERTURE_MIN_RISE_Z``.
+    """
+    try:
+        idx = find_upper_lip_vert_index(arm, corner_idx)
+        return idx, evaluated_vertex_world(body, idx)
+    except RuntimeError as exc:
+        inv = body.matrix_world.inverted()
+        corner_b = inv @ Vector(corner_w)
+        stand_b = Vector(
+            (float(corner_b.x), float(corner_b.y), float(corner_b.z) + APERTURE_MIN_RISE_Z)
+        )
+        stand_w = body.matrix_world @ stand_b
+        log(
+            f"upper-lip hunt failed for corner {corner_idx} ({exc}); "
+            f"using body-up stand-in {tuple(round(c, 4) for c in stand_w)}"
+        )
+        return -1, stand_w
 
 
 def make_opaque_mat(name: str, color, roughness: float = 0.9):
@@ -1667,27 +1702,38 @@ def mouth_aperture_axis_world(
 ) -> Vector:
     """Unit world axis from gum through the mouth opening (rest face).
 
-    Not bone local +Y (skull axis). Opening target is on the lip plane
-    (corner Y), on the canine line (gum X), between the lips (corner/upper Z).
+    Not bone local +Y (skull axis). Opening is on the lip plane (corner Y),
+    canine line (gum X), and *above* the gum by a guaranteed body-+Z rise.
+
+    57f9616: blending corner/upper Z put opening 6.2mm from the gum when the
+    upper hunt sat below the corner. That is not an axis — refuse collapse by
+    construction, not by loosening the length check.
     """
     inv = body.matrix_world.inverted()
     rot = body.matrix_world.to_3x3()
     gum_b = inv @ Vector(gum_w)
     corner_b = inv @ Vector(corner_w)
     upper_b = inv @ Vector(upper_w)
+    measured = float(upper_b.z) - float(gum_b.z)
+    if measured >= MOUTH_APERTURE_MIN_Z:
+        rise = min(measured, APERTURE_MAX_RISE_Z)
+    else:
+        rise = APERTURE_MIN_RISE_Z
     opening_b = Vector(
         (
             float(gum_b.x),
             float(corner_b.y),
-            0.35 * float(corner_b.z) + 0.65 * float(upper_b.z),
+            float(gum_b.z) + rise,
         )
     )
     delta_b = opening_b - gum_b
-    if delta_b.length < 0.008:
+    if delta_b.length < 0.012:
         raise RuntimeError(
             f"mouth aperture axis collapsed ({delta_b.length:.4f}); "
             f"gum_b={tuple(round(c, 4) for c in gum_b)} "
-            f"opening_b={tuple(round(c, 4) for c in opening_b)}"
+            f"opening_b={tuple(round(c, 4) for c in opening_b)} "
+            f"rise={rise:.4f} upper_z={float(upper_b.z):.4f} "
+            f"corner_z={float(corner_b.z):.4f}"
         )
     axis_b = delta_b.normalized()
     # Must rise through the lips (body +Z), not along the skull or into it.
@@ -1705,7 +1751,9 @@ def mouth_aperture_axis_world(
     log(
         f"mouth aperture axis body={tuple(round(c, 3) for c in axis_b)} "
         f"world={tuple(round(c, 3) for c in axis_w)} "
-        f"opening_b={tuple(round(c, 4) for c in opening_b)}"
+        f"opening_b={tuple(round(c, 4) for c in opening_b)} "
+        f"rise={rise:.4f} measured_upper_from_gum={measured:.4f} "
+        f"corner_z={float(corner_b.z):.4f} upper_z={float(upper_b.z):.4f}"
     )
     return axis_w
 
@@ -2281,12 +2329,14 @@ def add_tusks(arm) -> list:
 
     body = male_body_mesh(arm)
     _left_body, _right_body, left_idx, right_idx = find_mouth_corner_anchors(arm)
-    left_upper_idx = find_upper_lip_vert_index(arm, left_idx)
-    right_upper_idx = find_upper_lip_vert_index(arm, right_idx)
     left_corner_w = evaluated_vertex_world(body, left_idx)
     right_corner_w = evaluated_vertex_world(body, right_idx)
-    left_upper_w = evaluated_vertex_world(body, left_upper_idx)
-    right_upper_w = evaluated_vertex_world(body, right_upper_idx)
+    left_upper_idx, left_upper_w = upper_lip_world_for_corner(
+        arm, body, left_idx, left_corner_w
+    )
+    right_upper_idx, right_upper_w = upper_lip_world_for_corner(
+        arm, body, right_idx, right_corner_w
+    )
     left_world = mouth_cavity_world_from_corner(body, left_corner_w, sign_x=-1.0)
     right_world = mouth_cavity_world_from_corner(body, right_corner_w, sign_x=1.0)
     left_axis_w = mouth_aperture_axis_world(
