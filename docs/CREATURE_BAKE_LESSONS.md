@@ -176,10 +176,21 @@ placement problems was dead during the period tusk placement was the problem.
 
 - Run every offline harness in the same breath as the bake, and treat a harness
   that cannot start as a red build, not as noise.
-- Keep them Blender-free where possible. `orc_mouth_geometry.py`,
-  `orc_mouth_selfcheck.py` and `orc_mouth_rim.py` need only plain Python or
-  `bmesh`, which means they run in seconds anywhere — including in a cloud agent
-  with no Blender install.
+- Keep them cheap and donor-free. `orc_mouth_geometry.py` and
+  `orc_mouth_selfcheck.py` need only plain Python; `orc_mouth_rim.py` and
+  `orc_carve_integration_check.py` need only `bmesh` / `bpy`, with no
+  `male_base.glb` and no animation donor. All four run in seconds anywhere,
+  including in a cloud agent with `pip install bpy`.
+- **A harness that reimplements the code is not a substitute for one that calls
+  it.** `orc_mouth_selfcheck.py` mirrors the carve arithmetic in plain Python,
+  which keeps the maths honest but cannot catch an edit landing in the wrong
+  authority, a material index clamped by a later pass, or a tolerance that only
+  works at the origin. `orc_carve_integration_check.py` builds a synthetic head
+  as a real skinned Blender object and calls the actual functions; the first time
+  it ran it found three bugs the unit tests had passed, including a rim
+  tolerance a hundred times tighter than a single-precision mesh at head height
+  can meet, and a pose-bone rotation mode left switched so that every
+  quaternion-keyed clip was silently ignored.
 
 ## 11. Process: a run that cannot render cannot do look-dev
 

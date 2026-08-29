@@ -427,13 +427,13 @@ TUSK_SEGMENTS = 16
 # "never leaves the hole". So state that instead, on the centre line:
 #
 #   * the base is buried behind the cavity wall           TUSK_ROOT_MIN_BURY_M
-#   * it leaves the flesh through the rim, not the cheek  TUSK_EXIT_MAX_RADIAL
-#   * having left, it never re-enters                     TUSK_MAX_REENTRY_M
+#   * ...and sits inside the rim footprint                TUSK_BASE_MAX_RADIAL
+#   * where it crosses the rim it is already past the lip TUSK_RIM_CROSS_MAX_D
 #   * the tip clears the lip plane, within a cap          TUSK_MIN/MAX_PROTRUSION_M
 #   * buried geometry stays in the gum ridge              TUSK_BURIED_MAX_RADIAL
 #
 # The pixel-failure classes the old caps defended against are all still refused:
-#   cheek float (21:10)          -> exit radial > 1, or buried radial > 1.30
+#   cheek float (21:10)          -> base radial > 1, or buried radial > 1.30
 #   chin needle (0706a32)        -> base at or above the aperture centre line
 #   painted on the lip (e99b3a1) -> root bury below 2 mm
 #   buried / invisible (1116245) -> emergent length, front fraction
