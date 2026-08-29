@@ -337,12 +337,20 @@ CHEST_PINCH_MAX_BLEND = 0.80
 TORSO_SPIKE_MAX_M = 0.36
 
 # --- mouth close-up still ---------------------------------------------------
+# Camera standoff as a multiple of the measured head width. At 1.8 with a 50 mm
+# lens on a 720x720 frame the shot covers ~1.35 head widths, so brow to chin is
+# in frame and a 26 mm tusk is ~90 px tall. The body still, for comparison, is
+# ~4.4 mm per pixel: about ten pixels of tusk.
+MOUTH_CLOSEUP_REACH_HEAD_WIDTHS = 1.8
 # Keep the close-up camera above the preview ground plane (Death puts the head
 # on the floor, and a camera under the plane renders the plane).
 MOUTH_CLOSEUP_MIN_CAM_Z = 0.10
-# A concave cavity is self-shadowing; without a dedicated key the maw renders
-# as a black hole and takes the ivory with it.
-MOUTH_CLOSEUP_KEY_ENERGY = 45.0
+# Mouth key placement and target irradiance at the maw, in W/m^2. The body
+# rig's sun delivers ~3.4, so this lifts the cavity a little above the face
+# without blowing out the ivory. Energy is computed from the standoff so it
+# stays correct whatever the head scale.
+MOUTH_CLOSEUP_KEY_STANDOFF = 1.1  # multiples of the camera reach
+MOUTH_CLOSEUP_KEY_IRRADIANCE = 7.0
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
@@ -1741,6 +1749,7 @@ def store_mouth_aperture(arm, aperture) -> None:
     body["orc_aperture_half_width"] = float(aperture.half_width * scale)
     body["orc_aperture_half_height"] = float(aperture.half_height * scale)
     body["orc_aperture_depth"] = float(aperture.depth * scale)
+    body["orc_aperture_head_width"] = float(aperture.head_width * scale)
     log(
         f"published aperture in head-rest space center="
         f"{tuple(round(c, 4) for c in center_hl)} "
@@ -1773,6 +1782,7 @@ def posed_aperture_frame(arm) -> dict:
         "orc_aperture_half_width",
         "orc_aperture_half_height",
         "orc_aperture_depth",
+        "orc_aperture_head_width",
     ):
         if key not in body:
             raise RuntimeError(
@@ -1798,6 +1808,7 @@ def posed_aperture_frame(arm) -> dict:
         "half_width": float(body["orc_aperture_half_width"]),
         "half_height": float(body["orc_aperture_half_height"]),
         "depth": float(body["orc_aperture_depth"]),
+        "head_width": float(body["orc_aperture_head_width"]),
     }
 
 
@@ -2636,11 +2647,11 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
         base_w = head_pose_world_matrix(arm) @ Vector(
             (float(base_hl[0]), float(base_hl[1]), float(base_hl[2]))
         )
-        _bu, base_w_coord, _bd = aperture_coords_world(frame, base_w)
-        if base_w_coord >= 0.0:
+        _base_u, base_up, _base_d = aperture_coords_world(frame, base_w)
+        if base_up >= 0.0:
             raise RuntimeError(
                 f"{label} still: {tusk.name!r} is rooted at or above the aperture "
-                f"centre line (w={base_w_coord:.4f}) — a tusk grows from the lower "
+                f"centre line (w={base_up:.4f}) — a tusk grows from the lower "
                 f"gum; refusing PNG"
             )
 
@@ -4127,6 +4138,9 @@ def _preview_lights(scale: float = 1.0) -> None:
 def _preview_camera(location: Vector, target: Vector, *, lens: float = 50.0):
     cam_data = bpy.data.cameras.new("PreviewCam")
     cam_data.lens = lens
+    # The mouth close-up stands ~0.3 m off the face, so the nose is within the
+    # 0.1 m default near plane and would be clipped out of the frame.
+    cam_data.clip_start = 0.01
     cam = bpy.data.objects.new("PreviewCam", cam_data)
     bpy.context.scene.collection.objects.link(cam)
     cam.location = Vector(location)
@@ -4219,40 +4233,48 @@ def setup_mouth_closeup_preview(arm) -> dict:
     having no visible tusks -- there was nothing to see at that scale even if
     the geometry had been perfect.
 
-    So render a second still per clip from the aperture's own frame: on the
-    mouth axis, one head-height away. At that framing the same tusk is ~100 px.
+    So render a second still per clip from the aperture's own frame, standing
+    off by a fixed multiple of the measured head width. The shot then covers
+    about one head height whatever the head scale, and the same tusk is ~90 px.
     """
     frame = posed_aperture_frame(arm)
     center = frame["center"]
     out = -Vector(frame["inward"])
     up = Vector(frame["up"])
     right = Vector(frame["right"])
-    # Head height sets the distance, so this frames a head regardless of scale.
-    reach = max(6.0 * float(frame["half_height"]), 0.18)
+    # Distance from the measured head width, so this frames about one head
+    # height whatever the head scale, rather than a fixed metre figure.
+    reach = MOUTH_CLOSEUP_REACH_HEAD_WIDTHS * float(frame["head_width"])
     location = center + out * reach + right * (0.30 * reach) + up * (0.18 * reach)
     lifted = False
     if float(location.z) < MOUTH_CLOSEUP_MIN_CAM_Z:
-        # Death lays the head on the ground; a camera below the ground plane
-        # would render the plane, not the face. Swing up instead of clipping.
-        location = center + up * (0.20 * reach) + out * (0.55 * reach)
-        location = Vector(
-            (
-                float(location.x),
-                float(location.y),
-                max(float(location.z), MOUTH_CLOSEUP_MIN_CAM_Z),
-            )
-        )
+        # A face pointing at the ground would put the camera under the preview
+        # ground plane, which renders the plane instead of the maw. Mirror the
+        # view direction into the upper hemisphere rather than clamping Z,
+        # which would keep the standoff and only change the angle. Death is
+        # asserted on-back upstream, so this should not normally trigger.
+        flipped = Vector((float(out.x), float(out.y), abs(float(out.z))))
+        if flipped.length < 1e-6:
+            flipped = Vector((0.0, 0.0, 1.0))
+        flipped.normalize()
+        location = center + flipped * reach + right * (0.30 * reach)
         lifted = True
     _preview_stage()
     cam = _preview_camera(location, center, lens=50.0)
     _preview_lights(scale=0.35)
-    # A dedicated fill on the mouth axis: an unlit cavity renders as a black
-    # hole and the ivory in it disappears with it.
+    # A dedicated fill on the mouth axis: a concave cavity is self-shadowing,
+    # so without it the maw renders as a black hole and takes the ivory with it.
+    # Power is derived from the standoff instead of being a fixed wattage: this
+    # light sits ~0.3 m from the face, where the body rig's 200 W fill at 3 m
+    # would be a hundred times too bright.
+    key_distance = MOUTH_CLOSEUP_KEY_STANDOFF * reach
     mouth_key = bpy.data.lights.new("MouthKey", "AREA")
-    mouth_key.energy = MOUTH_CLOSEUP_KEY_ENERGY
-    mouth_key.size = 0.25
+    mouth_key.energy = (
+        MOUTH_CLOSEUP_KEY_IRRADIANCE * 2.0 * math.pi * key_distance * key_distance
+    )
+    mouth_key.size = max(0.5 * reach, 0.05)
     key_obj = bpy.data.objects.new("MouthKey", mouth_key)
-    key_obj.location = center + out * (0.45 * reach) + up * (0.30 * reach)
+    key_obj.location = center + out * key_distance + up * (0.35 * key_distance)
     key_obj.rotation_euler = (
         (center - key_obj.location).to_track_quat("-Z", "Y").to_euler()
     )
@@ -4261,6 +4283,7 @@ def setup_mouth_closeup_preview(arm) -> dict:
     log(
         f"mouth close-up cam loc={tuple(round(c, 3) for c in cam.location)} "
         f"look={tuple(round(c, 3) for c in center)} reach={reach:.3f} "
+        f"key_dist={key_distance:.3f} key_energy={mouth_key.energy:.2f}W "
         f"ground_lift={lifted}"
     )
     return {
