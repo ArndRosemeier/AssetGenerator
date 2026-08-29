@@ -285,6 +285,125 @@ MALE_BASE = AG_HUMANS / "male_base.glb"
 
 
 @dataclass(frozen=True)
+class GarmentBand:
+    """One strip of skin that renders as cloth instead, along one bone.
+
+    Selection is by bind weight and by distance along the bone axis, never by a
+    world-space box: a box boundary is what drew the 0706a32 armpit spike, and a
+    Z band in the rest pose would paint the hands, which hang at hip height.
+
+    ``t`` is the projection onto the bone axis divided by the bone length, so 0
+    is the bone head and 1 the tail. It may be NEGATIVE, which is how a
+    loincloth reaches up over the hip from the thigh bones: t=-0.3 on the thigh
+    is above the hip joint.
+    """
+
+    bone: str
+    t_lo: float
+    t_hi: float
+    min_weight: float
+
+
+@dataclass(frozen=True)
+class Garment:
+    """Cloth painted onto the skin: albedo only, no geometry, no new objects.
+
+    This is deliberately not a mesh. The nude lock refuses invented gear
+    OBJECTS (``assert_no_invented_gear``), and painted cloth has no silhouette,
+    so it reads at body distance only if the value contrast against the skin is
+    strong and the hem lands on an anatomical break. In exchange it costs no
+    verts, no bind, no seam repair and cannot tear under a pose.
+
+    The ragged, topology-following boundary that made the orc's first maw look
+    torn is wanted here: a hide loincloth has a torn hem. So there is no
+    contour cut, unlike ``orc_mouth_rim``.
+    """
+
+    name: str
+    bands: tuple[GarmentBand, ...]
+    color: tuple[float, float, float]
+    shadow: tuple[float, float, float]
+    warm: tuple[float, float, float]
+    roughness: float
+    noise_scale: float
+    # A clean threshold on this donor's topology gives a RECTANGULAR hem -- the
+    # quads around the hip are coarse and flip whole, so the first pass read as
+    # blocky trunks and socks. These two perturb the band edges by deterministic
+    # position noise instead:
+    #
+    #   wobble: low frequency, large amplitude. Makes the hem length uneven
+    #     around the circumference, which is what stops a hip band reading as
+    #     shorts and starts it reading as a hung hide.
+    #   tear: high frequency, small amplitude. Breaks the remaining straight
+    #     runs into a torn edge.
+    #
+    # Amplitudes are in the same units as t (fractions of bone length).
+    hem_wobble: float
+    hem_wobble_freq: float
+    hem_tear: float
+    hem_tear_freq: float
+
+
+# Hide loincloth plus forearm and shin wraps. Three separate bands rather than
+# one, because a savage silhouette is broken up: cloth at the hips, wraps at the
+# wrists and shins, bare everywhere else. The thigh bands carry the loincloth
+# (see GarmentBand on why t goes negative); pelvis fills the crotch, where the
+# verts are pelvis-weighted rather than thigh-weighted.
+SAVAGE_HIDE = Garment(
+    name="savage_hide",
+    bands=(
+        GarmentBand(bone="pelvis", t_lo=-1.20, t_hi=1.20, min_weight=0.62),
+        GarmentBand(bone="thigh_l", t_lo=-0.45, t_hi=0.26, min_weight=0.25),
+        GarmentBand(bone="thigh_r", t_lo=-0.45, t_hi=0.26, min_weight=0.25),
+        GarmentBand(bone="lowerarm_l", t_lo=0.45, t_hi=0.95, min_weight=0.50),
+        GarmentBand(bone="lowerarm_r", t_lo=0.45, t_hi=0.95, min_weight=0.50),
+        GarmentBand(bone="calf_l", t_lo=0.30, t_hi=0.85, min_weight=0.50),
+        GarmentBand(bone="calf_r", t_lo=0.30, t_hi=0.85, min_weight=0.50),
+    ),
+    # Dark tanned hide. The contrast against the skin is doing all the work
+    # here, so this is much darker than any skin tone rather than merely a
+    # different hue.
+    color=(0.10, 0.072, 0.050),
+    shadow=(0.045, 0.032, 0.022),
+    warm=(0.175, 0.125, 0.082),
+    roughness=0.95,
+    # Coarser than skin's 12.0: at this value the mottle reads as hide grain
+    # rather than as pores.
+    noise_scale=5.0,
+    hem_wobble=0.17,
+    hem_wobble_freq=15.0,
+    hem_tear=0.04,
+    hem_tear_freq=80.0,
+)
+
+# The ogre's is cruder and bigger: a heavier hide, hung lower, and no neat
+# wrist wraps -- forearm bands are dropped so the arms read bare and brutal.
+SAVAGE_HIDE_HEAVY = Garment(
+    name="savage_hide_heavy",
+    bands=(
+        # min_weight, not a t range, is what holds the waistline down: at 0.30
+        # the band reached 12 cm above the pelvis bone and read as high-waisted
+        # shorts. Only strongly pelvis-weighted verts are hips.
+        GarmentBand(bone="pelvis", t_lo=-1.40, t_hi=1.40, min_weight=0.62),
+        GarmentBand(bone="thigh_l", t_lo=-0.55, t_hi=0.38, min_weight=0.22),
+        GarmentBand(bone="thigh_r", t_lo=-0.55, t_hi=0.38, min_weight=0.22),
+        GarmentBand(bone="calf_l", t_lo=0.35, t_hi=0.80, min_weight=0.50),
+        GarmentBand(bone="calf_r", t_lo=0.35, t_hi=0.80, min_weight=0.50),
+    ),
+    color=(0.115, 0.090, 0.062),
+    shadow=(0.050, 0.038, 0.026),
+    warm=(0.195, 0.150, 0.100),
+    roughness=0.96,
+    noise_scale=4.0,
+    # Cruder than the orc's: a longer, more uneven hem and a rougher tear.
+    hem_wobble=0.24,
+    hem_wobble_freq=13.0,
+    hem_tear=0.05,
+    hem_tear_freq=70.0,
+)
+
+
+@dataclass(frozen=True)
 class Creature:
     """One creature's worth of aim for the shared restyle passes.
 
@@ -309,6 +428,10 @@ class Creature:
     skin: tuple[float, float, float]
     skin_shadow: tuple[float, float, float]
     skin_warm: tuple[float, float, float]
+    # None means nude, which stays a legitimate configuration -- the elf in
+    # docs/CREATURE_TRANSFORMS.md needs passes to be skippable, and this is the
+    # first one that is.
+    garment: Garment | None
 
 
 ORC = Creature(
@@ -340,6 +463,7 @@ ORC = Creature(
     skin=(0.28, 0.34, 0.20),
     skin_shadow=(0.16, 0.21, 0.12),
     skin_warm=(0.34, 0.32, 0.19),
+    garment=SAVAGE_HIDE,
 )
 
 # The ogre is the orc with the mass dialled up, which is the whole reason it is
@@ -412,6 +536,7 @@ OGRE = Creature(
     skin=(0.36, 0.30, 0.21),
     skin_shadow=(0.19, 0.15, 0.11),
     skin_warm=(0.47, 0.38, 0.26),
+    garment=SAVAGE_HIDE_HEAVY,
 )
 
 CREATURES: Mapping[str, Creature] = MappingProxyType({c.name: c for c in (ORC, OGRE)})
@@ -563,6 +688,13 @@ CAVITY_INTERIOR_RADIAL_EPS = 1e-4
 # Face attribute recording which polygons are bore. Material slots cannot hold
 # it: mesh.materials.clear() clamps every polygon index to 0.
 MOUTH_INTERIOR_ATTR = "orc_mouth_interior"
+# Same trick for painted cloth. Both are consumed by apply_body_face_slots,
+# which is the single owner of face -> material slot on male_body.
+GARMENT_ATTR = "orc_garment"
+# Minimum share of male_body faces a garment must cover. A loincloth that
+# selects a dozen faces is a bug that would ship as "looks nude"; the bands are
+# weight-gated, so a donor whose bind differs would silently select nothing.
+GARMENT_MIN_FACE_FRAC = 0.02
 # A maw with a zero-thickness edge reads as a hole cut in a face. Raise a lip
 # ridge straddling the rim loop: MOUTH_LIP_ROLL_M of forward displacement at the
 # rim, easing to nothing over MOUTH_LIP_ROLL_BAND of rim radius either side, so
@@ -3467,6 +3599,153 @@ def mouth_interior_material():
     return make_opaque_mat("OrcMouthInterior", MOUTH_INTERIOR, 0.65)
 
 
+def garment_material(g: Garment):
+    """Mottled hide. Same Principled+noise graph as the skin, different numbers.
+
+    Shares ``mottled_material`` with the skin on purpose: two shader graphs that
+    are supposed to look like they belong to the same creature should not be
+    built by two pieces of code.
+    """
+    return mottled_material(
+        f"OrcGarment_{g.name}",
+        base=g.color,
+        shadow=g.shadow,
+        warm=g.warm,
+        roughness=g.roughness,
+        noise_scale=g.noise_scale,
+    )
+
+
+def mottled_material(
+    name: str,
+    *,
+    base: tuple[float, float, float],
+    shadow: tuple[float, float, float],
+    warm: tuple[float, float, float],
+    roughness: float,
+    noise_scale: float,
+    subsurface: float = 0.0,
+):
+    """Principled BSDF with a noise-driven two-stop ramp on base colour.
+
+    One owner of "how this bake makes a mottled surface", used for skin and for
+    cloth. Flat albedo is what made the first orc passes read as plastic.
+    """
+    mat = make_opaque_mat(name, base, roughness)
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    noise = nt.nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = noise_scale
+    noise.inputs["Detail"].default_value = 6.0
+    ramp = nt.nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].position = 0.35
+    ramp.color_ramp.elements[0].color = (*shadow, 1.0)
+    ramp.color_ramp.elements[1].position = 0.75
+    ramp.color_ramp.elements[1].color = (*warm, 1.0)
+    nt.links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+    nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+    if subsurface > 0.0:
+        if "Subsurface Weight" in bsdf.inputs:
+            bsdf.inputs["Subsurface Weight"].default_value = subsurface
+        elif "Subsurface" in bsdf.inputs:
+            bsdf.inputs["Subsurface"].default_value = subsurface
+    return mat
+
+
+def position_noise(p: Vector, freq: float, phase: float) -> float:
+    """Smooth deterministic noise in about [-1, 1] from a position.
+
+    Three sinusoids rather than a hash lattice: it needs to be continuous (a
+    discontinuous hem edge would jump between adjacent verts and undo the point
+    of a torn edge, giving speckle), cheap, and above all identical on every
+    run. Determinism is not optional here -- a rebuilt asset must be the same
+    asset, and a randomly seeded hem would make every bake a different garment.
+
+    Note the octave spread: the three terms are at 1x, 2.9x and 7.3x, not at
+    1x/1.3x/1.7x. A first version used near-equal frequencies, which is
+    effectively a single wave -- the hem came out as an even sawtooth that read
+    as pinking shears rather than as a tear. Natural edges vary at several
+    scales at once, so the frequencies have to be spread.
+    """
+    return (
+        0.55 * math.sin(p.x * freq * 1.00 + p.y * freq * 0.70 + phase + 11.3)
+        + 0.30 * math.sin(p.z * freq * 2.90 + p.x * freq * 2.10 + phase + 4.1)
+        + 0.15 * math.sin(p.y * freq * 7.30 + p.z * freq * 5.90 + phase + 7.7)
+    )
+
+
+def garment_edge_offset(g: Garment, co: Vector, phase: float) -> float:
+    """How far this position pushes a band edge out, in units of t."""
+    return g.hem_wobble * position_noise(
+        co, g.hem_wobble_freq, phase
+    ) + g.hem_tear * position_noise(co, g.hem_tear_freq, phase)
+
+
+def garment_vert_flags(body, arm, g: Garment) -> list[bool]:
+    """Which male_body verts the garment covers, by bind weight and bone axis.
+
+    Refuses a band naming a bone the donor does not have, rather than quietly
+    painting nothing: a loincloth that silently vanished is exactly the class of
+    failure that kept the orc's face coming back human.
+    """
+    me = body.data
+    flags = [False] * len(me.vertices)
+    frames: dict[str, tuple[Vector, Vector, float]] = {}
+    groups: dict[str, int] = {}
+    for band in g.bands:
+        if band.bone not in arm.data.bones:
+            raise RuntimeError(
+                f"garment {g.name!r} names bone {band.bone!r}, which this "
+                f"{len(arm.data.bones)}-bone donor does not have"
+            )
+        gi = vg_index(body, band.bone)
+        if gi is None:
+            raise RuntimeError(
+                f"garment {g.name!r} names bone {band.bone!r} but {body.name!r} "
+                f"has no vertex group of that name, so the band selects nothing"
+            )
+        frames[band.bone] = bone_axis_frame(arm, band.bone)
+        groups[band.bone] = gi
+
+    for v in me.vertices:
+        co = Vector(v.co)
+        # Two decorrelated phases so the two ends of a band wobble
+        # independently; one shared offset would just slide the whole band.
+        lo_off = garment_edge_offset(g, co, 0.0)
+        hi_off = garment_edge_offset(g, co, 37.0)
+        for band in g.bands:
+            if vg_weight(v, groups[band.bone]) < band.min_weight:
+                continue
+            start, axis, length = frames[band.bone]
+            t = (co - start).dot(axis) / max(length, 1e-9)
+            if band.t_lo - lo_off <= t <= band.t_hi + hi_off:
+                flags[int(v.index)] = True
+                break
+    return flags
+
+
+def store_face_flags(obj, attr_name: str, flags: list[bool]) -> None:
+    """Record a per-face boolean as mesh data, replacing any previous value.
+
+    ``polygon.material_index`` cannot hold this: ``mesh.materials.clear()``
+    removes every slot and clamps every index to 0, so any paint written into
+    the indices is erased the first time the slots are rebuilt -- which happens
+    twice per still. A face attribute is independent of the slot list.
+    """
+    me = obj.data
+    if len(flags) != len(me.polygons):
+        raise RuntimeError(
+            f"{obj.name!r}: {attr_name} flags for {len(flags)} faces but the "
+            f"mesh has {len(me.polygons)}"
+        )
+    existing = me.attributes.get(attr_name)
+    if existing is not None:
+        me.attributes.remove(existing)
+    attr = me.attributes.new(attr_name, "BOOLEAN", "FACE")
+    attr.data.foreach_set("value", [bool(v) for v in flags])
+    me.update()
+
+
 def store_mouth_interior_faces(obj, interior: list[bool]) -> None:
     """Record which faces are bore rather than skin, as mesh data.
 
@@ -3476,60 +3755,133 @@ def store_mouth_interior_faces(obj, interior: list[bool]) -> None:
     twice per still. A face attribute is independent of the slot list, so it
     survives, and it keeps one authority for "this face is inside the maw".
     """
+    store_face_flags(obj, MOUTH_INTERIOR_ATTR, interior)
+
+
+def read_face_flags(obj, attr_name: str) -> list[bool] | None:
     me = obj.data
-    if len(interior) != len(me.polygons):
-        raise RuntimeError(
-            f"{obj.name!r}: interior flags for {len(interior)} faces but the "
-            f"mesh has {len(me.polygons)}"
-        )
-    existing = me.attributes.get(MOUTH_INTERIOR_ATTR)
-    if existing is not None:
-        me.attributes.remove(existing)
-    attr = me.attributes.new(MOUTH_INTERIOR_ATTR, "BOOLEAN", "FACE")
-    attr.data.foreach_set("value", [bool(v) for v in interior])
-    me.update()
-
-
-def apply_mouth_interior_slot(obj) -> int:
-    """Point every bore face at the interior slot. Single owner of that mapping.
-
-    Called by the carve and again by every re-paint, so the maw stays dark
-    however often the slots are rebuilt. Returns the number of faces painted;
-    a mesh that records a cavity and paints none of it is refused, because the
-    maw would render as skin and the still would read closed.
-    """
-    me = obj.data
-    slot = int(obj.get("orc_mouth_interior_slot", -1))
-    if slot < 0:
-        raise RuntimeError(
-            f"{obj.name!r} has no recorded mouth interior slot; the carve must "
-            f"run before the interior can be painted"
-        )
-    if slot >= len(me.materials):
-        raise RuntimeError(
-            f"{obj.name!r} records the mouth interior in slot {slot} but the mesh "
-            f"has {len(me.materials)} material slot(s); the maw would render as skin"
-        )
-    attr = me.attributes.get(MOUTH_INTERIOR_ATTR)
+    attr = me.attributes.get(attr_name)
     if attr is None:
-        raise RuntimeError(
-            f"{obj.name!r} records a mouth interior slot but carries no "
-            f"{MOUTH_INTERIOR_ATTR!r} face attribute — nothing says which faces "
-            f"are bore"
-        )
+        return None
     flags = [False] * len(me.polygons)
     attr.data.foreach_get("value", flags)
-    painted = 0
-    for poly, is_interior in zip(me.polygons, flags):
-        poly.material_index = slot if is_interior else 0
-        painted += 1 if is_interior else 0
+    return [bool(f) for f in flags]
+
+
+def rebuild_body_material_slots(obj) -> dict[str, int]:
+    """Rebuild male_body's slot list and repaint every face from the attributes.
+
+    Single owner of BOTH the slot list and the face -> slot mapping.
+
+    It has to be one function. ``mesh.materials.clear()`` clamps every
+    polygon.material_index to 0, so the slot list and the paint can only ever be
+    correct together; and any pass that wrote indices for its own layer would
+    have to reset the other layers to 0, silently erasing them. That is how the
+    carve's 1052 painted polygons were lost once already.
+
+    Slot order is fixed: 0 skin, 1 mouth interior, 2 garment. Layers that this
+    creature does not have are simply absent, and their faces fall through to
+    skin. Returns the painted face count per layer, for the log.
+    """
+    me = obj.data
+    interior = read_face_flags(obj, MOUTH_INTERIOR_ATTR)
+    garment = read_face_flags(obj, GARMENT_ATTR)
+
+    me.materials.clear()
+    me.materials.append(
+        mottled_material(
+            f"OrcSkin_{obj.name}",
+            base=CREATURE.skin,
+            shadow=CREATURE.skin_shadow,
+            warm=CREATURE.skin_warm,
+            roughness=0.88,
+            noise_scale=12.0,
+            subsurface=0.04,
+        )
+    )
+    interior_slot = -1
+    garment_slot = -1
+    if interior is not None:
+        me.materials.append(mouth_interior_material())
+        interior_slot = len(me.materials) - 1
+    if garment is not None:
+        if CREATURE.garment is None:
+            raise RuntimeError(
+                f"{obj.name!r} carries a {GARMENT_ATTR!r} face attribute but "
+                f"creature {CREATURE.name!r} has no garment; the mesh and the "
+                f"preset disagree about whether this creature is dressed"
+            )
+        me.materials.append(garment_material(CREATURE.garment))
+        garment_slot = len(me.materials) - 1
+
+    counts = {"mouth_interior": 0, "garment": 0}
+    for i, poly in enumerate(me.polygons):
+        # Interior wins over garment: the two never overlap on a sane body, and
+        # if they ever did, a maw painted as hide is the worse failure.
+        if interior is not None and interior[i]:
+            poly.material_index = interior_slot
+            counts["mouth_interior"] += 1
+        elif garment is not None and garment[i]:
+            poly.material_index = garment_slot
+            counts["garment"] += 1
+        else:
+            poly.material_index = 0
     me.update()
-    if painted <= 0:
+
+    if interior is not None and counts["mouth_interior"] <= 0:
         raise RuntimeError(
             f"{obj.name!r} painted 0 of {len(me.polygons)} faces with the mouth "
             f"interior — the maw would render as skin and read closed"
         )
-    return painted
+    if garment is not None:
+        need = int(GARMENT_MIN_FACE_FRAC * len(me.polygons))
+        if counts["garment"] < need:
+            raise RuntimeError(
+                f"{obj.name!r} painted {counts['garment']} of {len(me.polygons)} "
+                f"faces as garment {CREATURE.garment.name!r} (need {need}, "
+                f"{GARMENT_MIN_FACE_FRAC:.0%}) — the creature would ship reading "
+                f"nude. The bands are gated on bind weight, so check the donor's "
+                f"weights on {[b.bone for b in CREATURE.garment.bands]}"
+            )
+    return counts
+
+
+def build_orc_garment(arm) -> dict[str, int]:
+    """Paint the creature's cloth onto male_body, or do nothing if it is nude.
+
+    Runs after the body mass and the carve, so the bands are measured on the
+    mesh that ships rather than on the donor's.
+    """
+    if CREATURE.garment is None:
+        log(f"creature {CREATURE.name!r} has no garment; skipping (nude)")
+        return {"garment": 0}
+    body = male_body_mesh(arm)
+    me = body.data
+    g = CREATURE.garment
+    vert_flags = garment_vert_flags(body, arm, g)
+    # Majority of the face's verts, not all of them. Requiring all left isolated
+    # skin-coloured quads inside the loincloth wherever one vert of a quad fell
+    # under a band's weight threshold, which rendered as holes in the cloth.
+    face_flags = [
+        sum(1 for i in poly.vertices if vert_flags[int(i)]) * 2
+        >= len(poly.vertices)
+        for poly in me.polygons
+    ]
+    store_face_flags(body, GARMENT_ATTR, face_flags)
+    counts = rebuild_body_material_slots(body)
+    zs = [
+        float(v.co.z)
+        for v in me.vertices
+        if vert_flags[int(v.index)]
+    ]
+    log(
+        f"painted garment {g.name!r} on {body.name!r}: "
+        f"faces={counts['garment']}/{len(me.polygons)} "
+        f"verts={sum(1 for f in vert_flags if f)}/{len(me.vertices)} "
+        f"z=[{min(zs):.3f},{max(zs):.3f}] bands={len(g.bands)} "
+        f"slots={[m.name for m in me.materials]}"
+    )
+    return counts
 
 
 def aperture_region_edge_stats(me, aperture) -> tuple[list[int], float]:
@@ -3754,15 +4106,9 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
             f"a closed mouth"
         )
 
-    # Paint the bore. Slot 1 is the interior; apply_finished_olive_skin rebuilds
-    # the slots in that order so this survives every re-paint.
-    interior = mouth_interior_material()
-    me.materials.clear()
-    me.materials.append(make_opaque_mat(f"OrcSkin_{body.name}", CREATURE.skin, 0.88))
-    me.materials.append(interior)
-    body["orc_mouth_interior_slot"] = 1
+    # Record the bore, then let the single owner of slots-and-paint build both.
     store_mouth_interior_faces(body, interior_faces)
-    painted = apply_mouth_interior_slot(body)
+    painted = rebuild_body_material_slots(body)["mouth_interior"]
     assert_all_skin_verts_bound(arm, "after mouth cavity carve")
     log(
         f"carved orc mouth cavity verts={carved} deepest={deepest:.4f} "
@@ -5212,48 +5558,17 @@ def apply_finished_olive_skin(arm) -> None:
         me = obj.data
         if not me.uv_layers:
             raise RuntimeError(f"{obj.name!r} has no UV; refusing smart_project")
-        # Keep mesh name male_body; material id documents olive ownership.
-        mat_name = f"OrcSkin_{obj.name}"
-        mat = make_opaque_mat(mat_name, CREATURE.skin, 0.88)
-        nt = mat.node_tree
-        bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
-        noise = nt.nodes.new("ShaderNodeTexNoise")
-        noise.inputs["Scale"].default_value = 12.0
-        noise.inputs["Detail"].default_value = 6.0
-        ramp = nt.nodes.new("ShaderNodeValToRGB")
-        ramp.color_ramp.elements[0].position = 0.35
-        ramp.color_ramp.elements[0].color = (*CREATURE.skin_shadow, 1.0)
-        ramp.color_ramp.elements[1].position = 0.75
-        ramp.color_ramp.elements[1].color = (*CREATURE.skin_warm, 1.0)
-        nt.links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
-        nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
-        if "Subsurface Weight" in bsdf.inputs:
-            bsdf.inputs["Subsurface Weight"].default_value = 0.05
-        elif "Subsurface" in bsdf.inputs:
-            try:
-                bsdf.inputs["Subsurface"].default_value = 0.04
-            except Exception:
-                pass
-        # Clearing the slots clamps every polygon.material_index to 0, so the
-        # carve's paint does not survive this and cannot be relied on. The bore
-        # faces are recorded as a face attribute; re-derive the indices from it.
-        # render_clip_stills re-paints twice per still, so this runs often.
-        me.materials.clear()
-        me.materials.append(mat)
-        interior_slot = int(obj.get("orc_mouth_interior_slot", -1))
-        painted = 0
-        if interior_slot >= 0:
-            if interior_slot != 1:
-                raise RuntimeError(
-                    f"{obj.name!r} records mouth interior in slot {interior_slot}; "
-                    f"this bake only ever authors slot 1"
-                )
-            me.materials.append(mouth_interior_material())
-            painted = apply_mouth_interior_slot(obj)
+        # Slots and paint are rebuilt together by their single owner: clearing
+        # the slots clamps every polygon.material_index to 0, so the carve's and
+        # the garment's paint cannot survive this on their own. Both are recorded
+        # as face attributes. render_clip_stills re-paints twice per still, so
+        # this runs often and must be idempotent.
+        counts = rebuild_body_material_slots(obj)
         log(
-            f"finished olive-grey skin on mesh={obj.name!r} mat={mat_name!r} "
+            f"finished skin on mesh={obj.name!r} "
             f"slots={[m.name for m in me.materials]} "
-            f"mouth_interior_faces={painted} "
+            f"mouth_interior_faces={counts['mouth_interior']} "
+            f"garment_faces={counts['garment']} "
             f"(Principled+noise, no UV-grid, uv={me.uv_layers.active.name!r})"
         )
 
@@ -6979,6 +7294,10 @@ def run_restyle() -> dict:
     repair_bind_seams(arm)
     store_mouth_aperture(arm, aperture)
     tusks = add_tusks(arm, aperture)
+    # Cloth last among the mesh passes: the bands are weight-and-axis gated, so
+    # they must be measured on the mesh that ships, after the mass has thickened
+    # the hips and the seam repair has moved weights around.
+    build_orc_garment(arm)
     hidden_junk = hide_junk_companion_meshes(arm)
     assert_no_invented_gear()
     apply_finished_olive_skin(arm)
