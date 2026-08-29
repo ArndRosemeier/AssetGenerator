@@ -104,13 +104,25 @@ Mouth / tusk approach (this pass; read before changing anything below):
      pec vert's only vertex group left it unweighted, frozen at rest while the
      mesh deformed: weights are now transferred, never deleted, and
      ``assert_all_skin_verts_bound`` enforces that centrally.
+  4. The Punch torso edge (1876, 1891) at 0.2129 is NOT a restyle artefact. It
+     measured the same on b4d8e69 and on af0e428, restyles sharing almost no
+     torso code, because neither touches that pair: it is the donor bind with
+     no blend across a seam, and adjacent verts driven by disjoint bones
+     separate by whatever those bones do. Flattening or skipping restyle on the
+     pair, which earlier passes tried, cannot move the number.
+     ``repair_bind_seams`` fixes it at the bind — measure the posed edges over
+     the poses the stills will use, blend the weights across the seams that
+     tear, re-measure — and the gate now names the bones on both ends instead
+     of reporting only spine and head, which are 1.00 and 0.00 on that pair and
+     say nothing about what drives it.
 
   Do not reintroduce absolute millimetre windows for the mouth. If a number
-  needs to change, change the fraction and re-run BOTH offline checks -- they
-  need no Blender and take under a second::
+  needs to change, change the fraction and re-run the offline checks -- they
+  need no Blender and take about a second each::
 
     python tools/orc_mouth_geometry.py    # the mouth solver's own self-test
     python tools/orc_mouth_selfcheck.py   # maw carve + tusk containment
+    python tools/orc_bind_repair.py       # seam repair on modelled skinning
 
   The second one reads the tusk and cavity constants straight out of this file
   and replays the carve and the still gate against synthetic heads over a range
@@ -146,6 +158,7 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 import bake_human_quaternius as HQ  # noqa: E402
+import orc_bind_repair as BR  # noqa: E402
 import orc_mouth_geometry as MG  # noqa: E402
 
 AG = Path(r"C:\Projekte\AssetGenerator")
@@ -335,6 +348,31 @@ CHEST_PINCH_RAMP_M = 0.012
 CHEST_PINCH_MAX_BLEND = 0.80
 # Posed torso-vert outlier (Idle pec pinch / Death through-torso spike).
 TORSO_SPIKE_MAX_M = 0.36
+# Longest non-limb posed edge the still gate will accept. Do not raise it.
+TORSO_EDGE_MAX_M = 0.14
+
+# --- donor bind seam repair -------------------------------------------------
+# The Punch edge (1876, 1891) at 0.2129 with spine=(1.00, 0.00) is a bind with
+# no blend across a seam: adjacent verts driven by disjoint bones separate by
+# whatever those bones do. It measured the same on b4d8e69 and af0e428, two
+# restyles sharing almost no torso code, which is how we know the restyle never
+# touched it. Repair the bind, and verify by measurement.
+#
+# Repair target, below TORSO_EDGE_MAX_M so the gate has margin.
+BIND_SEAM_TARGET_M = 0.12
+# Frames sampled per clip. The Death still chooses its on-back frame at render
+# time, so one frame per clip does not prove the bind survives the still.
+BIND_SEAM_PROBE_FRAMES = 6
+# (dilation rings, Laplacian iterations) per attempt. Spreading the weight
+# transition over 2*rings edges divides the worst posed edge by about the same
+# factor, so 2 rings should already take 0.2129 well under target; the later
+# attempts exist so a worse seam still converges rather than refusing.
+BIND_SEAM_ATTEMPTS = ((2, 10), (3, 16), (4, 24))
+BIND_SMOOTH_LAMBDA = 0.5
+# Beyond this share of male_body the "seam" is a broken bind, not a seam, and
+# re-weighting that much of the character is not a repair.
+BIND_SEAM_MAX_SEED_FRAC = 0.10
+REHOME_MAX_PASSES = 8
 
 # --- mouth close-up still ---------------------------------------------------
 # Camera standoff as a multiple of the measured head width. At 1.8 with a 50 mm
@@ -738,16 +776,24 @@ def write_art_review_packet(
             "rim, so a deep seat on the canine line is in the flesh, not the "
             "maw). Zero torso/arm radial bulk. Do NOT seat unbind edges. "
             "Stretched-edge gate 0.14.",
-            "Offline checks, no Blender needed: python tools/orc_mouth_geometry.py "
-            "and python tools/orc_mouth_selfcheck.py. Run both after changing any "
-            "mouth or tusk fraction.",
+            "Offline checks, no Blender needed: python tools/orc_mouth_geometry.py, "
+            "python tools/orc_mouth_selfcheck.py and python tools/orc_bind_repair.py. "
+            "Run them after changing any mouth, tusk or bind-repair constant.",
             "Every restyle offset runs through a smooth falloff. Hard selection "
             "boxes with step displacement authored the chin needle, the pec "
             "spike and the torso strand; the box boundary itself was the tear.",
             "Pec head/neck weight is transferred to spine_02/spine_03, never "
             "deleted: deleting a pec vert's only group left it unweighted and "
             "frozen at rest, which draws the strand. "
-            "assert_all_skin_verts_bound enforces this after every weight edit.",
+            "assert_all_skin_verts_bound enforces this after every weight edit, "
+            "counting only weight on groups that match an actual bone — weight "
+            "on a group no bone drives is inert and the vert is frozen.",
+            "The Punch edge (1876,1891) at 0.2129 is the donor bind, not the "
+            "restyle: identical on b4d8e69 and af0e428, which share almost no "
+            "torso code. repair_bind_seams measures the posed edges over the "
+            "still poses, Laplacian-blends the weights across seams that tear, "
+            "and re-measures against the pre-repair edge classification so it "
+            "cannot pass by reclassifying a torso edge as a limb edge.",
             "AFTER stills gate: aperture containment (radius, depth, front "
             "fraction, height span) + rigid-bind proof + mouth-rim tracking + "
             "torso-spike refuse; junk Eyes unlinked from collections.",
@@ -935,7 +981,14 @@ def strip_dressed_meshes_attach_male_base(arm) -> tuple[list, list[str]]:
             for vg in obj.vertex_groups
             if vg.name not in arm.data.bones and vg.name.lower() not in ("root",)
         ]
-        # Root may exist as bone "root" on MH — tolerate unknown empty groups lightly.
+        # Root may exist as bone "root" on MH — tolerate unknown empty groups lightly,
+        # but name them: a vert weighted only to one of these is inert under the
+        # Armature modifier, and that is the frozen-vert strand class.
+        if missing_bones:
+            log(
+                f"male_base mesh {obj.name!r} vertex groups with no dest bone: "
+                f"{sorted(set(missing_bones))}"
+            )
         hard_missing = [n for n in missing_bones if n in ("pelvis", "head", "spine_01")]
         if hard_missing:
             raise RuntimeError(
@@ -1183,12 +1236,11 @@ def restyle_face_and_chest(arm, aperture) -> None:
     flatten_male_body_brow_spikes(arm, aperture)
     flatten_chest_pinch(arm)
     reassign_chest_head_weights(arm)
-    # Do not seat unbind edges. 0240d6e pulled clavicle/shoulder verts
-    # onto the chest; Idle read as a neck pinched off the shoulders.
-    repair_spine_unbind_edges(arm)
     # One invariant covering every weight edit above: a skin vert with no
-    # remaining group weight is frozen at rest object space while the rest of
+    # remaining bone influence is frozen at rest object space while the rest of
     # the mesh deforms, which draws exactly the 0240d6e "torso/pec strand".
+    # Seam repair is not done here — it needs the final mesh and the still
+    # poses, so ``repair_bind_seams`` runs after the carve.
     assert_all_skin_verts_bound(arm, "after restyle weight edits")
 
 
@@ -1354,10 +1406,6 @@ def vg_by_index(obj, group_index):
     return None
 
 
-def total_vert_weight(vert) -> float:
-    return sum(float(g.weight) for g in vert.groups)
-
-
 def reassign_chest_head_weights(arm) -> int:
     """Move misplaced head/neck weight on pec verts onto the chest spine.
 
@@ -1377,6 +1425,7 @@ def reassign_chest_head_weights(arm) -> int:
     """
     body = male_body_mesh(arm)
     me = body.data
+    bone_groups = armature_bone_groups(body, arm)
     head_i = vg_index(body, "head")
     neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
     spine2_i = vg_index(body, "spine_02")
@@ -1440,11 +1489,11 @@ def reassign_chest_head_weights(arm) -> int:
             _clear_vg(body, i, head_i)
         if nw >= 0.08:
             _clear_vg(body, i, neck_i)
-        if total_vert_weight(me.vertices[i]) <= 1e-6:
+        if effective_bind_weight(me.vertices[i], bone_groups) <= 1e-6:
             raise RuntimeError(
-                f"male_body vert {i} left unbound after chest weight transfer "
-                f"(host={host.name!r} target={new_host_w:.4f}) — this is the "
-                f"frozen-vert strand class; refusing to continue"
+                f"male_body vert {i} left with no bone influence after chest "
+                f"weight transfer (host={host.name!r} target={new_host_w:.4f}) — "
+                f"this is the frozen-vert strand class; refusing to continue"
             )
         moved += 1
     log(
@@ -1454,74 +1503,215 @@ def reassign_chest_head_weights(arm) -> int:
     return moved
 
 
-def assert_all_skin_verts_bound(arm, label: str) -> None:
-    """Every skin vert must keep some bone weight, on every skinned mesh.
+def vertex_group_name(obj, group_index) -> str:
+    vg = vg_by_index(obj, group_index)
+    return vg.name if vg is not None else f"<gone:{group_index}>"
 
-    This is the single invariant behind the strand artefacts. A vert with zero
-    total weight does not follow the armature at all: it sits at rest object
-    space while its neighbours move, and the edges to those neighbours render
-    as a spike from the body to nowhere. Weight edits are allowed to move
-    influence around; they are never allowed to remove all of it.
+
+def armature_bone_groups(obj, arm) -> dict:
+    """Vertex group index -> bone name, for groups the armature can actually drive.
+
+    A vertex group whose name is not a bone on the dest armature is inert: the
+    Armature modifier ignores it. A vert weighted ONLY to such groups is
+    frozen at its rest object-space position while the rest of the mesh
+    deforms, even though ``vert.groups`` makes it look bound -- and in the
+    pixels that is indistinguishable from an unweighted vert.
+
+    This is the distinction the 1876/1891 Punch edge needed. It measured
+    exactly 0.2129 on b4d8e69 and again on af0e428, two restyles that share
+    almost no torso code, which means the restyle was never involved: one end
+    of that edge barely moves, so the length is a function of the donor bind and
+    the Punch pose alone. A weight total that counts every group, bone or not,
+    cannot see a frozen vert, which is why the earlier bound-vert invariant
+    passed on one.
+    """
+    bones = arm.data.bones
+    return {
+        int(vg.index): vg.name for vg in obj.vertex_groups if vg.name in bones
+    }
+
+
+def bone_weight_map(vert, bone_groups: dict) -> dict:
+    """Weights of ``vert`` on groups the armature drives, pruned of zeros."""
+    out = {}
+    for g in vert.groups:
+        gi = int(g.group)
+        w = float(g.weight)
+        if gi in bone_groups and w > 0.0:
+            out[gi] = w
+    return out
+
+
+def effective_bind_weight(vert, bone_groups: dict) -> float:
+    return sum(bone_weight_map(vert, bone_groups).values())
+
+
+def log_inert_vertex_groups(obj, arm) -> list[str]:
+    """Name the vertex groups on ``obj`` that no bone will ever drive."""
+    bones = arm.data.bones
+    inert = sorted(vg.name for vg in obj.vertex_groups if vg.name not in bones)
+    log(
+        f"{obj.name!r} vertex groups with no matching bone (inert under the "
+        f"Armature modifier): {inert or '(none)'}"
+    )
+    return inert
+
+
+def write_bone_weights(obj, index: int, weights: dict, bone_groups: dict) -> None:
+    """Replace a vert's bone weights with ``weights``, transactionally.
+
+    Validated before anything is written, so a vert is never left mid-edit with
+    part of its influence removed.
+    """
+    if not weights:
+        raise RuntimeError(
+            f"{obj.name!r} vert {index}: refusing to write an empty bone weight "
+            f"set — that is the frozen-vert strand class"
+        )
+    for gi in weights:
+        if gi not in bone_groups:
+            raise RuntimeError(
+                f"{obj.name!r} vert {index}: weight on group "
+                f"{vertex_group_name(obj, gi)!r} which is not an armature bone"
+            )
+        if vg_by_index(obj, gi) is None:
+            raise RuntimeError(
+                f"{obj.name!r} vert {index}: vertex group index {gi} vanished"
+            )
+    old = {
+        int(g.group)
+        for g in obj.data.vertices[index].groups
+        if int(g.group) in bone_groups
+    }
+    for gi, w in weights.items():
+        vg_by_index(obj, gi).add([int(index)], float(w), "REPLACE")
+    for gi in old - set(weights):
+        _clear_vg(obj, index, gi)
+
+
+def _mesh_adjacency(me) -> list:
+    adj = [[] for _ in me.vertices]
+    for e in me.edges:
+        a, b = int(e.vertices[0]), int(e.vertices[1])
+        adj[a].append(b)
+        adj[b].append(a)
+    return adj
+
+
+def rehome_unbound_verts(arm, label: str) -> int:
+    """Give every skin vert real bone influence, averaged from its neighbours.
+
+    Runs before any weight edit or gate, because everything downstream assumes
+    the bind is complete. The averaging itself lives in ``orc_bind_repair``,
+    which is tested offline.
+    """
+    total = 0
+    for obj in skinned_meshes(arm):
+        if is_junk_companion_mesh(obj) or obj.name.startswith("OrcTusk_"):
+            continue
+        bone_groups = armature_bone_groups(obj, arm)
+        log_inert_vertex_groups(obj, arm)
+        if not bone_groups:
+            raise RuntimeError(
+                f"{label}: {obj.name!r} has no vertex group matching any bone on "
+                f"{arm.name!r} — the mesh is not bound to this armature at all"
+            )
+        me = obj.data
+        cur = [bone_weight_map(v, bone_groups) for v in me.vertices]
+        unbound = {i for i, w in enumerate(cur) if sum(w.values()) <= 1e-6}
+        if not unbound:
+            log(f"{label}: {obj.name!r} every vert has bone influence already")
+            continue
+        sample = sorted(unbound)[:8]
+        log(
+            f"{label}: {obj.name!r} {len(unbound)} vert(s) have no bone influence "
+            f"(e.g. {sample}); their groups: "
+            + "; ".join(
+                f"{i}:"
+                + str(
+                    {
+                        vertex_group_name(obj, int(g.group)): round(float(g.weight), 3)
+                        for g in me.vertices[i].groups
+                    }
+                )
+                for i in sample
+            )
+        )
+        adj = _mesh_adjacency(me)
+        try:
+            fixed = BR.rehome_from_neighbours(
+                adj, cur, unbound, max_passes=REHOME_MAX_PASSES
+            )
+        except BR.BindRepairError as exc:
+            raise RuntimeError(f"{label}: {obj.name!r} {exc}") from exc
+        for i, w in sorted(fixed.items()):
+            write_bone_weights(obj, i, w, bone_groups)
+        total += len(fixed)
+        log(
+            f"{label}: {obj.name!r} re-homed {len(fixed)} vert(s) onto their "
+            f"neighbours' averaged bone weights"
+        )
+    return total
+
+
+def assert_all_skin_verts_bound(arm, label: str) -> None:
+    """Every skin vert must have weight on a bone the armature actually drives.
+
+    This is the single invariant behind the strand artefacts. A vert the
+    armature cannot move does not follow the pose at all: it sits at rest
+    object space while its neighbours move, and the edges to those neighbours
+    render as a spike from the body to nowhere. Weight edits are allowed to
+    move influence around; they are never allowed to remove all of it.
+
+    Note "a bone the armature actually drives" — weight on a vertex group with
+    no matching bone counts for nothing, and reporting such a vert as bound is
+    what let a frozen one reach the Punch still.
     """
     for obj in skinned_meshes(arm):
-        if is_junk_companion_mesh(obj):
+        if is_junk_companion_mesh(obj) or obj.name.startswith("OrcTusk_"):
             continue
-        if obj.name.startswith("OrcTusk_"):
-            continue
+        bone_groups = armature_bone_groups(obj, arm)
+        if not bone_groups:
+            raise RuntimeError(
+                f"{label}: {obj.name!r} has no vertex group matching a bone on "
+                f"{arm.name!r}"
+            )
         unbound = [
-            int(v.index) for v in obj.data.vertices if total_vert_weight(v) <= 1e-6
+            int(v.index)
+            for v in obj.data.vertices
+            if effective_bind_weight(v, bone_groups) <= 1e-6
         ]
         if unbound:
-            raise RuntimeError(
-                f"{label}: {obj.name!r} has {len(unbound)} unbound vert(s) "
-                f"{unbound[:12]}{'...' if len(unbound) > 12 else ''} — an "
-                f"unweighted vert stays at rest while the mesh deforms and "
-                f"draws the pec/torso strand; refusing to continue"
+            detail = "; ".join(
+                f"{i}:"
+                + str(
+                    {
+                        vertex_group_name(obj, int(g.group)): round(float(g.weight), 3)
+                        for g in obj.data.vertices[i].groups
+                    }
+                )
+                for i in unbound[:6]
             )
-        log(f"{label}: {obj.name!r} all {len(obj.data.vertices)} verts bound")
-
-
-def _copy_vertex_groups(obj, src_index: int, dst_index: int) -> int:
-    """Replace dst weights with src weights so the pair deforms together."""
-    src = obj.data.vertices[src_index]
-    copied = 0
-    # Clear dst groups first so leftover empty binds cannot fight spine.
-    for g in list(obj.data.vertices[dst_index].groups):
-        _clear_vg(obj, dst_index, g.group)
-    for g in src.groups:
-        vg = None
-        for cand in obj.vertex_groups:
-            if cand.index == g.group:
-                vg = cand
-                break
-        if vg is None:
-            continue
-        vg.add([int(dst_index)], float(g.weight), "REPLACE")
-        copied += 1
-    if total_vert_weight(obj.data.vertices[dst_index]) <= 1e-6:
-        raise RuntimeError(
-            f"{obj.name!r} vert {dst_index} left unbound after copying groups "
-            f"from {src_index} (copied={copied}) — frozen-vert strand class"
+            raise RuntimeError(
+                f"{label}: {obj.name!r} has {len(unbound)} vert(s) with no bone "
+                f"influence {unbound[:12]}{'...' if len(unbound) > 12 else ''} — "
+                f"their groups are [{detail}]. Such a vert stays at rest while "
+                f"the mesh deforms and draws the pec/torso strand; refusing to "
+                f"continue"
+            )
+        log(
+            f"{label}: {obj.name!r} all {len(obj.data.vertices)} verts driven by "
+            f"{len(bone_groups)} bone group(s)"
         )
-    return copied
 
 
-def repair_spine_unbind_edges(arm) -> int:
-    """Copy spine groups onto a pec-box unbound neighbor (1876/1891).
+def stretch_gate_context(body) -> dict:
+    """Per-vert limb weights and the edge list for the stretched-edge scan.
 
-    Punch:Punch_Cross@13 verts (1876, 1891): spine=(1.00, 0.00) head=(0,0).
-    Copy groups only — do not move rest verts. 0240d6e seated every
-    spine=1 / spine=0 edge and pulled the clavicle onto the chest.
+    Built once and shared by ``assert_no_torso_spike`` and the bind repair, so
+    the repair cannot disagree with the gate about which edges are torso edges.
     """
-    body = male_body_mesh(arm)
     me = body.data
-    spine_groups = [
-        vg_index(body, "spine_01"),
-        vg_index(body, "spine_02"),
-        vg_index(body, "spine_03"),
-    ]
-    head_i = vg_index(body, "head")
-    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
     upper_l = vg_index(body, "upperarm_l")
     upper_r = vg_index(body, "upperarm_r")
     lower_l = vg_index(body, "lowerarm_l")
@@ -1534,45 +1724,278 @@ def repair_spine_unbind_edges(arm) -> int:
     calf_r = vg_index(body, "calf_r")
     foot_l = vg_index(body, "foot_l") or vg_index(body, "foot")
     foot_r = vg_index(body, "foot_r")
-    xs = [v.co.x for v in me.vertices]
-    ys = [v.co.y for v in me.vertices]
-    zs = [v.co.z for v in me.vertices]
-    cx = 0.5 * (min(xs) + max(xs))
-    cy = 0.5 * (min(ys) + max(ys))
-    z0, z1 = min(zs), max(zs)
-    height = max(z1 - z0, 1e-3)
-    repaired = 0
-    for e in me.edges:
-        a, b = int(e.vertices[0]), int(e.vertices[1])
-        va = me.vertices[a]
-        vb = me.vertices[b]
-        sa = max(vg_weight(va, gi) for gi in spine_groups)
-        sb = max(vg_weight(vb, gi) for gi in spine_groups)
-        if sa >= sb:
-            src, dst, src_v, dst_v, src_s, dst_s = a, b, va, vb, sa, sb
-        else:
-            src, dst, src_v, dst_v, src_s, dst_s = b, a, vb, va, sb, sa
-        # 1876/1891 class only — not every loosely weighted neighbor.
-        if src_s < 0.80 or dst_s >= 0.08:
-            continue
-        if not _in_front_pec_box(dst_v, cx, cy, z0, height):
-            continue
-        if not _in_front_pec_box(src_v, cx, cy, z0, height):
-            continue
-        if vg_weight(dst_v, head_i) >= 0.10 or vg_weight(dst_v, neck_i) >= 0.10:
-            continue
-        if _arm_weight(dst_v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) >= 0.20:
-            continue
-        if _leg_weight(dst_v, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r) >= 0.20:
-            continue
-        n = _copy_vertex_groups(body, src, dst)
-        repaired += 1
-        log(
-            f"repair pec-box spine-unbind ({src},{dst}) "
-            f"spine=({src_s:.2f},{dst_s:.2f}) copied_groups={n}"
+    arm_w = []
+    leg_w = []
+    for v in me.vertices:
+        arm_w.append(
+            _arm_weight(v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r)
         )
-    log(f"repaired pec-box spine-unbind edges n={repaired}")
-    return repaired
+        leg_w.append(_leg_weight(v, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r))
+    return {
+        "arm": arm_w,
+        "leg": leg_w,
+        "edges": [(int(e.vertices[0]), int(e.vertices[1])) for e in me.edges],
+    }
+
+
+def is_limb_edge(ctx: dict, a: int, b: int) -> bool:
+    """Punch_Cross opens the armpit ~20 cm; that is not a through-torso spike."""
+    arm_a, arm_b = ctx["arm"][a], ctx["arm"][b]
+    leg_a, leg_b = ctx["leg"][a], ctx["leg"][b]
+    return (
+        (arm_a >= 0.35 and arm_b >= 0.35)
+        or (leg_a >= 0.35 and leg_b >= 0.35)
+        or (arm_a >= 0.40 or arm_b >= 0.40)
+        or (leg_a >= 0.40 or leg_b >= 0.40)
+    )
+
+
+def scan_torso_edges(ctx: dict, verts_w: list, limit: float) -> dict:
+    """Longest non-limb posed edge, plus every non-limb edge over ``limit``."""
+    worst = 0.0
+    pair = (-1, -1)
+    worst_limb = 0.0
+    over = []
+    for a, b in ctx["edges"]:
+        d = (verts_w[a] - verts_w[b]).length
+        if is_limb_edge(ctx, a, b):
+            if d > worst_limb:
+                worst_limb = d
+            continue
+        if d > worst:
+            worst = d
+            pair = (a, b)
+        if d > limit:
+            over.append((d, a, b))
+    return {"worst": worst, "pair": pair, "worst_limb": worst_limb, "over": over}
+
+
+def describe_vert_bind(body, arm, index: int) -> str:
+    """Bone weights of one vert, by name, for diagnostics.
+
+    Five bakes refused on verts (1876, 1891) while reporting only spine and
+    head weights, which are 1.00 and 0.00 on that pair and say nothing about
+    what is actually driving them.
+    """
+    bone_groups = armature_bone_groups(body, arm)
+    v = body.data.vertices[index]
+    named = {
+        vertex_group_name(body, int(g.group)): round(float(g.weight), 3)
+        for g in v.groups
+        if float(g.weight) > 0.0
+    }
+    eff = effective_bind_weight(v, bone_groups)
+    return f"{index}: groups={named} effective_bone_weight={eff:.3f}"
+
+
+def smooth_bind_weights(body, arm, seed: set, *, rings: int, iterations: int) -> int:
+    """Spread a hard weight discontinuity over several vertex rings.
+
+    Two adjacent verts driven by disjoint bones tear apart under any pose that
+    separates those bones. That is a bind defect, not a restyle artefact, and
+    moving rest positions cannot fix it. The repair is to blend the weights so
+    neighbours share influence.
+
+    Blending a single pair is not enough: it moves the tear one edge outward.
+    So dilate the seed, hold the outer ring fixed, and Laplacian-smooth the
+    interior — see ``orc_bind_repair``, where the algorithm and its guarantees
+    (no new extremes, monotone in the worst weight gap) are tested offline.
+    """
+    me = body.data
+    bone_groups = armature_bone_groups(body, arm)
+    adj = _mesh_adjacency(me)
+    region = BR.dilate(adj, seed, rings)
+    interior = BR.interior_of(adj, region)
+    if not interior:
+        raise RuntimeError(
+            f"smooth_bind_weights: dilating {len(seed)} seed vert(s) by {rings} "
+            f"ring(s) produced no interior to smooth (region={len(region)})"
+        )
+    cur = [bone_weight_map(v, bone_groups) for v in me.vertices]
+    updates = BR.smooth_weights_jacobi(
+        adj, cur, interior, lam=BIND_SMOOTH_LAMBDA, iterations=iterations
+    )
+    for i, w in sorted(updates.items()):
+        write_bone_weights(body, i, w, bone_groups)
+    log(
+        f"smoothed bind weights on {len(updates)} vert(s) "
+        f"(seed={len(seed)} dilated {rings} ring(s) -> region={len(region)}, "
+        f"interior={len(interior)}, {iterations} Jacobi iterations, "
+        f"lambda={BIND_SMOOTH_LAMBDA})"
+    )
+    return len(updates)
+
+
+def bind_probe_poses(arm) -> list:
+    """(label, action, frames) covering the poses the still gate will judge.
+
+    Several frames per clip, not just the still frame: the Death still picks its
+    on-back frame at render time, so a bind that only survives one frame per
+    clip is not repaired.
+    """
+    have = {a.name: a for a in bpy.data.actions}
+    kinds = {"Idle": "idle", "Walk": "walk", "Punch": "punch", "Death": "death"}
+    out = []
+    for label, candidates in REQUIRED_CLIP_GROUPS:
+        act = None
+        for name in candidates:
+            act = have.get(name)
+            if act is not None:
+                break
+        if act is None:
+            raise RuntimeError(
+                f"bind_probe_poses: no {label} action in the scene (tried "
+                f"{list(candidates)}); have={sorted(have)[:20]} — cannot prove "
+                f"the bind survives the poses the stills will use"
+            )
+        fr = tuple(act.frame_range)
+        lo, hi = int(round(fr[0])), int(round(fr[1]))
+        frames = {int(action_frame_for_action(act, kinds[label]))}
+        if hi > lo:
+            for k in range(BIND_SEAM_PROBE_FRAMES):
+                frames.add(
+                    lo + int(round((hi - lo) * k / (BIND_SEAM_PROBE_FRAMES - 1)))
+                )
+        out.append((label, act, sorted(frames)))
+        log(f"bind probe {label}: {act.name!r} frames={sorted(frames)}")
+    return out
+
+
+def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list, limit: float) -> tuple:
+    """Worst non-limb posed edge across every probe pose."""
+    over = {}
+    worst = 0.0
+    worst_pair = (-1, -1)
+    worst_at = "(none)"
+    worst_limb = 0.0
+    for label, act, frames in poses:
+        for f in frames:
+            apply_action_datablock(arm, act, int(f), quiet=True)
+            verts_w = _evaluated_mesh_verts_world(body)
+            if len(verts_w) != len(body.data.vertices):
+                raise RuntimeError(
+                    f"bind probe {label}@{f}: eval vert count {len(verts_w)} != "
+                    f"{len(body.data.vertices)}"
+                )
+            scan = scan_torso_edges(ctx, verts_w, limit)
+            if scan["worst"] > worst:
+                worst = scan["worst"]
+                worst_pair = scan["pair"]
+                worst_at = f"{label}:{act.name}@{f}"
+            worst_limb = max(worst_limb, scan["worst_limb"])
+            for d, a, b in scan["over"]:
+                key = (a, b)
+                if d > over.get(key, 0.0):
+                    over[key] = d
+    return over, {
+        "worst": worst,
+        "pair": worst_pair,
+        "at": worst_at,
+        "worst_limb": worst_limb,
+    }
+
+
+def repair_bind_seams(arm) -> int:
+    """Repair the donor bind until no torso edge tears under the still poses.
+
+    This is the fix for ``Punch:Punch_Cross@13 stretched male_body torso edge
+    0.2129 verts=(1876, 1891) spine=(1.00,0.00) head=(0.00,0.00)``. Two facts
+    pin it down:
+
+      * 0.2129 was reported identically on b4d8e69 and on af0e428, restyles
+        that share almost no torso code. Neither touches that vertex pair, so
+        flattening or skipping restyle on it — what the previous passes tried —
+        could never move the number.
+      * spine=(1.00, 0.00) with head=(0.00, 0.00) describes a bind with no
+        blend across a seam. Adjacent verts driven by disjoint bones separate
+        by whatever those bones do, and Punch_Cross throws the shoulder across
+        the body.
+
+    So repair the bind, at the bind. Measure the posed edges over the poses the
+    stills will use, blend the weights across the seams that tear, and
+    re-measure. The stopping condition is the measurement rather than a guess,
+    and if it will not converge it fails with the bone names instead of leaving
+    the next bake to rediscover the same pair.
+    """
+    body = male_body_mesh(arm)
+    poses = bind_probe_poses(arm)
+    # This is a measurement pass, so leave the armature exactly as found.
+    # ``apply_action_datablock`` zeroes the object location/rotation, and
+    # ``hip_height_z`` reads through ``arm.matrix_world`` — a probe that shifted
+    # the object would show up as a pelvis-moved failure much later.
+    arm_basis = arm.matrix_basis.copy()
+    # Classify the edges ONCE, before any weight moves. Smoothing pushes arm
+    # weight onto chest verts, so a rebuilt classification could promote a torn
+    # edge to "limb" and let the repair pass by reclassification instead of by
+    # shortening anything. Measuring against the pre-repair classification
+    # keeps the improvement geometric.
+    ctx = stretch_gate_context(body)
+    smoothed = 0
+    stats = {}
+    for attempt, (rings, iterations) in enumerate(BIND_SEAM_ATTEMPTS):
+        over, stats = probe_stretched_bind_seams(
+            arm, body, ctx, poses, BIND_SEAM_TARGET_M
+        )
+        log(
+            f"bind seam probe {attempt}: worst non-limb edge {stats['worst']:.4f} "
+            f"at {stats['at']} verts={stats['pair']} "
+            f"(limb edges up to {stats['worst_limb']:.4f} ignored); "
+            f"{len(over)} edge(s) over {BIND_SEAM_TARGET_M}"
+        )
+        if not over:
+            arm.matrix_basis = arm_basis
+            force_armature_rest(arm)
+            log(f"bind seams within {BIND_SEAM_TARGET_M} on every probe pose")
+            return smoothed
+        for (a, b), d in sorted(over.items(), key=lambda kv: -kv[1])[:6]:
+            log(
+                f"  torn seam {d:.4f} ({a},{b}) "
+                f"[{describe_vert_bind(body, arm, a)}] "
+                f"[{describe_vert_bind(body, arm, b)}]"
+            )
+        seed = set()
+        for a, b in over:
+            seed.add(a)
+            seed.add(b)
+        # A handful of verts is a seam. A tenth of the mesh is not, and
+        # re-weighting that much of the character on the strength of a posed
+        # edge measurement is not a repair — fail and say so.
+        cap = int(BIND_SEAM_MAX_SEED_FRAC * len(body.data.vertices))
+        if len(seed) > cap:
+            raise RuntimeError(
+                f"bind seam repair: {len(over)} torn edge(s) touch {len(seed)} "
+                f"vert(s), over the {cap}-vert cap "
+                f"({BIND_SEAM_MAX_SEED_FRAC} of male_body). That is not a seam, "
+                f"it is a broken bind. Worst {stats['worst']:.4f} at "
+                f"{stats['at']} verts={stats['pair']}"
+            )
+        arm.matrix_basis = arm_basis
+        force_armature_rest(arm)
+        smoothed += smooth_bind_weights(
+            body, arm, seed, rings=rings, iterations=iterations
+        )
+        assert_all_skin_verts_bound(arm, f"after bind seam smoothing {attempt}")
+
+    over, stats = probe_stretched_bind_seams(arm, body, ctx, poses, BIND_SEAM_TARGET_M)
+    arm.matrix_basis = arm_basis
+    force_armature_rest(arm)
+    if over:
+        a, b = stats["pair"]
+        raise RuntimeError(
+            f"bind seam repair did not converge after {len(BIND_SEAM_ATTEMPTS)} "
+            f"attempts: worst non-limb edge {stats['worst']:.4f} > "
+            f"{BIND_SEAM_TARGET_M} at {stats['at']} verts=({a},{b}) "
+            f"[{describe_vert_bind(body, arm, a)}] "
+            f"[{describe_vert_bind(body, arm, b)}] "
+            f"({len(over)} edge(s) still over). The bones named above are the "
+            f"seam that tears; widen BIND_SEAM_ATTEMPTS or fix the donor bind."
+        )
+    log(
+        f"bind seams repaired: worst non-limb edge {stats['worst']:.4f} at "
+        f"{stats['at']} over {sum(len(f) for _l, _a, f in poses)} probe poses "
+        f"({smoothed} vert weight writes)"
+    )
+    return smoothed
 
 
 def body_world_scale(body) -> float:
@@ -1857,7 +2280,7 @@ def aperture_region_edge_stats(me, aperture) -> tuple[list[int], float]:
     return picked, mean
 
 
-def subdivide_for_cavity(body, aperture) -> int:
+def subdivide_for_cavity(arm, body, aperture) -> int:
     """Refine the mouth neighbourhood until a smooth bore is representable.
 
     A 62 x 40 mm maw cannot be carved into geometry that has three verts there:
@@ -1919,11 +2342,11 @@ def subdivide_for_cavity(body, aperture) -> int:
                 f"(the carve gates below decide whether that is enough)"
             )
     if added_total:
-        bind_new_cavity_verts_to_head(body, aperture)
+        bind_new_cavity_verts_to_head(arm, body, aperture)
     return added_total
 
 
-def bind_new_cavity_verts_to_head(body, aperture) -> int:
+def bind_new_cavity_verts_to_head(arm, body, aperture) -> int:
     """Guarantee every vert the subdivision added is head-bound.
 
     ``bmesh.ops.subdivide_edges`` interpolates the deform layer, so new verts
@@ -1940,9 +2363,10 @@ def bind_new_cavity_verts_to_head(body, aperture) -> int:
     head_vg = body.vertex_groups.get("head")
     if head_vg is None:
         raise RuntimeError(f"{body.name!r} has no head vertex group to bind cavity verts")
+    bone_groups = armature_bone_groups(body, arm)
     fixed = 0
     for v in me.vertices:
-        if total_vert_weight(v) > 1e-6:
+        if effective_bind_weight(v, bone_groups) > 1e-6:
             continue
         u, w, _d = aperture.aperture_coords(
             (float(v.co.x), float(v.co.y), float(v.co.z))
@@ -1985,7 +2409,7 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
     invert geometry or overshoot.
     """
     body = male_body_mesh(arm)
-    subdivide_for_cavity(body, aperture)
+    subdivide_for_cavity(arm, body, aperture)
     me = body.data
     skull = set(skull_vert_indices(body))
     if not skull:
@@ -2389,6 +2813,14 @@ def assert_no_torso_spike(arm, label: str) -> None:
     a4a5c61 Death still: tusks were in the mouth, but a long grey spike ran
     through the sternum into the ground. That is a body-vert outlier, not a
     50mm aperture tusk. Idle pec pinch is the rest-pose form of the same class.
+
+    The stretched-edge half of this gate now shares its edge classification and
+    scan with ``repair_bind_seams`` (``stretch_gate_context`` /
+    ``scan_torso_edges``), so the repair cannot disagree with the gate about
+    which edges count. Its failure message names the bones on both ends: five
+    bakes refused on verts (1876, 1891) while reporting only spine and head
+    weights, which are 1.00 and 0.00 on that pair and say nothing about what is
+    actually driving them.
     """
     body = male_body_mesh(arm)
     spine_groups = [
@@ -2436,59 +2868,22 @@ def assert_no_torso_spike(arm, label: str) -> None:
         f"{label} torso spike gate: worst={worst:.4f} median_dist={mid_d:.4f} "
         f"n={len(torso)}"
     )
-    # Torso-only stretched edges. Punch_Cross opens the armpit (~20cm) — that
-    # is not the Death through-chest class. Skip limb/armpit edges; keep 0.14
-    # on spine-core edges (do not raise the number).
-    upper_l = vg_index(body, "upperarm_l")
-    upper_r = vg_index(body, "upperarm_r")
-    lower_l = vg_index(body, "lowerarm_l")
-    lower_r = vg_index(body, "lowerarm_r")
-    hand_l = vg_index(body, "hand_l")
-    hand_r = vg_index(body, "hand_r")
-    thigh_l = vg_index(body, "thigh_l")
-    thigh_r = vg_index(body, "thigh_r")
-    calf_l = vg_index(body, "calf_l")
-    calf_r = vg_index(body, "calf_r")
-    foot_l = vg_index(body, "foot_l") or vg_index(body, "foot")
-    foot_r = vg_index(body, "foot_r")
-    worst_e = 0.0
-    worst_pair = (-1, -1)
-    worst_limb = 0.0
-    for e in body.data.edges:
-        a, b = int(e.vertices[0]), int(e.vertices[1])
-        d = (verts_w[a] - verts_w[b]).length
-        va = body.data.vertices[a]
-        vb = body.data.vertices[b]
-        arm_a = _arm_weight(va, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r)
-        arm_b = _arm_weight(vb, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r)
-        leg_a = _leg_weight(va, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r)
-        leg_b = _leg_weight(vb, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r)
-        limb_edge = (
-            (arm_a >= 0.35 and arm_b >= 0.35)
-            or (leg_a >= 0.35 and leg_b >= 0.35)
-            or (arm_a >= 0.40 or arm_b >= 0.40)
-            or (leg_a >= 0.40 or leg_b >= 0.40)
-        )
-        if limb_edge:
-            worst_limb = max(worst_limb, d)
-            continue
-        if d > worst_e:
-            worst_e = d
-            worst_pair = (a, b)
-    if worst_e > 0.14:
-        va = body.data.vertices[worst_pair[0]]
-        vb = body.data.vertices[worst_pair[1]]
+    ctx = stretch_gate_context(body)
+    scan = scan_torso_edges(ctx, verts_w, TORSO_EDGE_MAX_M)
+    if scan["worst"] > TORSO_EDGE_MAX_M:
+        a, b = scan["pair"]
         raise RuntimeError(
-            f"{label} still: stretched male_body torso edge {worst_e:.4f} > 0.14 "
-            f"verts={worst_pair} "
-            f"spine=({max(vg_weight(va, gi) for gi in spine_groups):.2f},"
-            f"{max(vg_weight(vb, gi) for gi in spine_groups):.2f}) "
-            f"head=({vg_weight(va, head_i):.2f},{vg_weight(vb, head_i):.2f}) "
-            f"— through-torso / pec-pinch spike; refusing PNG"
+            f"{label} still: stretched male_body torso edge {scan['worst']:.4f} > "
+            f"{TORSO_EDGE_MAX_M} verts=({a},{b}) "
+            f"[{describe_vert_bind(body, arm, a)}] "
+            f"[{describe_vert_bind(body, arm, b)}] "
+            f"({len(scan['over'])} edge(s) over) — through-torso / pec-pinch "
+            f"spike; refusing PNG. The bones named above are the seam that "
+            f"tears; repair_bind_seams should have blended them"
         )
     log(
-        f"{label} stretched-edge gate: worst_torso={worst_e:.4f} "
-        f"verts={worst_pair} worst_limb_skipped={worst_limb:.4f}"
+        f"{label} stretched-edge gate: worst_torso={scan['worst']:.4f} "
+        f"verts={scan['pair']} worst_limb_skipped={scan['worst_limb']:.4f}"
     )
 
 
@@ -3581,8 +3976,12 @@ def death_pose_metrics(arm) -> dict:
     }
 
 
-def apply_action_datablock(arm, act, frame: int) -> None:
-    """Pose dest armature with an exact Action datablock at frame (active action)."""
+def apply_action_datablock(arm, act, frame: int, *, quiet: bool = False) -> None:
+    """Pose dest armature with an exact Action datablock at frame (active action).
+
+    ``quiet`` suppresses the per-pose log line; the bind seam probe applies
+    dozens of poses and its own summary is the useful record.
+    """
     if act is None:
         raise RuntimeError("apply_action_datablock: act is None")
     HQ.reset_pose(arm)
@@ -3604,7 +4003,8 @@ def apply_action_datablock(arm, act, frame: int) -> None:
         raise RuntimeError(
             f"failed to assign {act.name!r} onto dest armature {arm.name!r} for still"
         )
-    log(f"pose arm={arm.name!r} action={act.name!r} frame={int(frame)} mode=active")
+    if not quiet:
+        log(f"pose arm={arm.name!r} action={act.name!r} frame={int(frame)} mode=active")
 
 
 def apply_death_action_nla_solo(arm, act, frame: int) -> None:
@@ -4520,13 +4920,21 @@ def run_restyle() -> dict:
 
     drop_weapons()
     _body_meshes, removed_garments = strip_dressed_meshes_attach_male_base(arm)
+    # Complete the bind before anything reads or edits it. A vert whose only
+    # weight is on a group no bone drives is frozen at rest, and every gate
+    # downstream assumes that cannot happen.
+    rehome_unbound_verts(arm, "male_base attach")
+    assert_all_skin_verts_bound(arm, "male_base attach")
     # Measure the mouth ONCE, on the untouched male_base face, before any
     # restyle offset can move the landmarks it is measured from. Everything
     # downstream reads this frame instead of re-deriving the mouth.
     aperture = resolve_mouth_aperture(arm)
-    assert_all_skin_verts_bound(arm, "male_base attach")
     restyle_face_and_chest(arm, aperture)  # jaw + brow flatten + chest, no mouth
     carve_orc_mouth_cavity(arm, aperture)
+    # Repair torso seams that tear under the still poses, measured on the
+    # shipped mesh. Must precede add_tusks: its Punch/Death follow probes run
+    # the same torso gate, which is where af0e428 refused.
+    repair_bind_seams(arm)
     store_mouth_aperture(arm, aperture)
     tusks = add_tusks(arm, aperture)
     hidden_junk = hide_junk_companion_meshes(arm)
