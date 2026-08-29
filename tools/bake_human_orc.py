@@ -227,6 +227,7 @@ if str(TOOLS) not in sys.path:
 import bake_human_quaternius as HQ  # noqa: E402
 import orc_bind_repair as BR  # noqa: E402
 import orc_mouth_geometry as MG  # noqa: E402
+import orc_mouth_rim as RIM  # noqa: E402
 import orc_still_visibility as SV  # noqa: E402
 
 AG = Path(r"C:\Projekte\AssetGenerator")
@@ -324,20 +325,36 @@ SKULL_SPINE_W_MAX = 0.15
 CAVITY_MIN_ACHIEVED_DEPTH_FRAC = 0.60
 CAVITY_MIN_CARVED_VERTS = 24
 # Refine the mouth neighbourhood until the aperture half-width is sampled this
-# many times, so the bore is a cavity rather than a triangular dent.
-CAVITY_SUBDIV_TARGET_SAMPLES = 5
+# many times, so the bore is a cavity rather than a triangular dent -- and so the
+# rim contour cut below has short enough edges to cross each polygon once. The
+# tightest curvature on the rim ellipse is b^2/a, about 8.6 mm on a 62x33 mm
+# maw, so 8 samples across the half-width (~3.9 mm) keeps a comfortable margin.
+CAVITY_SUBDIV_TARGET_SAMPLES = 8
 CAVITY_SUBDIV_REGION_R = 1.6  # normalised aperture radius gathered for cutting
-CAVITY_SUBDIV_MAX_PASSES = 3
+CAVITY_SUBDIV_MAX_PASSES = 4
 # The mouth neighbourhood is a small part of the body, so an absolute floor
 # matters more than a percentage; the percentage only caps very dense meshes.
-CAVITY_SUBDIV_MIN_BUDGET = 600
+CAVITY_SUBDIV_MIN_BUDGET = 1500
 CAVITY_SUBDIV_MAX_ADDED_FRAC = 0.25  # of the male_body vert count
-# Polygons at or above this mean falloff are painted with the interior
-# material, so the bore reads dark and the lip rim stays skin.
-CAVITY_INTERIOR_POLY_FALLOFF = 0.35
+# A polygon counts as bore when every one of its verts is inside the rim
+# ellipse, judged with this tolerance so a vert cut exactly onto the rim counts
+# as on it. This replaces a mean-falloff threshold, which was the second source
+# of the ragged edge: at 0.35 the threshold sits at normalised radius ~0.85, so
+# the dark region stopped short of the rim and the ring between them rendered as
+# a recessed skin shelf -- a second offset zig-zag around the first. After
+# cut_rim_loop no polygon straddles the rim, so this test is exact.
+CAVITY_INTERIOR_RADIAL_EPS = 1e-5
 # Face attribute recording which polygons are bore. Material slots cannot hold
 # it: mesh.materials.clear() clamps every polygon index to 0.
 MOUTH_INTERIOR_ATTR = "orc_mouth_interior"
+# A maw with a zero-thickness edge reads as a hole cut in a face. Raise a lip
+# ridge straddling the rim loop: MOUTH_LIP_ROLL_M of forward displacement at the
+# rim, easing to nothing over MOUTH_LIP_ROLL_BAND of rim radius either side, so
+# the boundary has a highlight and a shadow instead of being a crease between
+# two flat regions. Applied after the carve, since the carve would otherwise
+# push the rolled rim straight back onto the bore profile.
+MOUTH_LIP_ROLL_M = 0.0015
+MOUTH_LIP_ROLL_BAND = 0.18
 
 # Tusk seat, in aperture coordinates (u along +X, w along +Z, d into the head).
 # A tusk grows OUT OF the gum. e99b3a1 authored one whose base floated 22 mm in
@@ -2911,17 +2928,31 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
     The profile is continuous and reaches exactly zero at the rim, and each
     vert is only ever moved to the profile (never past it), so the carve cannot
     invert geometry or overshoot.
+
+    The rim gets cut into the mesh first (``orc_mouth_rim.cut_rim_loop``). Every
+    boundary this function draws -- where displacement stops, and where the dark
+    interior stops -- could otherwise only follow the existing topology, which on
+    a face sampled at millimetres turns a smooth ellipse into the zig-zag the
+    18:50 stills show. With a real loop on the contour, the vertices on it have
+    falloff exactly 0 and no polygon straddles the rim, so both boundaries land
+    on the ellipse itself.
     """
     assert_vertex_positions_authoritative(arm, "carve_orc_mouth_cavity")
     body = male_body_mesh(arm)
     subdivide_for_cavity(arm, body, aperture)
+    cut_cavity_rim_loop(arm, body, aperture)
     me = body.data
     skull = set(skull_vert_indices(body))
     if not skull:
         raise RuntimeError("carve_orc_mouth_cavity: empty skull cloud")
+
+    # Interior polygons are decided BEFORE the displacement, while d still says
+    # which sheet of the head a vert is on. Afterwards the bore verts have moved
+    # a whole cavity depth back and no longer separate from the far side.
+    interior_faces = classify_mouth_interior_faces(body, aperture, skull)
+
     carved = 0
     deepest = 0.0
-    falloffs = [0.0] * len(me.vertices)
     for i in sorted(skull):
         v = me.vertices[i]
         u, w, d = aperture.aperture_coords(
@@ -2930,7 +2961,6 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
         f = aperture.falloff(u, w)
         if f <= 0.0:
             continue
-        falloffs[i] = f
         target_d = aperture.depth * f
         if d >= target_d:
             continue  # already at or behind the bore profile
@@ -2938,6 +2968,7 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
         deepest = max(deepest, target_d)
         carved += 1
     me.update()
+    rolled = roll_mouth_lip(body, aperture, skull)
 
     if carved < CAVITY_MIN_CARVED_VERTS:
         raise RuntimeError(
@@ -2962,29 +2993,138 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
     me.materials.append(make_opaque_mat(f"OrcSkin_{body.name}", OLIVE, 0.88))
     me.materials.append(interior)
     body["orc_mouth_interior_slot"] = 1
-    interior_faces = [
-        (
-            sum(falloffs[int(j)] for j in poly.vertices) / float(len(poly.vertices))
-            >= CAVITY_INTERIOR_POLY_FALLOFF
-        )
-        for poly in me.polygons
-    ]
-    if not any(interior_faces):
-        raise RuntimeError(
-            f"carve_orc_mouth_cavity: no polygon reached mean falloff "
-            f"{CAVITY_INTERIOR_POLY_FALLOFF} — the maw would render as skin "
-            f"and read closed (carved={carved} deepest={deepest:.4f})"
-        )
     store_mouth_interior_faces(body, interior_faces)
     painted = apply_mouth_interior_slot(body)
     assert_all_skin_verts_bound(arm, "after mouth cavity carve")
     log(
         f"carved orc mouth cavity verts={carved} deepest={deepest:.4f} "
         f"(target {aperture.depth:.4f}) interior_polys={painted} "
+        f"lip_rolled_verts={rolled} "
         f"rim=({aperture.half_width:.4f},{aperture.half_height:.4f}) "
         f"center_z={aperture.center_z:.4f}"
     )
     return carved
+
+
+def cut_cavity_rim_loop(arm, body, aperture) -> int:
+    """Cut the exact rim ellipse into male_body and bind the vertices it adds.
+
+    Thin wrapper so ``orc_mouth_rim`` stays free of Blender scene concerns and
+    testable without them, and so the mapping from body space into aperture
+    coordinates is written once.
+    """
+    me = body.data
+    before = len(me.vertices)
+
+    def to_uwd(co):
+        return aperture.aperture_coords((float(co.x), float(co.y), float(co.z)))
+
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    try:
+        rim = RIM.cut_rim_loop(
+            bm,
+            to_uwd=to_uwd,
+            half_width=aperture.half_width,
+            half_height=aperture.half_height,
+            # The rim ellipse is a cylinder along the view axis, so it also meets
+            # the back of the skull. Front-sheet verts sit at d near zero; the
+            # far side is a head depth away, and the cavity depth separates them.
+            front_max_d=aperture.depth,
+        )
+        count = len(rim)
+        bm.to_mesh(me)
+    except RIM.RimCutError as exc:
+        raise RuntimeError(
+            f"cut_cavity_rim_loop: {exc} (aperture={aperture.describe()}, "
+            f"male_body verts={before}) — without a rim loop the maw boundary can "
+            f"only follow the existing topology, which is the ragged edge this "
+            f"cut exists to remove"
+        ) from exc
+    finally:
+        bm.free()
+    me.update()
+    bind_new_cavity_verts_to_head(arm, body, aperture)
+    log(
+        f"cut mouth rim loop: {count} vert(s) on the exact rim ellipse, "
+        f"male_body verts {before} -> {len(me.vertices)}"
+    )
+    return count
+
+
+def classify_mouth_interior_faces(body, aperture, skull: set) -> list[bool]:
+    """Which polygons are bore, decided exactly rather than by a threshold.
+
+    A polygon is interior when every one of its verts is inside the rim ellipse
+    and on the front sheet. After ``cut_rim_loop`` no polygon straddles the rim,
+    so this partitions the mouth region cleanly along the ellipse instead of
+    approximating it with whole polygons at whatever size the mesh happens to
+    have there.
+
+    Restricted to skull verts, so the matching ring the rim cylinder cuts on the
+    back of the head cannot be painted as mouth interior.
+    """
+    me = body.data
+    inside = [False] * len(me.vertices)
+    front = [False] * len(me.vertices)
+    for i in skull:
+        v = me.vertices[i]
+        u, w, d = aperture.aperture_coords(
+            (float(v.co.x), float(v.co.y), float(v.co.z))
+        )
+        inside[i] = aperture.radial(u, w) <= 1.0 + CAVITY_INTERIOR_RADIAL_EPS
+        front[i] = d < aperture.depth
+    interior = [
+        all(inside[int(j)] and front[int(j)] for j in poly.vertices)
+        for poly in me.polygons
+    ]
+    if not any(interior):
+        raise RuntimeError(
+            f"classify_mouth_interior_faces: no polygon lies wholly inside the "
+            f"rim ellipse ({aperture.describe()}) — the maw would render as skin "
+            f"and read closed. The rim loop was cut, so the mouth region has "
+            f"geometry; this means every polygon there still spans the rim, i.e. "
+            f"the aperture is smaller than one polygon"
+        )
+    return interior
+
+
+def roll_mouth_lip(body, aperture, skull: set) -> int:
+    """Raise a lip ridge straddling the rim loop.
+
+    The carve leaves the maw with a zero-thickness edge: the skin simply folds
+    from face into cavity, so the boundary is a crease between two flat regions
+    and reads as a hole cut in a face rather than as a mouth. A real lip has a
+    crest. Displace forward by ``MOUTH_LIP_ROLL_M`` at the rim, easing to zero
+    over ``MOUTH_LIP_ROLL_BAND`` of rim radius on both sides, so the ridge is
+    continuous and cannot open a step between neighbouring verts.
+
+    Runs after the displacement. The carve only ever moves a vert *to* the bore
+    profile, so rolling first would simply be undone.
+    """
+    me = body.data
+    rolled = 0
+    for i in skull:
+        v = me.vertices[i]
+        u, w, d = aperture.aperture_coords(
+            (float(v.co.x), float(v.co.y), float(v.co.z))
+        )
+        # Front sheet only. The rim radius is a cylinder, so the band also picks
+        # up a ring on the back of the skull, and rolling that forward would
+        # emboss a groove into the back of the head.
+        if d >= aperture.depth:
+            continue
+        r = aperture.radial(u, w)
+        offset = abs(r - 1.0)
+        if offset >= MOUTH_LIP_ROLL_BAND:
+            continue
+        weight = MG.smoothstep(1.0 - offset / MOUTH_LIP_ROLL_BAND)
+        if weight <= 0.0:
+            continue
+        v.co.y -= MOUTH_LIP_ROLL_M * weight
+        rolled += 1
+    me.update()
+    return rolled
 
 
 def mouth_rim_anchor_verts(arm, aperture) -> tuple[int, int]:

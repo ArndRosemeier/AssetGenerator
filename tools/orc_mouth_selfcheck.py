@@ -60,7 +60,9 @@ WANTED = (
     "TUSK_EMERGENT_SAMPLES",
     "CAVITY_MIN_ACHIEVED_DEPTH_FRAC",
     "CAVITY_MIN_CARVED_VERTS",
-    "CAVITY_INTERIOR_POLY_FALLOFF",
+    "CAVITY_INTERIOR_RADIAL_EPS",
+    "MOUTH_LIP_ROLL_M",
+    "MOUTH_LIP_ROLL_BAND",
     "CAVITY_SUBDIV_TARGET_SAMPLES",
     "CAVITY_SUBDIV_REGION_R",
     "CAVITY_SUBDIV_MAX_PASSES",
@@ -436,23 +438,45 @@ def subdivide(
 def carve_metrics(
     ap: MG.MouthAperture, pts: list[Vec], faces: list[Face]
 ) -> tuple[dict[str, float], list[str]]:
-    """Mirror of ``carve_orc_mouth_cavity``'s displacement and gates."""
+    """Mirror of ``carve_orc_mouth_cavity``'s displacement, paint and gates.
+
+    ``rim_jaggedness`` is the point of the rim cut, so it is measured here: how
+    far the painted interior boundary wanders from the rim ellipse. Before the
+    cut that distance is a whole polygon; after it, zero by construction. This
+    harness does not replay the cut itself (that needs bmesh and is tested in
+    ``orc_mouth_rim._selftest``), so the number it reports is the *uncut* case --
+    the baseline the cut has to beat.
+    """
     falloff = []
     disp = []
+    inside = []
+    front = []
     for p in pts:
         u, w, d = ap.aperture_coords(p)
         f = ap.falloff(u, w)
         falloff.append(f)
         disp.append(max(0.0, ap.depth * f - d))
+        inside.append(ap.radial(u, w) <= 1.0 + K["CAVITY_INTERIOR_RADIAL_EPS"])
+        front.append(d < ap.depth)
     carved = sum(1 for i in range(len(pts)) if falloff[i] > 0.0 and disp[i] > 0.0)
     deepest = max(
         (ap.depth * falloff[i] for i in range(len(pts)) if disp[i] > 0.0), default=0.0
     )
-    painted = sum(
-        1
-        for f in faces
-        if sum(falloff[j] for j in f) / len(f) >= K["CAVITY_INTERIOR_POLY_FALLOFF"]
-    )
+    # The exact test the bake now uses: every vert inside the rim and on the
+    # front sheet.
+    painted = sum(1 for f in faces if all(inside[j] and front[j] for j in f))
+    # How ragged the boundary is without a cut: the worst distance from the rim
+    # ellipse of any vert on a polygon that straddles it.
+    jag = 0.0
+    for f in faces:
+        rs = [ap.radial(*ap.aperture_coords(pts[j])[:2]) for j in f]
+        if not all(front[j] for j in f):
+            continue
+        if min(rs) < 1.0 and max(rs) > 1.0:
+            for j, r in zip(f, rs, strict=True):
+                u, w, _d = ap.aperture_coords(pts[j])
+                scale = 0.0 if r <= 0.0 else 1.0 / r
+                jag = max(jag, math.hypot(u - u * scale, w - w * scale))
     moved = [(p[0], p[1] + disp[i], p[2]) for i, p in enumerate(pts)]
     worst_edge = 0.0
     for a, b in unique_edges(faces):
@@ -470,6 +494,7 @@ def carve_metrics(
         "deepest": deepest,
         "painted": painted,
         "worst_edge": worst_edge,
+        "rim_jaggedness": jag,
     }, fails
 
 
@@ -516,7 +541,8 @@ def run_head(
         f"maw {ap.half_width * 2000:.0f}x{ap.half_height * 2000:.0f}x"
         f"{ap.depth * 1000:.0f}mm  verts {start}->{len(pts)} (+{passes} subdiv)  "
         f"carved={carve['carved']} deepest={carve['deepest'] * 1000:.0f}mm "
-        f"interior_polys={carve['painted']} bore_edge<={carve['worst_edge'] * 1000:.0f}mm  "
+        f"interior_polys={carve['painted']} bore_edge<={carve['worst_edge'] * 1000:.0f}mm "
+        f"uncut_rim_jag={carve['rim_jaggedness'] * 1000:.1f}mm  "
         f"tusk buried_r<={tusk['buried_radial']:.2f} "
         f"base_r<={tusk['base_radial']:.2f} "
         f"rim_cross_d<="
