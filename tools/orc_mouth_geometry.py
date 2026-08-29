@@ -431,6 +431,25 @@ def solve_mouth_aperture(points: list[Point]) -> MouthAperture:
             f"refusing a face-wide part"
         )
 
+    # A mouth cannot reach past the nose or below the chin. These are the two
+    # landmarks the slit was interpolated between, so a violation means one of
+    # them was mis-detected -- most likely a chin cut off by neck weights --
+    # and the carve would otherwise bore a maw through the nose or the jaw.
+    if mouth_z + half_height >= nose_z:
+        raise MouthGeometryError(
+            f"aperture top rim {mouth_z + half_height:.4f} reaches the nose tip "
+            f"{nose_z:.4f} (slit={mouth_z:.4f} half_height={half_height:.4f}); "
+            f"chin_z={chin_z:.4f} from_chin={mouth_z_from_chin:.4f} "
+            f"from_nose={mouth_z_from_nose:.4f} — a landmark is wrong"
+        )
+    if mouth_z - half_height <= chin_z:
+        raise MouthGeometryError(
+            f"aperture bottom rim {mouth_z - half_height:.4f} reaches the chin "
+            f"{chin_z:.4f} (slit={mouth_z:.4f} half_height={half_height:.4f}); "
+            f"nose_z={nose_z:.4f} from_chin={mouth_z_from_chin:.4f} "
+            f"from_nose={mouth_z_from_nose:.4f} — a landmark is wrong"
+        )
+
     return MouthAperture(
         center=(center_x, mouth_y, mouth_z),
         half_width=half_width,
@@ -465,6 +484,7 @@ def _synthetic_head(
     crown_z: float = 1.760,
     neck_z: float = 1.470,
     half_width: float = 0.0775,
+    chin_front_y: float = -0.086,
     rings: int = 64,
     per_ring: int = 48,
 ) -> list[Point]:
@@ -500,11 +520,11 @@ def _synthetic_head(
             return -0.095  # lower lip
         if z > chin_z + 0.008:
             t = (mouth_z - 0.012 - z) / max((mouth_z - 0.012) - (chin_z + 0.008), 1e-6)
-            return -0.095 + t * 0.010  # mentolabial sulcus -> chin
+            return -0.095 + t * (chin_front_y + 0.095)  # sulcus -> chin
         if z >= chin_z:
-            return -0.086
+            return chin_front_y
         t = (chin_z - z) / max(chin_z - neck_z, 1e-6)
-        return -0.086 + 0.048 * min(1.0, 3.0 * t)  # submental recedes hard
+        return chin_front_y + 0.048 * min(1.0, 3.0 * t)  # submental recedes hard
 
     back_y = 0.098
     pts: list[Point] = []
@@ -667,6 +687,8 @@ def _selftest() -> int:
         ("short face", {"chin_z": 1.562, "nose_z": 1.628, "mouth_z": 1.603}),
         ("high mouth", {"mouth_z": 1.610}),
         ("low mouth", {"mouth_z": 1.590}),
+        ("receding chin", {"chin_front_y": -0.072}),
+        ("jutting chin", {"chin_front_y": -0.098}),
         ("low-poly proxy", {"rings": 26, "per_ring": 20}),
         ("dense", {"rings": 96, "per_ring": 72}),
     ]

@@ -436,6 +436,8 @@ def main() -> int:
         ("broad head", 64, 48, {"half_width": 0.088}),
         ("long face", 64, 48, {"chin_z": 1.532, "nose_z": 1.642, "mouth_z": 1.596}),
         ("short face", 64, 48, {"chin_z": 1.562, "nose_z": 1.628, "mouth_z": 1.603}),
+        ("receding chin", 64, 48, {"chin_front_y": -0.072}),
+        ("jutting chin", 64, 48, {"chin_front_y": -0.098}),
         ("low-poly proxy", 26, 20, {}),
         ("coarse-ish", 34, 26, {}),
         ("dense", 96, 72, {}),
