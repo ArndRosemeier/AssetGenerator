@@ -84,6 +84,10 @@ MOUTH_ESTIMATE_MAX_DISAGREE_FRAC = 0.18
 MOUTH_HALF_WIDTH_FRAC = 0.20
 MOUTH_HALF_HEIGHT_FRAC = 0.13
 MOUTH_DEPTH_FRAC = 0.20
+# Fraction of the rim radius that is carved to full depth before the wall ramps
+# back out to the lip. Bigger means a boxier cavity with more room for tusks
+# off the centre line; smaller means gentler walls.
+BORE_PLATEAU_R = 0.62
 # The aperture must stay inside the face. Measured against the actual head
 # half-width in the mouth slab, so this cannot drift into a face-wide part
 # however the head is proportioned.
@@ -164,17 +168,31 @@ class MouthAperture:
         return math.hypot(u / self.half_width, w / self.half_height)
 
     def falloff(self, u: float, w: float) -> float:
-        """Raised-cosine weight, 1 at the aperture centre and 0 at the rim.
+        """Bore profile weight: 1 across the plateau, 0 at the rim.
 
-        The carve displaces every vert by ``depth * falloff``. Because the
-        weight is continuous and reaches exactly 0 at the rim, no two adjacent
-        verts can end up more than a fraction of a millimetre apart -- which is
-        what turned earlier hard-edged selection boxes into one-vert needles.
+        The carve displaces every vert to ``depth * falloff``, so this is the
+        shape of the cavity. It is a flat-bottomed bore rather than a
+        paraboloid, for two reasons:
+
+          * an oral cavity is a rounded box, not a dish;
+          * a pure raised cosine leaves almost no depth off the centre line, so
+            a tusk seated on the canine line would be embedded in the cavity
+            wall instead of standing in open air. ``BORE_PLATEAU_R`` is what
+            gives the tusks somewhere to be.
+
+        Continuous everywhere and exactly 0 at the rim, with zero slope at both
+        ends of the ramp, so the carve cannot open a cliff between neighbours.
         """
-        r = self.radial(u, w)
-        if r >= 1.0:
-            return 0.0
-        return 0.5 * (1.0 + math.cos(math.pi * r))
+        return bore_frac(self.radial(u, w))
+
+    def bore_depth(self, u: float, w: float) -> float:
+        """Cavity depth at ``(u, w)``.
+
+        A lower bound on how far the skin was pushed back there: the carve only
+        ever moves a vert *to* this profile, never in front of it, so anything
+        shallower than this is in open air. The tusk gate uses that.
+        """
+        return self.depth * self.falloff(u, w)
 
     def contains(self, p: Point, *, margin: float = 0.0) -> bool:
         """True when ``p`` is inside the cavity volume (rim ellipse x depth)."""
@@ -199,6 +217,16 @@ class MouthAperture:
             f"cloud={self.cloud_points} midline={self.midline_points} "
             f"midline_strip_half={self.midline_strip_half:.4f}"
         )
+
+
+def bore_frac(r: float) -> float:
+    """Cavity depth fraction at normalised rim-ellipse radius ``r``."""
+    if r >= 1.0:
+        return 0.0
+    if r <= BORE_PLATEAU_R:
+        return 1.0
+    t = (r - BORE_PLATEAU_R) / (1.0 - BORE_PLATEAU_R)
+    return 0.5 * (1.0 + math.cos(math.pi * t))
 
 
 def smoothstep(t: float) -> float:

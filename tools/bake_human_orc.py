@@ -106,8 +106,16 @@ Mouth / tusk approach (this pass; read before changing anything below):
      ``assert_all_skin_verts_bound`` enforces that centrally.
 
   Do not reintroduce absolute millimetre windows for the mouth. If a number
-  needs to change, change the fraction in ``orc_mouth_geometry`` and re-run its
-  self-test (``python tools/orc_mouth_geometry.py``).
+  needs to change, change the fraction and re-run BOTH offline checks -- they
+  need no Blender and take under a second::
+
+    python tools/orc_mouth_geometry.py    # the mouth solver's own self-test
+    python tools/orc_mouth_selfcheck.py   # maw carve + tusk containment
+
+  The second one reads the tusk and cavity constants straight out of this file
+  and replays the carve and the still gate against synthetic heads over a range
+  of proportions and mesh densities. It is the cheapest way to find out that a
+  tusk would be buried in the cavity wall.
 
 Restyle rules:
   - MESH only on the existing 53-bone bind (BONE_MAP from bake_human_quaternius).
@@ -248,12 +256,16 @@ CAVITY_SUBDIV_MAX_ADDED_FRAC = 0.25  # of the male_body vert count
 CAVITY_INTERIOR_POLY_FALLOFF = 0.35
 
 # Tusk seat, in aperture coordinates (u along +X, w along +Z, d into the head).
-TUSK_SEAT_U_FRAC = 0.45  # canine line, not the commissure
-TUSK_SEAT_W_FRAC = -0.52  # lower gum, inside the rim ellipse
-TUSK_SEAT_D_FRAC = 0.55  # off the rim plane, in front of the cavity floor
+TUSK_SEAT_U_FRAC = 0.38  # canine line, not the commissure
+TUSK_SEAT_W_FRAC = -0.55  # lower gum, inside the rim ellipse
+# Shallow on purpose. The cavity wall ramps back out toward the rim, so depth
+# off the centre line is limited; a deep seat buries the tusk in the wall
+# instead of standing it in open air. TUSK_BORE_CLEARANCE_M is what enforces
+# that, and this is the value that satisfies it with room to spare.
+TUSK_SEAT_D_FRAC = 0.24
 TUSK_AXIS_MEDIAL = 0.18  # dental-arch convergence toward the midline
-TUSK_AXIS_OUTWARD = 0.35  # rises toward the rim so the tip stays camera-facing
-TUSK_LENGTH_HH_FRAC = 1.45  # multiples of the aperture half-height
+TUSK_AXIS_OUTWARD = 0.15  # slight outward lean; more and the tip leaves the maw
+TUSK_LENGTH_HH_FRAC = 1.30  # multiples of the aperture half-height
 TUSK_RADIUS_BASE_HH_FRAC = 0.28
 TUSK_RADIUS_TIP_HH_FRAC = 0.08
 TUSK_SEGMENTS = 12
@@ -276,6 +288,15 @@ TUSK_MIN_FRONT_FRAC = 0.50
 # The tusk must span a real part of the aperture height, or it is a stub the
 # still cannot show.
 TUSK_MIN_W_SPAN_HH_FRAC = 0.80
+# The axis must still rise through the maw rather than down the throat. With
+# TUSK_AXIS_MEDIAL/OUTWARD as authored the up component is ~0.97.
+TUSK_MIN_AXIS_RISE_DOT = 0.75
+# Every tusk vert must stand this far in front of the cavity wall at its own
+# (u, w). Without it a tusk can satisfy "inside the aperture volume" while
+# being embedded in the wall: the wall ramps back out toward the rim, so depth
+# available on the canine line is a fraction of the depth on the centre line.
+# This is the check that separates "in the maw" from "in the flesh".
+TUSK_BORE_CLEARANCE_M = 0.003
 # Posed rim-tracking: the mouth rim anchor vert must keep following the head
 # bone rigidly, proving the maw and the tusks have not parted company. Measured
 # as deviation from its own head-rest-local position, so it is 0 at rest.
@@ -704,8 +725,14 @@ def write_art_review_packet(
             "0706a32 and 0240d6e. The mouth neighbourhood is subdivided first "
             "when it is too coarse to represent a cavity.",
             "Tusks BONE-parented to head with Identity matrix_parent_inverse, "
-            "seated and scaled entirely in aperture coordinates. Zero torso/arm "
-            "radial bulk. Do NOT seat unbind edges. Stretched-edge gate 0.14.",
+            "seated and scaled entirely in aperture coordinates, and required to "
+            "stand clear of the cavity wall (the wall ramps back out toward the "
+            "rim, so a deep seat on the canine line is in the flesh, not the "
+            "maw). Zero torso/arm radial bulk. Do NOT seat unbind edges. "
+            "Stretched-edge gate 0.14.",
+            "Offline checks, no Blender needed: python tools/orc_mouth_geometry.py "
+            "and python tools/orc_mouth_selfcheck.py. Run both after changing any "
+            "mouth or tusk fraction.",
             "Every restyle offset runs through a smooth falloff. Hard selection "
             "boxes with step displacement authored the chin needle, the pec "
             "spike and the torso strand; the box boundary itself was the tear.",
@@ -1155,6 +1182,8 @@ def restyle_face_and_chest(arm, aperture) -> None:
     # remaining group weight is frozen at rest object space while the rest of
     # the mesh deforms, which draws exactly the 0240d6e "torso/pec strand".
     assert_all_skin_verts_bound(arm, "after restyle weight edits")
+
+
 def flatten_male_body_brow_spikes(arm, aperture) -> int:
     """Flatten forward brow-ridge spikes on male_body (not Eyes, not a brow mesh).
 
@@ -1538,8 +1567,8 @@ def repair_spine_unbind_edges(arm) -> int:
     return repaired
 
 
-def assert_body_space_is_world_aligned(body) -> None:
-    """Refuse a rotated/skewed male_body object matrix.
+def body_world_scale(body) -> float:
+    """Uniform object scale of male_body, after refusing a rotated/skewed matrix.
 
     Everything in this module mixes body object space with world space on
     purpose: vertex coordinates are compared against ``rest_world`` bone
@@ -1570,12 +1599,14 @@ def assert_body_space_is_world_aligned(body) -> None:
             f"+Z up); a rotated bind would make every mouth/tusk coordinate "
             f"wrong while still looking plausible. matrix_world={mw}"
         )
-    for axis, s in zip("xyz", scale):
-        if abs(float(s) - 1.0) > 1e-3:
-            raise RuntimeError(
-                f"{body.name!r} object matrix scales {axis} by {float(s):.6f}; "
-                f"aperture sizes are measured in metres on the mesh data"
-            )
+    sx, sy, sz = (float(c) for c in scale)
+    if max(abs(sx - sy), abs(sy - sz), abs(sx - sz)) > 1e-3:
+        raise RuntimeError(
+            f"{body.name!r} object matrix scales non-uniformly {(sx, sy, sz)}; "
+            f"the aperture is an ellipse in mesh space and would not stay one "
+            f"in world space"
+        )
+    return sx
 
 
 def skull_vert_indices(body) -> list[int]:
@@ -1613,7 +1644,7 @@ def resolve_mouth_aperture(arm):
     place. See ``tools/orc_mouth_geometry.py`` for the measurement itself.
     """
     body = male_body_mesh(arm)
-    assert_body_space_is_world_aligned(body)
+    body_world_scale(body)
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone for mouth anchors")
     idx = skull_vert_indices(body)
@@ -1704,9 +1735,12 @@ def store_mouth_aperture(arm, aperture) -> None:
     body["orc_aperture_head_right"] = [float(c) for c in axes["right"]]
     body["orc_aperture_head_up"] = [float(c) for c in axes["up"]]
     body["orc_aperture_head_inward"] = [float(c) for c in axes["inward"]]
-    body["orc_aperture_half_width"] = float(aperture.half_width)
-    body["orc_aperture_half_height"] = float(aperture.half_height)
-    body["orc_aperture_depth"] = float(aperture.depth)
+    # Radii are mesh-space lengths; the posed frame is world space, so carry the
+    # object scale across once here rather than at every gate.
+    scale = body_world_scale(body)
+    body["orc_aperture_half_width"] = float(aperture.half_width * scale)
+    body["orc_aperture_half_height"] = float(aperture.half_height * scale)
+    body["orc_aperture_depth"] = float(aperture.depth * scale)
     log(
         f"published aperture in head-rest space center="
         f"{tuple(round(c, 4) for c in center_hl)} "
@@ -1714,7 +1748,7 @@ def store_mouth_aperture(arm, aperture) -> None:
         f"up={tuple(round(c, 3) for c in axes['up'])} "
         f"inward={tuple(round(c, 3) for c in axes['inward'])} "
         f"half=({aperture.half_width:.4f},{aperture.half_height:.4f}) "
-        f"depth={aperture.depth:.4f}"
+        f"depth={aperture.depth:.4f} body_scale={scale:.6f}"
     )
     if center_hl.length > HEAD_MOUTH_MAX_LOCAL:
         raise RuntimeError(
@@ -2067,6 +2101,8 @@ def mouth_rim_anchor_verts(arm, aperture) -> tuple[int, int]:
             f"co={tuple(round(c, 4) for c in me.vertices[pick].co)}"
         )
     return picked["L"], picked["R"]
+
+
 def is_junk_companion_mesh(obj) -> bool:
     """True for leftover companion meshes that are not the nude orc identity.
 
@@ -2138,6 +2174,8 @@ def male_body_mesh(arm):
         if obj.name == "male_body" or obj.name.lower() == "male_body":
             return obj
     raise RuntimeError("male_body mesh required for mouth/tusk placement")
+
+
 def make_opaque_mat(name: str, color, roughness: float = 0.9):
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
@@ -2251,6 +2289,8 @@ def world_dir_to_head_local(arm, world_dir: Vector) -> Vector:
     if local.length < 1e-8:
         raise RuntimeError("world_dir_to_head_local: collapsed direction")
     return local.normalized()
+
+
 def _axis_frame(axis: Vector) -> tuple[Vector, Vector, Vector]:
     """Orthonormal (right, binormal, axis) for authoring a cone along ``axis``."""
     a = Vector(axis).normalized()
@@ -2539,6 +2579,8 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
         for key in (
             "orc_mouth_vert",
             "orc_mouth_vert_head_local",
+            "orc_tusk_side",
+            "orc_tusk_base_head_local",
             "orc_tusk_centroid_head_local",
             "orc_tusk_axis_head_local",
         ):
@@ -2568,6 +2610,40 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"and the head bone have parted; refusing PNG"
             )
 
+        # Orientation: the tusk must still rise through the maw and lean out of
+        # it. A mirrored or inverted cone can otherwise satisfy containment
+        # while pointing down the throat.
+        axis_w = (
+            head_pose_world_matrix(arm).to_3x3()
+            @ Vector(
+                (
+                    float(tusk["orc_tusk_axis_head_local"][0]),
+                    float(tusk["orc_tusk_axis_head_local"][1]),
+                    float(tusk["orc_tusk_axis_head_local"][2]),
+                )
+            )
+        ).normalized()
+        rise_dot = float(axis_w.dot(frame["up"]))
+        inward_dot = float(axis_w.dot(frame["inward"]))
+        if rise_dot < TUSK_MIN_AXIS_RISE_DOT or inward_dot > 0.0:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} axis does not rise out of the maw "
+                f"(up_dot={rise_dot:.3f} < {TUSK_MIN_AXIS_RISE_DOT}, "
+                f"inward_dot={inward_dot:.3f} must be <= 0) — inverted or "
+                f"throat-facing cone; refusing PNG"
+            )
+        base_hl = tusk["orc_tusk_base_head_local"]
+        base_w = head_pose_world_matrix(arm) @ Vector(
+            (float(base_hl[0]), float(base_hl[1]), float(base_hl[2]))
+        )
+        _bu, base_w_coord, _bd = aperture_coords_world(frame, base_w)
+        if base_w_coord >= 0.0:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} is rooted at or above the aperture "
+                f"centre line (w={base_w_coord:.4f}) — a tusk grows from the lower "
+                f"gum; refusing PNG"
+            )
+
         verts_w = _evaluated_mesh_verts_world(tusk)
         worst_radial = 0.0
         worst_radial_uw = (0.0, 0.0)
@@ -2577,12 +2653,19 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
         w_hi = -1e9
         front = 0
         front_limit = TUSK_FRONT_D_FRAC * depth
+        worst_buried = -1e9
+        worst_buried_uw = (0.0, 0.0, 0.0)
         for vw in verts_w:
             u, w, d = aperture_coords_world(frame, vw)
             r = aperture_radial(frame, u, w, margin=margin)
             if r > worst_radial:
                 worst_radial = r
                 worst_radial_uw = (u, w)
+            wall = depth * MG.bore_frac(aperture_radial(frame, u, w))
+            buried = d - (wall - TUSK_BORE_CLEARANCE_M)
+            if buried > worst_buried:
+                worst_buried = buried
+                worst_buried_uw = (u, w, wall)
             min_d = min(min_d, d)
             max_d = max(max_d, d)
             w_lo = min(w_lo, w)
@@ -2611,6 +2694,15 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"into the skull (max_d={max_d:.4f} > depth {depth:.4f}) — "
                 f"Death chest-spike class; refusing PNG"
             )
+        if worst_buried > 0.0:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} is embedded in the cavity wall "
+                f"(worst vert is {worst_buried:.4f} past the wall at "
+                f"u={worst_buried_uw[0]:.4f} w={worst_buried_uw[1]:.4f}, where the "
+                f"bore is only {worst_buried_uw[2]:.4f} deep and clearance is "
+                f"{TUSK_BORE_CLEARANCE_M}) — in the flesh, not in the maw; "
+                f"refusing PNG"
+            )
         if front_frac < TUSK_MIN_FRONT_FRAC:
             raise RuntimeError(
                 f"{label} still: {tusk.name!r} sits at the back of the maw "
@@ -2625,13 +2717,17 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 f"a stub the still cannot show; refusing PNG"
             )
         log(
-            f"{label} still gate: {tusk.name} bind={dist_bind:.4f} "
-            f"rim_drift={rim_drift:.4f} radial={worst_radial:.3f} "
-            f"d=[{min_d:.4f},{max_d:.4f}] of {depth:.4f} "
-            f"front_frac={front_frac:.3f} w_span={w_span:.4f}"
+            f"{label} still gate: {tusk.name} side={tusk['orc_tusk_side']} "
+            f"bind={dist_bind:.4f} rim_drift={rim_drift:.4f} "
+            f"radial={worst_radial:.3f} d=[{min_d:.4f},{max_d:.4f}] of {depth:.4f} "
+            f"front_frac={front_frac:.3f} w_span={w_span:.4f} "
+            f"wall_clearance={-worst_buried:.4f} "
+            f"axis_up={rise_dot:.3f} axis_inward={inward_dot:.3f}"
         )
     log(f"{label} still gate: tusks inside the posed mouth aperture")
     assert_no_torso_spike(arm, label)
+
+
 def assert_tusks_follow_head(arm, tusks: list) -> None:
     """Fail unless tusks track the head under Idle, Walk, AND Death (large delta).
 
@@ -2953,6 +3049,8 @@ def add_tusks(arm, aperture) -> list:
         f"(inside the carved maw, aperture-relative seat and scale)"
     )
     return created
+
+
 def body_like_meshes(arm):
     """Skin / basemesh targets for finished olive albedo (no garments).
 
@@ -3084,7 +3182,6 @@ def apply_finished_olive_skin(arm) -> None:
             f"slots={[m.name for m in me.materials]} "
             f"(Principled+noise, no UV-grid, uv={me.uv_layers.active.name!r})"
         )
-
 
 
 def _uv_to_px(u: float, v: float, w: int, h: int) -> tuple[int, int]:
@@ -4172,6 +4269,8 @@ def setup_mouth_closeup_preview(arm) -> dict:
         "reach_m": round(reach, 4),
         "ground_lift": lifted,
     }
+
+
 def render_png(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     bpy.context.scene.render.filepath = str(path)
