@@ -893,6 +893,16 @@ def restyle_bulk_and_jaw(arm) -> None:
             vg_index(obj, "pelvis"),
         ]
         spine3_i = vg_index(obj, "spine_03")
+        spine_only = [
+            vg_index(obj, "spine_01"),
+            vg_index(obj, "spine_02"),
+            vg_index(obj, "spine_03"),
+        ]
+        adj = [[] for _ in me.vertices]
+        for e in me.edges:
+            ia, ib = int(e.vertices[0]), int(e.vertices[1])
+            adj[ia].append(ib)
+            adj[ib].append(ia)
 
         xs = [v.co.x for v in me.vertices]
         ys = [v.co.y for v in me.vertices]
@@ -978,6 +988,23 @@ def restyle_bulk_and_jaw(arm) -> None:
                         v.co.y -= 0.006 * hw
                     face_edits += 1
 
+            if bulk > 0.0 and tw >= 0.50:
+                # Skip bulk on a 100% spine vert glued to an unbound neighbor
+                # (1876 spine=1.00 / 1891 spine=0 — Punch opened that edge 21cm).
+                for j in adj[v.index]:
+                    nv = me.vertices[j]
+                    ns = max(vg_weight(nv, gi) for gi in spine_only)
+                    if (
+                        ns < 0.15
+                        and vg_weight(nv, head_i) < 0.15
+                        and _arm_weight(
+                            nv, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r
+                        )
+                        < 0.25
+                    ):
+                        bulk = 0.0
+                        break
+
             if bulk > 0.0:
                 v.co.x += radial.x * bulk
                 v.co.y += radial.y * bulk
@@ -993,6 +1020,7 @@ def restyle_bulk_and_jaw(arm) -> None:
     flatten_chest_pinch(arm)
     clear_chest_head_weights(arm)
     flatten_stretched_torso_edges(arm)
+    repair_spine_unbind_edges(arm)
     open_orc_mouth_aperture(arm)
 
 
@@ -1174,7 +1202,11 @@ def clear_chest_head_weights(arm) -> int:
 
 
 def flatten_stretched_torso_edges(arm) -> int:
-    """Pull rest-pose torso verts that already sit on a long edge."""
+    """Pull the low-spine end of a long rest-pose torso edge.
+
+    e1d08f9 only pulled verts with spine>=0.18, so vert 1891 (spine=0,
+    connected to 1876 spine=1.00) was left behind. Punch then opened 21cm.
+    """
     body = male_body_mesh(arm)
     me = body.data
     spine_groups = [
@@ -1188,34 +1220,108 @@ def flatten_stretched_torso_edges(arm) -> int:
     lower_r = vg_index(body, "lowerarm_r")
     hand_l = vg_index(body, "hand_l")
     hand_r = vg_index(body, "hand_r")
-    adj: list[list[int]] = [[] for _ in me.vertices]
+    pulled = 0
     for e in me.edges:
         a, b = int(e.vertices[0]), int(e.vertices[1])
-        adj[a].append(b)
-        adj[b].append(a)
-    pulled = 0
-    for i, v in enumerate(me.vertices):
-        if not adj[i]:
+        va = me.vertices[a]
+        vb = me.vertices[b]
+        d = (va.co - vb.co).length
+        if d <= 0.070:
             continue
-        tw = max(vg_weight(v, gi) for gi in spine_groups)
-        if tw < 0.18:
+        sa = max(vg_weight(va, gi) for gi in spine_groups)
+        sb = max(vg_weight(vb, gi) for gi in spine_groups)
+        # Pull the weaker-spine end toward the stronger (1891 → 1876).
+        if sa >= sb:
+            src, dst, src_v, dst_v = a, b, va, vb
+        else:
+            src, dst, src_v, dst_v = b, a, vb, va
+        if _arm_weight(dst_v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) >= 0.40:
             continue
-        if _arm_weight(v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) >= 0.40:
-            continue
-        farthest = 0.0
-        acc = Vector((0.0, 0.0, 0.0))
-        for j in adj[i]:
-            n = me.vertices[j].co
-            acc += n
-            farthest = max(farthest, (v.co - n).length)
-        if farthest <= 0.070:
-            continue
-        c = acc / float(len(adj[i]))
-        v.co = 0.20 * v.co + 0.80 * c
+        dst_v.co = 0.15 * dst_v.co + 0.85 * src_v.co
         pulled += 1
     me.update()
     log(f"flattened stretched torso rest-edges verts={pulled}")
     return pulled
+
+
+def _copy_vertex_groups(obj, src_index: int, dst_index: int) -> int:
+    """Replace dst weights with src weights so the pair deforms together."""
+    src = obj.data.vertices[src_index]
+    copied = 0
+    # Clear dst groups first so leftover empty binds cannot fight spine.
+    for g in list(obj.data.vertices[dst_index].groups):
+        _clear_vg(obj, dst_index, g.group)
+    for g in src.groups:
+        vg = None
+        for cand in obj.vertex_groups:
+            if cand.index == g.group:
+                vg = cand
+                break
+        if vg is None:
+            continue
+        vg.add([int(dst_index)], float(g.weight), "REPLACE")
+        copied += 1
+    return copied
+
+
+def repair_spine_unbind_edges(arm) -> int:
+    """Bind and seat verts that share an edge with a 100% spine neighbor.
+
+    Punch:Punch_Cross@13 verts (1876, 1891): spine=(1.00, 0.00) head=(0,0).
+    Pec/head flatten cannot see that pair. Punch moves 1876 with the torso
+    and leaves 1891, growing a 21cm through-torso edge. Copy the spine
+    vert's groups onto the unbound neighbor and pull it onto the spine vert.
+    """
+    body = male_body_mesh(arm)
+    me = body.data
+    spine_groups = [
+        vg_index(body, "spine_01"),
+        vg_index(body, "spine_02"),
+        vg_index(body, "spine_03"),
+    ]
+    head_i = vg_index(body, "head")
+    neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
+    upper_l = vg_index(body, "upperarm_l")
+    upper_r = vg_index(body, "upperarm_r")
+    lower_l = vg_index(body, "lowerarm_l")
+    lower_r = vg_index(body, "lowerarm_r")
+    hand_l = vg_index(body, "hand_l")
+    hand_r = vg_index(body, "hand_r")
+    thigh_l = vg_index(body, "thigh_l")
+    thigh_r = vg_index(body, "thigh_r")
+    calf_l = vg_index(body, "calf_l")
+    calf_r = vg_index(body, "calf_r")
+    foot_l = vg_index(body, "foot_l") or vg_index(body, "foot")
+    foot_r = vg_index(body, "foot_r")
+    repaired = 0
+    for e in me.edges:
+        a, b = int(e.vertices[0]), int(e.vertices[1])
+        va = me.vertices[a]
+        vb = me.vertices[b]
+        sa = max(vg_weight(va, gi) for gi in spine_groups)
+        sb = max(vg_weight(vb, gi) for gi in spine_groups)
+        if sa >= sb:
+            src, dst, src_v, dst_v, src_s, dst_s = a, b, va, vb, sa, sb
+        else:
+            src, dst, src_v, dst_v, src_s, dst_s = b, a, vb, va, sb, sa
+        if src_s < 0.50 or dst_s >= 0.15:
+            continue
+        if vg_weight(dst_v, head_i) >= 0.15 or vg_weight(dst_v, neck_i) >= 0.15:
+            continue
+        if _arm_weight(dst_v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) >= 0.25:
+            continue
+        if _leg_weight(dst_v, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r) >= 0.25:
+            continue
+        dst_v.co = 0.10 * dst_v.co + 0.90 * src_v.co
+        n = _copy_vertex_groups(body, src, dst)
+        repaired += 1
+        log(
+            f"repair spine-unbind edge ({src},{dst}) "
+            f"spine=({src_s:.2f},{dst_s:.2f}) copied_groups={n}"
+        )
+    me.update()
+    log(f"repaired spine-unbind edges n={repaired}")
+    return repaired
 
 
 def open_orc_mouth_aperture(arm) -> int:
