@@ -325,6 +325,9 @@ CAVITY_SUBDIV_MAX_ADDED_FRAC = 0.25  # of the male_body vert count
 # Polygons at or above this mean falloff are painted with the interior
 # material, so the bore reads dark and the lip rim stays skin.
 CAVITY_INTERIOR_POLY_FALLOFF = 0.35
+# Face attribute recording which polygons are bore. Material slots cannot hold
+# it: mesh.materials.clear() clamps every polygon index to 0.
+MOUTH_INTERIOR_ATTR = "orc_mouth_interior"
 
 # Tusk seat, in aperture coordinates (u along +X, w along +Z, d into the head).
 # A tusk grows OUT OF the gum. e99b3a1 authored one whose base floated 22 mm in
@@ -332,16 +335,21 @@ CAVITY_INTERIOR_POLY_FALLOFF = 0.35
 # it had no visible root and its silhouette reached the lip contour -- which is
 # why the Walk still read it as a cone painted on the lower lip rather than
 # ivory coming out of the mouth. The seat is now defined by where it is ROOTED.
-TUSK_SEAT_U_FRAC = 0.34  # canine line, not the commissure
-TUSK_SEAT_W_FRAC = -0.76  # on the lower gum ramp, not floating mid-cavity
+TUSK_SEAT_U_FRAC = 0.40  # canine line, not the commissure
+TUSK_SEAT_W_FRAC = -0.72  # on the lower gum ramp, not floating mid-cavity
 # How far BEHIND the cavity wall the base sits, as a fraction of the aperture
 # half-height. This is what roots the tusk: the base is inside the flesh, so the
 # gum hides it and only the emergent length shows.
 TUSK_ROOT_BURY_HH_FRAC = 0.25
-TUSK_AXIS_MEDIAL = 0.22  # dental-arch convergence toward the midline
+# Lateral lean per unit rise, AWAY from the midline. The first bake whose mesh
+# edits actually reached the depsgraph showed the previous inward lean for what
+# it is: two thin cones 24 mm apart, rising almost vertically and meeting at the
+# top, which reads as a pair of straws rather than as ivory. A boar or orc tusk
+# leaves the gum on the canine line and diverges as it rises.
+TUSK_AXIS_SPLAY = 0.26
 TUSK_AXIS_OUTWARD = 0.22  # leans out of the gum as it rises
-TUSK_LENGTH_HH_FRAC = 1.60  # multiples of the aperture half-height
-TUSK_RADIUS_BASE_HH_FRAC = 0.28
+TUSK_LENGTH_HH_FRAC = 1.35  # multiples of the aperture half-height
+TUSK_RADIUS_BASE_HH_FRAC = 0.32
 TUSK_RADIUS_TIP_HH_FRAC = 0.08
 TUSK_SEGMENTS = 12
 
@@ -550,8 +558,15 @@ MOUTH_CLOSEUP_MIN_CAM_Z = 0.10
 # rig's sun delivers ~3.4, so this lifts the cavity a little above the face
 # without blowing out the ivory. Energy is computed from the standoff so it
 # stays correct whatever the head scale.
+#
+# At 7.0 it was doing the opposite of its job. The same maw renders near-black
+# under the body rig alone and mid-grey under the close-up key, because a 0.10
+# albedo interior lit at twice the sun still reads as lit surface -- so the
+# still that exists to prove the mouth is open was the one still where it did
+# not look open, and the ivory lost its contrast against it. Below the sun,
+# the cavity keeps the falloff that says "hole".
 MOUTH_CLOSEUP_KEY_STANDOFF = 1.1  # multiples of the camera reach
-MOUTH_CLOSEUP_KEY_IRRADIANCE = 7.0
+MOUTH_CLOSEUP_KEY_IRRADIANCE = 2.2
 
 # Scratch exports must never clobber the 16:35 restyle backups.
 PROTECTED_RESTYLE_BACKUPS = (
@@ -2594,6 +2609,71 @@ def mouth_interior_material():
     return make_opaque_mat("OrcMouthInterior", MOUTH_INTERIOR, 0.65)
 
 
+def store_mouth_interior_faces(obj, interior: list[bool]) -> None:
+    """Record which faces are bore rather than skin, as mesh data.
+
+    ``polygon.material_index`` cannot hold this. ``mesh.materials.clear()``
+    removes every slot and clamps every index to 0, so the carve's paint is
+    erased the first time the skin pass rebuilds the slots — which it does
+    twice per still. A face attribute is independent of the slot list, so it
+    survives, and it keeps one authority for "this face is inside the maw".
+    """
+    me = obj.data
+    if len(interior) != len(me.polygons):
+        raise RuntimeError(
+            f"{obj.name!r}: interior flags for {len(interior)} faces but the "
+            f"mesh has {len(me.polygons)}"
+        )
+    existing = me.attributes.get(MOUTH_INTERIOR_ATTR)
+    if existing is not None:
+        me.attributes.remove(existing)
+    attr = me.attributes.new(MOUTH_INTERIOR_ATTR, "BOOLEAN", "FACE")
+    attr.data.foreach_set("value", [bool(v) for v in interior])
+    me.update()
+
+
+def apply_mouth_interior_slot(obj) -> int:
+    """Point every bore face at the interior slot. Single owner of that mapping.
+
+    Called by the carve and again by every re-paint, so the maw stays dark
+    however often the slots are rebuilt. Returns the number of faces painted;
+    a mesh that records a cavity and paints none of it is refused, because the
+    maw would render as skin and the still would read closed.
+    """
+    me = obj.data
+    slot = int(obj.get("orc_mouth_interior_slot", -1))
+    if slot < 0:
+        raise RuntimeError(
+            f"{obj.name!r} has no recorded mouth interior slot; the carve must "
+            f"run before the interior can be painted"
+        )
+    if slot >= len(me.materials):
+        raise RuntimeError(
+            f"{obj.name!r} records the mouth interior in slot {slot} but the mesh "
+            f"has {len(me.materials)} material slot(s); the maw would render as skin"
+        )
+    attr = me.attributes.get(MOUTH_INTERIOR_ATTR)
+    if attr is None:
+        raise RuntimeError(
+            f"{obj.name!r} records a mouth interior slot but carries no "
+            f"{MOUTH_INTERIOR_ATTR!r} face attribute — nothing says which faces "
+            f"are bore"
+        )
+    flags = [False] * len(me.polygons)
+    attr.data.foreach_get("value", flags)
+    painted = 0
+    for poly, is_interior in zip(me.polygons, flags):
+        poly.material_index = slot if is_interior else 0
+        painted += 1 if is_interior else 0
+    me.update()
+    if painted <= 0:
+        raise RuntimeError(
+            f"{obj.name!r} painted 0 of {len(me.polygons)} faces with the mouth "
+            f"interior — the maw would render as skin and read closed"
+        )
+    return painted
+
+
 def aperture_region_edge_stats(me, aperture) -> tuple[list[int], float]:
     """Edges touching the aperture neighbourhood, and their mean length.
 
@@ -2797,22 +2877,21 @@ def carve_orc_mouth_cavity(arm, aperture) -> int:
     me.materials.append(make_opaque_mat(f"OrcSkin_{body.name}", OLIVE, 0.88))
     me.materials.append(interior)
     body["orc_mouth_interior_slot"] = 1
-    painted = 0
-    for poly in me.polygons:
-        vids = list(poly.vertices)
-        mean_f = sum(falloffs[int(j)] for j in vids) / float(len(vids))
-        if mean_f >= CAVITY_INTERIOR_POLY_FALLOFF:
-            poly.material_index = 1
-            painted += 1
-        else:
-            poly.material_index = 0
-    if painted <= 0:
+    interior_faces = [
+        (
+            sum(falloffs[int(j)] for j in poly.vertices) / float(len(poly.vertices))
+            >= CAVITY_INTERIOR_POLY_FALLOFF
+        )
+        for poly in me.polygons
+    ]
+    if not any(interior_faces):
         raise RuntimeError(
             f"carve_orc_mouth_cavity: no polygon reached mean falloff "
             f"{CAVITY_INTERIOR_POLY_FALLOFF} — the maw would render as skin "
             f"and read closed (carved={carved} deepest={deepest:.4f})"
         )
-    me.update()
+    store_mouth_interior_faces(body, interior_faces)
+    painted = apply_mouth_interior_slot(body)
     assert_all_skin_verts_bound(arm, "after mouth cavity carve")
     log(
         f"carved orc mouth cavity verts={carved} deepest={deepest:.4f} "
@@ -3744,7 +3823,7 @@ def tusk_seat_in_body_space(aperture, sign_x: float) -> tuple[Vector, Vector, fl
 
     Everything is a fraction of the measured aperture, so the tusk scales with
     the maw instead of being a 48 mm constant hoping to land inside it. The
-    axis rises (``+Z``), converges toward the midline (dental arch) and leans
+    axis rises (``+Z``), splays away from the midline as it rises and leans
     back out of the mouth (``-Y``) so the tip ends up near the rim plane where
     a camera can see it, rather than deep at the cavity floor.
 
@@ -3774,7 +3853,7 @@ def tusk_seat_in_body_space(aperture, sign_x: float) -> tuple[Vector, Vector, fl
             aperture.center_z + w0,
         )
     )
-    axis = Vector((-sign_x * TUSK_AXIS_MEDIAL, -TUSK_AXIS_OUTWARD, 1.0)).normalized()
+    axis = Vector((sign_x * TUSK_AXIS_SPLAY, -TUSK_AXIS_OUTWARD, 1.0)).normalized()
     return (
         base,
         axis,
@@ -4000,13 +4079,14 @@ def apply_finished_olive_skin(arm) -> None:
                 bsdf.inputs["Subsurface"].default_value = 0.04
             except Exception:
                 pass
+        # Clearing the slots clamps every polygon.material_index to 0, so the
+        # carve's paint does not survive this and cannot be relied on. The bore
+        # faces are recorded as a face attribute; re-derive the indices from it.
+        # render_clip_stills re-paints twice per still, so this runs often.
         me.materials.clear()
         me.materials.append(mat)
-        # The carve painted the oral cavity with material_index 1, and polygon
-        # material indices survive a slot rebuild. Re-appending the interior in
-        # the same slot is what keeps the maw dark through every re-paint;
-        # render_clip_stills calls this twice per still.
         interior_slot = int(obj.get("orc_mouth_interior_slot", -1))
+        painted = 0
         if interior_slot >= 0:
             if interior_slot != 1:
                 raise RuntimeError(
@@ -4014,16 +4094,11 @@ def apply_finished_olive_skin(arm) -> None:
                     f"this bake only ever authors slot 1"
                 )
             me.materials.append(mouth_interior_material())
-        worst_slot = max((int(p.material_index) for p in me.polygons), default=0)
-        if worst_slot >= len(me.materials):
-            raise RuntimeError(
-                f"{obj.name!r} has a polygon on material slot {worst_slot} but only "
-                f"{len(me.materials)} slot(s) — the mouth interior would render as "
-                f"skin and the maw would read closed"
-            )
+            painted = apply_mouth_interior_slot(obj)
         log(
             f"finished olive-grey skin on mesh={obj.name!r} mat={mat_name!r} "
             f"slots={[m.name for m in me.materials]} "
+            f"mouth_interior_faces={painted} "
             f"(Principled+noise, no UV-grid, uv={me.uv_layers.active.name!r})"
         )
 
