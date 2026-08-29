@@ -213,13 +213,11 @@ LIP_INNER_Y = 0.028  # +Y from the outer lip plane into the oral opening
 LIP_OUTER_Y = 0.008  # slightly in front of the corner (outer vermilion)
 LIP_POOL_MAX = 90
 LIP_VERTS_EACH = 14
-# Narrow-X / taller-Z ladder for the camera-facing mid-mouth. (x_half, z_half,
-# y_in_front_of_lip, y_into_mouth). Stop at the first window with ≥3/3.
-CENTER_LIP_WINDOWS = (
-    (0.048, 0.034, 0.020, 0.036),
-    (0.052, 0.044, 0.026, 0.042),
-    (0.058, 0.052, 0.032, 0.048),
-)
+# Mouth-height band used to pick the most-central lip verts (not a fixed
+# x_half that dies when restyle has piled everything at 65mm).
+MOUTH_HEIGHT_Z = 0.045
+MOUTH_CENTER_MAX_ABS_X = 0.048
+LIP_CENTER_EACH = 12
 # Minimum gum→opening rise in body +Z. 57f9616 parted 887 face verts, the
 # "upper" hunt landed 3mm below the corner, and gum→opening collapsed to 6.2mm
 # (just the 5mm cavity inset). Never let that vector be the axis.
@@ -585,13 +583,12 @@ def write_art_review_packet(
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
             "mesh authored from shallow lower gum along the rest-pose mouth "
             "aperture (gum → lip-plane opening), not bone local +Y. "
-            "Rest-pose lips: part the camera-facing MID-MOUTH (taller Z, "
-            "narrow X) plus the commissure slab. 597492c found 36 corner "
-            "verts and zero center lips (center sits at cupid's bow / "
-            "lower-lip Z, not corner Z). Do not use a 108mm face pool. "
-            "Tusks: 8mm / 48mm, no chin hang, gum→lip-plane. Zero torso/arm "
-            "radial bulk. Do NOT seat unbind edges. Spine-unbind copy is "
-            "pec-box + 1876/1891-class only. Stretched-edge gate stays 0.14.",
+            "Rest-pose lips: do not copysign-X the midline (d1f412a emptied "
+            "the center — min|x-cx|=65mm, hunt found only commissures). "
+            "Part the most-central mouth-height verts in Z. Do not use a "
+            "108mm face pool. Tusks: 8mm / 48mm, no chin hang, gum→lip-plane. "
+            "Zero torso/arm radial bulk. Do NOT seat unbind edges. "
+            "Pec-box 1876/1891 weight copy only. Stretched-edge gate 0.14.",
             "AFTER stills gate: gum bind + lip-corner (0.085) + opening occupancy "
             "+ skull-punch refuse + chin-needle refuse + torso-spike refuse + "
             "max tip past posed lip; junk Eyes unlinked from collections.",
@@ -1001,16 +998,15 @@ def restyle_bulk_and_jaw(arm) -> None:
                     jaw = (hw - 0.18) * 0.070
                     v.co.y -= jaw * 0.85
                     v.co.z -= jaw * 0.18
-                    v.co.x += math.copysign(jaw * 0.85, v.co.x - cx)
+                    # Do NOT copysign-X the midline. d1f412a: every mouth
+                    # vert was shoved ~50mm out; commissure_pool min|x-cx|
+                    # was 65mm and the mid-mouth hunt found nothing.
+                    if abs(v.co.x - cx) >= 0.050:
+                        v.co.x += math.copysign(jaw * 0.40, v.co.x - cx)
                     face_edits += 1
 
-                if -0.110 <= dz <= -0.012 and v.co.y < cy:
-                    # Widen only. Z-part here dropped center lips out of the
-                    # corner slab, so 0706a32 parted commissures and Idle/Walk
-                    # still read as a closed human mouth.
-                    widen = 0.018 * hw
-                    v.co.x += math.copysign(widen, v.co.x - cx)
-                    face_edits += 1
+                # No mouth-band X widen. copysign(18mm) on |dz|<110mm emptied
+                # the camera-facing center (same 65mm commissure pile).
 
             if bulk > 0.0 and tw >= 0.50:
                 # Skip bulk on a 100% spine vert glued to an unbound neighbor
@@ -1340,12 +1336,13 @@ def _lip_band_samples(
 
 
 def open_orc_mouth_aperture(arm) -> int:
-    """Part the camera-facing mid-mouth so Idle/Walk stills show tusks.
+    """Part the most-central mouth-height verts the still cameras see.
 
-    597492c: a slab around the L/R *corners* found 36 verts, all
-    |x-cx|>42mm (commissures). Center lips sit higher/lower (cupid's bow /
-    lower-lip center). Hunt those in a narrow-X taller-Z box — not a 108mm
-    face band (e1ec980: 580 verts). Part Z only; no +Y tuck.
+    d1f412a: jaw/widen used copysign(constant, x-cx) on the whole mouth
+    band. Every lip vert piled at the commissures (min|x-cx|=65mm) and
+    the mid-mouth x_half ladder found nothing. Restyle no longer shoves
+    the midline. Here: take the most-central verts in a mouth-height
+    band and part those in Z. Not a 108mm face pool. Not commissures only.
     """
     body, samples = collect_head_front_face_samples(arm)
     if not samples:
@@ -1360,6 +1357,50 @@ def open_orc_mouth_aperture(arm) -> int:
     half_w = 0.5 * abs(float(left_p.x) - float(right_p.x)) + 0.006
     band_kw = dict(cx=cx, cz=cz, lip_y=lip_y, neck_i=neck_i, spine3_i=spine3_i)
 
+    mouth = _lip_band_samples(
+        samples,
+        x_max=half_w,
+        z_half=MOUTH_HEIGHT_Z,
+        y_front=0.024,
+        y_in=0.040,
+        **band_kw,
+    )
+    if len(mouth) > LIP_POOL_MAX:
+        raise RuntimeError(
+            f"open_orc_mouth_aperture: mouth-height band too wide "
+            f"(n={len(mouth)} > {LIP_POOL_MAX}). Not inventing a face-wide part."
+        )
+    lo = [s for s in mouth if s["z"] <= cz]
+    hi = [s for s in mouth if s["z"] > cz]
+    lo.sort(key=lambda s: abs(s["x"] - cx))
+    hi.sort(key=lambda s: abs(s["x"] - cx))
+    lo_abs = abs(lo[0]["x"] - cx) if lo else 1e9
+    hi_abs = abs(hi[0]["x"] - cx) if hi else 1e9
+    xs = sorted(abs(s["x"] - cx) for s in mouth)
+    log(
+        f"open_orc_mouth_aperture mouth_n={len(mouth)} "
+        f"lo={len(lo)} hi={len(hi)} "
+        f"nearest_|x-cx|=({lo_abs:.4f},{hi_abs:.4f}) "
+        f"x_abs_p50={xs[len(xs)//2] if xs else -1:.4f} "
+        f"corner_z={cz:.4f} lip_y={lip_y:.4f} half_w={half_w:.4f}"
+    )
+    if lo_abs > MOUTH_CENTER_MAX_ABS_X or hi_abs > MOUTH_CENTER_MAX_ABS_X:
+        raise RuntimeError(
+            f"open_orc_mouth_aperture: most-central mouth-height vert is "
+            f"still a commissure (nearest_|x-cx|=({lo_abs:.4f},{hi_abs:.4f}) "
+            f"> {MOUTH_CENTER_MAX_ABS_X}, n={len(mouth)}). Midline emptied "
+            f"or not lips. Not parting corners. Not a 108mm face pool."
+        )
+    center_lo = [s for s in lo if abs(s["x"] - cx) <= MOUTH_CENTER_MAX_ABS_X]
+    center_hi = [s for s in hi if abs(s["x"] - cx) <= MOUTH_CENTER_MAX_ABS_X]
+    center_lo = center_lo[:LIP_CENTER_EACH]
+    center_hi = center_hi[:LIP_CENTER_EACH]
+    if len(center_lo) < 3 or len(center_hi) < 3:
+        raise RuntimeError(
+            f"open_orc_mouth_aperture: not enough midline lips "
+            f"(center_lo={len(center_lo)} center_hi={len(center_hi)} "
+            f"nearest_|x-cx|=({lo_abs:.4f},{hi_abs:.4f}))"
+        )
     corners = _lip_band_samples(
         samples,
         x_max=half_w,
@@ -1368,52 +1409,6 @@ def open_orc_mouth_aperture(arm) -> int:
         y_in=LIP_INNER_Y,
         **band_kw,
     )
-    if corners:
-        min_abs = min(abs(s["x"] - cx) for s in corners)
-    else:
-        min_abs = -1.0
-    log(
-        f"open_orc_mouth_aperture commissure_pool={len(corners)} "
-        f"min_|x-cx|={min_abs:.4f} corner_z={cz:.4f} lip_y={lip_y:.4f} "
-        f"half_w={half_w:.4f}"
-    )
-
-    center_lo: list = []
-    center_hi: list = []
-    used = None
-    for x_half, z_half, y_front, y_in in CENTER_LIP_WINDOWS:
-        mid = _lip_band_samples(
-            samples,
-            x_max=x_half,
-            z_half=z_half,
-            y_front=y_front,
-            y_in=y_in,
-            **band_kw,
-        )
-        lo = [s for s in mid if s["z"] <= cz]
-        hi = [s for s in mid if s["z"] > cz]
-        log(
-            f"  mid-mouth window x≤{x_half:.3f} |z|≤{z_half:.3f} "
-            f"n={len(mid)} lo={len(lo)} hi={len(hi)}"
-        )
-        if len(lo) >= 3 and len(hi) >= 3:
-            center_lo, center_hi, used = lo, hi, (x_half, z_half, y_front, y_in)
-            break
-    if used is None:
-        raise RuntimeError(
-            f"open_orc_mouth_aperture: no camera-facing center lips after "
-            f"mid-mouth hunt (commissure_pool={len(corners)} "
-            f"min_|x-cx|={min_abs:.4f} cz={cz:.4f}). Not inventing a "
-            f"108mm face-wide part. Not parting commissures only."
-        )
-    if len(center_lo) + len(center_hi) + len(corners) > LIP_POOL_MAX:
-        raise RuntimeError(
-            f"open_orc_mouth_aperture: mouth boxes too wide "
-            f"(center={len(center_lo)+len(center_hi)} corners={len(corners)} "
-            f"> {LIP_POOL_MAX}). Not inventing a face-wide part."
-        )
-
-    # Corners that are not already in the mid-mouth set.
     center_idx = {int(s["v"].index) for s in center_lo + center_hi}
     corner_lo = [
         s
@@ -1425,6 +1420,13 @@ def open_orc_mouth_aperture(arm) -> int:
         for s in corners
         if s["z"] > cz and int(s["v"].index) not in center_idx
     ]
+    if len(center_lo) + len(center_hi) + len(corner_lo) + len(corner_hi) > LIP_POOL_MAX:
+        raise RuntimeError(
+            f"open_orc_mouth_aperture: too many lip verts "
+            f"(center={len(center_lo)+len(center_hi)} "
+            f"corners={len(corner_lo)+len(corner_hi)}). "
+            f"Not inventing a face-wide part."
+        )
     lower = center_lo + corner_lo
     upper = center_hi + corner_hi
     center_ids = {id(s) for s in center_lo + center_hi}
@@ -1437,7 +1439,6 @@ def open_orc_mouth_aperture(arm) -> int:
         lift = 0.018 if id(s) in center_ids else 0.010
         v.co.z += max(lift, 0.022 * s["hw"])
     me.update()
-    # Camera sees the mid-mouth, not the commissure median.
     low_z = [float(me.vertices[s["v"].index].co.z) for s in center_lo]
     high_z = [float(me.vertices[s["v"].index].co.z) for s in center_hi]
     low_z.sort()
@@ -1447,13 +1448,12 @@ def open_orc_mouth_aperture(arm) -> int:
         raise RuntimeError(
             f"open_orc_mouth_aperture: rest mid-mouth gap {gap:.4f} "
             f"< {MOUTH_APERTURE_MIN_Z} — Idle/Walk would still read closed "
-            f"(center={len(center_lo)+len(center_hi)} corners={len(corners)} "
-            f"window={used})"
+            f"(center={len(center_lo)+len(center_hi)})"
         )
     log(
         f"opened orc mouth aperture center=({len(center_lo)},{len(center_hi)}) "
         f"corners=({len(corner_lo)},{len(corner_hi)}) "
-        f"rest_mid_gap={gap:.4f} window={used}"
+        f"rest_mid_gap={gap:.4f} nearest_|x-cx|=({lo_abs:.4f},{hi_abs:.4f})"
     )
     return len(lower) + len(upper)
 
