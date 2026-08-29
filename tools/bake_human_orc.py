@@ -201,6 +201,11 @@ TUSK_MAX_APERTURE_RADIUS = 0.028  # refuse cheek (off the opening axis)
 TUSK_MAX_OUT_PAST_LIP = 0.025
 # Rest-pose lip gap after open_orc_mouth_aperture (Idle/Walk have no jaw clip).
 MOUTH_APERTURE_MIN_Z = 0.018
+# Thin slab around the real mouth corners. A 108mm dz window selected 580
+# face verts (e1ec980); a 120 cap then aborted before tusks. Pick N most-
+# forward verts on each lip instead of refusing a large pool.
+LIP_SLAB_Z = 0.008
+LIP_VERTS_EACH = 14
 # Minimum gum→opening rise in body +Z. 57f9616 parted 887 face verts, the
 # "upper" hunt landed 3mm below the corner, and gum→opening collapsed to 6.2mm
 # (just the 5mm cavity inset). Never let that vector be the axis.
@@ -566,8 +571,8 @@ def write_art_review_packet(
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
             "mesh authored from shallow lower gum along the rest-pose mouth "
             "aperture (gum → lip-plane opening), not bone local +Y. "
-            "Rest-pose lips are parted on the lip dz window only (not the whole "
-            "face — 57f9616 moved 887 verts and collapsed gum→opening to 6.2mm). "
+            "Rest-pose lips: 8mm Z slab at the real L/R corners, most-forward "
+            "14 verts per lip (pool size is not a refuse — e1ec980 died on 580>120). "
             "Aperture axis floors body-+Z rise at 24mm on the lip plane. "
             "Sternum/pec pinch flattened; torso-spike gate on every still.",
             "AFTER stills gate: gum bind + lip-corner (0.085) + opening occupancy "
@@ -1081,12 +1086,12 @@ def flatten_chest_pinch(arm) -> int:
 
 
 def open_orc_mouth_aperture(arm) -> int:
-    """Part the lips so Idle/Walk stills show gum-seated tusks.
+    """Part the visible lips so Idle/Walk stills show gum-seated tusks.
 
-    Punch/Death open the jaw via clip. Idle/Walk do not — a4a5c61 left a closed
-    human mouth. 57f9616 used a wide z_rel band and moved 887 face verts; the
-    "upper" hunt then sat 3mm below the corner and gum→opening collapsed.
-    Edit only forward lip verts in the tusk-corner dz window.
+    Do not edit a 108mm face band (57f9616: 887 verts, axis collapsed).
+    Do not refuse a large candidate pool (e1ec980: 580 > 120, never reached
+    tusks). Find the real L/R corners, keep an 8mm Z slab around them, take
+    the most-forward N verts on each lip, part only those.
     """
     body, samples = collect_head_front_face_samples(arm)
     if not samples:
@@ -1094,72 +1099,72 @@ def open_orc_mouth_aperture(arm) -> int:
     me = body.data
     neck_i = vg_index(body, "neck_01") or vg_index(body, "neck")
     spine3_i = vg_index(body, "spine_03")
-    cx = samples[0]["cx"]
-    _mouth_lo, _mouth_hi, brow_lo = resolve_mouth_zrel_band(samples)
-    lips = []
+    left_p, right_p, _li, _ri = find_mouth_corner_anchors(arm)
+    cx = 0.5 * (float(left_p.x) + float(right_p.x))
+    cz = 0.5 * (float(left_p.z) + float(right_p.z))
+    # More-forward corner Y (MH face is -Y).
+    lip_y = min(float(left_p.y), float(right_p.y))
+    half_w = 0.5 * abs(float(left_p.x) - float(right_p.x)) + 0.006
+    pool = []
     for s in samples:
-        if s["hw"] < 0.28:
+        if s["hw"] < 0.22:
             continue
-        if not (-0.120 <= s["dz"] <= -0.012):
+        if abs(s["z"] - cz) > LIP_SLAB_Z:
             continue
-        if s["y"] > s["cy"] - 0.018:
+        if s["y"] > lip_y + 0.006:
             continue
-        if abs(s["x"] - cx) > MOUTH_CORNER_MAX_ABS_X:
-            continue
-        if s["z_rel"] >= brow_lo:
+        if abs(s["x"] - cx) > half_w:
             continue
         v = s["v"]
         if vg_weight(v, neck_i) >= 0.10 or vg_weight(v, spine3_i) >= 0.22:
             continue
-        lips.append(s)
-    if len(lips) < 12:
+        pool.append(s)
+    lower = [s for s in pool if s["z"] <= cz]
+    upper = [s for s in pool if s["z"] > cz]
+    lower.sort(key=lambda s: s["y"])
+    upper.sort(key=lambda s: s["y"])
+    lower = lower[:LIP_VERTS_EACH]
+    upper = upper[:LIP_VERTS_EACH]
+    log(
+        f"open_orc_mouth_aperture pool={len(pool)} "
+        f"take L={len(lower)} U={len(upper)} "
+        f"corner_z={cz:.4f} lip_y={lip_y:.4f} half_w={half_w:.4f}"
+    )
+    if len(lower) < 4 or len(upper) < 4:
         raise RuntimeError(
-            f"open_orc_mouth_aperture: too few lip verts ({len(lips)}); "
-            f"refusing to part the whole face"
+            f"open_orc_mouth_aperture: not enough lip verts in the corner slab "
+            f"(lower={len(lower)} upper={len(upper)} pool={len(pool)} "
+            f"cz={cz:.4f}). Not inventing a face-wide part."
         )
-    if len(lips) > 120:
-        raise RuntimeError(
-            f"open_orc_mouth_aperture: lip set too wide ({len(lips)} > 120); "
-            f"57f9616 edited 887 and collapsed the aperture axis"
-        )
-    zs = sorted(s["z"] for s in lips)
-    mid_z = zs[len(zs) // 2]
-    edited = 0
-    for s in lips:
+    chosen = lower + upper
+    for s in lower:
         v = s["v"]
-        if abs(s["x"] - cx) > 0.030:
-            v.co.x += math.copysign(0.010 * s["hw"], s["x"] - cx)
-        if s["z"] < mid_z:
-            v.co.z -= 0.018 * s["hw"]
-            v.co.y -= 0.002 * s["hw"]
-        else:
-            v.co.z += 0.014 * s["hw"]
-            v.co.y -= 0.001 * s["hw"]
-        edited += 1
+        v.co.z -= max(0.012, 0.020 * s["hw"])
+        if abs(s["x"] - cx) > 0.028:
+            v.co.x += math.copysign(0.006 * s["hw"], s["x"] - cx)
+    for s in upper:
+        v = s["v"]
+        v.co.z += max(0.010, 0.016 * s["hw"])
+        if abs(s["x"] - cx) > 0.028:
+            v.co.x += math.copysign(0.006 * s["hw"], s["x"] - cx)
     me.update()
-    low_z = []
-    high_z = []
-    for s in lips:
-        z = float(me.vertices[s["v"].index].co.z)
-        if z < mid_z:
-            low_z.append(z)
-        else:
-            high_z.append(z)
-    if not low_z or not high_z:
-        raise RuntimeError("open_orc_mouth_aperture: missing lower or upper lip after edit")
+    low_z = [float(me.vertices[s["v"].index].co.z) for s in lower]
+    high_z = [float(me.vertices[s["v"].index].co.z) for s in upper]
     low_z.sort()
     high_z.sort()
     gap = high_z[len(high_z) // 2] - low_z[len(low_z) // 2]
     if gap < MOUTH_APERTURE_MIN_Z:
         raise RuntimeError(
             f"open_orc_mouth_aperture: rest lip gap {gap:.4f} < {MOUTH_APERTURE_MIN_Z} "
-            f"— Idle/Walk would still read as a closed human mouth"
+            f"— Idle/Walk would still read as a closed human mouth "
+            f"(edited={len(chosen)} pool={len(pool)})"
         )
     log(
-        f"opened orc mouth aperture verts={edited} rest_lip_gap={gap:.4f} "
-        f"mid_z={mid_z:.4f} (lips only; 57f9616 face-band refused)"
+        f"opened orc mouth aperture verts={len(chosen)} "
+        f"rest_lip_gap={gap:.4f} (most-forward lips at corner slab; "
+        f"pool={len(pool)} not edited)"
     )
-    return edited
+    return len(chosen)
 
 
 def is_junk_companion_mesh(obj) -> bool:
