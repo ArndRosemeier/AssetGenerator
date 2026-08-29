@@ -79,11 +79,21 @@ MOUTH_ESTIMATE_MAX_DISAGREE_FRAC = 0.18
 
 # --- aperture sizing --------------------------------------------------------
 # All three are fractions of the measured head width W. For W = 0.155 m this is
-# a 62 mm wide, 40 mm tall, 31 mm deep maw: wide for a human, right for an orc,
+# a 62 mm wide, 33 mm tall, 31 mm deep maw: wide for a human, right for an orc,
 # and nowhere near the 108 mm face-wide part earlier bakes were refusing.
 MOUTH_HALF_WIDTH_FRAC = 0.20
-MOUTH_HALF_HEIGHT_FRAC = 0.13
+MOUTH_HALF_HEIGHT_FRAC = 0.105
 MOUTH_DEPTH_FRAC = 0.20
+# The rim ellipse is NOT centred on the lip slit. A mouth opens because the
+# mandible drops: the lower lip and chin travel, the upper lip and the nose
+# barely move. An ellipse centred on the slit spends half its height going up
+# into the philtrum, which is why the 18:50 stills show a maw whose top edge
+# reaches the base of the nose while its bottom edge sits on the chin pad.
+# Bias the centre down by this fraction of the half-height, so 80% of the
+# aperture is below the slit and 20% above it. That ratio is what a jaw drop
+# actually does: the lower lip travels a couple of centimetres, the upper lip
+# lifts a few millimetres.
+MOUTH_CENTER_BELOW_SLIT_FRAC = 0.60
 # Fraction of the rim radius that is carved to full depth before the wall ramps
 # back out to the lip. Bigger means a boxier cavity with more room for tusks
 # off the centre line; smaller means gentler walls.
@@ -92,6 +102,18 @@ BORE_PLATEAU_R = 0.62
 # half-width in the mouth slab, so this cannot drift into a face-wide part
 # however the head is proportioned.
 MOUTH_MAX_FACE_WIDTH_FRAC = 0.62
+# Clearance the aperture top rim must keep below the measured nose base, as a
+# fraction of head width. This is the gate the old "reaches the nose tip" check
+# could not be: the tip (pronasale) is the most-forward midline vert and sits
+# ~0.09*W ABOVE the nose base (subnasale), so comparing against it left enough
+# slack for a rim to eat the whole upper lip and still pass. The margin is
+# wide on purpose -- a carved rim is only resolved to the local edge length, so
+# the polygon boundary overshoots the analytic ellipse by roughly one edge
+# either way, and a rim that clears subnasale analytically can still touch the
+# nostrils in the render.
+MOUTH_RIM_BELOW_SUBNASALE_FRAC = 0.05
+# Same idea at the other end: the bottom rim must stay off the chin pad.
+MOUTH_RIM_ABOVE_CHIN_FRAC = 0.05
 
 # --- cloud sanity -----------------------------------------------------------
 HEAD_WIDTH_MIN = 0.10
@@ -99,9 +121,31 @@ HEAD_WIDTH_MAX = 0.26
 MIN_CLOUD_POINTS = 60
 MIN_MIDLINE_POINTS = 12
 MIN_FRONT_BELOW_POINTS = 6
+# Front-surface midline verts needed between the lip slit and the nose tip
+# before the nose base is treated as measured rather than guessed.
+MIN_SUBNASALE_POINTS = 3
+# The measured nose base must sit at least this fraction of the head width
+# above the lip slit, i.e. the face must have an upper lip of plausible height.
+# Anthropometry puts subnasale->stomion at ~22 mm, about 0.14*W, so this is a
+# generous floor. Below it the "recess" the search returned is not a philtrum:
+# on a head sampled at 11 mm rings there is no vertex between the lip and the
+# nostrils at all, and the most-recessed point in the band comes back as the
+# lower lip. Refuse rather than gate the top rim against a landmark that is
+# really the mouth itself.
+MIN_UPPER_LIP_FRAC = 0.06
 # Nose tip to chin bottom must span at least this fraction of the head width,
 # else the "face" we measured is a flat blob and the ratio is meaningless.
 MIN_FACE_HEIGHT_FRAC = 0.20
+
+# --- self-test tolerance ----------------------------------------------------
+# How far the solved lip slit may sit from the synthetic head's known slit, as
+# a fraction of head width. This is a statement about solver accuracy, so it
+# must not be expressed in terms of a design constant: it used to read "within
+# one aperture half-height", which silently tightened the accuracy test every
+# time the maw was made smaller for artistic reasons. 0.13 is the value that
+# phrasing worked out to while MOUTH_HALF_HEIGHT_FRAC was 0.13, so the test is
+# exactly as strict as it has always been, just no longer coupled.
+SLIT_ACCURACY_FRAC = 0.13
 
 
 class MouthGeometryError(RuntimeError):
@@ -119,6 +163,12 @@ class MouthAperture:
     ``center`` is on the lip surface at the mid-sagittal plane: the rim plane of
     the oral cavity. ``half_width`` / ``half_height`` are the rim ellipse radii
     along ``+X`` / ``+Z``. ``depth`` is how far the cavity bores along ``+Y``.
+
+    ``center[2]`` is the ellipse centre, which sits below ``slit_z`` (the
+    measured lip line) because a mouth opens downward -- see
+    ``MOUTH_CENTER_BELOW_SLIT_FRAC``. Anything reasoning about where the lips
+    *are* wants ``slit_z``; anything reasoning about the opening wants
+    ``center``.
     """
 
     center: Point
@@ -132,6 +182,9 @@ class MouthAperture:
     nose_z: float
     nose_y: float
     chin_z: float
+    slit_z: float
+    subnasale_z: float
+    subnasale_y: float
     mouth_z_from_chin: float
     mouth_z_from_nose: float
     face_half_width_at_mouth: float
@@ -205,12 +258,34 @@ class MouthAperture:
         rw = w / (self.half_height + margin)
         return math.hypot(ru, rw) <= 1.0
 
+    @property
+    def top_rim_z(self) -> float:
+        return self.center[2] + self.half_height
+
+    @property
+    def bottom_rim_z(self) -> float:
+        return self.center[2] - self.half_height
+
+    @property
+    def subnasale_clearance(self) -> float:
+        """Metres of skin left between the aperture top rim and the nose base."""
+        return self.subnasale_z - self.top_rim_z
+
+    @property
+    def chin_clearance(self) -> float:
+        """Metres of skin left between the aperture bottom rim and the chin bottom."""
+        return self.bottom_rim_z - self.chin_z
+
     def describe(self) -> str:
         return (
             f"center=({self.center[0]:.4f},{self.center[1]:.4f},{self.center[2]:.4f}) "
             f"half=({self.half_width:.4f},{self.half_height:.4f}) "
             f"depth={self.depth:.4f} head_width={self.head_width:.4f} "
-            f"nose_z={self.nose_z:.4f} chin_z={self.chin_z:.4f} "
+            f"slit_z={self.slit_z:.4f} nose_z={self.nose_z:.4f} "
+            f"subnasale_z={self.subnasale_z:.4f} chin_z={self.chin_z:.4f} "
+            f"rim_z=[{self.bottom_rim_z:.4f},{self.top_rim_z:.4f}] "
+            f"subnasale_clearance={self.subnasale_clearance * 1000:.1f}mm "
+            f"chin_clearance={self.chin_clearance * 1000:.1f}mm "
             f"mouth_z_from_chin={self.mouth_z_from_chin:.4f} "
             f"mouth_z_from_nose={self.mouth_z_from_nose:.4f} "
             f"face_half_width_at_mouth={self.face_half_width_at_mouth:.4f} "
@@ -299,6 +374,56 @@ def forward_profile(points: list[Point], *, bins: int = 48) -> list[tuple[float,
             continue
         out.append((z0 + (i + 0.5) * step, f, count[i]))
     return out
+
+
+def _subnasale(
+    midline: list[Point], *, nose_z: float, slit_z: float, head_width: float
+) -> Point:
+    """The nose base: most recessed point of the mid-sagittal contour above the lip.
+
+    Walking down the front profile from the nose tip, the surface recedes to the
+    subnasale and then comes forward again onto the upper lip. That turning
+    point is the landmark the aperture top rim has to stay below, and it is the
+    one the old gate was missing: it compared against the nose *tip*, which is
+    the most-forward point on the whole face and sits a centimetre higher.
+
+    Measured on raw midline points rather than on a binned profile. Binning
+    reduces each bin to its most-forward vertex, which is precisely the wrong
+    reduction for finding a recess -- a bin straddling the subnasale reports the
+    upper lip and the landmark disappears.
+    """
+    if nose_z <= slit_z:
+        raise MouthGeometryError(
+            f"nose tip z={nose_z:.4f} is not above the lip slit z={slit_z:.4f}; "
+            f"cannot measure a nose base between them"
+        )
+    ys = [p[1] for p in midline]
+    front_half = 0.5 * (min(ys) + max(ys))
+    between = [p for p in midline if slit_z < p[2] < nose_z and p[1] < front_half]
+    if len(between) < MIN_SUBNASALE_POINTS:
+        raise MouthGeometryError(
+            f"only {len(between)} front-surface midline vert(s) between the lip "
+            f"slit z={slit_z:.4f} and the nose tip z={nose_z:.4f} "
+            f"(need {MIN_SUBNASALE_POINTS}); the philtrum is not sampled, so the "
+            f"nose base cannot be measured and the aperture top rim would be "
+            f"gated against nothing"
+        )
+    # Most recessed = largest y, because the face looks down -Y.
+    found = max(between, key=lambda p: p[1])
+    upper_lip = float(found[2]) - slit_z
+    if upper_lip < MIN_UPPER_LIP_FRAC * head_width:
+        raise MouthGeometryError(
+            f"most recessed midline vert between the lip slit and the nose tip "
+            f"sits only {upper_lip * 1000:.1f} mm above the slit (need "
+            f"{MIN_UPPER_LIP_FRAC} * head_width = "
+            f"{MIN_UPPER_LIP_FRAC * head_width * 1000:.1f} mm) at "
+            f"z={found[2]:.4f} y={found[1]:.4f}, from {len(between)} candidate(s) "
+            f"in z=({slit_z:.4f},{nose_z:.4f}) — that is the lip itself, not a "
+            f"philtrum. The face is too coarsely sampled between the mouth and "
+            f"the nostrils to locate a nose base; refusing rather than gating "
+            f"the aperture top rim against the mouth"
+        )
+    return found
 
 
 def solve_mouth_aperture(points: list[Point]) -> MouthAperture:
@@ -396,20 +521,22 @@ def solve_mouth_aperture(points: list[Point]) -> MouthAperture:
         )
     # Two independent estimates that agree; average them so neither landmark
     # alone can drag the aperture off the mouth.
-    mouth_z = 0.5 * (mouth_z_from_chin + mouth_z_from_nose)
+    slit_z = 0.5 * (mouth_z_from_chin + mouth_z_from_nose)
 
     half_width = MOUTH_HALF_WIDTH_FRAC * head_width
     half_height = MOUTH_HALF_HEIGHT_FRAC * head_width
     depth = MOUTH_DEPTH_FRAC * head_width
+    # The jaw drops; the upper lip stays. See MOUTH_CENTER_BELOW_SLIT_FRAC.
+    mouth_z = slit_z - MOUTH_CENTER_BELOW_SLIT_FRAC * half_height
 
     band_half = 0.30 * face_height
-    band = [p for p in midline if abs(p[2] - mouth_z) <= band_half]
+    band = [p for p in midline if abs(p[2] - slit_z) <= band_half]
     if len(band) < 4:
         band_half = 0.55 * face_height
-        band = [p for p in midline if abs(p[2] - mouth_z) <= band_half]
+        band = [p for p in midline if abs(p[2] - slit_z) <= band_half]
     if len(band) < 4:
         raise MouthGeometryError(
-            f"no midline verts within {band_half:.4f} of the lip slit z={mouth_z:.4f} "
+            f"no midline verts within {band_half:.4f} of the lip slit z={slit_z:.4f} "
             f"(midline n={len(midline)}, nose_z={nose_z:.4f}, chin_z={chin_z:.4f})"
         )
     mouth_y = min(p[1] for p in band)
@@ -431,23 +558,40 @@ def solve_mouth_aperture(points: list[Point]) -> MouthAperture:
             f"refusing a face-wide part"
         )
 
-    # A mouth cannot reach past the nose or below the chin. These are the two
-    # landmarks the slit was interpolated between, so a violation means one of
-    # them was mis-detected -- most likely a chin cut off by neck weights --
-    # and the carve would otherwise bore a maw through the nose or the jaw.
-    if mouth_z + half_height >= nose_z:
+    # The maw must not eat the nose base or the chin pad. The top rim is gated
+    # against the measured subnasale rather than the nose tip: the tip is the
+    # most-forward vert on the face and sits ~0.09*W higher, so a tip-based
+    # check has enough slack to pass a rim sitting in the nostrils, which is
+    # what the 18:50 stills show. A violation means either a landmark is wrong
+    # or the aperture is simply too tall for this face -- both are refusals,
+    # because the alternative is a hole where the upper lip should be.
+    subnasale = _subnasale(
+        midline, nose_z=nose_z, slit_z=slit_z, head_width=head_width
+    )
+    subnasale_z = float(subnasale[2])
+    top_rim = mouth_z + half_height
+    top_clearance = subnasale_z - top_rim
+    if top_clearance < MOUTH_RIM_BELOW_SUBNASALE_FRAC * head_width:
         raise MouthGeometryError(
-            f"aperture top rim {mouth_z + half_height:.4f} reaches the nose tip "
-            f"{nose_z:.4f} (slit={mouth_z:.4f} half_height={half_height:.4f}); "
-            f"chin_z={chin_z:.4f} from_chin={mouth_z_from_chin:.4f} "
-            f"from_nose={mouth_z_from_nose:.4f} — a landmark is wrong"
+            f"aperture top rim {top_rim:.4f} clears the measured nose base "
+            f"{subnasale_z:.4f} by only {top_clearance * 1000:.1f} mm "
+            f"(need {MOUTH_RIM_BELOW_SUBNASALE_FRAC} * head_width = "
+            f"{MOUTH_RIM_BELOW_SUBNASALE_FRAC * head_width * 1000:.1f} mm): "
+            f"slit={slit_z:.4f} center_z={mouth_z:.4f} "
+            f"half_height={half_height:.4f} nose_tip_z={nose_z:.4f} "
+            f"chin_z={chin_z:.4f} — the maw would open into the philtrum"
         )
-    if mouth_z - half_height <= chin_z:
+    bottom_rim = mouth_z - half_height
+    bottom_clearance = bottom_rim - chin_z
+    if bottom_clearance < MOUTH_RIM_ABOVE_CHIN_FRAC * head_width:
         raise MouthGeometryError(
-            f"aperture bottom rim {mouth_z - half_height:.4f} reaches the chin "
-            f"{chin_z:.4f} (slit={mouth_z:.4f} half_height={half_height:.4f}); "
-            f"nose_z={nose_z:.4f} from_chin={mouth_z_from_chin:.4f} "
-            f"from_nose={mouth_z_from_nose:.4f} — a landmark is wrong"
+            f"aperture bottom rim {bottom_rim:.4f} clears the chin bottom "
+            f"{chin_z:.4f} by only {bottom_clearance * 1000:.1f} mm "
+            f"(need {MOUTH_RIM_ABOVE_CHIN_FRAC} * head_width = "
+            f"{MOUTH_RIM_ABOVE_CHIN_FRAC * head_width * 1000:.1f} mm): "
+            f"slit={slit_z:.4f} center_z={mouth_z:.4f} "
+            f"half_height={half_height:.4f} nose_z={nose_z:.4f} — the maw would "
+            f"open through the chin pad"
         )
 
     return MouthAperture(
@@ -462,6 +606,9 @@ def solve_mouth_aperture(points: list[Point]) -> MouthAperture:
         nose_z=nose_z,
         nose_y=nose_y,
         chin_z=chin_z,
+        slit_z=slit_z,
+        subnasale_z=subnasale_z,
+        subnasale_y=float(subnasale[1]),
         mouth_z_from_chin=mouth_z_from_chin,
         mouth_z_from_nose=mouth_z_from_nose,
         face_half_width_at_mouth=face_half_width_at_mouth,
@@ -571,9 +718,50 @@ def _selftest() -> int:
         f"chin_z={ap.chin_z:.4f} expected 1.5480",
     )
     check(
-        "lip slit within one aperture half-height of truth",
-        abs(ap.center_z - truth_mouth_z) <= ap.half_height,
-        f"center_z={ap.center_z:.4f} truth={truth_mouth_z:.4f} half_height={ap.half_height:.4f}",
+        "lip slit within SLIT_ACCURACY_FRAC of truth",
+        abs(ap.slit_z - truth_mouth_z) <= SLIT_ACCURACY_FRAC * ap.head_width,
+        f"slit_z={ap.slit_z:.4f} truth={truth_mouth_z:.4f} "
+        f"tolerance={SLIT_ACCURACY_FRAC * ap.head_width:.4f}",
+    )
+    # The opening is biased below the slit, because a mouth opens by dropping
+    # the mandible. A rim ellipse centred on the slit is what put the top edge
+    # of the maw in the nostrils.
+    check(
+        "aperture centre sits below the lip slit",
+        ap.center_z < ap.slit_z,
+        f"center_z={ap.center_z:.4f} slit_z={ap.slit_z:.4f} "
+        f"below_by={(ap.slit_z - ap.center_z) * 1000:.1f}mm",
+    )
+    check(
+        "most of the opening is below the lip slit",
+        (ap.slit_z - ap.bottom_rim_z) > 3.0 * (ap.top_rim_z - ap.slit_z),
+        f"below_slit={(ap.slit_z - ap.bottom_rim_z) * 1000:.1f}mm "
+        f"above_slit={(ap.top_rim_z - ap.slit_z) * 1000:.1f}mm",
+    )
+    check(
+        "nose base measured between the lip and the nose tip",
+        ap.slit_z < ap.subnasale_z < ap.nose_z,
+        f"slit_z={ap.slit_z:.4f} subnasale_z={ap.subnasale_z:.4f} "
+        f"nose_tip_z={ap.nose_z:.4f} "
+        f"upper_lip={(ap.subnasale_z - ap.slit_z) * 1000:.1f}mm",
+    )
+    check(
+        "nose base is recessed behind the lip, not in front of it",
+        ap.subnasale_y > ap.center_y and ap.subnasale_y > ap.nose_y,
+        f"subnasale_y={ap.subnasale_y:.4f} lip_y={ap.center_y:.4f} "
+        f"nose_tip_y={ap.nose_y:.4f}",
+    )
+    check(
+        "aperture top rim clears the nose base",
+        ap.subnasale_clearance >= MOUTH_RIM_BELOW_SUBNASALE_FRAC * ap.head_width,
+        f"top_rim={ap.top_rim_z:.4f} subnasale={ap.subnasale_z:.4f} "
+        f"clearance={ap.subnasale_clearance * 1000:.1f}mm",
+    )
+    check(
+        "aperture bottom rim clears the chin",
+        ap.chin_clearance >= MOUTH_RIM_ABOVE_CHIN_FRAC * ap.head_width,
+        f"bottom_rim={ap.bottom_rim_z:.4f} chin={ap.chin_z:.4f} "
+        f"clearance={ap.chin_clearance * 1000:.1f}mm",
     )
     check(
         "aperture is a mouth, not a face-wide part",
@@ -689,7 +877,6 @@ def _selftest() -> int:
         ("low mouth", {"mouth_z": 1.590}),
         ("receding chin", {"chin_front_y": -0.072}),
         ("jutting chin", {"chin_front_y": -0.098}),
-        ("low-poly proxy", {"rings": 26, "per_ring": 20}),
         ("dense", {"rings": 96, "per_ring": 72}),
     ]
     for name, kwargs in sweep:
@@ -699,12 +886,18 @@ def _selftest() -> int:
         except MouthGeometryError as exc:
             check(f"sweep {name}", False, f"refused: {exc}")
             continue
-        err = abs(got.center_z - truth)
+        err = abs(got.slit_z - truth)
         check(
             f"sweep {name}",
-            err <= got.half_height,
-            f"center_z={got.center_z:.4f} truth={truth:.4f} err={err * 1000:.1f}mm "
+            err <= SLIT_ACCURACY_FRAC * got.head_width
+            and got.subnasale_clearance
+            >= MOUTH_RIM_BELOW_SUBNASALE_FRAC * got.head_width
+            and got.chin_clearance >= MOUTH_RIM_ABOVE_CHIN_FRAC * got.head_width,
+            f"slit_z={got.slit_z:.4f} truth={truth:.4f} err={err * 1000:.1f}mm "
+            f"tol={SLIT_ACCURACY_FRAC * got.head_width * 1000:.1f}mm "
             f"half_height={got.half_height * 1000:.1f}mm "
+            f"subnasale_clearance={got.subnasale_clearance * 1000:.1f}mm "
+            f"chin_clearance={got.chin_clearance * 1000:.1f}mm "
             f"(from_chin={got.mouth_z_from_chin:.4f} from_nose={got.mouth_z_from_nose:.4f})",
         )
 
@@ -718,6 +911,12 @@ def _selftest() -> int:
             [(x * 0.001 - 0.4, 0.0, 1.5 + 0.001 * x) for x in range(800)],
         ),
         ("head too coarse to measure", _synthetic_head(rings=18, per_ring=16)),
+        # 26 rings over a 290 mm cloud is one vertex every 11 mm, so there is
+        # nothing sampled between the lip and the nostrils and the "most
+        # recessed point above the lip" comes back as the lower lip. Gating the
+        # top rim against that would compare the maw to itself, so the solver
+        # refuses instead of guessing a nose base.
+        ("head with no sampled philtrum", _synthetic_head(rings=26, per_ring=20)),
     ):
         try:
             solve_mouth_aperture(bad)
@@ -725,6 +924,37 @@ def _selftest() -> int:
             check(f"refuses {name}", True, str(exc)[:110])
         else:
             check(f"refuses {name}", False, "solver accepted a non-head cloud")
+
+    # Regression: the geometry that shipped the 18:50 stills must be refused.
+    # Those constants centred the rim ellipse on the lip slit and made it
+    # 0.13*W tall, which puts the top rim above the nose base on the very
+    # fixture this module has always tested against. Replay them here so the
+    # numbers cannot drift back without this failing.
+    print()
+    shipped_18_50 = _synthetic_head()
+    _saved = (MOUTH_HALF_HEIGHT_FRAC, MOUTH_CENTER_BELOW_SLIT_FRAC)
+    try:
+        globals()["MOUTH_HALF_HEIGHT_FRAC"] = 0.13
+        globals()["MOUTH_CENTER_BELOW_SLIT_FRAC"] = 0.0
+        try:
+            bad_ap = solve_mouth_aperture(shipped_18_50)
+        except MouthGeometryError as exc:
+            check(
+                "refuses the slit-centred 0.13*W aperture that reached the nose",
+                True,
+                str(exc)[:150],
+            )
+        else:
+            check(
+                "refuses the slit-centred 0.13*W aperture that reached the nose",
+                False,
+                f"accepted it: top_rim={bad_ap.top_rim_z:.4f} "
+                f"subnasale={bad_ap.subnasale_z:.4f} "
+                f"clearance={bad_ap.subnasale_clearance * 1000:.1f}mm",
+            )
+    finally:
+        globals()["MOUTH_HALF_HEIGHT_FRAC"] = _saved[0]
+        globals()["MOUTH_CENTER_BELOW_SLIT_FRAC"] = _saved[1]
 
     if failures:
         print(f"\nSELFTEST FAILED: {failures}")

@@ -149,9 +149,18 @@ Mouth / tusk approach (this pass; read before changing anything below):
      the front vertex sat 2 mm behind the lip plane, so a three-quarter
      silhouette passed the lip contour. A tusk grows out of the gum, so the seat
      is now defined by where it is rooted -- base behind the cavity wall at its
-     own (u, w) -- and gated on ``TUSK_ROOT_MIN_BURY_M``, ``TUSK_MIN_INSET_M``
-     and ``TUSK_MIN_EMERGENT_M``. That last one replaced a blanket "no vert may
-     be buried" rule which forbade the rooting outright.
+     own (u, w) -- and gated on ``TUSK_ROOT_MIN_BURY_M`` and
+     ``TUSK_MIN_EMERGENT_M``. The latter replaced a blanket "no vert may be
+     buried" rule which forbade the rooting outright.
+
+     The opposite over-correction then had to be undone too. The gate that
+     followed required the whole cone to stay inside the rim ellipse AND at
+     least 4 mm behind the lip plane, which together make a readable tusk
+     impossible: the tip ended up ~13 mm behind the lip, so the ivory could
+     only ever be seen down a maw pointed at the camera. Emergence is now
+     required rather than forbidden -- see ``TUSK_MIN_PROTRUSION_M`` --  and
+     containment applies only to buried geometry and to the point where the
+     centre line leaves the flesh.
   7. A gate written for an unrooted tusk penalises a rooted one. ee2bd82 rooted
      the tusks 5 mm inside the gum, and the visibility sweep still sampled the
      whole cone by vertex stride -- so the buried base was reported as occluded,
@@ -336,32 +345,66 @@ MOUTH_INTERIOR_ATTR = "orc_mouth_interior"
 # it had no visible root and its silhouette reached the lip contour -- which is
 # why the Walk still read it as a cone painted on the lower lip rather than
 # ivory coming out of the mouth. The seat is now defined by where it is ROOTED.
-TUSK_SEAT_U_FRAC = 0.40  # canine line, not the commissure
-TUSK_SEAT_W_FRAC = -0.72  # on the lower gum ramp, not floating mid-cavity
-# How far BEHIND the cavity wall the base sits, as a fraction of the aperture
-# half-height. This is what roots the tusk: the base is inside the flesh, so the
-# gum hides it and only the emergent length shows.
-TUSK_ROOT_BURY_HH_FRAC = 0.25
+# Seat position stays in aperture units, because it is a position INSIDE the
+# maw: 0.65 of the half-width is out toward the commissure rather than on the
+# human canine line, which is where a hypertrophied canine actually erupts, and
+# -0.70 of the half-height is on the dropped lower gum.
+TUSK_SEAT_U_FRAC = 0.65
+TUSK_SEAT_W_FRAC = -0.70
 # Lateral lean per unit rise, AWAY from the midline. The first bake whose mesh
 # edits actually reached the depsgraph showed the previous inward lean for what
 # it is: two thin cones 24 mm apart, rising almost vertically and meeting at the
 # top, which reads as a pair of straws rather than as ivory. A boar or orc tusk
 # leaves the gum on the canine line and diverges as it rises.
 TUSK_AXIS_SPLAY = 0.26
-TUSK_AXIS_OUTWARD = 0.22  # leans out of the gum as it rises
-TUSK_LENGTH_HH_FRAC = 1.35  # multiples of the aperture half-height
-TUSK_RADIUS_BASE_HH_FRAC = 0.32
-TUSK_RADIUS_TIP_HH_FRAC = 0.08
+# Forward lean per unit rise. This is what carries the tip OUT of the maw and
+# past the lip plane instead of leaving it standing in the hole; see
+# TUSK_MIN_PROTRUSION_M.
+TUSK_AXIS_OUTWARD = 0.52
+# Size in fractions of the measured HEAD WIDTH, not of the aperture. Expressing
+# a tusk in multiples of half_height made the aperture and the tusks one knob:
+# retuning the maw silently rescaled the ivory, so the 0.13 -> 0.105 half-height
+# change alone would have shortened every tusk by a fifth for no stated reason.
+# Head width is measured once and means the same thing whatever the maw does.
+TUSK_LENGTH_HEAD_W_FRAC = 0.21
+TUSK_RADIUS_BASE_HEAD_W_FRAC = 0.030
+TUSK_RADIUS_TIP_HEAD_W_FRAC = 0.005  # near-point, not a 1.6 mm flat cap
+# How far BEHIND the cavity wall the base sits, as a fraction of head width.
+# This is what roots the tusk: the base is inside the flesh, so the gum hides it
+# and only the emergent length shows. Also a fraction of head width rather than
+# of the aperture, because it has to stay deeper than the base cap's own
+# half-thickness, which is set by the tusk radius.
+TUSK_ROOT_BURY_HEAD_W_FRAC = 0.045
 TUSK_SEGMENTS = 12
 
-# Still gate, in posed aperture coordinates. One containment test replaces the
-# seven overlapping distance caps that each encoded a different guess about
-# where the mouth was. The pixel-failure classes those caps defended against
-# are all still refused, by construction:
-#   cheek float (21:10)        -> ellipse radius > 1
-#   chin needle (0706a32)      -> w < -half_height
-#   tip past the lip (21:56)   -> d < 0
-#   buried / invisible (1116245) -> front-fraction below TUSK_MIN_FRONT_FRAC
+# Still gate, in posed aperture coordinates.
+#
+# The gate used to require the whole cone to stay inside the rim ellipse and at
+# least 4 mm behind the lip plane. Together those two rules make a readable orc
+# tusk impossible: a shape that may never cross the rim and may never reach the
+# lip plane can only ever be seen down a hole pointed at the camera, which is
+# exactly the limitation the four 18:50 stills show. Worked through the seat
+# maths, the tip sat ~13 mm BEHIND the lip plane. Real orc tusks are canines
+# that have erupted outside the lip; breaking the face silhouette is the whole
+# read, and the old gate forbade it. It also blocked its own fix: moving the
+# seat out toward the commissure took the containment radius past 1.
+#
+# Those rules were defending something real -- e99b3a1's cone floating 22 mm in
+# front of the gum, rooted in nothing, reading as painted on the lip. But the
+# invariant they wanted is "rooted in flesh and emerging through the mouth", not
+# "never leaves the hole". So state that instead, on the centre line:
+#
+#   * the base is buried behind the cavity wall           TUSK_ROOT_MIN_BURY_M
+#   * it leaves the flesh through the rim, not the cheek  TUSK_EXIT_MAX_RADIAL
+#   * having left, it never re-enters                     TUSK_MAX_REENTRY_M
+#   * the tip clears the lip plane, within a cap          TUSK_MIN/MAX_PROTRUSION_M
+#   * buried geometry stays in the gum ridge              TUSK_BURIED_MAX_RADIAL
+#
+# The pixel-failure classes the old caps defended against are all still refused:
+#   cheek float (21:10)          -> exit radial > 1, or buried radial > 1.30
+#   chin needle (0706a32)        -> base at or above the aperture centre line
+#   painted on the lip (e99b3a1) -> root bury below 2 mm
+#   buried / invisible (1116245) -> emergent length, front fraction
 #   Death chest spike (ac21975)  -> d > depth
 TUSK_APERTURE_MARGIN = 0.0015  # ~1.5 mm of numeric slack, not a new knob
 # Rigid-bind proof: an authored centroid must land where the head pose puts it.
@@ -373,13 +416,30 @@ TUSK_MIN_FRONT_FRAC = 0.50
 # still cannot show.
 TUSK_MIN_W_SPAN_HH_FRAC = 0.80
 # The axis must still rise through the maw rather than down the throat. With
-# TUSK_AXIS_MEDIAL/OUTWARD as authored the up component is ~0.97.
+# TUSK_AXIS_SPLAY/OUTWARD as authored the up component is ~0.90.
 TUSK_MIN_AXIS_RISE_DOT = 0.75
-# The whole cone must stay at least this far BEHIND the lip plane. e99b3a1 let
-# the front vertex reach 2 mm, so from a three-quarter angle the silhouette
-# extended past the lip contour and read as sitting on the lip. With a real
-# inset the lip rim is always in front of the ivory.
-TUSK_MIN_INSET_M = 0.004
+# The centre line must start inside the rim footprint -- the tooth erupts from
+# within the mouth opening, even though its girth may spread into the gum
+# outside it (TUSK_BURIED_MAX_RADIAL).
+TUSK_BASE_MAX_RADIAL = 1.0
+# ...and by the time it crosses the rim ellipse on the way out it must already
+# be in front of the lip plane. This is the precise statement of "it comes out
+# of the mouth rather than through the lip": inside the rim the bore is deep and
+# the shaft is standing in open air, but the bore ramps back to zero depth at
+# the rim, so a shaft still behind the lip plane when it reaches radius 1 is
+# passing through the flesh of the lip or the cheek.
+TUSK_RIM_CROSS_MAX_D = 0.0
+# The tip must clear the lip plane by at least this much, and by no more.
+# Required, not merely permitted: this is the gate that makes the silhouette
+# break a measured property instead of a hope. ``aperture.center_y`` is the
+# most-forward midline point near the mouth, so everything on the nearby face is
+# at or behind the lip plane and ivory in front of it cannot be inside skin.
+TUSK_MIN_PROTRUSION_M = 0.003
+TUSK_MAX_PROTRUSION_M = 0.018
+# Buried geometry may sit outside the rim ellipse -- a tooth root belongs in the
+# jaw beside the mouth opening, not inside the opening -- but not so far out
+# that the root is under the cheekbone.
+TUSK_BURIED_MAX_RADIAL = 1.30
 # The base must sit at least this far behind the cavity wall at its own (u, w).
 # A cone floating in the middle of the maw has no root, and that is what makes
 # it look painted on.
@@ -2470,8 +2530,17 @@ def resolve_mouth_aperture(arm):
     log(
         f"mouth aperture vs head bone: head_rest_z={head_z:.4f} "
         f"dz_center={aperture.center_z - head_z:.4f} "
+        f"dz_slit={aperture.slit_z - head_z:.4f} "
         f"dz_nose={aperture.nose_z - head_z:.4f} "
+        f"dz_subnasale={aperture.subnasale_z - head_z:.4f} "
         f"dz_chin={aperture.chin_z - head_z:.4f}"
+    )
+    log(
+        f"mouth aperture clearances: top_rim={aperture.top_rim_z:.4f} is "
+        f"{aperture.subnasale_clearance * 1000:.1f} mm below the measured nose "
+        f"base, bottom_rim={aperture.bottom_rim_z:.4f} is "
+        f"{aperture.chin_clearance * 1000:.1f} mm above the chin; upper lip "
+        f"measures {(aperture.subnasale_z - aperture.slit_z) * 1000:.1f} mm"
     )
     mid = [
         p
@@ -2489,6 +2558,12 @@ def mouth_aperture_report(aperture) -> dict:
         "center": [round(float(c), 5) for c in aperture.center],
         "half_width": round(float(aperture.half_width), 5),
         "half_height": round(float(aperture.half_height), 5),
+        "slit_z": round(float(aperture.slit_z), 5),
+        "top_rim_z": round(float(aperture.top_rim_z), 5),
+        "bottom_rim_z": round(float(aperture.bottom_rim_z), 5),
+        "subnasale_z": round(float(aperture.subnasale_z), 5),
+        "subnasale_clearance": round(float(aperture.subnasale_clearance), 5),
+        "chin_clearance": round(float(aperture.chin_clearance), 5),
         "depth": round(float(aperture.depth), 5),
         "head_width": round(float(aperture.head_width), 5),
         "nose_z": round(float(aperture.nose_z), 5),
@@ -3398,18 +3473,38 @@ def posed_cavity_depth(frame: dict, u: float, w: float) -> float:
     return frame["depth"] * MG.bore_frac(aperture_radial(frame, u, w))
 
 
-def tusk_root_and_emergence(arm, tusk, frame: dict) -> tuple[float, float]:
-    """How far the tusk is rooted in the gum, and how much of it is in open air.
+def tusk_centreline_metrics(arm, tusk, frame: dict) -> dict:
+    """Walk the tusk centre line and report how it sits in the posed maw.
 
-    Returns ``(root_bury, emergent_length)`` in metres. Together these are what
-    makes a tusk read as a tusk rather than as a cone laid on the lip:
+    One owner of "how is this tusk seated", so the still gate, the log line and
+    the Art Reviewer packet cannot disagree about it. Every value is in metres
+    except the radials, which are normalised rim-ellipse radii.
 
-    * ``root_bury`` -- the base sits behind the cavity wall, so the gum hides it
-      and the ivory appears to grow out of the mouth. e99b3a1's base floated
-      22 mm in *front* of the gum, rooted in nothing.
-    * ``emergent_length`` -- the run of the centre line that is in open air. This
-      replaces a blanket "no vert may be buried" rule, which forbade the rooting
-      outright.
+    ``root_bury``
+        How far the base sits behind the cavity wall at its own (u, w). This is
+        what roots the tusk: the gum hides the base and only the emergent length
+        shows. e99b3a1's base floated 22 mm in *front* of the gum.
+    ``emergent_len``
+        Arc length of the centre line in open air -- the visible ivory.
+    ``base_radial``
+        Rim-ellipse radius at the base, so the root is inside the opening's
+        footprint rather than beside it.
+    ``rim_cross_d``
+        Depth at which the centre line crosses out through the rim ellipse,
+        found by interpolating the radius between samples. Must already be in
+        front of the lip plane, or the shaft is passing through the lip.
+        ``None`` when the centre line never leaves the footprint, which is not a
+        failure: a tusk that goes straight out through the opening without ever
+        passing the rim boundary has nothing to clip. The protrusion gate is
+        what proves it left the mouth at all.
+    ``tip_protrusion``
+        How far the tip clears the lip plane, positive in front of it.
+
+    Note that ``posed_cavity_depth`` is 0 outside the rim ellipse, so out there
+    "open air" means "in front of the lip plane". That is deliberately
+    conservative:
+    the real face recedes behind the lip plane away from the mouth, so this
+    under-reports emergence rather than over-reporting it.
     """
     m = head_pose_world_matrix(arm)
     base_hl = tusk["orc_tusk_base_head_local"]
@@ -3423,6 +3518,7 @@ def tusk_root_and_emergence(arm, tusk, frame: dict) -> tuple[float, float]:
 
     u, w, d = aperture_coords_world(frame, base_w)
     root_bury = d - posed_cavity_depth(frame, u, w)
+    base_radial = aperture_radial(frame, u, w)
 
     step = length / float(TUSK_EMERGENT_SAMPLES)
     emergent = 0.0
@@ -3431,7 +3527,35 @@ def tusk_root_and_emergence(arm, tusk, frame: dict) -> tuple[float, float]:
         pu, pw, pd = aperture_coords_world(frame, p)
         if pd < posed_cavity_depth(frame, pu, pw) - TUSK_EMERGENT_CLEARANCE_M:
             emergent += step
-    return root_bury, emergent
+
+    # Outward crossing of the rim ellipse, interpolated so the reported depth is
+    # the depth AT the rim rather than at whichever sample happened to land
+    # nearest it.
+    rim_cross_d: float | None = None
+    prev_r = base_radial
+    for i in range(1, TUSK_EMERGENT_SAMPLES + 1):
+        s = i * step
+        p = base_w + axis_w * s
+        pu, pw, _pd = aperture_coords_world(frame, p)
+        r = aperture_radial(frame, pu, pw)
+        if prev_r <= 1.0 < r:
+            t = (1.0 - prev_r) / (r - prev_r)
+            s_cross = (i - 1) * step + t * step
+            rim_cross_d = aperture_coords_world(
+                frame, base_w + axis_w * s_cross
+            )[2]
+            break
+        prev_r = r
+
+    tip_p = base_w + axis_w * length
+    _tu, _tw, tip_d = aperture_coords_world(frame, tip_p)
+    return {
+        "root_bury": root_bury,
+        "emergent_len": emergent,
+        "base_radial": base_radial,
+        "rim_cross_d": rim_cross_d,
+        "tip_protrusion": -tip_d,
+    }
 
 
 def assert_tusk_rigid_bind(arm, tusk, label: str) -> float:
@@ -3580,8 +3704,8 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
             )
 
         verts_w = _evaluated_mesh_verts_world(tusk)
-        worst_radial = 0.0
-        worst_radial_uw = (0.0, 0.0)
+        worst_buried_radial = 0.0
+        worst_buried_uw = (0.0, 0.0)
         min_d = 1e9
         max_d = -1e9
         w_lo = 1e9
@@ -3591,12 +3715,17 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
         emergent_verts = 0
         for vw in verts_w:
             u, w, d = aperture_coords_world(frame, vw)
-            r = aperture_radial(frame, u, w, margin=margin)
-            if r > worst_radial:
-                worst_radial = r
-                worst_radial_uw = (u, w)
-            if d < posed_cavity_depth(frame, u, w) - TUSK_EMERGENT_CLEARANCE_M:
+            wall = posed_cavity_depth(frame, u, w)
+            if d < wall - TUSK_EMERGENT_CLEARANCE_M:
                 emergent_verts += 1
+            else:
+                # Buried geometry is the only geometry containment applies to.
+                # Ivory in open air is allowed to be anywhere the silhouette
+                # wants it, which is the point of letting the tusk emerge.
+                r = aperture_radial(frame, u, w, margin=margin)
+                if r > worst_buried_radial:
+                    worst_buried_radial = r
+                    worst_buried_uw = (u, w)
             min_d = min(min_d, d)
             max_d = max(max_d, d)
             w_lo = min(w_lo, w)
@@ -3605,22 +3734,53 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
                 front += 1
         front_frac = front / float(len(verts_w))
         w_span = w_hi - w_lo
-        root_bury, emergent_len = tusk_root_and_emergence(arm, tusk, frame)
+        cl = tusk_centreline_metrics(arm, tusk, frame)
+        root_bury = cl["root_bury"]
+        emergent_len = cl["emergent_len"]
 
-        if worst_radial > 1.0:
+        if worst_buried_radial > TUSK_BURIED_MAX_RADIAL:
             raise RuntimeError(
-                f"{label} still: {tusk.name!r} leaves the mouth aperture "
-                f"(radial={worst_radial:.3f} > 1 at u={worst_radial_uw[0]:.4f} "
-                f"w={worst_radial_uw[1]:.4f}; rim=({frame['half_width']:.4f},"
-                f"{half_h:.4f})) — cheek-float / chin-needle class; refusing PNG"
+                f"{label} still: {tusk.name!r} has buried geometry "
+                f"{worst_buried_radial:.3f} rim-radii out (> "
+                f"{TUSK_BURIED_MAX_RADIAL}) at u={worst_buried_uw[0]:.4f} "
+                f"w={worst_buried_uw[1]:.4f}; rim=({frame['half_width']:.4f},"
+                f"{half_h:.4f}) — the root is under the cheekbone rather than in "
+                f"the gum ridge beside the mouth; refusing PNG"
             )
-        if min_d < TUSK_MIN_INSET_M:
+        if cl["base_radial"] > TUSK_BASE_MAX_RADIAL:
             raise RuntimeError(
-                f"{label} still: {tusk.name!r} reaches the posed lip plane "
-                f"(min_d={min_d * 1000:.1f} mm < {TUSK_MIN_INSET_M * 1000:.0f} mm "
-                f"inset) — at a three-quarter angle its silhouette would pass the "
-                f"lip contour and read as a cone painted on the lip, which is what "
-                f"e99b3a1's Walk still showed; refusing PNG"
+                f"{label} still: {tusk.name!r} is rooted at rim radius "
+                f"{cl['base_radial']:.3f} (> {TUSK_BASE_MAX_RADIAL}) — the base "
+                f"is beside the mouth opening rather than inside it, so the ivory "
+                f"would erupt through the cheek; refusing PNG"
+            )
+        if (
+            cl["rim_cross_d"] is not None
+            and cl["rim_cross_d"] > TUSK_RIM_CROSS_MAX_D
+        ):
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} is still "
+                f"{cl['rim_cross_d'] * 1000:.1f} mm behind the lip plane where it "
+                f"crosses the rim ellipse (need <= "
+                f"{TUSK_RIM_CROSS_MAX_D * 1000:.0f} mm) — the bore ramps to zero "
+                f"depth at the rim, so the shaft is passing through the flesh of "
+                f"the lip instead of out of the opening; refusing PNG"
+            )
+        if cl["tip_protrusion"] < TUSK_MIN_PROTRUSION_M:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} tip clears the posed lip plane by "
+                f"only {cl['tip_protrusion'] * 1000:.1f} mm (need "
+                f"{TUSK_MIN_PROTRUSION_M * 1000:.0f} mm) — ivory that never "
+                f"crosses the lip cannot break the face silhouette, so it is only "
+                f"visible down a maw pointed at the camera, which is what every "
+                f"18:50 still shows; refusing PNG"
+            )
+        if cl["tip_protrusion"] > TUSK_MAX_PROTRUSION_M:
+            raise RuntimeError(
+                f"{label} still: {tusk.name!r} tip stands "
+                f"{cl['tip_protrusion'] * 1000:.1f} mm in front of the posed lip "
+                f"plane (> {TUSK_MAX_PROTRUSION_M * 1000:.0f} mm) — that is a "
+                f"sabre, not a tusk; refusing PNG"
             )
         if max_d > depth + margin:
             raise RuntimeError(
@@ -3658,9 +3818,19 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
         log(
             f"{label} still gate: {tusk.name} side={tusk['orc_tusk_side']} "
             f"bind={dist_bind:.4f} rim_drift={rim_drift:.4f} "
-            f"radial={worst_radial:.3f} d=[{min_d:.4f},{max_d:.4f}] of {depth:.4f} "
+            f"buried_radial={worst_buried_radial:.3f} "
+            f"base_radial={cl['base_radial']:.3f} "
+            f"rim_cross_d="
+            + (
+                "none"
+                if cl["rim_cross_d"] is None
+                else f"{cl['rim_cross_d'] * 1000:.1f}mm"
+            )
+            + " "
+            f"d=[{min_d:.4f},{max_d:.4f}] of {depth:.4f} "
             f"front_frac={front_frac:.3f} w_span={w_span:.4f} "
-            f"inset={min_d * 1000:.1f}mm root_bury={root_bury * 1000:.1f}mm "
+            f"protrusion={cl['tip_protrusion'] * 1000:.1f}mm "
+            f"root_bury={root_bury * 1000:.1f}mm "
             f"emergent_len={emergent_len * 1000:.1f}mm "
             f"emergent_verts={emergent_verts}/{len(verts_w)} "
             f"axis_up={rise_dot:.3f} axis_inward={inward_dot:.3f}"
@@ -3867,6 +4037,7 @@ def tusk_seat_in_body_space(aperture, sign_x: float) -> tuple[Vector, Vector, fl
     hw = float(aperture.half_width)
     hh = float(aperture.half_height)
     dp = float(aperture.depth)
+    wid = float(aperture.head_width)
     u0 = sign_x * TUSK_SEAT_U_FRAC * hw
     w0 = TUSK_SEAT_W_FRAC * hh
     # Root the base BEHIND the cavity wall at its own (u, w). The wall ramps
@@ -3874,7 +4045,7 @@ def tusk_seat_in_body_space(aperture, sign_x: float) -> tuple[Vector, Vector, fl
     # only part way in; sitting the base behind it is what gives the tusk a root
     # instead of leaving it floating in the middle of the maw.
     gum_d = aperture.bore_depth(u0, w0)
-    d0 = gum_d + TUSK_ROOT_BURY_HH_FRAC * hh
+    d0 = gum_d + TUSK_ROOT_BURY_HEAD_W_FRAC * wid
     if d0 > dp:
         raise RuntimeError(
             f"tusk root would sit past the cavity floor (d={d0:.4f} > depth "
@@ -3891,9 +4062,9 @@ def tusk_seat_in_body_space(aperture, sign_x: float) -> tuple[Vector, Vector, fl
     return (
         base,
         axis,
-        TUSK_LENGTH_HH_FRAC * hh,
-        TUSK_RADIUS_BASE_HH_FRAC * hh,
-        TUSK_RADIUS_TIP_HH_FRAC * hh,
+        TUSK_LENGTH_HEAD_W_FRAC * wid,
+        TUSK_RADIUS_BASE_HEAD_W_FRAC * wid,
+        TUSK_RADIUS_TIP_HEAD_W_FRAC * wid,
     )
 
 
