@@ -448,6 +448,62 @@ def _selftest() -> int:
         f"elevation {best[2]:.0f}, px_h={best[0]['px_h']:.0f}",
     )
 
+    # --- a ROOTED tusk: the buried root must not count against visibility.
+    # ee2bd82 rooted the tusks 5 mm inside the gum and the visibility gate still
+    # sampled the whole cone, so the buried base was reported as occluded -- by
+    # the gum it is buried in -- and the visible fraction pinned at 0.29 on every
+    # Punch frame. Sample the emergent ivory instead.
+    print("\n  rooted tusk, gum in front of the root:")
+    gum_y = mouth[1] + 0.022  # cavity wall 22 mm behind the rim plane
+    gum = [
+        ((-0.05, gum_y, mouth[2] - 0.05), (0.05, gum_y, mouth[2] - 0.05),
+         (0.05, gum_y, mouth[2] + 0.05)),
+        ((-0.05, gum_y, mouth[2] - 0.05), (0.05, gum_y, mouth[2] + 0.05),
+         (-0.05, gum_y, mouth[2] + 0.05)),
+    ]
+    # Centre line from 6 mm behind the gum wall out into open air.
+    root = (0.012, gum_y + 0.016, mouth[2] - 0.014)
+    tip = (0.006, mouth[1] + 0.006, mouth[2] + 0.016)
+    span = sub(tip, root)
+    whole = [add(root, mul(span, (i + 0.5) / 14.0)) for i in range(14)]
+    emergent = [
+        p for p in whole if p[1] < gum_y - 0.003
+    ]
+    cam = add(mouth, mul(out, reach))
+    whole_report = visibility_report(cam, mouth, up, whole, gum, **report_kw)
+    if not emergent:
+        raise AssertionError("test model produced no emergent samples")
+    emergent_report = visibility_report(cam, mouth, up, emergent, gum, **report_kw)
+    check(
+        "sampling the whole tusk penalises it for being rooted",
+        whole_report["visible_frac"] < emergent_report["visible_frac"],
+        f"whole-cone visible_frac={whole_report['visible_frac']:.2f} vs emergent "
+        f"{emergent_report['visible_frac']:.2f} ({len(whole)} samples, "
+        f"{len(whole) - len(emergent)} of them inside the gum) — the buried root "
+        f"drags the whole-cone number down, which is the ee2bd82 failure",
+    )
+    check(
+        "sampling only the emergent ivory reports it as visible",
+        emergent_report["visible_frac"] == 1.0 and emergent_report["px_h"] > 20.0,
+        f"emergent visible_frac={emergent_report['visible_frac']:.2f} "
+        f"px_h={emergent_report['px_h']:.0f} over {len(emergent)} samples",
+    )
+    blocked = visibility_report(
+        cam, mouth, up, emergent, gum + slab(0.060, 0.045), **report_kw
+    )
+    check(
+        "emergent sampling still catches a hand over the mouth",
+        blocked["visible_frac"] < 0.2,
+        f"visible_frac={blocked['visible_frac']:.2f} with the guard hand added — "
+        f"the fix does not blind the occlusion test",
+    )
+    check(
+        "the emergent centre line spans a readable extent",
+        emergent_report["px_h"] > 4.0 * 5.0,
+        f"px_h={emergent_report['px_h']:.0f}, versus the 4 px ee2bd82 reported "
+        f"when a strided vertex sample collapsed onto the tip ring",
+    )
+
     # --- with nothing in the way, straight on wins and is tried first.
     clear = visibility_report(add(mouth, mul(out, reach)), mouth, up, tusks, [], **report_kw)
     check(

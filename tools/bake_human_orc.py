@@ -151,7 +151,19 @@ Mouth / tusk approach (this pass; read before changing anything below):
      own (u, w) -- and gated on ``TUSK_ROOT_MIN_BURY_M``, ``TUSK_MIN_INSET_M``
      and ``TUSK_MIN_EMERGENT_M``. That last one replaced a blanket "no vert may
      be buried" rule which forbade the rooting outright.
-  7. A still cannot prove tusks it cannot see. f4d2059's Punch still is a
+  7. A gate written for an unrooted tusk penalises a rooted one. ee2bd82 rooted
+     the tusks 5 mm inside the gum, and the visibility sweep still sampled the
+     whole cone by vertex stride -- so the buried base was reported as occluded,
+     by the gum it is buried in, and the Punch visible fraction pinned at
+     4/14 = 0.2857 on every frame in the band, just under the 0.30 bar. A number
+     identical across nine different poses is not a hand moving in front of a
+     mouth: the tusk and the head are both rigid to the head bone, so a
+     pose-invariant occluder is the head itself. The sweep now samples the
+     EMERGENT ivory -- along the centre line, keeping only the stretch in open
+     air. A 12-segment cone also has verts only at its two ends, so the old
+     strided sample of the emergent part collapsed onto the 1.6 mm tip ring,
+     which is why it reported 4 px of tusk for a 32 mm one.
+  8. A still cannot prove tusks it cannot see. f4d2059's Punch still is a
      picture of the character's own guard hand, and its Death still is an
      overhead view of the top of a supine head. Both are correct renders of
      correct geometry. So the close-up camera direction is now chosen by
@@ -493,10 +505,14 @@ REHOME_MAX_PASSES = 8
 # that; only measuring the camera can.
 STILL_LENS_MM = 50.0
 STILL_SENSOR_MM = 36.0  # Blender's default sensor width
-# Tusk samples per tusk for the visibility sweep. Occlusion is exact
-# segment-triangle work, so the whole cone is not needed to know whether a
-# reviewer can see it.
-STILL_TUSK_SAMPLES_PER_TUSK = 6
+# Samples along each tusk's centre line for the visibility sweep. Only the
+# stretch in open air becomes a target: the rooted base is buried in the gum on
+# purpose, and counting it as "not visible" is what pinned ee2bd82's Punch
+# visible fraction at 4/14 on every frame. Each kept sample also contributes two
+# lateral points so the measured extent spans the ivory's width, not just its
+# centre line.
+STILL_IVORY_SAMPLES_PER_TUSK = 10
+STILL_IVORY_WIDTH_FRAC = 0.75
 # Occluder triangles are gathered within this many measured head widths of the
 # mouth: the head, the shoulders, and in Punch the hands.
 STILL_OCCLUDER_RADIUS_HEAD_WIDTHS = 3.0
@@ -965,6 +981,11 @@ def write_art_review_packet(
             "numeric gate with a base floating 22 mm in front of the gum and a "
             "front vertex 2 mm from the lip plane, and its Walk still read as "
             "cones painted on the lip.",
+            "Visibility is measured on the EMERGENT ivory, not the whole cone: "
+            "the rooted base is buried in the gum on purpose, and counting it as "
+            "occluded pinned ee2bd82's Punch visible fraction at 0.29 on every "
+            "frame. Samples run along the centre line, because a 12-segment cone "
+            "has no verts along its length.",
             "Close-up camera direction is chosen by measuring occlusion, and the "
             "Punch still frame moves inside Punch_Cross only when no angle can "
             "see past the guard hand. A still that cannot show the tusks fails "
@@ -3269,6 +3290,8 @@ def assert_tusks_in_mouth_for_current_pose(arm, tusks: list, label: str) -> None
             "orc_tusk_side",
             "orc_tusk_base_head_local",
             "orc_tusk_length",
+            "orc_tusk_radius_base",
+            "orc_tusk_radius_tip",
             "orc_tusk_centroid_head_local",
             "orc_tusk_axis_head_local",
         ):
@@ -3742,6 +3765,8 @@ def add_tusks(arm, aperture) -> list:
         obj["orc_mouth_vert_head_local"] = [float(c) for c in rim_hl]
         obj["orc_tusk_base_head_local"] = [float(c) for c in base_hl]
         obj["orc_tusk_length"] = float(length)
+        obj["orc_tusk_radius_base"] = float(r_base)
+        obj["orc_tusk_radius_tip"] = float(r_tip)
         obj["orc_tusk_axis_head_local"] = [float(c) for c in axis_hl]
         obj["orc_tusk_centroid_head_local"] = [float(c) for c in centroid_hl]
         bind_tusk_to_head_bone(obj, arm)
@@ -4933,22 +4958,79 @@ def _t3(v) -> tuple:
     return (float(v[0]), float(v[1]), float(v[2]))
 
 
-def tusk_target_points(tusks: list) -> list:
-    """Sampled tusk world points for the visibility measurement.
+def tusk_ivory_targets(arm, tusks: list, frame: dict) -> list:
+    """World points on the EMERGENT ivory: the part a reviewer is meant to see.
 
-    Subsampled because occlusion is exact segment-triangle work and the sweep
-    tries many camera directions; the whole cone is not needed to know whether
-    a reviewer can see it.
+    Two faults in the previous sampler, and ee2bd82 exposed both at once.
+
+    It sampled the whole cone by vertex stride, root included. Once the tusks
+    were rooted in the gum, the buried base was correctly reported as occluded
+    -- by the gum it is buried in -- so the visible fraction pinned at 4/14 =
+    0.2857 on every single Punch frame, just under the 0.30 bar. A number that
+    is identical across nine different poses cannot be a hand moving in front
+    of the mouth: the tusk and the head are both rigid to the head bone, so a
+    pose-invariant occluder is the head itself.
+
+    And a 12-segment cone has vertices only at its two ends, so a strided vertex
+    sample of the emergent part collapses onto the tip ring -- a 1.6 mm circle.
+    That is why ``px_h`` came back as 4 px for a 32 mm tusk.
+
+    So sample along the centre line, keep the stretch that is in open air, and
+    add lateral offsets for width. Visible fraction then answers the question
+    worth asking: how much of the ivory that should be visible actually is.
     """
     pts = []
     for tusk in tusks:
-        verts = _evaluated_mesh_verts_world(tusk)
-        if not verts:
-            raise RuntimeError(f"{tusk.name!r} evaluated to no vertices")
-        step = max(1, len(verts) // max(1, STILL_TUSK_SAMPLES_PER_TUSK))
-        pts.extend(_t3(v) for v in verts[::step])
+        for key in (
+            "orc_tusk_base_head_local",
+            "orc_tusk_axis_head_local",
+            "orc_tusk_length",
+            "orc_tusk_radius_base",
+            "orc_tusk_radius_tip",
+        ):
+            if key not in tusk:
+                raise RuntimeError(
+                    f"{tusk.name!r} missing {key} — cannot sample the emergent ivory"
+                )
+        m = head_pose_world_matrix(arm)
+        bhl = tusk["orc_tusk_base_head_local"]
+        ahl = tusk["orc_tusk_axis_head_local"]
+        base_w = m @ Vector((float(bhl[0]), float(bhl[1]), float(bhl[2])))
+        axis_w = (
+            m.to_3x3() @ Vector((float(ahl[0]), float(ahl[1]), float(ahl[2])))
+        ).normalized()
+        length = float(tusk["orc_tusk_length"])
+        r_base = float(tusk["orc_tusk_radius_base"])
+        r_tip = float(tusk["orc_tusk_radius_tip"])
+        side = axis_w.cross(Vector(frame["inward"]))
+        if side.length < 1e-6:
+            side = Vector(frame["right"])
+        side.normalize()
+        emergent = 0
+        for i in range(STILL_IVORY_SAMPLES_PER_TUSK):
+            frac = (i + 0.5) / STILL_IVORY_SAMPLES_PER_TUSK
+            p = base_w + axis_w * (frac * length)
+            u, w, d = aperture_coords_world(frame, p)
+            if d >= posed_cavity_depth(frame, u, w) - TUSK_EMERGENT_CLEARANCE_M:
+                continue  # this stretch is inside the gum, and meant to be
+            radius = r_base + (r_tip - r_base) * frac
+            offset = STILL_IVORY_WIDTH_FRAC * radius
+            for lateral in (0.0, -offset, offset):
+                q = p + side * lateral
+                qu, qw, qd = aperture_coords_world(frame, q)
+                # Each candidate is tested on its own: a lateral offset near the
+                # cavity wall is inside the flesh even when the centre line is not.
+                if qd < posed_cavity_depth(frame, qu, qw) - TUSK_EMERGENT_CLEARANCE_M:
+                    pts.append(_t3(q))
+            emergent += 1
+        if emergent == 0:
+            raise RuntimeError(
+                f"{tusk.name!r} has no emergent ivory in this pose: every sample "
+                f"along its centre line is inside the cavity wall. The tusk is "
+                f"buried, not seated"
+            )
     if not pts:
-        raise RuntimeError("tusk_target_points: no tusk vertices to measure")
+        raise RuntimeError("tusk_ivory_targets: no emergent ivory to measure")
     return pts
 
 
@@ -5031,7 +5113,7 @@ def choose_mouth_closeup_view(arm, tusks: list, *, strict: bool = True):
     out = -Vector(frame["inward"])
     up = Vector(frame["up"])
     reach = MOUTH_CLOSEUP_REACH_HEAD_WIDTHS * float(frame["head_width"])
-    targets = tusk_target_points(tusks)
+    targets = tusk_ivory_targets(arm, tusks, frame)
     tris = near_head_occluder_tris(
         arm, tusks, centre, STILL_OCCLUDER_RADIUS_HEAD_WIDTHS * float(frame["head_width"])
     )
@@ -5229,7 +5311,7 @@ def log_body_still_tusk_visibility(arm, tusks: list, label: str) -> dict:
     if cam is None:
         raise RuntimeError(f"{label}: no scene camera to measure tusk visibility")
     frame = posed_aperture_frame(arm)
-    targets = tusk_target_points(tusks)
+    targets = tusk_ivory_targets(arm, tusks, frame)
     tris = near_head_occluder_tris(
         arm,
         tusks,
