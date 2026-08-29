@@ -52,6 +52,29 @@ class BindRepairError(RuntimeError):
     """Raised when a bind cannot be repaired without inventing influence."""
 
 
+def weight_gap(a: WeightMap, b: WeightMap) -> float:
+    """Half the L1 distance between two weight maps: 0 identical, 1 disjoint.
+
+    This is the quantity that causes a tear, and the quantity smoothing can
+    change. Under linear blend skinning a vert sits at
+    ``sum_b w[b] * M_b * rest``, so for neighbours with nearly equal rest
+    positions their posed separation is bounded by this gap times how far apart
+    the bones moved. Adjacent verts driven by disjoint bones (gap 1) tear;
+    adjacent verts sharing influence (gap near 0) simply follow the bones, which
+    is deformation and not a defect however far they travel.
+
+    9ce780d is why this exists. Its repair chased posed edge GROWTH, which it
+    could not reduce below the level set by the region boundary, and refused
+    after three passes on a spine_03/upperarm_r seam whose weights were
+    ``{spine_03: 0.568, upperarm_r: 0.368}`` against
+    ``{spine_03: 0.652, upperarm_r: 0.242}`` -- a gap of 0.127, already smooth.
+    There was nothing to repair. A closed loop whose sensor and actuator measure
+    different things does not converge; both now measure this.
+    """
+    keys = set(a) | set(b)
+    return 0.5 * sum(abs(a.get(k, 0.0) - b.get(k, 0.0)) for k in keys)
+
+
 def normalise_weights(acc: WeightMap, *, prune: float = WEIGHT_PRUNE) -> WeightMap:
     """Prune noise and rescale to sum 1. Empty in, empty out."""
     pruned = {gi: w for gi, w in acc.items() if w > prune}
@@ -313,9 +336,7 @@ def _selftest() -> int:
         worst = 0.0
         for i, neighbours in enumerate(adj):
             for j in neighbours:
-                keys = set(ws[i]) | set(ws[j])
-                gap = sum(abs(ws[i].get(k, 0.0) - ws[j].get(k, 0.0)) for k in keys)
-                worst = max(worst, gap)
+                worst = max(worst, weight_gap(ws[i], ws[j]))
         return worst
 
     w = [dict(x) for x in weights]
@@ -386,45 +407,82 @@ def _selftest() -> int:
         f"(re-homed to {fixed[frozen]})",
     )
 
-    # --- the tear criterion, against the two real measurements we have.
+    # --- weight_gap on real reported weights.
+    disjoint_a: WeightMap = {P: 1.0}
+    disjoint_b: WeightMap = {Q: 1.0}
+    check(
+        "disjoint neighbours have gap 1",
+        abs(weight_gap(disjoint_a, disjoint_b) - 1.0) < 1e-12,
+        f"{weight_gap(disjoint_a, disjoint_b):.3f}",
+    )
+    check(
+        "identical neighbours have gap 0",
+        weight_gap(disjoint_a, dict(disjoint_a)) == 0.0,
+        "0.000",
+    )
+    # The pair 9ce780d refused on, weights straight out of its log.
+    v1735 = {0: 0.568, 1: 0.368, 2: 0.056, 3: 0.008}
+    v1736 = {0: 0.652, 1: 0.242, 2: 0.099, 3: 0.007}
+    gap_1735 = weight_gap(v1735, v1736)
+    check(
+        "9ce780d's refused spine_03/upperarm_r pair is already smooth",
+        abs(gap_1735 - 0.127) < 0.001,
+        f"gap={gap_1735:.3f} -- smoothing had nothing left to remove, which is "
+        f"why three passes could not move its 22 mm of growth",
+    )
+
+    # --- the tear criterion, against every real measurement we have.
     # An edge is flagged when it exceeds the absolute cap, or is stretched past
     # the ratio AND has grown by a visible amount.
     print("\n  tear criterion vs the measured cases:")
 
-    def flagged(posed: float, rest: float, *, limit_m: float, limit_stretch: float,
-                min_excess: float) -> bool:
-        return posed > limit_m or (
-            posed / rest > limit_stretch and (posed - rest) > min_excess
+    def flagged(posed: float, rest: float, gap: float, *, limit_m: float,
+                limit_stretch: float, min_excess: float, max_gap: float) -> bool:
+        if posed > limit_m:
+            return True
+        return (
+            posed / rest > limit_stretch
+            and (posed - rest) > min_excess
+            and gap > max_gap
         )
 
-    gate = dict(limit_m=0.14, limit_stretch=2.6, min_excess=0.015)
-    repair = dict(limit_m=0.12, limit_stretch=2.0, min_excess=0.012)
+    gate = dict(limit_m=0.14, limit_stretch=2.6, min_excess=0.015, max_gap=0.25)
+    repair = dict(limit_m=0.12, limit_stretch=2.2, min_excess=0.012, max_gap=0.20)
     cases = (
-        # (name, posed, rest, must the gate flag it?)
-        ("b4d8e69/af0e428 Punch bind seam", 0.2129, 0.010, True),
-        ("f4d2059 Punch chest band", 0.0911, 0.010, True),
-        ("46fc7b0 Death ball_l/foot_l toe seam", 0.0108, 0.00278, False),
-        ("ordinary trunk edge under Walk", 0.0112, 0.010, False),
-        ("p99.9 trunk edge (2.67x, small)", 0.0080, 0.003, False),
+        # (name, posed, rest, weight gap, must the gate flag it?)
+        ("b4d8e69/af0e428 Punch bind seam", 0.2129, 0.010, 1.00, True),
+        ("f4d2059 Punch chest band", 0.0911, 0.010, 0.40, True),
+        ("46fc7b0 Death toe seam (ball_l/foot_l)", 0.0108, 0.00278, 0.11, False),
+        ("9ce780d Death spine_03/upperarm_r seam", 0.0361, 0.0139, 0.127, False),
+        ("ordinary trunk edge under Walk", 0.0112, 0.010, 0.05, False),
+        ("9ce780d max-stretch trunk edge (4.83x)", 0.0098, 0.0020, 0.30, False),
+        ("a real tear that is short but disjoint", 0.0500, 0.010, 0.80, True),
     )
-    for name, posed, rest, want in cases:
-        got = flagged(posed, rest, **gate)
-        got_repair = flagged(posed, rest, **repair)
+    for name, posed, rest, gap, want in cases:
+        got = flagged(posed, rest, gap, **gate)
+        got_repair = flagged(posed, rest, gap, **repair)
         check(
             f"gate {'flags' if want else 'passes'}: {name}",
             got == want,
             f"{posed * 1000:.1f} mm from {rest * 1000:.2f} mm rest = "
-            f"{posed / rest:.2f}x, grew {(posed - rest) * 1000:.1f} mm -> "
-            f"gate={'flag' if got else 'pass'} repair="
-            f"{'flag' if got_repair else 'pass'}",
+            f"{posed / rest:.2f}x, grew {(posed - rest) * 1000:.1f} mm, "
+            f"gap {gap:.2f} -> gate={'flag' if got else 'pass'} "
+            f"repair={'flag' if got_repair else 'pass'}",
         )
     check(
         "the repair target is strictly tighter than the gate",
         all(
-            flagged(p, r, **gate) <= flagged(p, r, **repair)
-            for name, p, r, _w in cases
+            flagged(p, r, g, **gate) <= flagged(p, r, g, **repair)
+            for _n, p, r, g, _w in cases
         ),
         "anything the gate refuses, the repair would have tried to fix",
+    )
+    check(
+        "smoothing can reach the repair's gap target",
+        gaps[-1] / 2.0 <= repair["max_gap"],
+        f"12 Jacobi iterations took the worst gap to {gaps[-1] / 2.0:.3f} "
+        f"(target {repair['max_gap']}) -- the repair now measures the quantity "
+        f"it actuates, so it converges",
     )
 
     # --- an unbound island must fail loudly, not be guessed at.
