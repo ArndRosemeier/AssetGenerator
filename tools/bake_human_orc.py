@@ -210,6 +210,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
 import struct
 import sys
@@ -217,11 +218,26 @@ import traceback
 import zlib
 from pathlib import Path
 
-import bmesh
+# isort: off
+# bpy must come first. Inside Blender both are built in and the order is
+# irrelevant, but under the `bpy` PyPI module `bmesh` is a submodule that only
+# resolves once `bpy` has been imported -- and that module is how this bake can
+# be exercised anywhere other than one Windows machine. Alphabetical order here
+# costs a ModuleNotFoundError on every non-Blender run.
 import bpy
+import bmesh
 from mathutils import Matrix, Quaternion, Vector
 
-TOOLS = Path(r"C:\Projekte\AssetGenerator\tools")
+# isort: on
+
+# Repo root, derived from this file's own location: the script lives at
+# <root>/tools/bake_human_orc.py. It used to be the literal
+# C:\Projekte\AssetGenerator, which meant the bake could only ever run on one
+# machine -- a large part of why a week of cloud runs could not reproduce
+# anything, and why the offline harnesses had to reimplement the arithmetic
+# instead of calling it.
+AG = Path(__file__).resolve().parent.parent
+TOOLS = AG / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
@@ -231,9 +247,13 @@ import orc_mouth_geometry as MG  # noqa: E402
 import orc_mouth_rim as RIM  # noqa: E402
 import orc_still_visibility as SV  # noqa: E402
 
-AG = Path(r"C:\Projekte\AssetGenerator")
 AG_HUMANS = AG / "assets" / "humans"
-ORRUN_HUMANS = Path(r"C:\Projekte\OrrunWithEngine\orrun\assets\humans")
+# The Orrun checkout supplies the animation donor. Nothing in this repo anchors
+# it, so it stays a path -- but overridable, so a run on another machine or in CI
+# can point at a checkout instead of failing on someone else's drive letter.
+# The default is unchanged, so a local Windows run needs no environment at all.
+ORRUN = Path(os.environ.get("ORRUN_ROOT", r"C:\Projekte\OrrunWithEngine"))
+ORRUN_HUMANS = ORRUN / "orrun" / "assets" / "humans"
 
 # AG 4-clip Idle/Walk copy — guarded, never used as the full UAL animation donor.
 AG_WORKSUIT = AG_HUMANS / "male_dressed_male_worksuit01.glb"
@@ -392,7 +412,7 @@ TUSK_AXIS_SPLAY = 0.26
 # Forward lean per unit rise. This is what carries the tip OUT of the maw and
 # past the lip plane instead of leaving it standing in the hole; see
 # TUSK_MIN_PROTRUSION_M.
-TUSK_AXIS_OUTWARD = 0.52
+TUSK_AXIS_OUTWARD = 0.68
 # Size in fractions of the measured HEAD WIDTH, not of the aperture. Expressing
 # a tusk in multiples of half_height made the aperture and the tusks one knob:
 # retuning the maw silently rescaled the ivory, so the 0.13 -> 0.105 half-height
@@ -499,13 +519,25 @@ JAW_BAND_DZ = (-0.145, -0.055)
 JAW_BAND_EDGE = 0.030
 # 48 mm of forward push on a 100 mm deep face was a caricature and it also
 # out-projected the nose, which destroys every landmark the mouth solver needs.
-# 12 mm was the over-correction: invisible at the scale the stills are framed
-# at, which is why the 18:50 face still reads human. 22 mm over an eased 30 mm
-# band cannot open a step of more than ~4 mm between neighbours (the band
-# falloff is Lipschitz-bounded by 1.5/edge), so it is a muzzle rather than a
-# needle.
-JAW_FORWARD_M = 0.022
+# 12 mm was the over-correction. Note though that it was 12 mm WITH the aperture
+# keepout, which cancelled it across the mouth -- so the 18:50 face got a jaw
+# offset everywhere except the one place a muzzle is. With the keepout gone the
+# same number does something quite different.
+#
+# The ceiling is the nose. On the real donor the chin front sits 19.2 mm behind
+# the nose tip, and the chin is inside the jaw band at full amplitude, so a 22 mm
+# push put it 2.8 mm IN FRONT of the nose -- at which point
+# ``min(midline, key=y)`` returns a chin vert as the nose tip and every landmark
+# downstream is garbage. 14 mm leaves ~5 mm, and is checked directly below rather
+# than left to surface two passes later as "an earlier restyle step has
+# out-projected the nose".
+JAW_FORWARD_M = 0.014
 JAW_DROP_RATIO = 0.20
+# The jaw build must leave the nose tip the most-forward point of the face, for
+# the same reason the brow build must: the landmark solver finds the nose by
+# taking the most-forward midline vert. Measured against the nose as it was
+# before the build.
+JAW_BEHIND_NOSE_MIN_M = 0.004
 # There is deliberately no aperture keepout any more. The jaw offset used to
 # fade to zero across the mouth so that "the carve still sees the face the
 # aperture was solved on" -- which froze the one region a muzzle actually is,
@@ -523,11 +555,14 @@ JAW_DROP_RATIO = 0.20
 # supraorbital shape the donor ships -- leaving the orc flatter in the brow than
 # the human it came from.
 #
-# Anchored on the measured nose tip and head width rather than on a fraction of
-# the head cloud's Z extent, because that cloud includes neck bleed and its
-# extent is not a face measurement. The brow ridge sits roughly a sixth of a
-# head width above the nose tip.
-BROW_BAND_ABOVE_NOSE = (0.10, 0.24)  # fractions of head width
+# Anchored on the MEASURED nose root, not on a proportion above the nose tip.
+# A band at 0.10..0.24 of head width above the nose tip is where the brow sits on
+# the synthetic test head, and on the real donor it lands on the nose BRIDGE --
+# which is naturally forward, so building it forward out-projects the nose tip and
+# the guard below refused at 1.1 mm of clearance. The brow ridge sits directly
+# above the nasion recess, so measure that and start there. Same lesson as the
+# aperture height: a proportion of head width is not a face measurement.
+BROW_BAND_ABOVE_NASION = (0.0, 0.16)  # fractions of head width, from nasion up
 BROW_BAND_EDGE_FRAC = 0.05
 # Half-width of the shelf, again in head widths: wide enough to span both eyes,
 # short of the temples.
@@ -1478,6 +1513,7 @@ def restyle_face(arm, landmarks) -> None:
         face_edits = 0
         seam_skipped = 0
         worst_offset = 0.0
+        frontmost_y = 1e9
         for v in me.vertices:
             hw = vg_weight(v, head_i)
             nw = vg_weight(v, neck_i)
@@ -1517,13 +1553,29 @@ def restyle_face(arm, landmarks) -> None:
             v.co.y -= amp
             v.co.z -= amp * JAW_DROP_RATIO
             worst_offset = max(worst_offset, amp)
+            frontmost_y = min(frontmost_y, float(v.co.y))
             face_edits += 1
 
         me.update()
+        margin = frontmost_y - float(landmarks.nose_y)
+        if face_edits and margin < JAW_BEHIND_NOSE_MIN_M:
+            raise RuntimeError(
+                f"restyle_face: the jaw build on {obj.name!r} now reaches "
+                f"y={frontmost_y:.4f}, only {margin * 1000:.1f} mm behind the nose "
+                f"tip y={landmarks.nose_y:.4f} (need "
+                f"{JAW_BEHIND_NOSE_MIN_M * 1000:.0f} mm) after "
+                f"{worst_offset * 1000:.1f} mm of forward push over {face_edits} "
+                f"verts. The landmark solver finds the nose by taking the "
+                f"most-forward midline vert, so a chin in front of the nose is "
+                f"detected AS the nose and the lip slit, subnasale and the whole "
+                f"aperture land in the wrong place; lower JAW_FORWARD_M rather "
+                f"than letting that happen"
+            )
         log(
             f"restyled mesh {obj.name!r} verts={len(me.vertices)} "
             f"head_z={head_z:.4f} jaw_edits={face_edits} "
-            f"worst_jaw_offset={worst_offset:.4f} seam_skipped={seam_skipped}"
+            f"worst_jaw_offset={worst_offset:.4f} seam_skipped={seam_skipped} "
+            f"frontmost_y={frontmost_y:.4f} clear_of_nose={margin * 1000:.1f}mm"
         )
 
     build_orc_brow_ridge(arm, landmarks)
@@ -1571,10 +1623,10 @@ def build_orc_brow_ridge(arm, landmarks) -> int:
 
     wid = float(landmarks.head_width)
     cx = float(landmarks.head_center_x)
-    nose_z = float(landmarks.nose_z)
     nose_y = float(landmarks.nose_y)
-    lo = nose_z + BROW_BAND_ABOVE_NOSE[0] * wid
-    hi = nose_z + BROW_BAND_ABOVE_NOSE[1] * wid
+    nasion_z = float(landmarks.nasion_z)
+    lo = nasion_z + BROW_BAND_ABOVE_NASION[0] * wid
+    hi = nasion_z + BROW_BAND_ABOVE_NASION[1] * wid
     z_edge = BROW_BAND_EDGE_FRAC * wid
     x_half = BROW_HALF_WIDTH_FRAC * wid
     x_edge = BROW_X_EDGE_FRAC * wid
@@ -1612,7 +1664,7 @@ def build_orc_brow_ridge(arm, landmarks) -> int:
     if not built:
         raise RuntimeError(
             f"build_orc_brow_ridge: no male_body vert fell in the brow band "
-            f"z=[{lo:.4f},{hi:.4f}] (nose_z={nose_z:.4f} head_width={wid:.4f}), "
+            f"z=[{lo:.4f},{hi:.4f}] (nasion_z={nasion_z:.4f} head_width={wid:.4f}), "
             f"|x-{cx:.4f}| <= {x_half:.4f} with head weight >= 0.60 — the band is "
             f"not on this skull, so the orc would ship with no brow at all"
         )
@@ -1632,7 +1684,8 @@ def build_orc_brow_ridge(arm, landmarks) -> int:
         )
     log(
         f"built orc brow ridge on {body.name!r} verts={built} "
-        f"worst_offset={worst_offset:.4f} band_z=[{lo:.4f},{hi:.4f}] "
+        f"worst_offset={worst_offset:.4f} nasion_z={nasion_z:.4f} "
+        f"band_z=[{lo:.4f},{hi:.4f}] "
         f"x_half={x_half:.4f} frontmost_y={frontmost_y:.4f} "
         f"clear_of_nose={margin * 1000:.1f}mm"
     )
@@ -3091,7 +3144,7 @@ def cut_cavity_rim_loop(arm, body, aperture) -> int:
     bm = bmesh.new()
     bm.from_mesh(me)
     try:
-        rim = RIM.cut_rim_loop(
+        rim, stats = RIM.cut_rim_loop(
             bm,
             to_uwd=to_uwd,
             half_width=aperture.half_width,
@@ -3114,8 +3167,15 @@ def cut_cavity_rim_loop(arm, body, aperture) -> int:
         bm.free()
     me.update()
     bind_new_cavity_verts_to_head(arm, body, aperture)
+    # chain_ends counts rim vertices with a single rim neighbour. On this donor
+    # they are expected: the glTF UV seams and MakeHuman's inner mouth bag both
+    # end a chain. The number is logged rather than gated, because the invariant
+    # the carve needs -- no polygon straddling the rim -- is asserted directly.
     log(
-        f"cut mouth rim loop: {count} vert(s) on the exact rim ellipse, "
+        f"cut mouth rim loop: {count} vert(s) on the exact rim ellipse "
+        f"(worst radial error {stats['worst_radial_error']:.2e}, "
+        f"{stats['chain_ends']} chain end(s) at seams / mouth bag, "
+        f"{stats['branches']} branch point(s)), "
         f"male_body verts {before} -> {len(me.vertices)}"
     )
     return count
