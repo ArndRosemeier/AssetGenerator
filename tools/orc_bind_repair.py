@@ -386,6 +386,47 @@ def _selftest() -> int:
         f"(re-homed to {fixed[frozen]})",
     )
 
+    # --- the tear criterion, against the two real measurements we have.
+    # An edge is flagged when it exceeds the absolute cap, or is stretched past
+    # the ratio AND has grown by a visible amount.
+    print("\n  tear criterion vs the measured cases:")
+
+    def flagged(posed: float, rest: float, *, limit_m: float, limit_stretch: float,
+                min_excess: float) -> bool:
+        return posed > limit_m or (
+            posed / rest > limit_stretch and (posed - rest) > min_excess
+        )
+
+    gate = dict(limit_m=0.14, limit_stretch=2.6, min_excess=0.015)
+    repair = dict(limit_m=0.12, limit_stretch=2.0, min_excess=0.012)
+    cases = (
+        # (name, posed, rest, must the gate flag it?)
+        ("b4d8e69/af0e428 Punch bind seam", 0.2129, 0.010, True),
+        ("f4d2059 Punch chest band", 0.0911, 0.010, True),
+        ("46fc7b0 Death ball_l/foot_l toe seam", 0.0108, 0.00278, False),
+        ("ordinary trunk edge under Walk", 0.0112, 0.010, False),
+        ("p99.9 trunk edge (2.67x, small)", 0.0080, 0.003, False),
+    )
+    for name, posed, rest, want in cases:
+        got = flagged(posed, rest, **gate)
+        got_repair = flagged(posed, rest, **repair)
+        check(
+            f"gate {'flags' if want else 'passes'}: {name}",
+            got == want,
+            f"{posed * 1000:.1f} mm from {rest * 1000:.2f} mm rest = "
+            f"{posed / rest:.2f}x, grew {(posed - rest) * 1000:.1f} mm -> "
+            f"gate={'flag' if got else 'pass'} repair="
+            f"{'flag' if got_repair else 'pass'}",
+        )
+    check(
+        "the repair target is strictly tighter than the gate",
+        all(
+            flagged(p, r, **gate) <= flagged(p, r, **repair)
+            for name, p, r, _w in cases
+        ),
+        "anything the gate refuses, the repair would have tried to fix",
+    )
+
     # --- an unbound island must fail loudly, not be guessed at.
     adj3 = _chain(9)
     w3: list[WeightMap] = [{} for _ in range(9)]

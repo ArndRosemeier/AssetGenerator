@@ -115,13 +115,24 @@ Mouth / tusk approach (this pass; read before changing anything below):
      tear, re-measure — and the gate now names the bones on both ends instead
      of reporting only spine and head, which are 1.00 and 0.00 on that pair and
      say nothing about what drives it.
-  5. An absolute cap on posed edge length cannot express the defect. f4d2059
-     passed with ``worst_torso=0.0911``, comfortably under 0.14 m, and the Punch
-     still showed a jagged band across the chest: chest edges are ~10 mm at
-     rest, so that edge was stretched ~9x. The gate and the repair now measure
-     stretch relative to REST length, which is scale-free, and log the
-     percentiles so the limits can be calibrated from one bake instead of
-     guessed at.
+  5. Neither an absolute cap nor a stretch ratio alone can express the defect,
+     and the SCOPE matters as much as the criterion.
+       * f4d2059 passed with ``worst_torso=0.0911``, comfortably under 0.14 m,
+         and its Punch still showed a jagged band across the chest: chest edges
+         are ~10 mm at rest, so that edge was stretched ~9x with 81 mm of
+         growth. An absolute cap cannot see that.
+       * 46fc7b0 then refused on 3.88x — a 2.8 mm toe seam between ``ball_l``
+         and ``foot_l`` that had moved 8 mm, which nobody can see. A ratio alone
+         cannot see the difference either.
+       So an edge is flagged when it exceeds the cap, or is stretched past the
+       ratio AND has grown by a visible amount. And the scope is now the trunk,
+       selected positively: 46fc7b0 defined it as "not a limb" with a blacklist
+       of twelve bone names against a bind of fifty-three, missing both toes,
+       both clavicles and all thirty finger joints, so it both refused on a toe
+       and spent three rounds of seam smoothing on fingers. The limb set is
+       derived from the armature now, so it cannot be incomplete. Percentiles of
+       trunk stretch are logged at every probe so the limits stay calibrated
+       against a bake rather than a guess.
   6. A still cannot prove tusks it cannot see. f4d2059's Punch still is a
      picture of the character's own guard hand, and its Death still is an
      overhead view of the top of a supine head. Both are correct renders of
@@ -369,9 +380,39 @@ TORSO_EDGE_MAX_M = 0.14
 # Normal skin deformation stretches a well-blended edge by well under 2x; a
 # weight discontinuity is what produces the rest.
 TORSO_EDGE_MAX_STRETCH = 2.6
+# ...and it must also have GROWN by this much. Stretch alone was 46fc7b0's
+# refusal: a 2.8 mm toe seam reaching 10.8 mm is 3.88x while having moved 8 mm,
+# which nobody can see. Absolute length alone was f4d2059's miss: a ~10 mm chest
+# edge reaching 91 mm passed a 0.14 m cap and read as a jagged band. That one is
+# 9x with 81 mm of growth, so it fails both halves and is still caught. Together
+# the two say "moved far, and much further than it should have".
+TORSO_EDGE_MIN_EXCESS_M = 0.015
 # Rest edges shorter than this are treated as this long, so a degenerate edge
 # cannot report an enormous ratio.
 TORSO_REST_EDGE_FLOOR_M = 0.002
+# Bones that count as trunk. Clavicle is included on purpose: the shoulder cap
+# is body surface, not a joint that opens, and the chest band f4d2059 showed ran
+# out of the pec toward it. The limb set is then everything else the armature
+# drives except the head, derived from the armature rather than hand-kept — see
+# ``trunk_and_limb_groups`` for why that direction matters.
+TRUNK_BONE_NAMES = frozenset(
+    {
+        "spine_01",
+        "spine_02",
+        "spine_03",
+        "pelvis",
+        "neck_01",
+        "neck",
+        "clavicle_l",
+        "clavicle_r",
+    }
+)
+NON_LIMB_BONE_NAMES = TRUNK_BONE_NAMES | frozenset({"head", "Root", "root"})
+# Both ends of an edge need at least this much trunk weight...
+TRUNK_EDGE_MIN_W = 0.30
+# ...and neither end may be this limb-driven. That is what keeps the armpit and
+# the hip out: joints that legitimately open under Punch_Cross (~20 cm).
+TRUNK_EDGE_MAX_LIMB_W = 0.40
 
 # --- donor bind seam repair -------------------------------------------------
 # The Punch edge (1876, 1891) at 0.2129 with spine=(1.00, 0.00) is a bind with
@@ -383,6 +424,7 @@ TORSO_REST_EDGE_FLOOR_M = 0.002
 # Repair targets, inside the gate's limits so the gate has margin.
 BIND_SEAM_TARGET_M = 0.12
 BIND_SEAM_TARGET_STRETCH = 2.0
+BIND_SEAM_TARGET_EXCESS_M = 0.012
 # Frames sampled per clip. The Death still chooses its on-back frame at render
 # time, so one frame per clip does not prove the bind survives the still.
 BIND_SEAM_PROBE_FRAMES = 6
@@ -857,11 +899,16 @@ def write_art_review_packet(
             "still poses, Laplacian-blends the weights across seams that tear, "
             "and re-measures against the pre-repair edge classification so it "
             "cannot pass by reclassifying a torso edge as a limb edge.",
-            "Torso edges are gated on stretch relative to REST length, not only "
-            "on metres. f4d2059 passed at worst_torso=0.0911 m and still showed "
-            "a jagged band on Punch, because a ~10 mm chest edge stretched to "
-            "91 mm is a tear that no metre cap catches. The log carries the "
-            "stretch percentiles so the limit is calibrated, not guessed.",
+            "Trunk edges are flagged when they pass the absolute cap, OR are "
+            "stretched past the ratio AND have grown by a visible amount. "
+            "f4d2059 passed at 0.0911 m (9x, +81 mm) on a metre cap alone; "
+            "46fc7b0 then refused on 3.88x from a 2.8 mm toe seam that moved "
+            "8 mm. Both halves are needed. The log carries trunk stretch "
+            "percentiles so the limits are calibrated, not guessed.",
+            "Scope is the trunk, selected positively: spine, pelvis, neck and "
+            "clavicle, with the limb set derived from the armature rather than "
+            "hand-kept. 46fc7b0's blacklist covered twelve of fifty-three "
+            "bones and classified toes and fingers as torso.",
             "No chest mesh or weight edits. flatten_chest_pinch and "
             "reassign_chest_head_weights both existed to chase that Punch edge; "
             "they reshaped the pec region, every bake carrying them was reported "
@@ -1141,17 +1188,6 @@ def _arm_weight(vert, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r) -> flo
         vg_weight(vert, lower_r),
         vg_weight(vert, hand_l),
         vg_weight(vert, hand_r),
-    )
-
-
-def _leg_weight(vert, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r) -> float:
-    return max(
-        vg_weight(vert, thigh_l),
-        vg_weight(vert, thigh_r),
-        vg_weight(vert, calf_l),
-        vg_weight(vert, calf_r),
-        vg_weight(vert, foot_l),
-        vg_weight(vert, foot_r),
     )
 
 
@@ -1592,33 +1628,67 @@ def assert_all_skin_verts_bound(arm, label: str) -> None:
         )
 
 
-def stretch_gate_context(body) -> dict:
-    """Per-vert limb weights, the edge list, and REST edge lengths.
+def spine_weight(vert, spine_groups) -> float:
+    """Trunk-core weight: the spine chain only."""
+    return max(vg_weight(vert, gi) for gi in spine_groups)
+
+
+def group_max_weight(vert, group_indices) -> float:
+    if not group_indices:
+        return 0.0
+    return max(vg_weight(vert, gi) for gi in group_indices)
+
+
+def trunk_and_limb_groups(body, arm) -> tuple:
+    """Split male_body's bone groups into trunk, limb, and neither.
+
+    Single owner of "is this vert part of the body a tear would read on".
+
+    The trunk set is written out; the limb set is everything else the armature
+    drives, minus the head. That direction matters. 46fc7b0 defined the scope as
+    "not a limb" using a blacklist of twelve bone names against a bind of
+    fifty-three: it missed ``ball_l``/``ball_r``, ``clavicle_l``/``clavicle_r``
+    and all thirty finger joints, so a 2.8 mm toe seam between ``ball_l`` and
+    ``foot_l`` was classified as a torso edge and refused the bake. A hand-kept
+    list of limbs can always be incomplete; a list derived from the armature
+    cannot.
+
+    ``clavicle`` counts as trunk on purpose: the shoulder cap is body surface,
+    not a joint that opens, and the chest band f4d2059 showed ran out of the pec
+    toward it. What must stay out of scope is the armpit — clavicle blended with
+    ``upperarm`` — because Punch_Cross legitimately opens that ~20 cm.
+    """
+    bone_groups = armature_bone_groups(body, arm)
+    trunk = [gi for gi, name in bone_groups.items() if name in TRUNK_BONE_NAMES]
+    limb = [
+        gi for gi, name in bone_groups.items() if name not in NON_LIMB_BONE_NAMES
+    ]
+    if not trunk:
+        raise RuntimeError(
+            f"{body.name!r} has no vertex group among {sorted(TRUNK_BONE_NAMES)} — "
+            f"cannot tell the trunk from the limbs"
+        )
+    log(
+        f"trunk/limb split on {body.name!r}: trunk="
+        f"{sorted(bone_groups[gi] for gi in trunk)} "
+        f"limb={len(limb)} group(s) "
+        f"{sorted(bone_groups[gi] for gi in limb)[:8]}"
+        f"{'...' if len(limb) > 8 else ''}"
+    )
+    return trunk, limb
+
+
+def stretch_gate_context(body, arm) -> dict:
+    """Per-vert trunk/limb weights, the edge list, and REST edge lengths.
 
     Built once and shared by ``assert_no_torso_spike`` and the bind repair, so
-    the repair cannot disagree with the gate about which edges are torso edges
+    the repair cannot disagree with the gate about which edges are trunk edges
     or about how far they have stretched.
     """
     me = body.data
-    upper_l = vg_index(body, "upperarm_l")
-    upper_r = vg_index(body, "upperarm_r")
-    lower_l = vg_index(body, "lowerarm_l")
-    lower_r = vg_index(body, "lowerarm_r")
-    hand_l = vg_index(body, "hand_l")
-    hand_r = vg_index(body, "hand_r")
-    thigh_l = vg_index(body, "thigh_l")
-    thigh_r = vg_index(body, "thigh_r")
-    calf_l = vg_index(body, "calf_l")
-    calf_r = vg_index(body, "calf_r")
-    foot_l = vg_index(body, "foot_l") or vg_index(body, "foot")
-    foot_r = vg_index(body, "foot_r")
-    arm_w = []
-    leg_w = []
-    for v in me.vertices:
-        arm_w.append(
-            _arm_weight(v, upper_l, upper_r, lower_l, lower_r, hand_l, hand_r)
-        )
-        leg_w.append(_leg_weight(v, thigh_l, thigh_r, calf_l, calf_r, foot_l, foot_r))
+    trunk_gis, limb_gis = trunk_and_limb_groups(body, arm)
+    trunk = [group_max_weight(v, trunk_gis) for v in me.vertices]
+    limb = [group_max_weight(v, limb_gis) for v in me.vertices]
     scale = body_world_scale(body)
     edges = []
     rest = []
@@ -1631,46 +1701,75 @@ def stretch_gate_context(body) -> dict:
                 TORSO_REST_EDGE_FLOOR_M,
             )
         )
-    return {"arm": arm_w, "leg": leg_w, "edges": edges, "rest": rest}
+    ctx = {"trunk": trunk, "limb": limb, "edges": edges, "rest": rest}
+    in_scope = sum(1 for a, b in edges if is_trunk_edge(ctx, a, b))
+    log(
+        f"trunk scope: {in_scope} of {len(edges)} male_body edges have both ends "
+        f"on the trunk (trunk weight >= {TRUNK_EDGE_MIN_W}, limb weight < "
+        f"{TRUNK_EDGE_MAX_LIMB_W})"
+    )
+    return ctx
 
 
-def is_limb_edge(ctx: dict, a: int, b: int) -> bool:
-    """Punch_Cross opens the armpit ~20 cm; that is not a through-torso spike."""
-    arm_a, arm_b = ctx["arm"][a], ctx["arm"][b]
-    leg_a, leg_b = ctx["leg"][a], ctx["leg"][b]
+def is_trunk_edge(ctx: dict, a: int, b: int) -> bool:
+    """True when BOTH ends sit on the trunk and neither is limb-driven.
+
+    Out of scope by construction: the armpit and the hip (a joint that opens),
+    the hands and feet, and the head — which includes the carved maw, whose long
+    bore edges are not a torso defect.
+    """
+    if ctx["trunk"][a] < TRUNK_EDGE_MIN_W or ctx["trunk"][b] < TRUNK_EDGE_MIN_W:
+        return False
     return (
-        (arm_a >= 0.35 and arm_b >= 0.35)
-        or (leg_a >= 0.35 and leg_b >= 0.35)
-        or (arm_a >= 0.40 or arm_b >= 0.40)
-        or (leg_a >= 0.40 or leg_b >= 0.40)
+        ctx["limb"][a] < TRUNK_EDGE_MAX_LIMB_W
+        and ctx["limb"][b] < TRUNK_EDGE_MAX_LIMB_W
     )
 
 
 def scan_torso_edges(
-    ctx: dict, verts_w: list, *, limit_m: float, limit_stretch: float
+    ctx: dict,
+    verts_w: list,
+    *,
+    limit_m: float,
+    limit_stretch: float,
+    min_excess_m: float,
 ) -> dict:
-    """Measure every non-limb posed edge against both limits.
+    """Measure every trunk posed edge against the tear criteria.
 
-    Absolute length catches a through-body spike. Stretch relative to rest
-    length catches the thing that got through f4d2059: a band of chest edges
-    at 9x their rest length, only 91 mm long, which the eye reads as a tear and
-    a metre threshold does not see. An edge is "over" if it fails either.
+    An edge is flagged when it exceeds ``limit_m`` outright, or when it is
+    stretched past ``limit_stretch`` **and** has grown by at least
+    ``min_excess_m``. Both halves are needed:
+
+    * Stretch alone is what 46fc7b0 gated on, and a 2.8 mm rest edge reaching
+      10.8 mm is 3.88x while having moved only 8 mm — invisible.
+    * Absolute length alone is what f4d2059 gated on, and a ~10 mm chest edge
+      reaching 91 mm passed a 0.14 m cap while reading as a jagged band. That
+      one is 9x with 81 mm of growth, so it fails both halves and is caught.
+
+    Together they say "moved far, and much further than it should have", which
+    is what a visible tear is.
     """
     worst_m = 0.0
     worst_m_pair = (-1, -1)
     worst_s = 0.0
     worst_s_pair = (-1, -1)
     worst_s_len = 0.0
-    worst_limb = 0.0
+    worst_s_rest = 0.0
+    out_of_scope_m = 0.0
+    out_of_scope_s = 0.0
     over = []
     stretches = []
     for k, (a, b) in enumerate(ctx["edges"]):
         d = (verts_w[a] - verts_w[b]).length
-        if is_limb_edge(ctx, a, b):
-            if d > worst_limb:
-                worst_limb = d
+        rest = ctx["rest"][k]
+        if not is_trunk_edge(ctx, a, b):
+            if d > out_of_scope_m:
+                out_of_scope_m = d
+            s_out = d / rest
+            if s_out > out_of_scope_s:
+                out_of_scope_s = s_out
             continue
-        s = d / ctx["rest"][k]
+        s = d / rest
         stretches.append(s)
         if d > worst_m:
             worst_m = d
@@ -1679,8 +1778,9 @@ def scan_torso_edges(
             worst_s = s
             worst_s_pair = (a, b)
             worst_s_len = d
-        if d > limit_m or s > limit_stretch:
-            over.append((d, s, a, b))
+            worst_s_rest = rest
+        if d > limit_m or (s > limit_stretch and (d - rest) > min_excess_m):
+            over.append((d, s, rest, a, b))
     stretches.sort()
 
     def pct(f: float) -> float:
@@ -1695,7 +1795,9 @@ def scan_torso_edges(
         "worst_stretch": worst_s,
         "worst_stretch_pair": worst_s_pair,
         "worst_stretch_len": worst_s_len,
-        "worst_limb": worst_limb,
+        "worst_stretch_rest": worst_s_rest,
+        "out_of_scope_m": out_of_scope_m,
+        "out_of_scope_stretch": out_of_scope_s,
         "over": over,
         "n": len(stretches),
         "p50": pct(0.50),
@@ -1706,16 +1808,21 @@ def scan_torso_edges(
 
 
 def format_stretch_stats(scan: dict) -> str:
-    """Percentiles of non-limb edge stretch, so the limits can be calibrated.
+    """Trunk edge stretch distribution, so the limits stay calibrated.
 
-    A bake that refuses on stretch should also say what a normal edge on this
-    mesh does, otherwise the next run is guessing at the threshold again.
+    A bake that refuses on stretch should also say what a normal trunk edge on
+    this mesh does, and what the out-of-scope limbs are doing, otherwise the
+    next run is guessing at the threshold again.
     """
+    excess = scan["worst_stretch_len"] - scan["worst_stretch_rest"]
     return (
-        f"n={scan['n']} stretch p50={scan['p50']:.2f} p90={scan['p90']:.2f} "
+        f"trunk n={scan['n']} stretch p50={scan['p50']:.2f} p90={scan['p90']:.2f} "
         f"p99={scan['p99']:.2f} p99.9={scan['p999']:.2f} "
         f"max={scan['worst_stretch']:.2f} at {scan['worst_stretch_pair']} "
-        f"({scan['worst_stretch_len']:.4f} m)"
+        f"({scan['worst_stretch_len'] * 1000:.1f} mm from "
+        f"{scan['worst_stretch_rest'] * 1000:.1f} mm rest, +{excess * 1000:.1f} mm); "
+        f"out of scope: worst {scan['out_of_scope_m'] * 1000:.1f} mm / "
+        f"{scan['out_of_scope_stretch']:.2f}x"
     )
 
 
@@ -1811,7 +1918,7 @@ def bind_probe_poses(arm) -> list:
 
 
 def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list) -> tuple:
-    """Worst non-limb posed edge, absolute and relative, across every probe pose."""
+    """Worst trunk posed edge, absolute and relative, across every probe pose."""
     over = {}
     worst_m = 0.0
     worst_m_pair = (-1, -1)
@@ -1819,7 +1926,7 @@ def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list) -> tuple:
     worst_s_pair = (-1, -1)
     worst_s_len = 0.0
     worst_at = "(none)"
-    worst_limb = 0.0
+    worst_out_of_scope = 0.0
     worst_scan = None
     for label, act, frames in poses:
         for f in frames:
@@ -1835,6 +1942,7 @@ def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list) -> tuple:
                 verts_w,
                 limit_m=BIND_SEAM_TARGET_M,
                 limit_stretch=BIND_SEAM_TARGET_STRETCH,
+                min_excess_m=BIND_SEAM_TARGET_EXCESS_M,
             )
             if scan["worst_m"] > worst_m:
                 worst_m = scan["worst_m"]
@@ -1845,12 +1953,12 @@ def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list) -> tuple:
                 worst_s_len = scan["worst_stretch_len"]
                 worst_at = f"{label}:{act.name}@{f}"
                 worst_scan = scan
-            worst_limb = max(worst_limb, scan["worst_limb"])
-            for d, s, a, b in scan["over"]:
+            worst_out_of_scope = max(worst_out_of_scope, scan["out_of_scope_m"])
+            for d, s, rest, a, b in scan["over"]:
                 key = (a, b)
                 prev = over.get(key)
-                if prev is None or s > prev[1]:
-                    over[key] = (d, s)
+                if prev is None or (d - rest) > (prev[0] - prev[2]):
+                    over[key] = (d, s, rest)
     return over, {
         "worst_m": worst_m,
         "worst_m_pair": worst_m_pair,
@@ -1858,7 +1966,7 @@ def probe_stretched_bind_seams(arm, body, ctx: dict, poses: list) -> tuple:
         "worst_stretch_pair": worst_s_pair,
         "worst_stretch_len": worst_s_len,
         "at": worst_at,
-        "worst_limb": worst_limb,
+        "out_of_scope_m": worst_out_of_scope,
         "stats": format_stretch_stats(worst_scan) if worst_scan else "(no scan)",
     }
 
@@ -1897,17 +2005,17 @@ def repair_bind_seams(arm) -> int:
     # edge to "limb" and let the repair pass by reclassification instead of by
     # shortening anything. Measuring against the pre-repair classification
     # keeps the improvement geometric.
-    ctx = stretch_gate_context(body)
+    ctx = stretch_gate_context(body, arm)
     smoothed = 0
     stats = {}
     for attempt, (rings, iterations) in enumerate(BIND_SEAM_ATTEMPTS):
         over, stats = probe_stretched_bind_seams(arm, body, ctx, poses)
         log(
-            f"bind seam probe {attempt}: worst non-limb edge "
+            f"bind seam probe {attempt}: worst trunk edge "
             f"{stats['worst_m']:.4f} m at {stats['worst_m_pair']}, worst stretch "
             f"{stats['worst_stretch']:.2f}x ({stats['worst_stretch_len']:.4f} m) "
             f"at {stats['worst_stretch_pair']} on {stats['at']} "
-            f"(limb edges up to {stats['worst_limb']:.4f} ignored); "
+            f"(out-of-scope edges up to {stats['out_of_scope_m']:.4f} m ignored); "
             f"{len(over)} edge(s) over {BIND_SEAM_TARGET_M} m / "
             f"{BIND_SEAM_TARGET_STRETCH}x. {stats['stats']}"
         )
@@ -1919,9 +2027,12 @@ def repair_bind_seams(arm) -> int:
                 f"{BIND_SEAM_TARGET_STRETCH}x on every probe pose"
             )
             return smoothed
-        for (a, b), (d, sr) in sorted(over.items(), key=lambda kv: -kv[1][1])[:6]:
+        for (a, b), (d, sr, rest) in sorted(
+            over.items(), key=lambda kv: -(kv[1][0] - kv[1][2])
+        )[:6]:
             log(
-                f"  torn seam {d:.4f} m ({sr:.2f}x) ({a},{b}) "
+                f"  torn seam {d * 1000:.1f} mm ({sr:.2f}x from "
+                f"{rest * 1000:.1f} mm rest, +{(d - rest) * 1000:.1f} mm) ({a},{b}) "
                 f"[{describe_vert_bind(body, arm, a)}] "
                 f"[{describe_vert_bind(body, arm, b)}]"
             )
@@ -1952,21 +2063,24 @@ def repair_bind_seams(arm) -> int:
     arm.matrix_basis = arm_basis
     force_armature_rest(arm)
     if over:
-        a, b = stats["worst_stretch_pair"]
+        # Report the worst edge that is actually FLAGGED, by how far it grew.
+        # 46fc7b0 reported its unconditional worst stretch instead, which was a
+        # 2.8 mm toe seam that had moved 8 mm — true, and not what was blocking.
+        (a, b), (d, sr, rest) = max(over.items(), key=lambda kv: kv[1][0] - kv[1][2])
         raise RuntimeError(
             f"bind seam repair did not converge after {len(BIND_SEAM_ATTEMPTS)} "
-            f"attempts: worst non-limb edge {stats['worst_m']:.4f} m "
-            f"(limit {BIND_SEAM_TARGET_M}), worst stretch "
-            f"{stats['worst_stretch']:.2f}x (limit {BIND_SEAM_TARGET_STRETCH}) at "
-            f"{stats['worst_stretch_len']:.4f} m on {stats['at']} verts=({a},{b}) "
+            f"attempts: {len(over)} trunk edge(s) still over "
+            f"{BIND_SEAM_TARGET_M} m / {BIND_SEAM_TARGET_STRETCH}x with "
+            f"{BIND_SEAM_TARGET_EXCESS_M * 1000:.0f} mm growth. Worst by growth: "
+            f"{d * 1000:.1f} mm ({sr:.2f}x from {rest * 1000:.1f} mm rest, "
+            f"+{(d - rest) * 1000:.1f} mm) verts=({a},{b}) on {stats['at']} "
             f"[{describe_vert_bind(body, arm, a)}] "
-            f"[{describe_vert_bind(body, arm, b)}] "
-            f"({len(over)} edge(s) still over). {stats['stats']} — the "
-            f"percentiles say what a normal edge on this mesh does; the bones "
-            f"named above are the seam that tears."
+            f"[{describe_vert_bind(body, arm, b)}]. {stats['stats']} — the "
+            f"percentiles say what a normal trunk edge on this mesh does; the "
+            f"bones named above are the seam that tears."
         )
     log(
-        f"bind seams repaired: worst non-limb edge {stats['worst_m']:.4f} m / "
+        f"bind seams repaired: worst trunk edge {stats['worst_m']:.4f} m / "
         f"{stats['worst_stretch']:.2f}x on {stats['at']} over "
         f"{sum(len(f) for _l, _a, f in poses)} probe poses "
         f"({smoothed} vert weight writes). {stats['stats']}"
@@ -2814,7 +2928,7 @@ def assert_no_torso_spike(arm, label: str) -> None:
         )
     torso = []
     for i, v in enumerate(body.data.vertices):
-        tw = max(vg_weight(v, gi) for gi in spine_groups)
+        tw = spine_weight(v, spine_groups)
         if tw < 0.28:
             continue
         if vg_weight(v, head_i) >= 0.40:
@@ -2844,18 +2958,19 @@ def assert_no_torso_spike(arm, label: str) -> None:
         f"{label} torso spike gate: worst={worst:.4f} median_dist={mid_d:.4f} "
         f"n={len(torso)}"
     )
-    ctx = stretch_gate_context(body)
+    ctx = stretch_gate_context(body, arm)
     scan = scan_torso_edges(
         ctx,
         verts_w,
         limit_m=TORSO_EDGE_MAX_M,
         limit_stretch=TORSO_EDGE_MAX_STRETCH,
+        min_excess_m=TORSO_EDGE_MIN_EXCESS_M,
     )
     log(f"{label} torso edge stats: {format_stretch_stats(scan)}")
     if scan["worst_m"] > TORSO_EDGE_MAX_M:
         a, b = scan["worst_m_pair"]
         raise RuntimeError(
-            f"{label} still: stretched male_body torso edge {scan['worst_m']:.4f} > "
+            f"{label} still: stretched male_body trunk edge {scan['worst_m']:.4f} > "
             f"{TORSO_EDGE_MAX_M} verts=({a},{b}) "
             f"[{describe_vert_bind(body, arm, a)}] "
             f"[{describe_vert_bind(body, arm, b)}] "
@@ -2863,24 +2978,27 @@ def assert_no_torso_spike(arm, label: str) -> None:
             f"spike; refusing PNG. The bones named above are the seam that "
             f"tears; repair_bind_seams should have blended them"
         )
-    if scan["worst_stretch"] > TORSO_EDGE_MAX_STRETCH:
-        a, b = scan["worst_stretch_pair"]
+    if scan["over"]:
+        # Flagged means over the absolute cap, or stretched past the ratio AND
+        # grown by a visible amount. Report the worst by growth: that is the one
+        # a reviewer would point at.
+        d, sr, rest, a, b = max(scan["over"], key=lambda o: o[0] - o[2])
+        grew = d - rest
         raise RuntimeError(
-            f"{label} still: male_body torso edge stretched "
-            f"{scan['worst_stretch']:.2f}x its rest length "
-            f"(> {TORSO_EDGE_MAX_STRETCH}) at only "
-            f"{scan['worst_stretch_len']:.4f} m verts=({a},{b}) "
+            f"{label} still: male_body trunk edge stretched {sr:.2f}x "
+            f"(> {TORSO_EDGE_MAX_STRETCH}) to {d * 1000:.1f} mm, grown "
+            f"{grew * 1000:.1f} mm (> {TORSO_EDGE_MIN_EXCESS_M * 1000:.0f} mm) "
+            f"verts=({a},{b}) "
             f"[{describe_vert_bind(body, arm, a)}] "
             f"[{describe_vert_bind(body, arm, b)}] "
             f"({len(scan['over'])} edge(s) over). {format_stretch_stats(scan)}. "
             f"This is the f4d2059 pixel class: short enough to pass a metre cap, "
-            f"stretched enough to read as a jagged band; refusing PNG"
+            f"stretched far enough to read as a jagged band; refusing PNG"
         )
     log(
-        f"{label} stretched-edge gate: worst_torso={scan['worst_m']:.4f} "
+        f"{label} stretched-edge gate: worst_trunk={scan['worst_m']:.4f} m "
         f"verts={scan['worst_m_pair']} "
-        f"worst_stretch={scan['worst_stretch']:.2f}x "
-        f"worst_limb_skipped={scan['worst_limb']:.4f}"
+        f"worst_stretch={scan['worst_stretch']:.2f}x (none flagged)"
     )
 
 
