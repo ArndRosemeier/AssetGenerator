@@ -249,11 +249,14 @@ raise the epsilon to get a green generate — offset the box on Z.
 QA cannot see “crate looks like a filing cabinet.” Always inspect `hero` / `front` /
 `side` previews. If the silhouette is wrong, change params (or the generator).
 
-This is the single most expensive failure class in the repo. `docs/CREATURE_BAKE_LESSONS.md`
+This is the single most expensive failure class in the repo. `docs/CREATURE_TRANSFORMS.md`
 works through a week of green `EXIT 0` bakes whose renders were wrong, and the
 rules that came out of it — chiefly: a gate that re-reads the buffer the edit
 wrote cannot detect a discarded edit, and anything whose purpose is to be
-visible needs one pixel or ray gate. Read it before writing a new gate.
+visible needs one pixel or ray gate. Read it before writing a new gate. The same
+file is the recipe for turning `male_base` into a new creature (goblin, kobold,
+ogre, elf): which constants to change, in which order, and what is not yet
+possible.
 
 ### 3. Blown-out or mud-dark previews
 
