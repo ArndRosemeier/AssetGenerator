@@ -178,18 +178,15 @@ HEAD_MOUTH_MAX_LOCAL = 0.28
 # refuse above that family — do not invent closer dummy anchors.
 MOUTH_CORNER_MAX_ABS_X = 0.095
 # Lip-corner surface → mouth cavity in MH body space (face is -Y).
-# 21:10: base ON the corner vert passed mouth_vert_dist=0.026 while Idle/Walk
-# pixels showed cones on cheeks — move the authored base into the cavity.
-# 21:56: Idle/Walk improved but Punch still floated a tip in front of the lip —
-# deepen cavity and limit tip protrusion past the posed lip plane.
-CAVITY_IN_Y = 0.038  # +Y into the head from the lip surface
-CAVITY_IN_X = 0.018  # toward midline
-CAVITY_DOWN_Z = 0.012
+# Base sits inside lower jaw gum cavity (+Y into head, toward midline, downward).
+CAVITY_IN_Y = 0.028  # +Y into the head from the lip surface
+CAVITY_IN_X = 0.016  # toward midline
+CAVITY_DOWN_Z = 0.012  # downward into lower jaw gum
 # Still gate: fraction of tusk verts that must sit deeper than the lip (+Y).
 TUSK_CAVITY_INSIDE_FRAC = 0.40
 TUSK_CAVITY_Y_EPS = 0.004
 # Max any tusk vert may sit past the posed lip toward outside the mouth
-# (opposite cavity dir). 21:56 Punch tip-in-front-of-chin class.
+# (opposite cavity dir).
 TUSK_MAX_OUT_PAST_LIP = 0.028
 
 # Scratch exports must never clobber the 16:35 restyle backups.
@@ -547,8 +544,8 @@ def write_art_review_packet(
             "Nude skin-only: no OrcGear_*, no invented look-dev clothes.",
             "Olive skin is painted on mesh male_body (mat OrcSkin_male_body).",
             "Tusks BONE-parented to head with Identity matrix_parent_inverse; "
-            "mesh authored in tip/BONE-parent space from lip-corner → deep mouth "
-            "cavity; shorter tip (21:56 Punch tip-past-lip class).",
+            "mesh authored upright (+Y bone/World +Z) from lower gum cavity with "
+            "mild forward pitch/inward yaw (naturally seated in mouth; no chin floaters).",
             "AFTER stills gate: cavity bind + lip-corner (0.085) + inside frac + "
             "max tip past posed lip before each PNG; junk Eyes/spheres hidden.",
             "Mouth/jaw restyle skips neck_01 / heavy spine_03 (no Idle/Walk shred).",
@@ -1859,10 +1856,11 @@ def add_tusks(arm) -> list:
     parent_bone=head with Identity ``matrix_parent_inverse``. No Armature
     modifier. No new bones.
 
-    21:10: authoring the cone base on the lip-corner surface passed
-    mouth_vert_dist=0.026 while Idle/Walk pixels showed cheek cones — the
-    visible mesh must start inside the cavity, not on the cheek.
-    21:56: deeper cavity + shorter tip so Punch does not float past the lip.
+    Cone mesh is authored along +Y (UP in bone local space / World +Z) from
+    the lower jaw cavity, with slight forward pitch (+Z in bone local space /
+    World -Y) and inward yaw toward midline. This keeps tusks naturally seated
+    in the mouth cavity across all animations (Idle, Walk, Punch_Cross, Death01)
+    without protruding forward past the posed lip or floating on cheeks.
     """
     if "head" not in arm.data.bones:
         raise RuntimeError("53-bone bind missing head bone")
@@ -1909,9 +1907,10 @@ def add_tusks(arm) -> list:
 
     mat = make_opaque_mat("OrcTusk", TUSK, 0.55)
     created = []
+    # Left tusk tilts toward midline (-yaw), Right tusk tilts toward midline (+yaw).
     specs = [
-        ("OrcTusk_L", left_local, left_head, left_idx, left_world, 14.0),
-        ("OrcTusk_R", right_local, right_head, right_idx, right_world, -14.0),
+        ("OrcTusk_L", left_local, left_head, left_idx, left_world, -10.0),
+        ("OrcTusk_R", right_local, right_head, right_idx, right_world, 10.0),
     ]
     for name, base, head_local, mouth_idx, mouth_world, yaw_deg in specs:
         bm = bmesh.new()
@@ -1920,27 +1919,31 @@ def add_tusks(arm) -> list:
             cap_ends=True,
             cap_tris=True,
             segments=10,
-            radius1=0.011,
-            radius2=0.0025,
-            depth=0.038,
+            radius1=0.010,
+            radius2=0.0022,
+            depth=0.040,
         )
-        # Tip mostly up out of the mouth opening (not far forward of the lip).
-        # 21:56 Punch floated a long tip in front of the chin — shorter cone,
-        # milder pitch, deeper cavity base.
+        # Author cone along +Y (UP in bone local / World +Z) emerging from lower gum,
+        # with slight forward pitch (+Z in bone local / World -Y) and inward yaw.
         for v in bm.verts:
-            v.co.z += 0.019
-            a = math.radians(-28.0)
-            cy = v.co.y * math.cos(a) - v.co.z * math.sin(a)
-            cz = v.co.y * math.sin(a) + v.co.z * math.cos(a)
-            v.co.y = cy
-            v.co.z = cz
-            ca = math.cos(math.radians(yaw_deg))
-            sa = math.sin(math.radians(yaw_deg))
-            rx = v.co.x * ca - v.co.y * sa
-            ry = v.co.x * sa + v.co.y * ca
-            v.co.x = rx + base.x
-            v.co.y = ry + base.y
-            v.co.z += base.z
+            vz = v.co.z + 0.020  # shift base to 0, tip to +0.040 along Z
+            # Orient cone axis along +Y (UP in bone local space):
+            y0 = vz
+            z0 = -v.co.y
+            x0 = v.co.x
+            # Pitch tilt (slight forward tilt around X axis toward +Z / World -Y):
+            ap = math.radians(8.0)
+            y1 = y0 * math.cos(ap) - z0 * math.sin(ap)
+            z1 = y0 * math.sin(ap) + z0 * math.cos(ap)
+            x1 = x0
+            # Yaw tilt (tilt toward midline around Z axis):
+            ay = math.radians(yaw_deg)
+            x2 = x1 * math.cos(ay) - y1 * math.sin(ay)
+            y2 = x1 * math.sin(ay) + y1 * math.cos(ay)
+            z2 = z1
+            v.co.x = x2 + base.x
+            v.co.y = y2 + base.y
+            v.co.z = z2 + base.z
         me = bpy.data.meshes.new(name)
         bm.to_mesh(me)
         bm.free()
