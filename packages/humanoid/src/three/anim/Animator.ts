@@ -1444,15 +1444,32 @@ export class Animator {
     this.pelvisOff = approach(this.pelvisOff, drop, 10, dt);
     ch.bones[0].position.y += this.pelvisOff;
     ch.bones[0].updateMatrixWorld(true);
+    ch.object.getWorldQuaternion(_q3);
     for (let k = 0; k < 2; k++) {
       const s = sides[k];
       const hip = ch.bone(`upperleg01.${s}`), knee = ch.bone(`lowerleg01.${s}`), foot = ch.bone(`foot.${s}`);
       foot.getWorldPosition(_v);
       const target = _v3.copy(_v);
       target.y += (this.footOff[k] - this.pelvisOff) * sc;
-      if (Math.abs(this.footOff[k] - this.pelvisOff) < 0.004) continue;
-      this.twoBone(hip, knee, foot, target);
+      this.twoBone(hip, knee, foot, target, this.kneePole(hip, knee, foot, s, _rp));
     }
+  }
+
+  /**
+   * Which way a knee bends (a world direction): the way the pose already bends it, as long as that
+   * is forward; else forward and a little out. A nearly straight leg has no bend of its own to go
+   * by, and a two-bone solve from it could fold the knee backwards (a standing knee snapping bent).
+   * Needs `_q3` = the character's world rotation.
+   */
+  private kneePole(hip: THREE.Bone, knee: THREE.Bone, foot: THREE.Bone, s: Side, out: THREE.Vector3): THREE.Vector3 {
+    const fwd = _rg.set((s === 'L' ? -1 : 1) * 0.15, 0, -1).applyQuaternion(_q3).normalize();
+    const H = hip.getWorldPosition(_ra), K = knee.getWorldPosition(_rb), F = foot.getWorldPosition(_rc);
+    const line = _rd.subVectors(F, H).normalize();
+    const bend = out.subVectors(K, H);
+    bend.addScaledVector(line, -bend.dot(line));
+    const len = H.distanceTo(K);
+    if (bend.dot(fwd) > 0.08 * len) return bend.normalize();
+    return out.copy(fwd);
   }
 
   /**
@@ -1582,20 +1599,29 @@ export class Animator {
     return a;
   }
 
-  /** Two-bone IK: bend the knee to the needed angle, then aim the hip at the target. */
-  private twoBone(hip: THREE.Bone, knee: THREE.Bone, end: THREE.Bone, target: THREE.Vector3) {
+  /**
+   * Two-bone IK that keeps the pose's own bend: bend the knee (toward `pole`) to the needed angle,
+   * then aim the hip at the target. A target where the foot already is changes nothing, so the
+   * correction fades in and out smoothly with the offset (no threshold to pop across).
+   */
+  private twoBone(hip: THREE.Bone, knee: THREE.Bone, end: THREE.Bone, target: THREE.Vector3, pole: THREE.Vector3) {
     const pa = hip.getWorldPosition(new THREE.Vector3());
     const pb = knee.getWorldPosition(new THREE.Vector3());
     const pc = end.getWorldPosition(new THREE.Vector3());
     const lab = pa.distanceTo(pb), lcb = pb.distanceTo(pc);
     const lat = clamp(pa.distanceTo(target), 0.01, lab + lcb - 0.002);
-    const acCur = pa.distanceTo(pc);
-    // Current & desired interior knee angles.
+    // Interior knee angles, now and wanted; now is signed by the bend's side (beyond 180° when the
+    // knee is bent away from the pole), so the solve always bends toward the pole.
     const ang = (a: number, b: number, c: number) => Math.acos(clamp((a * a + b * b - c * c) / (2 * a * b), -1, 1));
-    const cur = ang(lab, lcb, acCur), want = ang(lab, lcb, lat);
-    _v.subVectors(pa, pb); _v2.subVectors(pc, pb);
-    const axis = _v4.crossVectors(_v2, _v);
-    if (axis.lengthSq() < 1e-10) hip.getWorldQuaternion(_q).normalize(), axis.set(1, 0, 0).applyQuaternion(_q);
+    _v.subVectors(pc, pa).normalize();
+    _v2.subVectors(pb, pa);
+    const side = _v2.addScaledVector(_v, -_v2.dot(_v)).dot(pole);
+    const interior = ang(lab, lcb, pa.distanceTo(pc));
+    const cur = side >= 0 ? interior : 2 * Math.PI - interior, want = ang(lab, lcb, lat);
+    // Turning the shin about this axis swings the foot back from the pole: the knee comes forward.
+    _v2.subVectors(pc, pb);
+    const axis = _v4.crossVectors(_v2, _v.copy(pole).multiplyScalar(-1));
+    if (axis.lengthSq() < 1e-10) return;
     axis.normalize();
     this.rotateWorld(knee, axis, cur - want);
     knee.updateMatrixWorld(true);
