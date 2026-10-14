@@ -302,11 +302,31 @@ export interface CellResult {
   px: number;
   py: number;
   pz: number;
+  /** hash of the second nearest cell (the neighbour across the nearest Voronoi border) */
+  id2: number;
+  /** second nearest feature point position */
+  px2: number;
+  py2: number;
+  pz2: number;
+}
+
+function newCellResult(): CellResult {
+  return { f1: 0, f2: 0, cx: 0, cy: 0, cz: 0, id: 0, px: 0, py: 0, pz: 0, id2: 0, px2: 0, py2: 0, pz2: 0 };
+}
+
+/**
+ * Distance from (x, y[, z]) to the Voronoi border between the nearest and second nearest feature
+ * points of a cellular result, in the same units as its input (exact, unlike (f2 - f1) / 2).
+ */
+export function cellBorder(r: CellResult): number {
+  const dx = r.px2 - r.px, dy = r.py2 - r.py, dz = r.pz2 - r.pz;
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  return len > 0 ? (r.f2 * r.f2 - r.f1 * r.f1) / (2 * len) : 0;
 }
 
 /** Worley / cellular noise. Jitter in [0,1]. */
 export function cellular2(seed: number, x: number, y: number, jitter = 1, out?: CellResult): CellResult {
-  const r = out ?? { f1: 0, f2: 0, cx: 0, cy: 0, cz: 0, id: 0, px: 0, py: 0, pz: 0 };
+  const r = out ?? newCellResult();
   const xi = Math.floor(x), yi = Math.floor(y);
   let f1 = 1e9, f2 = 1e9;
   for (let dy = -1; dy <= 1; dy++) {
@@ -320,8 +340,12 @@ export function cellular2(seed: number, x: number, y: number, jitter = 1, out?: 
       if (d < f1) {
         f2 = f1;
         f1 = d;
+        r.id2 = r.id; r.px2 = r.px; r.py2 = r.py; r.pz2 = 0;
         r.cx = cx; r.cy = cy; r.cz = 0; r.id = h; r.px = fx; r.py = fy; r.pz = 0;
-      } else if (d < f2) f2 = d;
+      } else if (d < f2) {
+        f2 = d;
+        r.id2 = h; r.px2 = fx; r.py2 = fy; r.pz2 = 0;
+      }
     }
   }
   r.f1 = f1;
@@ -330,7 +354,7 @@ export function cellular2(seed: number, x: number, y: number, jitter = 1, out?: 
 }
 
 export function cellular3(seed: number, x: number, y: number, z: number, jitter = 1, out?: CellResult): CellResult {
-  const r = out ?? { f1: 0, f2: 0, cx: 0, cy: 0, cz: 0, id: 0, px: 0, py: 0, pz: 0 };
+  const r = out ?? newCellResult();
   const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
   let f1 = 1e9, f2 = 1e9;
   for (let dz = -1; dz <= 1; dz++)
@@ -346,8 +370,12 @@ export function cellular3(seed: number, x: number, y: number, z: number, jitter 
         if (d < f1) {
           f2 = f1;
           f1 = d;
+          r.id2 = r.id; r.px2 = r.px; r.py2 = r.py; r.pz2 = r.pz;
           r.cx = cx; r.cy = cy; r.cz = cz; r.id = h; r.px = fx; r.py = fy; r.pz = fz;
-        } else if (d < f2) f2 = d;
+        } else if (d < f2) {
+          f2 = d;
+          r.id2 = h; r.px2 = fx; r.py2 = fy; r.pz2 = fz;
+        }
       }
   r.f1 = f1;
   r.f2 = f2;
