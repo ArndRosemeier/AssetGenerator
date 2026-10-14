@@ -42,3 +42,6 @@ tools/_human_bake/
 tools/_human_orc_bake/
 tools/_tribal_veteran_bake/
 tools/_inspect_human_glb.py
+
+# npm workspaces
+node_modules/

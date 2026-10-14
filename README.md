@@ -1,5 +1,7 @@
 # Blender Asset Lab
 
+> Also home of the shared **TypeScript packages** (`packages/`, npm workspaces): see [`packages/README.md`](packages/README.md).
+
 Engine-agnostic 3D asset generation, orchestrated from Cursor and executed by a headless
 Blender. You describe an asset in a small JSON spec, one command builds it, gates it on
 automated quality checks, exports a `.glb` and renders preview images.

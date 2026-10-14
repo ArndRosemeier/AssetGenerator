@@ -1,0 +1,12 @@
+{
+  "name": "@futuremagic/core",
+  "version": "0.1.0",
+  "description": "Deterministic randomness, noise and math shared by the futuremagic games (no three.js, no DOM).",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "license": "MIT"
+}
