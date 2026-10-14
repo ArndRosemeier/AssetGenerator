@@ -32,7 +32,8 @@ export interface HumanStatic {
   maskA: THREE.BufferAttribute;
   maskB: THREE.BufferAttribute;
   face: THREE.BufferAttribute;
-  expr: THREE.BufferAttribute;
+  /** Face coordinates (xyz) and the expression-texture column (w, -1 off the face), one vertex attribute: WebGPU allows only 8 vertex buffers per draw. */
+  faceExpr: THREE.BufferAttribute;
   lashUv: THREE.BufferAttribute;
   index: { body: Uint16Array; tongue: Uint16Array; teeth: Uint16Array; lashes: Uint16Array };
   /** Shared index attributes (full body, LOD1, LOD2). */
@@ -180,8 +181,11 @@ export function getHumanStatic(as: HumanAssets): HumanStatic {
   exprTex.needsUpdate = true;
   const morphToFace = new Int32Array(N).fill(-1);
   for (let i = 0; i < F; i++) morphToFace[as.exprVerts[i]] = i;
-  const expr = new Float32Array(RV);
-  for (let r = 0; r < RV; r++) expr[r] = morphToFace[src[r]];
+  const faceExpr = new Float32Array(RV * 4);
+  for (let r = 0; r < RV; r++) {
+    faceExpr.set(face.subarray(r * 3, r * 3 + 3), r * 4);
+    faceExpr[r * 4 + 3] = morphToFace[src[r]];
+  }
 
   // ---- eyelash card coordinates: u along the lid, v root→tip
   const lashUv = new Float32Array(RV * 2);
@@ -270,7 +274,7 @@ export function getHumanStatic(as: HumanAssets): HumanStatic {
     maskA: new THREE.Uint8BufferAttribute(maskA, 4, true),
     maskB: new THREE.Uint8BufferAttribute(maskB, 4, true),
     face: new THREE.BufferAttribute(face, 3),
-    expr: new THREE.BufferAttribute(expr, 1),
+    faceExpr: new THREE.BufferAttribute(faceExpr, 4),
     lashUv: new THREE.BufferAttribute(lashUv, 2),
     index,
     bodyIndex,

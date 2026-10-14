@@ -51,8 +51,9 @@ function partGeometry(p: PartGeo): THREE.BufferGeometry {
     const n = p.position.length / 3;
     g.setAttribute('aMaskA', new THREE.Uint8BufferAttribute(new Uint8Array(n * 4), 4, true));
     g.setAttribute('aMaskB', new THREE.Uint8BufferAttribute(new Uint8Array(n * 4), 4, true));
-    g.setAttribute('aFace', new THREE.BufferAttribute(new Float32Array(n * 3).fill(-20), 3));
-    g.setAttribute('aExpr', new THREE.BufferAttribute(new Float32Array(n).fill(-1), 1));
+    const fe = new Float32Array(n * 4).fill(-20);
+    for (let i = 3; i < fe.length; i += 4) fe[i] = -1;
+    g.setAttribute('aFace', new THREE.BufferAttribute(fe, 4));
   }
   g.setIndex(new THREE.BufferAttribute(p.index, 1));
   g.computeBoundingSphere();
@@ -97,8 +98,7 @@ export class CharacterGeometry {
       g.setAttribute('skinWeight', st.skinWeight);
       g.setAttribute('aMaskA', st.maskA);
       g.setAttribute('aMaskB', st.maskB);
-      g.setAttribute('aFace', st.face);
-      g.setAttribute('aExpr', st.expr);
+      g.setAttribute('aFace', st.faceExpr);
       g.setIndex(index);
       return g;
     };
@@ -117,7 +117,7 @@ export class CharacterGeometry {
   dispose() {
     // The static attributes and indices belong to HumanStatic (every character uses them): keep them.
     const st = this.st;
-    const shared = new Set<THREE.BufferAttribute>([st.uv, st.skinIndex, st.skinWeight, st.maskA, st.maskB, st.face, st.expr, st.lashUv, ...st.bodyIndex, st.tongueIndex, st.teethIndex, st.lashIndex]);
+    const shared = new Set<THREE.BufferAttribute>([st.uv, st.skinIndex, st.skinWeight, st.maskA, st.maskB, st.faceExpr, st.lashUv, ...st.bodyIndex, st.tongueIndex, st.teethIndex, st.lashIndex]);
     for (const g of [...this.body, this.lashes, this.teeth, this.tongue]) disposeOwn(g, (a) => shared.has(a));
     for (const lod of this.parts) for (const p of lod) p.geo.dispose();
   }

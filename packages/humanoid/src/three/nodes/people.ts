@@ -97,7 +97,7 @@ function skinGraph(opts: { expr: boolean; exprTex: THREE.Texture | null; exprUni
     const exprTex = opts.exprTex;
     const uExprW = P('uExprW');
     const uFaceScale = P('uFaceScale');
-    const aExpr = attribute('aExpr', 'float');
+    const aExpr = attribute('aFace', 'vec4').w;
     displaceBeforeSkinning(material, () => Fn(() => {
       const ed = vec3(0.0).toVar();
       If(aExpr.greaterThanEqual(0.0), () => {
@@ -113,7 +113,7 @@ function skinGraph(opts: { expr: boolean; exprTex: THREE.Texture | null; exprUni
 
   const vMaskA = attribute('aMaskA', 'vec4');
   const vMaskB = attribute('aMaskB', 'vec4');
-  const vFace = attribute('aFace', 'vec3');
+  const vFace = attribute('aFace', 'vec4').xyz;
   const vSkinUv = uv();
   const pores = poreTexture();
 
@@ -533,7 +533,7 @@ function shellGraph(P: (name: string) => unknown) {
   const hsColor = P('hsColor'), hsParams = P('hsParams'), hsLimits = P('hsLimits'), hsOffset = P('hsOffset');
   // Strands lean downward/backward with height (combed), lifting off the surface.
   displaceBeforeSkinning(material, () => normalGeometry.mul(hsOffset).add(vec3(0.0, -1.0, 0.6).mul(hsOffset).mul(0.35)));
-  const vHsFace = attribute('aFace', 'vec3');
+  const vHsFace = attribute('aFace', 'vec4').xyz;
   const base = material.setupDiffuseColor;
   material.setupDiffuseColor = function (builder) {
     base.call(this, builder);

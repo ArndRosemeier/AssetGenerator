@@ -36,3 +36,10 @@ test('humans stand on y = 0 and are human sized; races differ', () => {
   const dwarf = buildCharacter(assets, randomAppearance('dwarf', 1)).body;
   assert.ok(dwarf.height < 1.5, `dwarf ${dwarf.height}`);
 });
+
+test('a skin mesh needs at most 8 vertex buffers (the WebGPU limit)', async () => {
+  const { getHumanStatic } = await import('../src/three/staticData');
+  const { CharacterGeometry } = await import('../src/three/Character');
+  const geo = new CharacterGeometry(getHumanStatic(assets), buildCharacter(assets, randomAppearance('human', 7)));
+  for (const g of [...geo.body, geo.lashes, geo.teeth, geo.tongue]) assert.ok(Object.keys(g.attributes).length <= 8, Object.keys(g.attributes).join(' '));
+});
