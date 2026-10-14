@@ -1,0 +1,16 @@
+{
+  "name": "@futuremagic/humanoid",
+  "version": "0.1.0",
+  "description": "Scale's humans: MakeHuman bodies on the Woman/Man base, races, hair and parts, garment shells, skeleton, animator and node materials. The body build is pure (workers, tests); the three/ folder renders it with three.js node materials.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./three": "./src/three/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "peerDependencies": {
+    "three": ">=0.186.0"
+  },
+  "license": "MIT"
+}

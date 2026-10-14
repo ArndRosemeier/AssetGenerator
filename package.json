@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "description": "TypeScript packages shared by the futuremagic games. The Python/Blender pipeline lives alongside in tools/ and blender/.",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "test": "node --import tsx --test \"packages/*/test/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -11,6 +13,8 @@
   "devDependencies": {
     "tsx": "^4.23.15",
     "typescript": "~5.9.0",
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "three": "^0.186.1",
+    "@types/three": "^0.186.0"
   }
 }
