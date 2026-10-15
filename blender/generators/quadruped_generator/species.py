@@ -19,6 +19,8 @@ from blender.generators.quadruped_generator import (
     cricket_clips,
     rat_body,
     rat_clips,
+    slime_body,
+    slime_clips,
 )
 from blender.generators.quadruped_generator.anatomy import Body
 from blender.generators.quadruped_generator.params import QuadrupedParams
@@ -72,5 +74,23 @@ SPECIES: dict[str, Species] = {
         clips=cricket_clips.CLIPS,
         softness=cricket_body.SOFTNESS,
         default_softness=cricket_body.DEFAULT_SOFTNESS,
+    ),
+    "lumen_slime": Species(
+        body=lambda p: slime_body.slime(True, 0.0),
+        fur=slime_body.fur_offsets,
+        colours=slime_body.coat_colours,
+        hair=slime_body.hair,
+        clips=slime_clips.CLIPS,
+        softness=slime_body.SOFTNESS,
+        default_softness=slime_body.DEFAULT_SOFTNESS,
+    ),
+    "murk_slime": Species(
+        body=lambda p: slime_body.slime(False, p.lean),
+        fur=slime_body.fur_offsets,
+        colours=slime_body.coat_colours,
+        hair=slime_body.hair,
+        clips=slime_clips.CLIPS,
+        softness=slime_body.SOFTNESS,
+        default_softness=slime_body.DEFAULT_SOFTNESS,
     ),
 }

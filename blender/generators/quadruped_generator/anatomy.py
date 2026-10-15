@@ -42,6 +42,8 @@ class Body:
     teeth: list[tuple[Vec, Vec, float, str]] = field(default_factory=list)
     #: Where knees point, per leg kind, when not simply forward or back (pose.Rig).
     poles: dict[str, Vec] = field(default_factory=dict)
+    #: Does it squash and stretch (bones scaled, pose.Pose.scales), rather than only turn?
+    squash: bool = False
     #: Where shapes are being placed: an origin and a pitch (radians, nose down when negative).
     origin: Vec = (0.0, 0.0, 0.0)
     pitch: float = 0.0
@@ -71,6 +73,7 @@ class Body:
             eyes=[(m(c), r) for c, r in self.eyes],
             teeth=[(m(a), m(b), r, bone) for a, b, r, bone in self.teeth],
             poles=self.poles,
+            squash=self.squash,
         )
 
     def frame(self, origin: Vec = (0.0, 0.0, 0.0), pitch: float = 0.0) -> None:

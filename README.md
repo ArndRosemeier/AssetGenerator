@@ -107,7 +107,8 @@ game needs, with paws planted by IK. `params.species` picks the animal (`species
 and clips on the shared skeleton naming): `feral_dog` (`assets/specs/creature_feral_dog.json`, the
 default), `quarry_rat` (`assets/specs/creature_quarry_rat.json`) and `cave_cricket`
 (`assets/specs/creature_cave_cricket.json`: six legs with knee `poles`, feeler chains, mid legs under
-`LEGS["mid"]`). `lean` is the build: bone showing on a dog, fat on a rat, the abdomen on a cricket. A new animal is a body plan, a coat and a clip set in its own files plus a row
+`LEGS["mid"]`), and the slimes `lumen_slime` and `murk_slime` (`assets/specs/creature_*_slime.json`: no
+legs, a body that squashes and stretches, `Body.squash` and `Pose.scales`). `lean` is the build: bone showing on a dog, fat on a rat, the abdomen on a cricket, the lumps on Murk. A new animal is a body plan, a coat and a clip set in its own files plus a row
 in `SPECIES`. Without a Blender binary, `pip install bpy==4.5.*` (plus numpy) runs the entrypoints directly:
 `python blender/entrypoints/generate.py -- --payload p.json --result r.json`.
 
