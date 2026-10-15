@@ -958,6 +958,166 @@ def _boulder(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[flo
     return shade
 
 
+# ---------------------------------------------------------------------------------------------
+# Dwarven halls: a forge with its anvil, a king in granite, a brazier, a hanging chain.
+# ---------------------------------------------------------------------------------------------
+
+
+def _box(b: BoxBuilder, x0: float, x1: float, y0: float, y1: float, z0: float, z1: float, slot: str) -> None:
+    _hexa(
+        b,
+        [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)],
+        [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)],
+        slot,
+    )
+
+
+def _forge(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A squat stone hearth with a chimney hood, its firebox open to the front (-Y), an anvil
+    beside it. With `fire_only` it is just the glowing coals in the firebox, for the glow pass."""
+    if p["fire_only"] > 0.5:
+        _box(b, -0.42, 0.42, -0.5, 0.0, 0.62, 0.7, "fire")
+        for _ in range(9):
+            at = (rng.uniform(-0.35, 0.35), rng.uniform(-0.42, -0.08), 0.7)
+            _add(b, _blob(0.06, 0.05, 0.035, at, 3, 6), "fire")
+        return
+    # The hearth: a stone block with the firebox as a deep notch in its front.
+    _box(b, -0.7, 0.7, -0.55, 0.55, 0.0, 0.62, "stone")
+    _box(b, -0.7, -0.45, -0.55, 0.55, 0.62, 1.05, "stone")
+    _box(b, 0.45, 0.7, -0.55, 0.55, 0.62, 1.05, "stone")
+    _box(b, -0.45, 0.45, 0.0, 0.55, 0.62, 1.05, "stone")
+    # The hood narrowing up into a flue.
+    _hexa(
+        b,
+        [(-0.72, -0.57, 1.05), (0.72, -0.57, 1.05), (0.72, 0.57, 1.05), (-0.72, 0.57, 1.05)],
+        [(-0.3, -0.12, 1.45), (0.3, -0.12, 1.45), (0.3, 0.42, 1.45), (-0.3, 0.42, 1.45)],
+        "stone",
+    )
+    _box(b, -0.25, 0.25, -0.08, 0.38, 1.45, 1.6, "stone")
+    # A bellows' iron nozzle into the side, and the anvil on its block.
+    _add(b, sweep([(0.95, 0.15, 0.4), (0.7, 0.15, 0.4)], circle(0.05, 8)), "iron")
+    ax, ay = -1.15, -0.25
+    _box(b, ax - 0.2, ax + 0.2, ay - 0.2, ay + 0.2, 0.0, 0.45, "wood")
+    _box(b, ax - 0.12, ax + 0.12, ay - 0.1, ay + 0.1, 0.45, 0.62, "iron")
+    _box(b, ax - 0.2, ax + 0.2, ay - 0.13, ay + 0.13, 0.62, 0.74, "iron")
+    _add(
+        b,
+        place(lathe([(0.0, 0.0), (0.065, 0.0), (0.0, 0.22)], 8), (ax + 0.2, ay, 0.69), roll=math.pi / 2),
+        "iron",
+    )
+
+
+def _statue(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A dwarf king carved in one stone, facing -Y: broad robed body, a beard to his belt,
+    a crown, and both hands on the haft of a hammer stood before him. On a stepped plinth."""
+    H = p["height"]
+    s = H / 4.0
+    _box(b, -0.9 * s, 0.9 * s, -0.8 * s, 0.8 * s, 0.0, 0.35 * s, "stone")
+    _box(b, -0.75 * s, 0.75 * s, -0.65 * s, 0.65 * s, 0.35 * s, 0.75 * s, "stone")
+    z0 = 0.75 * s
+    # Robe and body: a broad squat cone, then shoulders.
+    body = [
+        (0.0, z0),
+        (0.68 * s, z0),
+        (0.62 * s, z0 + 0.6 * s),
+        (0.58 * s, z0 + 1.45 * s),
+        (0.72 * s, z0 + 1.85 * s),
+        (0.45 * s, z0 + 2.1 * s),
+        (0.0, z0 + 2.15 * s),
+    ]
+    _add(b, transform(lathe(body, 16), lambda v: (v[0], v[1] * 0.75, v[2])), "stone")
+    head_z = z0 + 2.45 * s
+    _add(b, _blob(0.34 * s, 0.33 * s, 0.38 * s, (0.0, 0.0, head_z), 8, 14), "stone")
+    # Heavy brow and nose, then the beard falling broad and thick to below the belt.
+    _add(b, _blob(0.27 * s, 0.1 * s, 0.07 * s, (0.0, -0.27 * s, head_z + 0.1 * s), 4, 8), "stone")
+    _add(b, _blob(0.07 * s, 0.1 * s, 0.11 * s, (0.0, -0.34 * s, head_z - 0.02 * s), 4, 6), "stone")
+    zt, zb = head_z - 0.05 * s, z0 + 0.85 * s
+    beard = lathe(
+        [(0.0, zb), (0.1 * s, zb), (0.3 * s, zb + 0.5 * s), (0.36 * s, zt), (0.0, zt + 0.06 * s)], 14
+    )
+    _add(b, transform(beard, lambda v: (v[0], v[1] * 0.55 - 0.36 * s, v[2])), "stone")
+    # The crown: a band with five points.
+    cz = head_z + 0.24 * s
+    _add(
+        b,
+        ring([(0.31 * s, cz), (0.36 * s, cz), (0.36 * s, cz + 0.14 * s), (0.31 * s, cz + 0.14 * s)], 14),
+        "gold",
+    )
+    for k in range(5):
+        a = -math.pi / 2 + math.tau * k / 5
+        at = (0.335 * s * math.cos(a), 0.335 * s * math.sin(a), cz + 0.12 * s)
+        _add(b, place(lathe([(0.0, 0.0), (0.05 * s, 0.0), (0.0, 0.16 * s)], 4), at), "gold")
+    # Arms from the shoulders to the hands on the haft; the hammer's head on the plinth.
+    hx, hy = 0.0, -0.75 * s
+    for side in (-1.0, 1.0):
+        arm = [
+            (side * 0.55 * s, -0.05 * s, z0 + 1.85 * s),
+            (side * 0.5 * s, -0.4 * s, z0 + 1.25 * s),
+            (side * 0.12 * s, -0.68 * s, z0 + 1.15 * s),
+        ]
+        _add(b, sweep(arm, circle(0.13 * s, 8), up=(0.0, 0.0, 1.0)), "stone")
+        _add(b, _blob(0.11 * s, 0.1 * s, 0.1 * s, (side * 0.09 * s, -0.7 * s, z0 + 1.15 * s), 4, 8), "stone")
+    _add(
+        b,
+        sweep([(hx, hy, z0 + 0.25 * s), (hx, hy, z0 + 1.4 * s)], circle(0.05 * s, 8), up=(0.0, 1.0, 0.0)),
+        "stone",
+    )
+    _box(b, hx - 0.32 * s, hx + 0.32 * s, hy - 0.15 * s, hy + 0.15 * s, z0, z0 + 0.3 * s, "stone")
+
+
+def _brazier(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A wide iron bowl on three splayed legs, a ring joining them, dead coals in the bowl."""
+    H, R = p["height"], p["radius"]
+    bowl = [
+        (0.0, H - 0.18),
+        (R * 0.55, H - 0.18),
+        (R, H),
+        (R * 1.04, H + 0.02),
+        (R * 0.97, H + 0.02),
+        (R * 0.52, H - 0.15),
+        (0.0, H - 0.15),
+    ]
+    _add(b, lathe(bowl, 16), "iron")
+    for k in range(3):
+        a = math.tau * k / 3
+        c, sn = math.cos(a), math.sin(a)
+        leg = [
+            (R * 0.5 * c, R * 0.5 * sn, H - 0.16),
+            (R * 0.75 * c, R * 0.75 * sn, H * 0.45),
+            (R * 1.0 * c, R * 1.0 * sn, 0.0),
+        ]
+        _add(b, sweep(leg, rect(0.022, 0.022), up=(0.0, 0.0, 1.0)), "iron")
+    _add(
+        b,
+        place(
+            ring([(R * 0.74, -0.012), (R * 0.79, -0.012), (R * 0.79, 0.012), (R * 0.74, 0.012)], 16),
+            (0.0, 0.0, H * 0.42),
+        ),
+        "iron",
+    )
+    for _ in range(7):
+        a, d = rng.uniform(0, math.tau), rng.uniform(0, R * 0.5)
+        _add(b, _blob(0.06, 0.05, 0.035, (d * math.cos(a), d * math.sin(a), H - 0.1), 3, 6), "coal")
+
+
+def _chain(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """Heavy oval links hanging straight, each turned a quarter to the last, from a ceiling plate."""
+    L, w = p["length"], p["link"]
+    t = w * 0.16  # bar thickness
+    n = max(2, int(L / (w * 1.25)))
+    pitch = L / n
+    for k in range(n):
+        z = k * pitch + w * 0.7
+        oval = []
+        for i in range(12):
+            a = math.tau * i / 12
+            oval.append((w * 0.4 * math.cos(a), 0.0, z + w * 0.7 * math.sin(a)))
+        oval.append(oval[0])
+        link = sweep(oval, circle(t, 5), up=(0.0, 1.0, 0.0))
+        _add(b, place(link, (0.0, 0.0, 0.0), yaw=(math.pi / 2) * (k % 2)), "iron")
+    _box(b, -0.15, 0.15, -0.15, 0.15, L + w * 0.6, L + w * 0.75, "iron")
+
+
 PART_RECIPES: dict[
     str, tuple[Callable[[dict[str, float], str, random.Random], list[Part]], dict[str, float], str]
 ] = {
@@ -1019,6 +1179,10 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     "crystals": (_crystals, ("crystal",), {"count": 7, "length": 1.2, "radius": 0.12}),
     "drips": (_drips, ("rock",), {"count": 4, "length": 0.9}),
     "boulder": (_boulder, ("rock",), {"size_x": 3.0, "size_y": 2.4, "size_z": 1.8}),
+    "forge": (_forge, ("stone", "iron", "wood"), {"fire_only": 0.0}),
+    "statue": (_statue, ("stone", "gold"), {"height": 4.0}),
+    "brazier": (_brazier, ("iron", "coal"), {"height": 1.2, "radius": 0.4}),
+    "chain": (_chain, ("iron",), {"length": 4.0, "link": 0.16}),
     "cut_block": (
         _cut_block,
         ("stone",),
@@ -1046,6 +1210,10 @@ SMOOTH = {
     "crystals": False,
     "drips": True,
     "boulder": False,
+    "forge": False,
+    "statue": True,
+    "brazier": True,
+    "chain": True,
 }
 
 
@@ -1062,6 +1230,8 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     smooth = as_bool(raw.get("smooth", SMOOTH[kind]), "params.smooth")
     if kind == "cart" and params["load"] > 0.5:
         slots = (*slots, "load")
+    if kind == "forge" and params["fire_only"] > 0.5:
+        slots = ("fire",)
     require_materials(spec.materials, slots, spec.generator)
 
     builder = BoxBuilder(slots)
@@ -1070,7 +1240,7 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
 
 
 # Counts and switches that may be 0 (no gills, no spots, no ring, no load, upright).
-MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean", "bones"}
+MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean", "bones", "fire_only"}
 
 
 def _params(raw: Mapping[str, object], kind: str, defaults: dict[str, float]) -> dict[str, float]:

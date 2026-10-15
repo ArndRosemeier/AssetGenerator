@@ -1,0 +1,38 @@
+{
+  "spec_version": 1,
+  "id": "prop_dwarf_statue",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "statue",
+    "seed": 1
+  },
+  "materials": {
+    "stone": {
+      "base_color": [
+        0.2,
+        0.19,
+        0.18,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    },
+    "gold": {
+      "base_color": [
+        0.55,
+        0.4,
+        0.15,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 4.5
+  }
+}
