@@ -1,0 +1,40 @@
+{
+  "spec_version": 1,
+  "id": "prop_skull",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "bones",
+    "seed": 1,
+    "bones": 0,
+    "skulls": 1
+  },
+  "materials": {
+    "bone": {
+      "base_color": [
+        0.6,
+        0.55,
+        0.45,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    },
+    "dark": {
+      "base_color": [
+        0.045,
+        0.04,
+        0.035,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 3000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 0.5
+  }
+}
