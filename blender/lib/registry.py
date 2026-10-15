@@ -36,6 +36,7 @@ GENERATORS: Final[dict[str, str]] = {
     "nature.bush": "blender.generators.nature_bush",
     "prop.kit": "blender.generators.prop_kit",
     "creature.crawler": "blender.generators.crawler_generator",
+    "creature.quadruped": "blender.generators.quadruped_generator",
 }
 
 

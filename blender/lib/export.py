@@ -17,7 +17,8 @@ from blender.lib.report import CheckResult, MeshStats, check
 from blender.lib.scene import activate, reset_scene
 
 
-def export_glb(objects: Sequence[bpy.types.Object], destination: Path) -> Path:
+def export_glb(objects: Sequence[bpy.types.Object], destination: Path, image_format: str = "AUTO") -> Path:
+    """`image_format`: how textures are stored (AUTO keeps PNG; WEBP is far smaller for baked maps)."""
     if not objects:
         raise RuntimeError("Nothing to export")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -47,6 +48,8 @@ def export_glb(objects: Sequence[bpy.types.Object], destination: Path) -> Path:
         export_normals=True,
         export_texcoords=True,
         export_materials="EXPORT",
+        export_image_format=image_format,
+        export_image_quality=90,
         export_cameras=False,
         export_lights=False,
         export_skins=has_armature,

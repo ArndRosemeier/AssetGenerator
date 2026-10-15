@@ -88,6 +88,15 @@ Viewer.bat
 
 or `cargo run -p lab`. Empty tabs print the command that produces those files.
 
+## Sculpted creatures (quadruped generator)
+
+`creature.quadruped` (`blender/generators/quadruped_generator/`) sculpts a creature as a field of
+shapes round its skeleton, meshes it with surface nets, bakes its coat (colour and hair normals, WebP)
+from the dense sculpt onto a light mesh, skins it from the sculpt's own shapes and keys every clip a
+game needs, with paws planted by IK. Spec: `assets/specs/creature_feral_dog.json` (Dunfinity's feral
+dog). Without a Blender binary, `pip install bpy==4.5.*` (plus numpy) runs the entrypoints directly:
+`python blender/entrypoints/generate.py -- --payload p.json --result r.json`.
+
 ## Quaternius monster pack
 
 [Quaternius Ultimate Monsters](https://quaternius.com/packs/ultimatemonsters.html)
