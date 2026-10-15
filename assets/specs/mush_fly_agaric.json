@@ -1,0 +1,76 @@
+{
+  "spec_version": 1,
+  "id": "mush_fly_agaric",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "mushroom",
+    "seed": 11,
+    "cap_radius": 0.1,
+    "cap_height": 0.06,
+    "stalk_height": 0.16,
+    "stalk_radius": 0.02,
+    "ring": 1,
+    "volva": 1,
+    "spots": 14,
+    "gills": 28
+  },
+  "materials": {
+    "cap": {
+      "base_color": [
+        0.55,
+        0.04,
+        0.02,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    },
+    "gills": {
+      "base_color": [
+        0.78,
+        0.75,
+        0.66,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    },
+    "stalk": {
+      "base_color": [
+        0.75,
+        0.72,
+        0.62,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    },
+    "ring": {
+      "base_color": [
+        0.78,
+        0.75,
+        0.66,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    },
+    "spots": {
+      "base_color": [
+        0.82,
+        0.8,
+        0.72,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

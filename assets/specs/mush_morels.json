@@ -1,0 +1,46 @@
+{
+  "spec_version": 1,
+  "id": "mush_morels",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "mushroom",
+    "cap_shape": "cone",
+    "seed": 17,
+    "count": 2,
+    "spread": 0.06,
+    "cap_radius": 0.03,
+    "cap_height": 0.08,
+    "stalk_height": 0.05,
+    "stalk_radius": 0.015,
+    "gills": 0
+  },
+  "materials": {
+    "cap": {
+      "base_color": [
+        0.3,
+        0.22,
+        0.12,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    },
+    "stalk": {
+      "base_color": [
+        0.7,
+        0.65,
+        0.52,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

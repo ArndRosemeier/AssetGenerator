@@ -1,0 +1,40 @@
+{
+  "spec_version": 1,
+  "id": "mush_brackets",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "bracket",
+    "seed": 20,
+    "count": 4,
+    "cap_radius": 0.18
+  },
+  "materials": {
+    "cap": {
+      "base_color": [
+        0.35,
+        0.22,
+        0.1,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    },
+    "gills": {
+      "base_color": [
+        0.55,
+        0.45,
+        0.3,
+        1.0
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}
