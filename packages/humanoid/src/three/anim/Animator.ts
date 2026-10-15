@@ -89,6 +89,8 @@ const MOODS: Record<string, [string, number][]> = {
 
 const _e = new THREE.Euler();
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
+/** The character's world rotation, for the leg IK's poles (its own scratch: `rotateWorldQ` overwrites `_q3`). */
+const _qc = new THREE.Quaternion();
 const _rt = new THREE.Vector3(), _rw = new THREE.Vector3(), _rg = new THREE.Vector3(), _rp = new THREE.Vector3();
 const _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rc = new THREE.Vector3(), _rd = new THREE.Vector3(), _re = new THREE.Vector3(), _rf = new THREE.Vector3();
 const _rq = new THREE.Quaternion();
@@ -1444,7 +1446,7 @@ export class Animator {
     this.pelvisOff = approach(this.pelvisOff, drop, 10, dt);
     ch.bones[0].position.y += this.pelvisOff;
     ch.bones[0].updateMatrixWorld(true);
-    ch.object.getWorldQuaternion(_q3);
+    ch.object.getWorldQuaternion(_qc);
     for (let k = 0; k < 2; k++) {
       const s = sides[k];
       const hip = ch.bone(`upperleg01.${s}`), knee = ch.bone(`lowerleg01.${s}`), foot = ch.bone(`foot.${s}`);
@@ -1459,10 +1461,10 @@ export class Animator {
    * Which way a knee bends (a world direction): the way the pose already bends it, as long as that
    * is forward; else forward and a little out. A nearly straight leg has no bend of its own to go
    * by, and a two-bone solve from it could fold the knee backwards (a standing knee snapping bent).
-   * Needs `_q3` = the character's world rotation.
+   * Needs `_qc` = the character's world rotation.
    */
   private kneePole(hip: THREE.Bone, knee: THREE.Bone, foot: THREE.Bone, s: Side, out: THREE.Vector3): THREE.Vector3 {
-    const fwd = _rg.set((s === 'L' ? -1 : 1) * 0.15, 0, -1).applyQuaternion(_q3).normalize();
+    const fwd = _rg.set((s === 'L' ? -1 : 1) * 0.15, 0, -1).applyQuaternion(_qc).normalize();
     const H = hip.getWorldPosition(_ra), K = knee.getWorldPosition(_rb), F = foot.getWorldPosition(_rc);
     const line = _rd.subVectors(F, H).normalize();
     const bend = out.subVectors(K, H);
@@ -1529,13 +1531,13 @@ export class Animator {
       }
       if (h.flat) this.flatHand(wr, s, h.flat, Math.min(1, h.w));
     }
-    ch.object.getWorldQuaternion(_q3);
+    ch.object.getWorldQuaternion(_qc);
     for (const s of ['L', 'R'] as const) {
       const f = s === 'L' ? g.footL : g.footR;
       if (!f || f.w <= 0.001) continue;
       const hip = ch.bone(`upperleg01.${s}`), knee = ch.bone(`lowerleg01.${s}`), foot = ch.bone(`foot.${s}`);
       const pole = f.pole ?? [0.15, 0, 1];
-      _rp.set((s === 'L' ? -1 : 1) * pole[0], pole[1], -pole[2]).applyQuaternion(_q3);
+      _rp.set((s === 'L' ? -1 : 1) * pole[0], pole[1], -pole[2]).applyQuaternion(_qc);
       foot.getWorldPosition(_rw);
       _rt.copy(_rw).lerp(f.p, Math.min(1, f.w));
       this.poleIK(hip, knee, foot, _rt, _rp);
