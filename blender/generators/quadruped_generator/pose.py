@@ -48,6 +48,9 @@ class Pose:
     #: Stretch per bone (x, y, z, in the armature's axes, about its head): only a body that squashes
     #: (`Body.squash`, a slime) has its scale keyed.
     scales: dict[str, Vector] = field(default_factory=dict)
+    #: Bones pointed from a head to a tail (armature space) by the least turn from rest, instead of
+    #: turned about their heads: a chain the clip lays out itself (a mushroom's roots).
+    aims: dict[str, tuple[Vector, Vector]] = field(default_factory=dict)
 
     def add(self, bone: str, q: Quaternion) -> None:
         self.turns[bone] = q @ self.turns.get(bone, Quaternion())
@@ -121,6 +124,12 @@ class Rig:
                 legs[f"{n}.{side}"] = key
         for n in self.order:
             if n in legs:
+                continue
+            if n in pose.aims:
+                head, tail = pose.aims[n]
+                h0 = self.head[n]
+                rot = (self.tail[n] - h0).rotation_difference(tail - head).to_matrix().to_4x4()
+                motion[n] = Matrix.Translation(head) @ rot @ Matrix.Translation(-h0)
                 continue
             p = self.parent[n]
             base = motion[p] if p else Matrix.Identity(4)
