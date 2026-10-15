@@ -1,0 +1,28 @@
+{
+  "spec_version": 1,
+  "id": "prop_gate",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "gate",
+    "seed": 2
+  },
+  "materials": {
+    "iron": {
+      "base_color": [
+        0.08,
+        0.07,
+        0.065,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 3.5
+  }
+}
