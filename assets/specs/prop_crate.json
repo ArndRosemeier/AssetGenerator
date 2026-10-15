@@ -1,0 +1,46 @@
+{
+  "spec_version": 1,
+  "id": "prop_crate",
+  "generator": "hard_surface.crate",
+  "params": {
+    "width": 0.6,
+    "depth": 0.55,
+    "height": 0.55,
+    "post_size": 0.045,
+    "plank_thickness": 0.018,
+    "plank_gap": 0.012,
+    "side_plank_count": 3,
+    "floor_plank_count": 3,
+    "lid": true,
+    "bevel_width": 0.004
+  },
+  "materials": {
+    "frame": {
+      "base_color": [
+        0.16,
+        0.1,
+        0.055,
+        1
+      ],
+      "roughness": 0.82,
+      "metallic": 0.0
+    },
+    "planks": {
+      "base_color": [
+        0.3,
+        0.2,
+        0.11,
+        1
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.5
+  }
+}

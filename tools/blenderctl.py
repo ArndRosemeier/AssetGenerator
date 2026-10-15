@@ -50,6 +50,8 @@ class BlenderInstall:
     executable: Path
     version: tuple[int, int, int]
     source: str
+    # True when `executable` is a Python with the `bpy` module (pip install bpy), not a Blender binary.
+    module: bool = False
 
     @property
     def version_str(self) -> str:
@@ -142,8 +144,30 @@ def probe_version(executable: Path) -> tuple[int, int, int]:
     return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
+def _bpy_module() -> BlenderInstall | None:
+    """Blender as a Python module (`pip install bpy`), named by BLENDER_PYTHON: for machines where
+    the portable build cannot be downloaded (cloud containers). Same Blender, no UI binary."""
+    python = os.environ.get("BLENDER_PYTHON")
+    if not python:
+        return None
+    completed = subprocess.run(
+        [python, "-c", "import bpy; print('Blender', bpy.app.version_string)"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    match = _VERSION_RE.search(completed.stdout)
+    if match is None:
+        raise BlenderError(f"BLENDER_PYTHON={python} cannot import bpy.\n{completed.stderr.strip()[:500]}")
+    version = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    return BlenderInstall(executable=Path(python), version=version, source="BLENDER_PYTHON (bpy module)", module=True)
+
+
 def find_blender() -> BlenderInstall | None:
     """Return the first usable Blender install, or None if there is none."""
+    module = _bpy_module()
+    if module is not None:
+        return module
     seen: set[Path] = set()
     for path, source in _candidate_paths():
         resolved = path.resolve()
@@ -271,23 +295,23 @@ def run_entrypoint(
     result_file = workdir / "result.json"
     payload_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    command = [
-        str(install.executable),
-        "--background",
-        "--factory-startup",
-        "-noaudio",
-        "--addons",
-        "io_scene_gltf2",
-        "--python-exit-code",
-        "1",
-        "--python",
-        str(script),
-        "--",
-        "--payload",
-        str(payload_file),
-        "--result",
-        str(result_file),
-    ]
+    args = ["--", "--payload", str(payload_file), "--result", str(result_file)]
+    if install.module:
+        command = [str(install.executable), str(script), *args]
+    else:
+        command = [
+            str(install.executable),
+            "--background",
+            "--factory-startup",
+            "-noaudio",
+            "--addons",
+            "io_scene_gltf2",
+            "--python-exit-code",
+            "1",
+            "--python",
+            str(script),
+            *args,
+        ]
 
     completed = subprocess.run(command, capture_output=True, text=True)
 
