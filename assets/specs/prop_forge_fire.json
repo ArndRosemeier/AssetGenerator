@@ -1,0 +1,29 @@
+{
+  "spec_version": 1,
+  "id": "prop_forge_fire",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "forge",
+    "seed": 1,
+    "fire_only": 1
+  },
+  "materials": {
+    "fire": {
+      "base_color": [
+        1.0,
+        0.45,
+        0.12,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 2000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

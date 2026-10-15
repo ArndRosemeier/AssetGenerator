@@ -1,0 +1,28 @@
+{
+  "spec_version": 1,
+  "id": "prop_chain",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "chain",
+    "seed": 1
+  },
+  "materials": {
+    "iron": {
+      "base_color": [
+        0.08,
+        0.07,
+        0.065,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 4.5
+  }
+}
