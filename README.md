@@ -93,8 +93,11 @@ or `cargo run -p lab`. Empty tabs print the command that produces those files.
 `creature.quadruped` (`blender/generators/quadruped_generator/`) sculpts a creature as a field of
 shapes round its skeleton, meshes it with surface nets, bakes its coat (colour and hair normals, WebP)
 from the dense sculpt onto a light mesh, skins it from the sculpt's own shapes and keys every clip a
-game needs, with paws planted by IK. Spec: `assets/specs/creature_feral_dog.json` (Dunfinity's feral
-dog). Without a Blender binary, `pip install bpy==4.5.*` (plus numpy) runs the entrypoints directly:
+game needs, with paws planted by IK. `params.species` picks the animal (`species.py`: body plan, coat
+and clips on the shared skeleton naming): `feral_dog` (`assets/specs/creature_feral_dog.json`, the
+default) and `quarry_rat` (`assets/specs/creature_quarry_rat.json`). `lean` is the build: bone showing
+on a dog, fat on a rat. A new animal is a body plan, a coat and a clip set in its own files plus a row
+in `SPECIES`. Without a Blender binary, `pip install bpy==4.5.*` (plus numpy) runs the entrypoints directly:
 `python blender/entrypoints/generate.py -- --payload p.json --result r.json`.
 
 ## Quaternius monster pack

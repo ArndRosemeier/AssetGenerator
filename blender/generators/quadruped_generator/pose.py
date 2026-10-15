@@ -71,6 +71,8 @@ class Rig:
         self.order = done
         self.head = {b.name: Vector(b.head) for b in body.bones}
         self.tail = {b.name: Vector(b.tail) for b in body.bones}
+        #: The tail's bones, root first (tail1, tail2, ...).
+        self.tails = sorted((n for n in self.order if n.startswith("tail")), key=lambda n: int(n[4:]))
         for pb in armature.pose.bones:
             pb.rotation_mode = "QUATERNION"
         self._last: dict[str, Quaternion] = {}

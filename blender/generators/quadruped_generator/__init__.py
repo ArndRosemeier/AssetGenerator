@@ -1,4 +1,4 @@
-"""A sculpted, furred, rigged and animated quadruped: the feral dog.
+"""A sculpted, furred, rigged and animated quadruped: the feral dog, the quarry rat (species.py).
 
 The body is sculpted as a field of shapes round a skeleton (anatomy.py, sdf.py), meshed with surface
 nets and relaxed (sculpt.py); the coat stands off it where a feral dog bristles and is painted in
@@ -17,9 +17,9 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
-from blender.generators.quadruped_generator.anatomy import Body, feral_dog
+from blender.generators.quadruped_generator.anatomy import Body
 from blender.generators.quadruped_generator.clips import bake_clips
-from blender.generators.quadruped_generator.coat import Noise, Palette, coat_colours, fur_offsets, hair_coords
+from blender.generators.quadruped_generator.coat import Noise, Palette
 from blender.generators.quadruped_generator.params import QuadrupedParams, parse_params
 from blender.generators.quadruped_generator.pose import Rig
 from blender.generators.quadruped_generator.sculpt import (
@@ -28,11 +28,11 @@ from blender.generators.quadruped_generator.sculpt import (
     points_and_normals,
     push_out,
     relax,
-    ribs,
     thin,
 )
 from blender.generators.quadruped_generator.sdf import surface_nets
 from blender.generators.quadruped_generator.skin import armature_for, bind, skin_weights
+from blender.generators.quadruped_generator.species import SPECIES, Species
 from blender.generators.quadruped_generator.texture import bake, coat_material, light_material
 from blender.lib.scene import activate, unwrap
 from blender.lib.spec import AssetSpec, MaterialSpec, require_materials
@@ -42,14 +42,14 @@ MATERIAL_SLOTS: tuple[str, ...] = ("coat", "eye", "teeth")
 IMAGE_FORMAT = "WEBP"
 
 
-def _sculpt(body: Body, params: QuadrupedParams, noise: Noise) -> bpy.types.Object:
+def _sculpt(body: Body, params: QuadrupedParams, noise: Noise, animal: Species) -> bpy.types.Object:
     grid = field_of(body, params.voxel)
-    ribs(grid, 0.003 * params.lean)
+    animal.detail(grid, params)
     verts, faces = surface_nets(grid)
     dense = mesh_object("dense", verts, faces)
     relax(dense, 4)
     p, n = points_and_normals(dense)
-    push_out(dense, fur_offsets(p, n, noise, params.fur_length))
+    push_out(dense, animal.fur(p, n, noise, params.fur_length))
     relax(dense, 1)
     return dense
 
@@ -102,19 +102,16 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     require_materials(spec.materials, MATERIAL_SLOTS, spec.generator)
     params = parse_params(spec.params)
     noise = Noise(params.seed)
-    body = feral_dog(params.lean)
+    animal = SPECIES[params.species]
+    body = animal.body(params)
 
-    dense = _sculpt(body, params, noise)
+    dense = _sculpt(body, params, noise, animal)
     p, n = points_and_normals(dense)
     palette = Palette(
         params.coat, params.saddle, params.pale, params.mask, params.nose, params.mange_colour, params.dirt
     )
-    coat_material(
-        dense,
-        coat_colours(p, n, noise, palette, params.mange),
-        hair_coords(p, 25.0, 200.0),
-        hair_coords(p, 8.0, 60.0),
-    )
+    strands, tufts = animal.hair(p)
+    coat_material(dense, animal.colours(p, n, noise, palette, params.mange), strands, tufts)
 
     light = dense.copy()
     light.data = dense.data.copy()
@@ -136,12 +133,13 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
 
     # Skin weights for the body, before the eyes and teeth join it.
     p, _ = points_and_normals(light)
-    names, weights = skin_weights(body, p)
-    # Centre the footprint and stand the coat's lowest hair on the ground (millimetres; the skeleton stays put).
+    names, weights = skin_weights(body, p, animal.softness, animal.default_softness)
+    # Centre the footprint on the origin and stand the coat's lowest hair on the ground: the skin, and
+    # with it the skeleton, the eyes and the teeth (a long tail moves the centre back a good way).
     lo, hi = p.min(axis=0), p.max(axis=0)
-    light.data.transform(
-        Matrix.Translation((-float(lo[0] + hi[0]) / 2, -float(lo[1] + hi[1]) / 2, -float(lo[2])))
-    )
+    offset = (-float(lo[0] + hi[0]) / 2, -float(lo[1] + hi[1]) / 2, -float(lo[2]))
+    light.data.transform(Matrix.Translation(offset))
+    body = body.moved(offset)
     body_count = len(p)
 
     bits, owners = _bits(body)
@@ -167,7 +165,7 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     armature = armature_for(spec.asset_id, body)
     bind(light, armature, names, weights, fixed)
     activate(armature)
-    bake_clips(armature, Rig(armature, body))
+    bake_clips(armature, Rig(armature, body), animal.clips)
     armature.data.pose_position = "REST"
     bpy.context.scene.frame_set(1)
     return [light, armature]

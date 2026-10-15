@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "creature_quarry_rat",
+  "generator": "creature.quadruped",
+  "params": {
+    "species": "quarry_rat",
+    "seed": 11,
+    "lean": 1.0,
+    "voxel": 0.0018,
+    "fur_length": 0.0045,
+    "mange": 0.3,
+    "triangles": 6000,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "coat": [0.062, 0.046, 0.032],
+    "saddle": [0.024, 0.019, 0.015],
+    "pale": [0.15, 0.14, 0.12],
+    "mask": [0.36, 0.2, 0.18],
+    "nose": [0.3, 0.12, 0.11],
+    "mange_colour": [0.11, 0.075, 0.06],
+    "dirt": [0.04, 0.032, 0.025]
+  },
+  "materials": {
+    "coat": { "base_color": [1.0, 1.0, 1.0, 1.0], "roughness": 0.8, "metallic": 0.0 },
+    "eye": { "base_color": [1.0, 0.28, 0.1, 1.0], "roughness": 0.1, "metallic": 0.0 },
+    "teeth": { "base_color": [0.75, 0.42, 0.1, 1.0], "roughness": 0.35, "metallic": 0.0 }
+  },
+  "qa": {
+    "max_triangles": 7500,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

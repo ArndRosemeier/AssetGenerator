@@ -14,7 +14,7 @@ import numpy as np
 from blender.generators.crawler_generator.rig import bind_mesh, build_armature
 from blender.generators.quadruped_generator.anatomy import Body
 
-#: How softly each bone's weight falls off (metres); the default is for the joints of body and legs.
+#: How softly each bone's weight falls off (metres), the dog's; the default is for the joints of body and legs.
 SOFTNESS = {"jaw": 0.0025, "head": 0.006, "ear.L": 0.004, "ear.R": 0.004}
 DEFAULT_SOFTNESS = 0.014
 MAX_INFLUENCES = 4
@@ -24,7 +24,12 @@ def armature_for(name: str, body: Body) -> bpy.types.Object:
     return build_armature(name, body)
 
 
-def skin_weights(body: Body, points: np.ndarray) -> tuple[list[str], np.ndarray]:
+def skin_weights(
+    body: Body,
+    points: np.ndarray,
+    softness: dict[str, float] = SOFTNESS,
+    default_softness: float = DEFAULT_SOFTNESS,
+) -> tuple[list[str], np.ndarray]:
     """Bone names and an (points x bones) weight table, at most four influences per point."""
     names = [b.name for b in body.bones]
     dist = np.full((len(points), len(names)), np.inf)
@@ -36,7 +41,7 @@ def skin_weights(body: Body, points: np.ndarray) -> tuple[list[str], np.ndarray]
         d = shape.field(x, y, z)
         j = col[shape.bone]
         dist[:, j] = np.minimum(dist[:, j], d)
-    soft = np.array([SOFTNESS.get(n, DEFAULT_SOFTNESS) for n in names])
+    soft = np.array([softness.get(n, default_softness) for n in names])
     near = dist.min(axis=1, keepdims=True)
     w = np.exp(-(dist - near) / soft[None, :])
     w[~np.isfinite(w)] = 0.0
