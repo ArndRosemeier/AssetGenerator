@@ -35,6 +35,31 @@ Optional flags: `--no-preview` (faster), `--skip-bootstrap`, `--no-smoke`.
 
 If you already have Blender installed elsewhere, set `BLENDER_BIN` to its executable.
 
+## Blender as a Python module (cloud containers)
+
+Where the portable Blender cannot be downloaded, install Blender as a Python module and point
+`BLENDER_PYTHON` at that interpreter; every command then runs through it:
+
+```bash
+uv venv -p 3.11 bpyenv && uv pip install -p bpyenv/bin/python "bpy==4.5.*"
+export BLENDER_PYTHON=$PWD/bpyenv/bin/python
+python tools/ag.py generate prop_barrel
+```
+
+## Props for vertex-coloured engines (`pack`)
+
+`prop.kit` (blender/generators/prop_kit.py) builds small props from closed shells
+(blender/lib/shells.py): barrels, buckets, picks, shovels, cut stone. `ag.py pack` builds a list
+of specs, bakes ambient occlusion into their vertices, multiplies it into the materials' base
+colours and writes one `.fmpk` file that an engine without textures can draw (Dunfinity does):
+
+```bash
+python tools/ag.py pack prop_crate prop_barrel prop_cut_block --out props.fmpk
+```
+
+The format is described at the top of blender/entrypoints/pack.py. A model whose material is white
+is shading only: the engine paints it (Dunfinity's cut stone takes each band's rock colour).
+
 ## Character Studio (face / body morphs)
 
 Focused Godot app with a **front-facing** preview, body/face sliders and a modular

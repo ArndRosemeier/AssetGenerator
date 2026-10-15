@@ -244,6 +244,24 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return _emit(result, args.json)
 
 
+def cmd_pack(args: argparse.Namespace) -> int:
+    specs = [load_and_check_spec(reference) for reference in args.specs]
+    install = require_blender()
+    result = run_entrypoint(
+        install,
+        "pack",
+        {"specs": [str(spec.source_path) for spec in specs], "out": str(Path(args.out).resolve()), "samples": args.samples},
+    )
+    report = result.report
+    if not report.get("ok"):
+        print(format_report(report))  # type: ignore[arg-type]
+        return 1
+    for name, stats in report["models"].items():  # type: ignore[union-attr]
+        print(f"  {name}: {stats}")
+    print(f"-> pack: {report['outputs']['pack']}")  # type: ignore[index]
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ag", description="Blender Asset Lab")
     parser.add_argument("--json", action="store_true", help="print the raw JSON report")
@@ -278,6 +296,14 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate", help="re-check an exported glb against its spec")
     validate.add_argument("spec", help="spec id or path")
     validate.set_defaults(func=cmd_validate)
+
+    pack = subparsers.add_parser(
+        "pack", help="build specs and pack them, AO baked into vertex colours, into one .fmpk file"
+    )
+    pack.add_argument("specs", nargs="+", help="spec ids or paths")
+    pack.add_argument("--out", required=True, help="the .fmpk file to write")
+    pack.add_argument("--samples", type=int, default=32, help="AO bake samples")
+    pack.set_defaults(func=cmd_pack)
 
     return parser
 

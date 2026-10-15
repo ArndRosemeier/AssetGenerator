@@ -1,0 +1,38 @@
+{
+  "spec_version": 1,
+  "id": "prop_shovel",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "shovel",
+    "seed": 6
+  },
+  "materials": {
+    "wood": {
+      "base_color": [
+        0.42,
+        0.3,
+        0.17,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    },
+    "iron": {
+      "base_color": [
+        0.3,
+        0.17,
+        0.09,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.0
+  }
+}

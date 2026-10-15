@@ -1,0 +1,48 @@
+{
+  "spec_version": 1,
+  "id": "prop_barrel",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "barrel",
+    "seed": 3
+  },
+  "materials": {
+    "staves": {
+      "base_color": [
+        0.3,
+        0.19,
+        0.1,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    },
+    "ends": {
+      "base_color": [
+        0.24,
+        0.15,
+        0.08,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    },
+    "iron": {
+      "base_color": [
+        0.09,
+        0.08,
+        0.075,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.0
+  }
+}

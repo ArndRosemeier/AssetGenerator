@@ -1,0 +1,38 @@
+{
+  "spec_version": 1,
+  "id": "prop_bucket",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "bucket",
+    "seed": 4
+  },
+  "materials": {
+    "tin": {
+      "base_color": [
+        0.34,
+        0.2,
+        0.11,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    },
+    "iron": {
+      "base_color": [
+        0.1,
+        0.09,
+        0.08,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.0
+  }
+}

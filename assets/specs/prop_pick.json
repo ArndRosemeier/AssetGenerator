@@ -1,0 +1,38 @@
+{
+  "spec_version": 1,
+  "id": "prop_pick",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "pick",
+    "seed": 5
+  },
+  "materials": {
+    "wood": {
+      "base_color": [
+        0.42,
+        0.3,
+        0.17,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    },
+    "iron": {
+      "base_color": [
+        0.11,
+        0.1,
+        0.095,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.0
+  }
+}
