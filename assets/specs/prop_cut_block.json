@@ -1,0 +1,28 @@
+{
+  "spec_version": 1,
+  "id": "prop_cut_block",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "cut_block",
+    "seed": 7
+  },
+  "materials": {
+    "stone": {
+      "base_color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 20000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.0
+  }
+}
