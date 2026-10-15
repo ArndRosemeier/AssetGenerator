@@ -45,6 +45,9 @@ class Pose:
     turns: dict[str, Quaternion] = field(default_factory=dict)
     #: Paw targets per leg ('fore.L', 'hind.R', ...), in the armature's space.
     paws: dict[str, Paw] = field(default_factory=dict)
+    #: Stretch per bone (x, y, z, in the armature's axes, about its head): only a body that squashes
+    #: (`Body.squash`, a slime) has its scale keyed.
+    scales: dict[str, Vector] = field(default_factory=dict)
 
     def add(self, bone: str, q: Quaternion) -> None:
         self.turns[bone] = q @ self.turns.get(bone, Quaternion())
@@ -77,6 +80,7 @@ class Rig:
         self.legs = [k for k, v in LEGS.items() if f"{v[0]}.L" in self.parent]
         self.leg_keys = [f"{k}.{s}" for k in self.legs for s in ("L", "R")]
         self.poles = {k: Vector(v) for k, v in body.poles.items()}
+        self.squash = body.squash
         #: The tail's bones, root first (tail1, tail2, ...).
         self.tails = sorted((n for n in self.order if n.startswith("tail")), key=lambda n: int(n[4:]))
         for pb in armature.pose.bones:
@@ -123,6 +127,14 @@ class Rig:
             q = pose.turns.get(n, Quaternion())
             h = self.head[n]
             local = Matrix.Translation(h) @ q.to_matrix().to_4x4() @ Matrix.Translation(-h)
+            if n in pose.scales:
+                st = pose.scales[n]
+                local = (
+                    local
+                    @ Matrix.Translation(h)
+                    @ Matrix.Diagonal((st.x, st.y, st.z, 1.0))
+                    @ Matrix.Translation(-h)
+                )
             if p is None:
                 local = Matrix.Translation(pose.lift) @ pose.roll.to_matrix().to_4x4() @ local
             motion[n] = base @ local
@@ -174,7 +186,7 @@ class Rig:
             p = self.parent[n]
             m = motion[n] if p is None else motion[p].inverted() @ motion[n]
             basis = r.inverted() @ m @ r
-            loc, rot, _ = basis.decompose()
+            loc, rot, size = basis.decompose()
             last = self._last.get(n)
             if last is not None and last.dot(rot) < 0:
                 rot = -rot
@@ -183,3 +195,6 @@ class Rig:
             pb.rotation_quaternion = rot
             pb.keyframe_insert("location", frame=frame)
             pb.keyframe_insert("rotation_quaternion", frame=frame)
+            if self.squash:
+                pb.scale = size
+                pb.keyframe_insert("scale", frame=frame)

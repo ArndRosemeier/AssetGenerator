@@ -160,6 +160,8 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     activate(light)
     bits.select_set(True)
     bpy.ops.object.join()
+    # A slime has no teeth (and Murk no eyes): an empty slot would not survive the export.
+    bpy.ops.object.material_slot_remove_unused()
 
     count = len(light.data.vertices)
     cols = np.ones((count, 4), dtype=np.float32)
