@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import importlib
 from collections.abc import Mapping
 
-from blender.lib.export import export_glb, import_glb, roundtrip_checks
+from blender.lib.export import clip_checks, export_glb, import_glb, roundtrip_checks
 from blender.lib.qa import collect_stats, run_checks
 from blender.lib.registry import resolve_generator_module
 from blender.lib.report import Report, failed_checks
@@ -32,11 +32,14 @@ def handle(payload: Mapping[str, object]) -> Report:
     stats = collect_stats(objects)
     checks = run_checks(objects, spec.qa, stats, topology=True)
 
+    rigged = any(obj.type == "ARMATURE" for obj in objects)
     glb_path = export_glb(objects, out_dir / spec.glb_name, getattr(module, "IMAGE_FORMAT", "AUTO"))
 
     reimported = import_glb(glb_path)
     roundtrip_stats = collect_stats(reimported)
     checks.extend(roundtrip_checks(stats, roundtrip_stats))
+    if rigged:
+        checks.extend(clip_checks(glb_path))
 
     return {
         "ok": not failed_checks(checks),

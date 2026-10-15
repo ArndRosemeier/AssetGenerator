@@ -8,8 +8,10 @@ and corrupts geometry when applied twice.
 
 from __future__ import annotations
 
-from pathlib import Path
+import json
+import struct
 from collections.abc import Sequence
+from pathlib import Path
 
 import bpy
 
@@ -36,7 +38,9 @@ def export_glb(objects: Sequence[bpy.types.Object], destination: Path, image_for
         for obj in objects:
             if obj.type != "ARMATURE":
                 continue
-            obj.data.pose_position = "REST"
+            # Posed, or the exporter samples every clip as the rest pose (each track
+            # a still); the bind pose is the rest one either way (export_rest_position_armature).
+            obj.data.pose_position = "POSE"
         bpy.context.view_layer.update()
         bpy.context.scene.frame_set(1)
     bpy.ops.export_scene.gltf(
@@ -138,3 +142,39 @@ def roundtrip_checks(before: MeshStats, after: MeshStats) -> list[CheckResult]:
         )
     )
     return checks
+
+
+def still_clips(source: Path) -> list[str]:
+    """The animations in a .glb in which nothing moves (every channel holds one value): a clip
+    exported as a still. Read from the file itself."""
+    data = source.read_bytes()
+    size = struct.unpack_from("<I", data, 12)[0]
+    doc = json.loads(data[20 : 20 + size])
+    binary = data[28 + size :]
+    width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}
+
+    def values(index: int) -> list[tuple[float, ...]]:
+        acc = doc["accessors"][index]
+        view = doc["bufferViews"][acc["bufferView"]]
+        n = width[acc["type"]]
+        at = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
+        return [struct.unpack_from(f"<{n}f", binary, at + 4 * n * k) for k in range(acc["count"])]
+
+    still = []
+    for anim in doc.get("animations", []):
+        moves = False
+        for sampler in anim["samplers"]:
+            out = values(sampler["output"])
+            if any(abs(v[d] - out[0][d]) > 1e-5 for v in out for d in range(len(v))):
+                moves = True
+                break
+        if not moves:
+            still.append(anim.get("name", "?"))
+    return still
+
+
+def clip_checks(source: Path) -> list[CheckResult]:
+    """Every clip of a rigged asset moves (none came out of the export as a still)."""
+    still = still_clips(source)
+    said = f"still: {', '.join(still)}" if still else "every clip moves"
+    return [check("roundtrip_clips_move", not still, said)]
