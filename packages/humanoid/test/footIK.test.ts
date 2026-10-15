@@ -46,3 +46,31 @@ test('standing and turning on uneven ground, the knees never fold backwards or j
     }
   }
 });
+
+test('running on bumpy ground, turned any way, both knees bend forward (the right one too)', async () => {
+  const h = await Humanoid.create(randomAppearance('human', 5), { wardrobe: NAKED });
+  const ground = (x: number, _y: number, z: number) => 0.08 * Math.sin(x * 5) * Math.cos(z * 4);
+  const dt = 1 / 60;
+  const worst = { L: 0, R: 0 };
+  for (const yaw of [0, 0.8, 1.9, -2.4]) {
+    const vx = -Math.sin(yaw) * 5, vz = -Math.cos(yaw) * 5;
+    for (let k = 0; k < 240; k++) {
+      const t = k * dt;
+      h.update({ pos: [vx * t, 0, vz * t], vel: [vx, 0, vz], yaw, anim: { move: 'run' } }, dt, t, ground);
+      h.object.updateMatrixWorld(true);
+      if (k < 30) continue;
+      for (const s of ['L', 'R'] as const) {
+        // The knee's offset from the hip–foot line, sideways (along the body's right) against forward.
+        const p = (n: string) => h.char.bone(n).getWorldPosition(new THREE.Vector3());
+        const a = p(`upperleg01.${s}`), b = p(`lowerleg01.${s}`), c = p(`foot.${s}`);
+        const line = c.clone().sub(a).normalize(), off = b.clone().sub(a);
+        off.addScaledVector(line, -off.dot(line));
+        if (off.length() < 0.04) continue; // nearly straight: no bend to judge
+        const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        const angle = Math.abs(Math.atan2(off.dot(right), off.dot(fwd))) * (180 / Math.PI);
+        worst[s] = Math.max(worst[s], angle);
+      }
+    }
+  }
+  assert.ok(worst.L < 40 && worst.R < 40, `a knee bends off forward by up to L ${worst.L.toFixed(0)}°, R ${worst.R.toFixed(0)}°`);
+});
