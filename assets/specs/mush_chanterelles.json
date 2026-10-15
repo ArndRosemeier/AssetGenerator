@@ -12,8 +12,8 @@
     "cap_height": 0.035,
     "stalk_height": 0.05,
     "stalk_radius": 0.01,
-    "gills": 16,
-    "segments": 12
+    "gills": 8,
+    "segments": 10
   },
   "materials": {
     "cap": {

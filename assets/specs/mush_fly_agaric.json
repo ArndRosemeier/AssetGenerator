@@ -11,8 +11,8 @@
     "stalk_radius": 0.02,
     "ring": 1,
     "volva": 1,
-    "spots": 14,
-    "gills": 28
+    "spots": 10,
+    "gills": 20
   },
   "materials": {
     "cap": {
