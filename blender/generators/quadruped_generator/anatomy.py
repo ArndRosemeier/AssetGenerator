@@ -57,6 +57,19 @@ class Body:
         c, s = np.cos(self.pitch), np.sin(self.pitch)
         return (d[0], d[1] * c - d[2] * s, d[1] * s + d[2] * c)
 
+    def moved(self, by: Vec) -> Body:
+        """The skeleton, eyes and teeth moved by `by` (the shapes stay where they were sculpted)."""
+
+        def m(p: Vec) -> Vec:
+            return (p[0] + by[0], p[1] + by[1], p[2] + by[2])
+
+        return Body(
+            bones=[Bone(b.name, m(b.head), m(b.tail), b.parent) for b in self.bones],
+            shapes=self.shapes,
+            eyes=[(m(c), r) for c, r in self.eyes],
+            teeth=[(m(a), m(b), r, bone) for a, b, r, bone in self.teeth],
+        )
+
     def frame(self, origin: Vec = (0.0, 0.0, 0.0), pitch: float = 0.0) -> None:
         self.origin, self.pitch = origin, pitch
 
@@ -94,7 +107,7 @@ class Body:
             lo, hi = box_of_ellipsoid(cc, r)
             self.shapes.append(Shape(ellipsoid(cc, r, rot), lo, hi, blend, name, carve))
 
-    def ear(self, a: Vec, b: Vec, ra: float, rb: float, facing: Vec, bone: str) -> None:
+    def ear(self, a: Vec, b: Vec, ra: float, rb: float, facing: Vec, bone: str, blend: float = 0.012) -> None:
         for s, name in _sides(bone, True):
             aa, bb = self.at(_mx(a, s)), self.at(_mx(b, s))
             lo, hi = box_of_round_cone(aa, bb, ra, rb)
@@ -103,7 +116,7 @@ class Body:
                     flattened(round_cone(aa, bb, ra, rb), aa, self.turn(_mx(facing, s)), 0.3),
                     lo,
                     hi,
-                    0.012,
+                    blend,
                     name,
                 )
             )

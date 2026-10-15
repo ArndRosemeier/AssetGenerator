@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from blender.lib.spec import SpecError, as_float, as_int, positive_float, positive_int
+from blender.lib.spec import SpecError, as_float, as_int, as_str, positive_float, positive_int
 
 Rgb = tuple[float, float, float]
 
@@ -18,6 +18,7 @@ def _rgb(raw: object, path: str) -> Rgb:
 
 @dataclass(frozen=True)
 class QuadrupedParams:
+    species: str
     seed: int
     lean: float
     voxel: float
@@ -40,15 +41,22 @@ _INTS = ("seed", "triangles", "texture_resolution", "bake_samples")
 _COLOURS = ("coat", "saddle", "pale", "mask", "nose", "mange_colour", "dirt")
 
 
+#: The animals there are (species.py); a spec without `species` is the feral dog.
+SPECIES_NAMES = ("feral_dog", "quarry_rat")
+
+
 def parse_params(raw: Mapping[str, object]) -> QuadrupedParams:
     allowed = set(_FLOATS) | set(_INTS) | set(_COLOURS)
-    unknown = sorted(set(raw) - allowed)
+    unknown = sorted(set(raw) - allowed - {"species"})
     missing = sorted(allowed - set(raw))
     if unknown:
         raise SpecError(f"params: unknown key(s) {unknown}")
     if missing:
         raise SpecError(f"params: missing key(s) {missing}")
-    values: dict[str, object] = {}
+    species = as_str(raw.get("species", "feral_dog"), "params.species")
+    if species not in SPECIES_NAMES:
+        raise SpecError(f"params.species: expected one of {list(SPECIES_NAMES)}, got {species!r}")
+    values: dict[str, object] = {"species": species}
     for k in _FLOATS:
         values[k] = (
             positive_float(raw[k], f"params.{k}")

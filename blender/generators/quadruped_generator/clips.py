@@ -30,6 +30,7 @@ Params = dict[str, float]
 #: The resting values of every pose number.
 BASE: Params = {
     "x": 0.0,
+    "y": 0.0,
     "z": 0.0,
     "pitch": 0.0,
     "roll": 0.0,
@@ -51,6 +52,8 @@ BASE: Params = {
     "tail": 0.0,
     "tail_yaw": 0.0,
     "tail_curl": 0.0,
+    "tail_wave": 0.0,
+    "tail_phase": 0.0,
 }
 
 
@@ -71,7 +74,7 @@ def build(rig: Rig, p: Params, paws: dict[str, Paw] | None) -> Pose:
     v = dict(BASE)
     v.update(p)
     pose = Pose()
-    pose.lift = Vector((v["x"], 0.0, v["z"]))
+    pose.lift = Vector((v["x"], v["y"], v["z"]))
     pose.roll = turn(Z, v["yaw"]) @ turn(Y, v["roll"]) @ turn(X, v["pitch"])
     pose.add("spine1", turn(Z, v["bend"]) @ turn(Y, v["twist"]) @ turn(X, v["back"]))
     pose.add("spine2", turn(Z, v["bend"]) @ turn(X, v["chest"]))
@@ -82,12 +85,16 @@ def build(rig: Rig, p: Params, paws: dict[str, Paw] | None) -> Pose:
     for side, s in (("L", 1.0), ("R", -1.0)):
         flick = v["ear_flick"] if side == "L" else 0.0
         pose.add(f"ear.{side}", turn(Y, s * v["ears_out"]) @ turn(X, v["ears"] + flick))
-    for i in range(1, 5):
-        k = 1.0 if i == 1 else 0.6
+    # The tail's turns are spread over however many bones it has (written for four), and a wave runs down it.
+    n = len(rig.tails)
+    f = 4.0 / n
+    for i, name in enumerate(rig.tails, 1):
+        k = 1.0 if i == 1 else 0.6 * f
+        wave = v["tail_wave"] * math.sin(v["tail_phase"] - 0.8 * (i - 1))
         pose.add(
-            f"tail{i}",
-            turn(Z, v["tail_yaw"] * (0.6 + 0.25 * i))
-            @ turn(X, (v["tail"] * k) + v["tail_curl"] * (i - 1) * 0.35),
+            name,
+            turn(Z, v["tail_yaw"] * (0.6 + 0.25 * i) * f + wave)
+            @ turn(X, (v["tail"] * k) + v["tail_curl"] * (i - 1) * 0.35 * f * f),
         )
     if paws is not None:
         pose.paws = paws
