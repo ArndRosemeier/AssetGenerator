@@ -60,6 +60,16 @@ python tools/ag.py pack prop_crate prop_barrel prop_cut_block --out props.fmpk
 The format is described at the top of blender/entrypoints/pack.py. A model whose material is white
 is shading only: the engine paints it (Dunfinity's cut stone takes each band's rock colour).
 
+### Mushrooms
+
+Every mushroom comes from one builder, `mushroom()` in blender/lib/mushroom.py, so props and the
+creatures disguised as mushrooms look alike. It returns `(shell, slot)` parts: `cap`, `gills`,
+`stalk`, `ring` (ring and volva) and `spots`, origin at the stalk's foot, Z up; `lean` bends the
+stalk sideways and tips the cap with it. Keep cap and stalk apart to animate them. The specs are
+assets/specs/mush_*.json (prop.kit's `mushroom` and `bracket` kinds; caps: dome, bell, cone, flat,
+funnel, ball). In Dunfinity they are drawn with the VERTEX_COLOR_SOLID material (AO baked into the
+vertex colours); a glowing mushroom goes into the tile's glow mesh instead.
+
 ## Character Studio (face / body morphs)
 
 Focused Godot app with a **front-facing** preview, body/face sliders and a modular
