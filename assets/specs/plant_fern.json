@@ -1,0 +1,38 @@
+{
+  "spec_version": 1,
+  "id": "plant_fern",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "fern",
+    "seed": 3
+  },
+  "materials": {
+    "stem": {
+      "base_color": [
+        0.12,
+        0.16,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    },
+    "leaf": {
+      "base_color": [
+        0.13,
+        0.26,
+        0.08,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.5
+  }
+}

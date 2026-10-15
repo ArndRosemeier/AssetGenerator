@@ -1,0 +1,58 @@
+{
+  "spec_version": 1,
+  "id": "plant_pale_flowers",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "flowers",
+    "seed": 6
+  },
+  "materials": {
+    "stem": {
+      "base_color": [
+        0.2,
+        0.27,
+        0.13,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    },
+    "leaf": {
+      "base_color": [
+        0.18,
+        0.3,
+        0.11,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    },
+    "petal": {
+      "base_color": [
+        0.85,
+        0.84,
+        0.76,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    },
+    "heart": {
+      "base_color": [
+        0.75,
+        0.6,
+        0.2,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

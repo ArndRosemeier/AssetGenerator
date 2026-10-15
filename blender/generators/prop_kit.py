@@ -21,7 +21,7 @@ from mathutils import Vector, noise
 
 from blender.lib.mushroom import CAP_SHAPES, Mushroom, Part, mushroom
 from blender.lib.scene import BoxBuilder, unwrap
-from blender.lib.shells import Shell, circle, lathe, place, rect, ring, sweep
+from blender.lib.shells import Shell, circle, lathe, place, rect, ring, sweep, transform
 from blender.lib.spec import (
     AssetSpec,
     SpecError,
@@ -515,6 +515,351 @@ def _brackets(p: dict[str, float], shape: str, rng: random.Random) -> list[Part]
     return parts
 
 
+# ---------------------------------------------------------------------------------------------
+# The crypts: skulls and long bones, heaped; candles on their own wax.
+# ---------------------------------------------------------------------------------------------
+
+
+def _blob(
+    rx: float, ry: float, rz: float, at: tuple[float, float, float], steps: int = 8, seg: int = 12
+) -> Shell:
+    """An ellipsoid with half-axes rx, ry, rz, centred at `at`."""
+    prof = [(math.sin(math.pi * i / steps), -math.cos(math.pi * i / steps)) for i in range(steps + 1)]
+    prof[0], prof[-1] = (0.0, -1.0), (0.0, 1.0)
+    return transform(lathe(prof, seg), lambda v: (at[0] + v[0] * rx, at[1] + v[1] * ry, at[2] + v[2] * rz))
+
+
+def _skull(s: float) -> list[tuple[Shell, str]]:
+    """A skull resting on its jaw, facing -Y, `s` = 1 for a man's (about 0.2 m long)."""
+    parts = [
+        (_blob(0.068 * s, 0.09 * s, 0.075 * s, (0.0, 0.012 * s, 0.09 * s), 10, 16), "bone"),
+        # The face: brow, cheekbones and upper jaw, narrower and lower than the brain case.
+        (_blob(0.054 * s, 0.05 * s, 0.05 * s, (0.0, -0.048 * s, 0.06 * s), 8, 14), "bone"),
+    ]
+    for side in (-1.0, 1.0):
+        # Deep round sockets under the brow, and the cheekbones running back under them.
+        parts.append(
+            (_blob(0.021 * s, 0.012 * s, 0.019 * s, (side * 0.026 * s, -0.089 * s, 0.07 * s), 5, 10), "dark")
+        )
+        parts.append(
+            (_blob(0.009 * s, 0.026 * s, 0.01 * s, (side * 0.047 * s, -0.06 * s, 0.047 * s), 4, 8), "bone")
+        )
+    parts.append((_blob(0.008 * s, 0.008 * s, 0.013 * s, (0.0, -0.1 * s, 0.045 * s), 4, 6), "dark"))
+    # The lower jaw: a U of bone under the face, its teeth a dark line.
+    jaw = [
+        (0.045 * s * math.cos(a), -0.085 * s * math.sin(a), 0.016 * s)
+        for a in [math.pi * i / 10 for i in range(11)]
+    ]
+    parts.append((sweep(jaw, rect(0.007 * s, 0.013 * s), up=(0.0, 0.0, 1.0)), "bone"))
+    teeth = [
+        (0.03 * s * math.cos(a), -0.084 * s * math.sin(a), 0.032 * s)
+        for a in [math.pi * (0.2 + 0.6 * i / 6) for i in range(7)]
+    ]
+    parts.append((sweep(teeth, rect(0.003 * s, 0.004 * s), up=(0.0, 0.0, 1.0)), "dark"))
+    return parts
+
+
+def _long_bone(length: float, r: float) -> Shell:
+    """A thigh or arm bone along X, lying on Z = 0: a shaft between two knuckled ends."""
+    path = [(length * (i / 10 - 0.5), 0.0, r * 2.0) for i in range(11)]
+
+    def girth(t: float) -> tuple[float, float]:
+        end = max(0.0, 1.0 - min(t, 1.0 - t) * 6.0)
+        k = r * (1.0 + 1.1 * end**2)
+        return (k * (1.0 + 0.35 * end), k)
+
+    return sweep(path, circle(1.0, 8), scale=girth, up=(0.0, 0.0, 1.0))
+
+
+def _bones(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A heap of long bones with skulls set on and round it, as an ossuary stacks them."""
+    for k in range(int(p["bones"])):
+        length = rng.uniform(0.3, 0.46)
+        layer = k // 4
+        z = layer * 0.045
+        y = rng.uniform(-0.5, 0.5) * p["spread"] * (1.0 - 0.25 * layer)
+        x = rng.uniform(-0.3, 0.3) * p["spread"]
+        _add(
+            b,
+            place(
+                _long_bone(length, rng.uniform(0.011, 0.015)),
+                (x, y, z),
+                yaw=rng.uniform(-0.5, 0.5) + (0.0 if layer % 2 == 0 else 0.35),
+            ),
+            "bone",
+        )
+    top = (int(p["bones"]) - 1) // 4 * 0.045 + 0.05 if p["bones"] else 0.0
+    for k in range(int(p["skulls"])):
+        s = rng.uniform(0.9, 1.05)
+        on = k == 0 and p["bones"] > 0
+        a = rng.uniform(0, math.tau)
+        d = 0.0 if on else p["spread"] * rng.uniform(0.45, 0.65)
+        at = (d * math.cos(a), d * math.sin(a), top if on else 0.0)
+        yaw = rng.uniform(-0.6, 0.6) + (0.0 if on else rng.choice((0.0, math.pi * 0.5, -math.pi * 0.5)))
+        tilt = rng.uniform(-0.15, 0.15)
+        for shell, slot in _skull(s):
+            _add(b, place(shell, at, yaw=yaw, roll=tilt), slot)
+
+
+def _candles(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """Candles of several heights standing in a pool of their own spilt wax."""
+    spread = p["spread"]
+    _add(
+        b,
+        lathe(
+            [(0.0, 0.0), (spread * 1.25, 0.0), (spread * 1.15, 0.008), (spread * 0.6, 0.014), (0.0, 0.016)],
+            18,
+        ),
+        "wax",
+    )
+    for k in range(int(p["count"])):
+        a = rng.uniform(0, math.tau)
+        d = 0.0 if k == 0 else spread * rng.uniform(0.35, 0.9)
+        h = p["height"] * (1.0 if k == 0 else rng.uniform(0.3, 0.85))
+        r = rng.uniform(0.011, 0.018) * (1.25 if k == 0 else 1.0)
+        at = (d * math.cos(a), d * math.sin(a), 0.0)
+        # Burnt down: the top dished round the wick, a lip of wax run over one side.
+        body = lathe([(0.0, 0.0), (r, 0.0), (r, h), (r * 0.8, h - 0.004), (0.0, h - 0.006)], 10)
+        _add(b, place(body, at), "wax")
+        drip = rng.uniform(0, math.tau)
+        _add(
+            b,
+            _blob(
+                r * 0.35,
+                r * 0.35,
+                h * 0.3,
+                (at[0] + r * math.cos(drip), at[1] + r * math.sin(drip), h * 0.72),
+                4,
+                6,
+            ),
+            "wax",
+        )
+        _add(
+            b,
+            place(
+                lathe([(0.0, 0.0), (0.0015, 0.0), (0.0012, 0.012), (0.0, 0.013)], 5),
+                (at[0], at[1], h - 0.006),
+            ),
+            "wick",
+        )
+
+
+# ---------------------------------------------------------------------------------------------
+# The rifts: a coil of old rope on its piton, a plank bridge across a slot.
+# ---------------------------------------------------------------------------------------------
+
+
+def _rope(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A coil of rope lying flat, its end run off to a piton driven into the floor at +Y."""
+    R, rr, turns = p["radius"], p["thickness"] / 2, p["turns"]
+    n = int(turns * 16)
+    path = []
+    for i in range(n + 1):
+        t = i / n
+        a = math.tau * turns * t
+        # Each turn lies a little in from and over the one before, as a coil drops.
+        rad = R * (1.0 + 0.06 * math.sin(a * 0.5 + 1.0)) - rr * 0.6 * turns * t
+        path.append((rad * math.cos(a), rad * math.sin(a), rr + rr * 1.3 * turns * t))
+    # The free end runs out to the piton.
+    end = path[-1]
+    tail = [
+        (end[0] + (0.0 - end[0]) * t, end[1] + (R + 0.25 - end[1]) * t, end[2] * (1.0 - t) + 0.03 * t)
+        for t in (0.33, 0.66, 1.0)
+    ]
+    _add(b, sweep(path + tail, circle(rr, 6), up=(0.0, 0.0, 1.0)), "rope")
+    # The piton: a flat iron spike with an eye, standing a hand above the floor.
+    px, py = 0.0, R + 0.28
+    _add(b, sweep([(px, py, 0.0), (px, py, 0.09)], rect(0.008, 0.004), up=(0.0, 1.0, 0.0)), "iron")
+    _add(
+        b,
+        place(
+            ring([(0.012, -0.004), (0.018, -0.004), (0.018, 0.004), (0.012, 0.004)], 10),
+            (px, py, 0.1),
+            pitch=math.pi / 2,
+        ),
+        "iron",
+    )
+
+
+def _plank_bridge(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """Planks nailed across two beams spanning X, a rope rail on posts along each side."""
+    L, W = p["length"], p["width"]
+    # The beams: rough baulks running the full span.
+    for side in (-1.0, 1.0):
+        y = side * (W / 2 - 0.08)
+        _hexa(
+            b,
+            [
+                (-L / 2, y - 0.07, 0.0),
+                (L / 2, y - 0.07, 0.0),
+                (L / 2, y + 0.07, 0.0),
+                (-L / 2, y + 0.07, 0.0),
+            ],
+            [
+                (-L / 2, y - 0.07, 0.16),
+                (L / 2, y - 0.07, 0.16),
+                (L / 2, y + 0.07, 0.16),
+                (-L / 2, y + 0.07, 0.16),
+            ],
+            "beam",
+        )
+    # Planks: odd widths, a finger's gap between, each a little askew.
+    x = -L / 2 + 0.02
+    while x < L / 2 - 0.08:
+        w = min(rng.uniform(0.18, 0.28), L / 2 - 0.02 - x)
+        skew = rng.uniform(-0.015, 0.015)
+        lift = rng.uniform(0.0, 0.006)
+        y0, y1 = -W / 2, W / 2
+        bottom = [
+            (x + skew, y0, 0.16),
+            (x + w + skew, y0, 0.16),
+            (x + w - skew, y1, 0.16),
+            (x - skew, y1, 0.16),
+        ]
+        top = [(q[0], q[1], 0.2 + lift) for q in bottom]
+        _hexa(b, bottom, top, "planks")
+        x += w + rng.uniform(0.01, 0.025)
+    # Posts at the ends and the middle; a rope sagging between them.
+    posts = [-L / 2 + 0.06, 0.0, L / 2 - 0.06] if L > 2.5 else [-L / 2 + 0.06, L / 2 - 0.06]
+    for side in (-1.0, 1.0):
+        y = side * (W / 2 - 0.04)
+        for px in posts:
+            _add(b, sweep([(px, y, 0.0), (px, y, 1.0)], rect(0.04, 0.04), up=(0.0, 1.0, 0.0)), "beam")
+        rail = []
+        for a, c in zip(posts, posts[1:], strict=False):
+            for i in range(0 if not rail else 1, 9):
+                t = i / 8
+                rail.append((a + (c - a) * t, y, 0.95 - 0.12 * math.sin(math.pi * t)))
+        _add(b, sweep(rail, circle(0.013, 6), up=(0.0, 0.0, 1.0)), "rope")
+
+
+# ---------------------------------------------------------------------------------------------
+# Root hollows: ferns, moss, hanging vines and pale flowers. Leaves are thin closed slabs.
+# ---------------------------------------------------------------------------------------------
+
+V3 = tuple[float, float, float]
+
+
+def _leaf(b: BoxBuilder, base: V3, tip: V3, width: float, slot: str, thick: float = 0.003) -> None:
+    """A flat leaf from `base` to `tip`, widest a third of the way, lying across the horizontal."""
+    dx, dy, dz = tip[0] - base[0], tip[1] - base[1], tip[2] - base[2]
+    flat = math.hypot(dx, dy) or 1.0
+    # Across the leaf, level: perpendicular to its run in plan.
+    ax, ay = -dy / flat * width / 2, dx / flat * width / 2
+    mid = (base[0] + dx * 0.35, base[1] + dy * 0.35, base[2] + dz * 0.35)
+    ring_ = [base, (mid[0] - ax, mid[1] - ay, mid[2]), tip, (mid[0] + ax, mid[1] + ay, mid[2])]
+    area = sum(ring_[i][0] * ring_[(i + 1) % 4][1] - ring_[(i + 1) % 4][0] * ring_[i][1] for i in range(4))
+    if area < 0:
+        ring_.reverse()
+    _hexa(b, ring_, [(x, y, z + thick) for x, y, z in ring_], slot)
+
+
+def _frond(b: BoxBuilder, length: float, yaw: float, rise: float, rng: random.Random) -> None:
+    """One fern frond: an arching stem with paired leaflets, shrinking to the tip."""
+    n = 14
+    cy, sy = math.cos(yaw), math.sin(yaw)
+
+    def at(t: float) -> V3:
+        d = length * t * 0.9
+        z = length * rise * math.sin(math.pi * min(t * 1.1, 1.0) * 0.75) - length * 0.15 * t * t
+        return (d * cy, d * sy, max(z, 0.01) if t > 0 else 0.0)
+
+    path = [at(i / n) for i in range(n + 1)]
+    _add(b, sweep(path, circle(1.0, 4), scale=lambda t: (0.005 * (1 - 0.7 * t),) * 2), "stem")
+    for i in range(1, n):
+        t = i / n
+        x, y, z = at(t)
+        size = length * 0.28 * math.sin(math.pi * (0.15 + 0.85 * t)) * rng.uniform(0.85, 1.05)
+        for side in (-1.0, 1.0):
+            # Leaflets point out and forward, drooping a little at their tips.
+            ox, oy = -sy * side + cy * 0.45, cy * side + sy * 0.45
+            tip = (x + ox * size, y + oy * size, z - size * 0.25)
+            _leaf(b, (x, y, z), tip, size * 0.42, "leaf")
+
+
+def _fern(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    for k in range(int(p["fronds"])):
+        yaw = math.tau * k / p["fronds"] + rng.uniform(-0.25, 0.25)
+        _frond(b, p["length"] * rng.uniform(0.75, 1.1), yaw, rng.uniform(0.75, 1.1), rng)
+
+
+def _moss(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """Cushions of moss: low lumpy domes run together."""
+    seed = rng.uniform(0, 100)
+    for k in range(int(p["tufts"])):
+        r = p["radius"] * (1.0 if k == 0 else rng.uniform(0.4, 0.8))
+        a, d = rng.uniform(0, math.tau), 0.0 if k == 0 else p["radius"] * rng.uniform(0.6, 1.1)
+        cx, cy = d * math.cos(a), d * math.sin(a)
+        h = r * rng.uniform(0.35, 0.5)
+        prof = [(r * math.cos(math.pi / 2 * i / 8), h * math.sin(math.pi / 2 * i / 8)) for i in range(9)]
+        dome = lathe([(0.0, -0.01), *prof[:-1], (0.0, h)], 20)
+
+        def lump(v: V3, cx: float = cx, cy: float = cy, h: float = h) -> V3:
+            x, y, z = v
+            swell = 1.0 + 0.3 * noise.noise(Vector((x * 22 + seed, y * 22, z * 22)))
+            return (cx + x * swell, cy + y * swell, z * swell if z > 0 else z)
+
+        _add(b, transform(dome, lump), "moss")
+
+
+def _vines(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """Strands of vine hanging from a knot of roots overhead, leaves all down them."""
+    H, spread = p["length"], p["spread"]
+    for k in range(int(p["strands"])):
+        x0 = spread * (2.0 * k / max(1, p["strands"] - 1) - 1.0) * 0.8 + rng.uniform(-0.04, 0.04)
+        y0 = rng.uniform(-0.3, 0.3) * spread
+        L = H * rng.uniform(0.45, 1.0)
+        phase = rng.uniform(0, math.tau)
+        n = max(5, int(L / 0.09))
+        path = [
+            (
+                x0 + 0.06 * math.sin(phase + 4.0 * i / n),
+                y0 + 0.04 * math.cos(phase + 3.0 * i / n),
+                H - L * i / n,
+            )
+            for i in range(n + 1)
+        ]
+        _add(b, sweep(path, circle(0.006, 5), up=(1.0, 0.0, 0.0)), "stem")
+        # Each strand comes out of a knot of root where it clings overhead.
+        _add(b, _blob(0.05, 0.04, 0.035, (x0, y0, H), 4, 7), "stem")
+        for i in range(1, n + 1):
+            x, y, z = path[i]
+            a = phase + i * 2.4
+            size = 0.09 * rng.uniform(0.7, 1.1) * (0.6 + 0.4 * i / n)
+            tip = (x + size * math.cos(a), y + size * math.sin(a), z - size * 0.7)
+            _leaf(b, (x, y, z), tip, size * 0.75, "leaf")
+
+
+def _flowers(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A clump of pale flowers reaching for the light: stems, a few leaves, five-petalled heads."""
+    for k in range(int(p["count"])):
+        a = rng.uniform(0, math.tau)
+        d = 0.0 if k == 0 else p["spread"] * rng.uniform(0.3, 1.0)
+        h = p["height"] * (1.0 if k == 0 else rng.uniform(0.55, 0.95))
+        lean = rng.uniform(0.0, 0.25) * h
+        bx, by = d * math.cos(a), d * math.sin(a)
+        path = [
+            (bx + lean * (i / 6) ** 2 * math.cos(a), by + lean * (i / 6) ** 2 * math.sin(a), h * i / 6)
+            for i in range(7)
+        ]
+        _add(b, sweep(path, circle(0.003, 4), up=(1.0, 0.0, 0.0)), "stem")
+        for j in range(2):
+            la = a + math.pi * (j + rng.uniform(-0.2, 0.2))
+            base = (bx, by, 0.01 + j * 0.02)
+            size = h * rng.uniform(0.3, 0.45)
+            _leaf(
+                b, base, (bx + size * math.cos(la), by + size * math.sin(la), size * 0.3), size * 0.35, "leaf"
+            )
+        top = path[-1]
+        r = p["petal"] * rng.uniform(0.8, 1.1)
+        spin = rng.uniform(0, math.tau)
+        for j in range(5):
+            pa = spin + math.tau * j / 5
+            tip = (top[0] + r * math.cos(pa), top[1] + r * math.sin(pa), top[2] + r * 0.35)
+            _leaf(b, top, tip, r * 0.8, "petal", 0.002)
+        _add(b, _blob(r * 0.25, r * 0.25, r * 0.18, (top[0], top[1], top[2] + 0.004), 4, 8), "heart")
+
+
 PART_RECIPES: dict[
     str, tuple[Callable[[dict[str, float], str, random.Random], list[Part]], dict[str, float], str]
 ] = {
@@ -560,6 +905,18 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
         ("boards", "frame", "door", "roof", "iron"),
         {"width": 4.4, "depth": 3.2, "height": 2.4},
     ),
+    "bones": (_bones, ("bone", "dark"), {"bones": 8, "skulls": 3, "spread": 0.5}),
+    "candles": (_candles, ("wax", "wick"), {"count": 5, "height": 0.22, "spread": 0.09}),
+    "rope": (_rope, ("rope", "iron"), {"radius": 0.17, "thickness": 0.022, "turns": 4}),
+    "plank_bridge": (_plank_bridge, ("planks", "beam", "rope"), {"length": 4.0, "width": 1.1}),
+    "fern": (_fern, ("stem", "leaf"), {"fronds": 9, "length": 0.6}),
+    "moss": (_moss, ("moss",), {"tufts": 5, "radius": 0.18}),
+    "vines": (_vines, ("stem", "leaf"), {"strands": 6, "length": 1.8, "spread": 0.35}),
+    "flowers": (
+        _flowers,
+        ("stem", "leaf", "petal", "heart"),
+        {"count": 6, "height": 0.32, "spread": 0.12, "petal": 0.035},
+    ),
     "cut_block": (
         _cut_block,
         ("stone",),
@@ -575,6 +932,14 @@ SMOOTH = {
     "cut_block": False,
     "cart": False,
     "shack": False,
+    "bones": True,
+    "candles": True,
+    "rope": True,
+    "plank_bridge": False,
+    "fern": False,
+    "moss": True,
+    "vines": False,
+    "flowers": False,
 }
 
 
@@ -599,7 +964,7 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
 
 
 # Counts and switches that may be 0 (no gills, no spots, no ring, no load, upright).
-MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean"}
+MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean", "bones"}
 
 
 def _params(raw: Mapping[str, object], kind: str, defaults: dict[str, float]) -> dict[str, float]:
