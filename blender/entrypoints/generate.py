@@ -32,7 +32,7 @@ def handle(payload: Mapping[str, object]) -> Report:
     stats = collect_stats(objects)
     checks = run_checks(objects, spec.qa, stats, topology=True)
 
-    glb_path = export_glb(objects, out_dir / spec.glb_name)
+    glb_path = export_glb(objects, out_dir / spec.glb_name, getattr(module, "IMAGE_FORMAT", "AUTO"))
 
     reimported = import_glb(glb_path)
     roundtrip_stats = collect_stats(reimported)
