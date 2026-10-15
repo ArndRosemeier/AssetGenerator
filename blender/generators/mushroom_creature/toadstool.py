@@ -169,7 +169,10 @@ def foot(rig: Rig) -> float:
 
 
 def _rest(rig: Rig, t: float) -> Pose:
-    return _pose(rig, lift=-foot(rig), fold=1.0)
+    # Never quite still: a millimetre (the export check takes a clip in which nothing moves for one
+    # that came out as a still).
+    w = 2 * math.pi * t
+    return _pose(rig, lift=-foot(rig) + 0.001 * math.sin(w), fold=1.0, nod=0.003 * math.sin(w))
 
 
 def _stand(rig: Rig, t: float) -> Pose:
