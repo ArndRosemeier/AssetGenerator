@@ -119,16 +119,22 @@ def _emit_colour(mat: bpy.types.Material) -> None:
 
 
 def bake(
-    dense: bpy.types.Object, light: bpy.types.Object, name: str, res: int, samples: int
+    dense: bpy.types.Object,
+    light: bpy.types.Object,
+    name: str,
+    res: int,
+    samples: int,
+    cage: float = 0.012,
 ) -> tuple[bpy.types.Image, bpy.types.Image]:
-    """Colour (with ambient occlusion worked in) and tangent-space normals, from `dense` onto `light`'s UVs."""
+    """Colour (with ambient occlusion worked in) and tangent-space normals, from `dense` onto `light`'s UVs.
+    `cage` is how far out the rays start: less than the thinnest limb, or they pick up the far side."""
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
     rb = scene.render.bake
     rb.use_selected_to_active = True
-    rb.cage_extrusion = 0.012
-    rb.max_ray_distance = 0.03
+    rb.cage_extrusion = cage
+    rb.max_ray_distance = cage * 2.5
     rb.margin = 6
     rb.use_pass_direct = False
     rb.use_pass_indirect = False

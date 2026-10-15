@@ -42,7 +42,7 @@ _COLOURS = ("coat", "saddle", "pale", "mask", "nose", "mange_colour", "dirt")
 
 
 #: The animals there are (species.py); a spec without `species` is the feral dog.
-SPECIES_NAMES = ("feral_dog", "quarry_rat")
+SPECIES_NAMES = ("feral_dog", "quarry_rat", "cave_cricket")
 
 
 def parse_params(raw: Mapping[str, object]) -> QuadrupedParams:

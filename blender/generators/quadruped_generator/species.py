@@ -11,7 +11,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from blender.generators.quadruped_generator import anatomy, clips, coat, rat_body, rat_clips
+from blender.generators.quadruped_generator import (
+    anatomy,
+    clips,
+    coat,
+    cricket_body,
+    cricket_clips,
+    rat_body,
+    rat_clips,
+)
 from blender.generators.quadruped_generator.anatomy import Body
 from blender.generators.quadruped_generator.params import QuadrupedParams
 from blender.generators.quadruped_generator.sculpt import ribs
@@ -55,5 +63,14 @@ SPECIES: dict[str, Species] = {
         clips=rat_clips.CLIPS,
         softness=rat_body.SOFTNESS,
         default_softness=rat_body.DEFAULT_SOFTNESS,
+    ),
+    "cave_cricket": Species(
+        body=lambda p: cricket_body.cave_cricket(p.lean),
+        fur=cricket_body.fur_offsets,
+        colours=cricket_body.coat_colours,
+        hair=cricket_body.hair,
+        clips=cricket_clips.CLIPS,
+        softness=cricket_body.SOFTNESS,
+        default_softness=cricket_body.DEFAULT_SOFTNESS,
     ),
 }

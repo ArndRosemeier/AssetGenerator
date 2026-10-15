@@ -1,0 +1,35 @@
+{
+  "spec_version": 1,
+  "id": "creature_cave_cricket",
+  "generator": "creature.quadruped",
+  "params": {
+    "species": "cave_cricket",
+    "seed": 5,
+    "lean": 1.0,
+    "voxel": 0.0025,
+    "fur_length": 0.0015,
+    "mange": 0.0,
+    "triangles": 9000,
+    "texture_resolution": 1024,
+    "bake_samples": 16,
+    "coat": [0.42, 0.34, 0.24],
+    "saddle": [0.2, 0.15, 0.1],
+    "pale": [0.6, 0.53, 0.42],
+    "mask": [0.13, 0.095, 0.065],
+    "nose": [0.22, 0.13, 0.08],
+    "mange_colour": [0.3, 0.25, 0.2],
+    "dirt": [0.12, 0.1, 0.08]
+  },
+  "materials": {
+    "coat": { "base_color": [1.0, 1.0, 1.0, 1.0], "roughness": 0.45, "metallic": 0.0 },
+    "eye": { "base_color": [0.35, 0.12, 0.05, 1.0], "roughness": 0.1, "metallic": 0.0 },
+    "teeth": { "base_color": [0.38, 0.3, 0.2, 1.0], "roughness": 0.5, "metallic": 0.0 }
+  },
+  "qa": {
+    "max_triangles": 11000,
+    "require_uvs": true,
+    "require_manifold": false,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.4
+  }
+}
