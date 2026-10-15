@@ -1,0 +1,28 @@
+{
+  "spec_version": 1,
+  "id": "basalt_block",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "boulder",
+    "seed": 6
+  },
+  "materials": {
+    "rock": {
+      "base_color": [
+        0.09,
+        0.085,
+        0.085,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 4.0
+  }
+}

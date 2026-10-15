@@ -860,6 +860,104 @@ def _flowers(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
         _add(b, _blob(r * 0.25, r * 0.25, r * 0.18, (top[0], top[1], top[2] + 0.004), 4, 8), "heart")
 
 
+# ---------------------------------------------------------------------------------------------
+# Gates, crystals and lava: an iron grille, hexagonal spars, drips of cooled lava, fallen rock.
+# ---------------------------------------------------------------------------------------------
+
+
+def _gate(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """An iron grille gate across X: a frame, round bars with spear tips, flat cross bands."""
+    W, H = p["width"], p["height"]
+    for x in (-W / 2 + 0.05, W / 2 - 0.05):
+        _add(b, sweep([(x, 0.0, 0.0), (x, 0.0, H)], rect(0.05, 0.05), up=(0.0, 1.0, 0.0)), "iron")
+    _add(
+        b,
+        sweep([(-W / 2, 0.0, H - 0.05), (W / 2, 0.0, H - 0.05)], rect(0.05, 0.05), up=(0.0, 0.0, 1.0)),
+        "iron",
+    )
+    bars = max(2, round((W - 0.1) / p["spacing"]))
+    for k in range(1, bars):
+        x = -W / 2 + 0.05 + (W - 0.1) * k / bars
+        # Bent a little, as old iron is; the tip pokes through the top beam.
+        bend = rng.uniform(-0.012, 0.012)
+        path = [(x + bend * math.sin(math.pi * i / 4), 0.0, 0.02 + (H - 0.12) * i / 4) for i in range(5)]
+        _add(b, sweep(path, circle(0.016, 6), up=(0.0, 1.0, 0.0)), "iron")
+        _add(b, place(lathe([(0.0, 0.0), (0.03, 0.0), (0.0, 0.11)], 4), (x, 0.0, H - 0.005)), "iron")
+    for z in (0.35, H * 0.55):
+        _add(
+            b,
+            sweep([(-W / 2 + 0.05, 0.0, z), (W / 2 - 0.05, 0.0, z)], rect(0.03, 0.012), up=(0.0, 0.0, 1.0)),
+            "iron",
+        )
+    # A ring handle and a lock box in the middle.
+    _add(b, _blob(0.07, 0.05, 0.09, (0.0, -0.03, H * 0.42), 3, 4), "iron")
+    _add(
+        b,
+        place(
+            ring([(0.04, -0.006), (0.052, -0.006), (0.052, 0.006), (0.04, 0.006)], 10),
+            (0.0, -0.09, H * 0.36),
+            pitch=math.pi / 2,
+        ),
+        "iron",
+    )
+
+
+def _crystals(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """Hexagonal spars with pyramid tips, sprouting from one root and leaning outwards."""
+    for k in range(int(p["count"])):
+        size = 1.0 if k == 0 else rng.uniform(0.3, 0.75)
+        L = p["length"] * size
+        r = p["radius"] * size * rng.uniform(0.85, 1.15)
+        tip = r * rng.uniform(1.2, 1.8)
+        spar = lathe([(0.0, -r), (r, -r), (r, L - tip), (0.0, L)], 6)
+        a = rng.uniform(0, math.tau)
+        lean = 0.0 if k == 0 else rng.uniform(0.25, 0.75)
+        d = 0.0 if k == 0 else p["radius"] * rng.uniform(0.3, 1.0)
+        spar = place(spar, (0.0, 0.0, 0.0), yaw=rng.uniform(0, math.tau))
+        _add(b, place(spar, (d * math.cos(a), d * math.sin(a), 0.0), roll=lean, yaw=a), "crystal")
+
+
+def _drips(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """Cooled lava hanging from a crust overhead: knobbly cones run together at the root."""
+    L0 = p["length"]
+    _add(b, _blob(L0 * 0.24, L0 * 0.2, L0 * 0.05, (0.0, 0.0, L0), 4, 10), "rock")
+    for k in range(int(p["count"])):
+        L = L0 * (1.0 if k == 0 else rng.uniform(0.3, 0.75))
+        r = L * rng.uniform(0.14, 0.2)
+        a, d = rng.uniform(0, math.tau), 0.0 if k == 0 else L0 * rng.uniform(0.08, 0.25)
+        prof = [(0.0, L0 - L)]
+        for i in range(1, 8):
+            t = i / 7  # 0 at the point, 1 at the root
+            knob = 1.0 + 0.18 * math.sin(t * 13.0 + k)
+            prof.append((r * t**0.8 * knob, L0 - L + L * t))
+        prof.append((0.0, L0 + 0.02))
+        _add(b, place(lathe(prof, 8), (d * math.cos(a), d * math.sin(a), 0.0), yaw=rng.uniform(0, 1)), "rock")
+
+
+def _boulder(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[float]:
+    """A fallen block: a squared lump with broken faces, flat where it landed."""
+    sx, sy, sz = p["size_x"], p["size_y"], p["size_z"]
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=3, use_grid_fill=True)
+    seed = rng.uniform(0, 100)
+    shade: list[float] = []
+    for v in bm.verts:
+        q = Vector((v.co.x, v.co.y, v.co.z))
+        # Round the corners a little towards a sphere, then break the faces with coarse noise.
+        q = q.lerp(q.normalized() * 0.62, 0.35)
+        n = noise.noise(Vector((q.x * 2.2 + seed, q.y * 2.2, q.z * 2.2)))
+        q *= 1.0 + 0.16 * n
+        x, y, z = q.x * sx, q.y * sy, (q.z + 0.5) * sz
+        v.co = Vector((x, y, max(z, 0.0)))
+        shade.append(0.85 + 0.15 * noise.noise(Vector((x * 3, y * 3 + seed, z * 3))))
+    verts = [tuple(v.co) for v in bm.verts]
+    faces = [[v.index for v in f.verts] for f in bm.faces]
+    bm.free()
+    b.add_mesh(verts, faces, "rock")
+    return shade
+
+
 PART_RECIPES: dict[
     str, tuple[Callable[[dict[str, float], str, random.Random], list[Part]], dict[str, float], str]
 ] = {
@@ -917,6 +1015,10 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
         ("stem", "leaf", "petal", "heart"),
         {"count": 6, "height": 0.32, "spread": 0.12, "petal": 0.035},
     ),
+    "gate": (_gate, ("iron",), {"width": 3.0, "height": 2.7, "spacing": 0.16}),
+    "crystals": (_crystals, ("crystal",), {"count": 7, "length": 1.2, "radius": 0.12}),
+    "drips": (_drips, ("rock",), {"count": 4, "length": 0.9}),
+    "boulder": (_boulder, ("rock",), {"size_x": 3.0, "size_y": 2.4, "size_z": 1.8}),
     "cut_block": (
         _cut_block,
         ("stone",),
@@ -940,6 +1042,10 @@ SMOOTH = {
     "moss": True,
     "vines": False,
     "flowers": False,
+    "gate": True,
+    "crystals": False,
+    "drips": True,
+    "boulder": False,
 }
 
 

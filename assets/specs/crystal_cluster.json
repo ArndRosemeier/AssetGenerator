@@ -1,0 +1,28 @@
+{
+  "spec_version": 1,
+  "id": "crystal_cluster",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "crystals",
+    "seed": 3
+  },
+  "materials": {
+    "crystal": {
+      "base_color": [
+        0.9,
+        0.9,
+        0.9,
+        1.0
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 3000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.0
+  }
+}
