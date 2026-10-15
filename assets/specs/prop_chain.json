@@ -4,7 +4,8 @@
   "generator": "prop.kit",
   "params": {
     "kind": "chain",
-    "seed": 1
+    "seed": 1,
+    "link": 0.2
   },
   "materials": {
     "iron": {
