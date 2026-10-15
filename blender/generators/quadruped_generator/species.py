@@ -17,6 +17,8 @@ from blender.generators.quadruped_generator import (
     coat,
     cricket_body,
     cricket_clips,
+    eel_body,
+    eel_clips,
     rat_body,
     rat_clips,
     slime_body,
@@ -92,5 +94,14 @@ SPECIES: dict[str, Species] = {
         clips=slime_clips.CLIPS,
         softness=slime_body.SOFTNESS,
         default_softness=slime_body.DEFAULT_SOFTNESS,
+    ),
+    "brine_eel": Species(
+        body=lambda p: eel_body.brine_eel(p.lean),
+        fur=eel_body.fur_offsets,
+        colours=eel_body.coat_colours,
+        hair=eel_body.hair,
+        clips=eel_clips.CLIPS,
+        softness=eel_body.SOFTNESS,
+        default_softness=eel_body.DEFAULT_SOFTNESS,
     ),
 }
