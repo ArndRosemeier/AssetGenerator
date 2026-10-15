@@ -243,6 +243,217 @@ def _cut_block(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[f
     return shade
 
 
+def _hexa(
+    b: BoxBuilder, bottom: list[tuple[float, float, float]], top: list[tuple[float, float, float]], slot: str
+) -> None:
+    """A six-sided solid from four bottom and four top corners, each counter-clockwise from above."""
+    faces = [[3, 2, 1, 0], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]
+    b.add_mesh(bottom + top, faces, slot)
+
+
+# ---------------------------------------------------------------------------------------------
+# Mine cart: a riveted steel tub on a timber chassis, flanged wheels for the narrow gauge.
+# ---------------------------------------------------------------------------------------------
+
+
+def _cart(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[float] | None:
+    gauge, wr = p["gauge"] / 2, p["wheel_radius"]
+    axle_z = p["rail_top"] + wr
+    hx0, hy0, hx1, hy1 = 0.4, 0.66, 0.52, 0.82  # half width and length at the bottom and the top
+    z0, z1, t = axle_z + wr * 0.55, axle_z + wr * 0.55 + 0.82, 0.03
+    # Wheels: a tread and an inner flange, an axle across.
+    for sy in (-0.45, 0.45):
+        for sx in (-1.0, 1.0):
+            prof = [
+                (0.0, -0.035),
+                (wr, -0.035),
+                (wr, 0.02),
+                (wr + 0.025, 0.02),
+                (wr + 0.025, 0.035),
+                (0.0, 0.035),
+            ]
+            _add(b, place(lathe(prof, 14), (sx * gauge, sy, axle_z), roll=sx * math.pi / 2), "iron")
+        _add(b, sweep([(-gauge - 0.06, sy, axle_z), (gauge + 0.06, sy, axle_z)], circle(0.025, 8)), "iron")
+    # The chassis: two beams along, buffers at the ends.
+    for sx in (-0.3, 0.3):
+        b.add_box((sx, 0.0, axle_z + 0.05), (0.1, 1.5, 0.12), "wood")
+    for sy in (-1.0, 1.0):
+        b.add_box((0.0, sy * 0.78, axle_z + 0.08), (0.75, 0.1, 0.14), "wood")
+        b.add_box((0.0, sy * 0.86, axle_z + 0.08), (0.1, 0.08, 0.08), "iron")
+
+    # The tub: four flared walls and a floor, a rim round the top, straps down the sides.
+    def corner(hx: float, hy: float, z: float) -> list[tuple[float, float, float]]:
+        return [(-hx, -hy, z), (hx, -hy, z), (hx, hy, z), (-hx, hy, z)]
+
+    _hexa(b, corner(hx0, hy0, z0), corner(hx0, hy0, z0 + t), "steel")
+    for k in range(4):
+        ob, ot = corner(hx0, hy0, z0), corner(hx1, hy1, z1)
+        a, c = k, (k + 1) % 4
+
+        def inset(
+            q: tuple[float, float, float], z: float, hx: float, hy: float
+        ) -> tuple[float, float, float]:
+            return (
+                q[0] - math.copysign(t, q[0]) * (1 if k % 2 == 1 else 0),
+                q[1] - math.copysign(t, q[1]) * (1 if k % 2 == 0 else 0),
+                z,
+            )
+
+        bottom = [ob[a], ob[c], inset(ob[c], z0, hx0, hy0), inset(ob[a], z0, hx0, hy0)]
+        top = [ot[a], ot[c], inset(ot[c], z1, hx1, hy1), inset(ot[a], z1, hx1, hy1)]
+        # Wind the bottom counter-clockwise from above whichever way the wall runs.
+        area = sum(
+            bottom[i][0] * bottom[(i + 1) % 4][1] - bottom[(i + 1) % 4][0] * bottom[i][1] for i in range(4)
+        )
+        if area < 0:
+            bottom.reverse()
+            top.reverse()
+        _hexa(b, bottom, top, "steel")
+    rim = [(-hx1, -hy1, z1), (hx1, -hy1, z1), (hx1, hy1, z1), (-hx1, hy1, z1)]
+    for k in range(4):
+        q0, q1 = rim[k], rim[(k + 1) % 4]
+        d = (q1[0] - q0[0], q1[1] - q0[1])
+        n = math.hypot(*d)
+        ext = 0.02
+        a0 = (q0[0] - d[0] / n * ext, q0[1] - d[1] / n * ext, z1)
+        a1 = (q1[0] + d[0] / n * ext, q1[1] + d[1] / n * ext, z1)
+        _add(b, sweep([a0, a1], circle(0.022, 6)), "iron")
+    for sx in (-1.0, 1.0):
+        for fy in (-0.45, 0.0, 0.45):
+            lo = (sx * (hx0 + 0.008), fy * hy0 / hy1 * hy0, z0 + 0.02)
+            hi = (sx * (hx1 + 0.008), fy * hy0, z1 - 0.02)
+            _add(b, sweep([lo, hi], rect(0.006, 0.03), up=(sx, 0.0, 0.0)), "iron")
+    if p["load"] > 0.5:
+        # Broken stone heaped above the rim.
+        for _ in range(26):
+            u, v = rng.uniform(-1, 1), rng.uniform(-1, 1)
+            h = (1 - 0.5 * (u * u + v * v)) * 0.18
+            size = rng.uniform(0.08, 0.2)
+            b.add_box(
+                (u * (hx1 - 0.14), v * (hy1 - 0.16), z1 - 0.12 + h),
+                (size, size * rng.uniform(0.7, 1.2), size * rng.uniform(0.5, 0.9)),
+                "load",
+                rotation=(rng.uniform(0, 3), rng.uniform(0, 3), rng.uniform(0, 3)),
+            )
+        zf = (z1 - 0.26 - z0) / (z1 - z0)  # the fill's floor, between the flared walls
+        b.add_box(
+            (0.0, 0.0, z1 - 0.18),
+            ((hx0 + (hx1 - hx0) * zf - t) * 2, (hy0 + (hy1 - hy0) * zf - t) * 2, 0.16),
+            "load",
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------------------------
+# Shack: a plank hut on a frame, a door and a window on its sides, a tarred roof.
+# ---------------------------------------------------------------------------------------------
+
+
+def _planks(
+    b: BoxBuilder,
+    rng: random.Random,
+    x0: float,
+    x1: float,
+    z0: float,
+    z1: float,
+    holes: list[tuple[float, float, float, float]],
+    wall: Callable[
+        [float, float, float, float], tuple[tuple[float, float, float], tuple[float, float, float]]
+    ],
+) -> None:
+    """Upright boards across [x0, x1] from z0 to z1, broken round `holes` (u0, u1, v0, v1);
+    `wall(u, v, w, h)` gives a board's centre and size in the shack's frame."""
+    u = x0
+    while u < x1 - 0.02:
+        w = min(rng.uniform(0.16, 0.22), x1 - u)
+        c = u + w / 2
+        spans = [(z0, z1 + rng.uniform(-0.02, 0.0))]
+        for h0, h1, v0, v1 in holes:
+            if h0 < c < h1:
+                spans = [(a, min(e, v0)) for a, e in spans if a < v0] + [
+                    (max(a, v1), e) for a, e in spans if e > v1
+                ]
+        for a, e in spans:
+            if e - a > 0.05:
+                centre, size = wall(c, (a + e) / 2, w - 0.012, e - a)
+                b.add_box(centre, size, "boards")
+        u += w
+
+
+def _shack(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    hx, hy, h = p["width"] / 2, p["depth"] / 2, p["height"]
+    door = (0.15, 1.05, 0.0, 1.9)  # in the front wall: (x0, x1, z0, z1)
+    window = (-0.4, 0.4, 1.25, 1.85)  # in the right side wall: (y0, y1, z0, z1)
+    t, post = 0.035, 0.1
+    # Frame: corner posts, sills, the plate under the roof.
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            b.add_box((sx * (hx - post / 2), sy * (hy - post / 2), h / 2), (post, post, h), "frame")
+    for sy in (-1.0, 1.0):
+        b.add_box((0.0, sy * (hy - post / 2), 0.06), (hx * 2, post, 0.12), "frame")
+        b.add_box((0.0, sy * (hy - post / 2), h - 0.06), (hx * 2, post, 0.12), "frame")
+    for sx in (-1.0, 1.0):
+        b.add_box((sx * (hx - post / 2), 0.0, 0.06), (post, hy * 2, 0.12), "frame")
+        b.add_box((sx * (hx - post / 2), 0.0, h - 0.06), (post, hy * 2, 0.12), "frame")
+    # Boards on the outside of the frame.
+    _planks(b, rng, -hx, hx, 0.02, h, [door], lambda u, v, w, hh: ((u, -hy - t / 2, v), (w, t, hh)))
+    _planks(b, rng, -hx, hx, 0.02, h, [], lambda u, v, w, hh: ((u, hy + t / 2, v), (w, t, hh)))
+    _planks(b, rng, -hy, hy, 0.02, h, [], lambda u, v, w, hh: ((-hx - t / 2, u, v), (t, w, hh)))
+    _planks(b, rng, -hy, hy, 0.02, h, [window], lambda u, v, w, hh: ((hx + t / 2, u, v), (t, w, hh)))
+    # The door, shut, a little inside its frame: boards, two ledges and a brace.
+    d0, d1, _, dh = door
+    dc, dw = (d0 + d1) / 2, d1 - d0
+    for k in range(5):
+        b.add_box((d0 + dw * (k + 0.5) / 5, -hy + 0.01, dh / 2), (dw / 5 - 0.008, 0.03, dh - 0.02), "door")
+    for z in (0.3, dh - 0.3):
+        b.add_box((dc, -hy - 0.02, z), (dw - 0.06, 0.03, 0.1), "door")
+    brace = math.atan2(dh - 0.6, dw - 0.1)
+    b.add_box(
+        (dc, -hy - 0.02, dh / 2),
+        (math.hypot(dw - 0.1, dh - 0.6), 0.025, 0.09),
+        "door",
+        rotation=(0.0, -brace, 0.0),
+    )
+    for z in (0.3, dh - 0.3):  # hinges
+        b.add_box((d0 + 0.12, -hy - 0.04, z), (0.22, 0.012, 0.04), "iron")
+    b.add_box((d1 - 0.1, -hy - 0.045, 1.0), (0.04, 0.02, 0.12), "iron")
+    # Door and window frames.
+    for x in (d0 - 0.04, d1 + 0.04):
+        b.add_box((x, -hy - t - 0.01, dh / 2), (0.08, 0.04, dh + 0.04), "frame")
+    b.add_box((dc, -hy - t - 0.01, dh + 0.04), (dw + 0.16, 0.04, 0.08), "frame")
+    w0, w1, v0, v1 = window
+    for y in (w0 - 0.04, w1 + 0.04):
+        b.add_box((hx + t + 0.01, y, (v0 + v1) / 2), (0.04, 0.08, v1 - v0 + 0.16), "frame")
+    for z in (v0 - 0.04, v1 + 0.04):
+        b.add_box((hx + t + 0.01, (w0 + w1) / 2, z), (0.04, w1 - w0 + 0.16, 0.08), "frame")
+    b.add_box((hx + 0.01, (w0 + w1) / 2, (v0 + v1) / 2), (0.02, 0.03, v1 - v0), "frame")  # the cross bar
+    # The roof: rafters falling to the back, boards on them, tar paper over, battens on the tar.
+    over, fall = 0.25, 0.25
+    pitch = math.atan2(fall, hy * 2 + over * 2)
+    for x in [-hx + 0.05 + k * (hx * 2 - 0.1) / 4 for k in range(5)]:
+        b.add_box((x, 0.0, h + 0.07), (0.07, hy * 2 + over * 2, 0.1), "frame", rotation=(-pitch, 0.0, 0.0))
+    b.add_box(
+        (0.0, 0.0, h + 0.15),
+        (hx * 2 + over * 2, hy * 2 + over * 2, 0.05),
+        "roof",
+        rotation=(-pitch, 0.0, 0.0),
+    )
+    for k in range(6):
+        x = -hx - over + 0.1 + k * (hx * 2 + over * 2 - 0.2) / 5
+        b.add_box((x, 0.0, h + 0.19), (0.04, hy * 2 + over * 2, 0.03), "roof", rotation=(-pitch, 0.0, 0.0))
+    # The stovepipe through the roof at the back, a step under the door.
+    _add(
+        b,
+        sweep(
+            [(-hx + 0.5, hy - 0.4, h - 0.3), (-hx + 0.5, hy - 0.4, h + 0.9)],
+            circle(0.07, 10),
+            up=(0.0, 1.0, 0.0),
+        ),
+        "iron",
+    )
+    b.add_box((dc, -hy - 0.25, 0.08), (dw + 0.2, 0.36, 0.16), "frame")
+
+
 RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     "barrel": (
         _barrel,
@@ -252,6 +463,16 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     "bucket": (_bucket, ("tin", "iron"), {"radius_top": 0.15, "radius_bottom": 0.12, "height": 0.27}),
     "pick": (_pick, ("wood", "iron"), {"handle_length": 0.9, "head_length": 0.6}),
     "shovel": (_shovel, ("wood", "iron"), {"handle_length": 0.72, "blade_width": 0.24, "blade_length": 0.3}),
+    "cart": (
+        _cart,
+        ("steel", "iron", "wood"),
+        {"gauge": 0.6, "wheel_radius": 0.17, "rail_top": 0.265, "load": 0.0},
+    ),
+    "shack": (
+        _shack,
+        ("boards", "frame", "door", "roof", "iron"),
+        {"width": 4.4, "depth": 3.2, "height": 2.4},
+    ),
     "cut_block": (
         _cut_block,
         ("stone",),
@@ -259,7 +480,15 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     ),
 }
 
-SMOOTH = {"barrel": False, "bucket": True, "pick": True, "shovel": True, "cut_block": False}
+SMOOTH = {
+    "barrel": False,
+    "bucket": True,
+    "pick": True,
+    "shovel": True,
+    "cut_block": False,
+    "cart": False,
+    "shack": False,
+}
 
 
 def build(spec: AssetSpec) -> list[bpy.types.Object]:
@@ -275,10 +504,12 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
         if key not in defaults:
             raise SpecError(f"params.{key}: not a parameter of a {kind}; have {sorted(defaults)}")
         params[key] = as_float(value, f"params.{key}")
-        if params[key] <= 0.0:
+        if params[key] < 0.0 or (params[key] == 0.0 and defaults[key] != 0.0):
             raise SpecError(f"params.{key}: must be positive, got {params[key]}")
     seed = as_int(raw.get("seed", 1), "params.seed")
     smooth = as_bool(raw.get("smooth", SMOOTH[kind]), "params.smooth")
+    if kind == "cart" and params["load"] > 0.5:
+        slots = (*slots, "load")
     require_materials(spec.materials, slots, spec.generator)
 
     builder = BoxBuilder(slots)
