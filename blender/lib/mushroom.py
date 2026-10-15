@@ -73,7 +73,9 @@ def mushroom(m: Mushroom) -> list[Part]:
 
     # The stalk: a bent tube, swollen at the foot, narrowing a little to the cap.
     h, sr = m.stalk_height, m.stalk_radius
-    n = 8
+    # Detail by size: a thumb-sized mushroom needs few sides and rings.
+    n = max(3, min(8, round(h * 30)))
+    sides = max(6, min(12, round(sr * 400)))
     path: list[Vec] = []
     for i in range(n + 1):
         t = i / n
@@ -83,7 +85,7 @@ def mushroom(m: Mushroom) -> list[Part]:
         k = sr * (1.0 + m.bulb * max(0.0, 1.0 - t * 3.0) ** 2) * (1.0 - 0.12 * t)
         return (k, k)
 
-    parts.append((sweep(path, circle(1.0, 10), scale=girth, up=(0.0, 1.0, 0.0)), "stalk"))
+    parts.append((sweep(path, circle(1.0, sides), scale=girth, up=(0.0, 1.0, 0.0)), "stalk"))
 
     # The cap sits on the stalk's top, tipped the way the stalk leans.
     top = path[-1]
@@ -94,12 +96,12 @@ def mushroom(m: Mushroom) -> list[Part]:
     funnel = m.cap_shape == "funnel"
     under_rise = -0.45 * H if funnel else 0.12 * H
     rim_under = 0.8 * H if funnel else rim_drop
-    steps = 10
+    steps = 10 if R > 0.08 else 6
     outer = [(R * shape(i / steps)[0], H * shape(i / steps)[1]) for i in range(steps + 1)]
     outer[-1] = (0.0, outer[-1][1])
     if m.cap_shape == "ball":
         # A whole ball, a little squat, sunk onto a stub of a stalk.
-        prof = [(R * math.sin(math.pi * i / 12), H - H * math.cos(math.pi * i / 12)) for i in range(13)]
+        prof = [(R * math.sin(math.pi * i / steps), H - H * math.cos(math.pi * i / steps)) for i in range(steps + 1)]
         prof[0], prof[-1] = (0.0, 0.0), (0.0, 2 * H)
         base_z = -0.25 * H
     else:
