@@ -114,6 +114,17 @@ clips move only the head and jaw). `lean` is the build: bone showing on a dog, f
 in `SPECIES`. Without a Blender binary, `pip install bpy==4.5.*` (plus numpy) runs the entrypoints directly:
 `python blender/entrypoints/generate.py -- --payload p.json --result r.json`.
 
+## Mushroom monsters
+
+`creature.mushroom` (`blender/generators/mushroom_creature/`) builds a monster from the same shells as the
+props' mushrooms (`blender/lib/mushroom.py`), so one stands among them unseen, and rigs and animates it
+with the quadruped generator's skeleton, poses and clips (`Pose.aims` points a bone from a head to a
+tail). `params.species`: `toadstool` (`assets/specs/creature_toadstool.json`: the fly agaric five times
+over; folds six roots into its foot to hide, stands up on them to walk, slams its cap down) and `puffcap`
+(`assets/specs/creature_puffcap.json`: the pale cave mushroom seven times over, rooted, glowing gills,
+puffs spores). The mushroom numbers are the prop spec's, times `scale`. Materials: the mushroom's slots
+plus `root` and `eye`, as vertex colours on `skin` and `eye` (the eyes and the `glow` slots).
+
 ## Quaternius monster pack
 
 [Quaternius Ultimate Monsters](https://quaternius.com/packs/ultimatemonsters.html)

@@ -54,7 +54,7 @@ def _sculpt(body: Body, params: QuadrupedParams, noise: Noise, animal: Species) 
     return dense
 
 
-def _plain_material(name: str, spec: MaterialSpec) -> bpy.types.Material:
+def plain_material(name: str, spec: MaterialSpec) -> bpy.types.Material:
     """Colour from the vertex colours (so the export carries them), roughness from the spec."""
     m = bpy.data.materials.new(name)
     m.use_nodes = True
@@ -151,8 +151,8 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     body_count = len(p)
 
     bits, owners = _bits(body)
-    eye = _plain_material("eye", spec.materials["eye"])
-    teeth = _plain_material("teeth", spec.materials["teeth"])
+    eye = plain_material("eye", spec.materials["eye"])
+    teeth = plain_material("teeth", spec.materials["teeth"])
     bits.data.materials.append(eye)
     bits.data.materials.append(teeth)
     light.data.materials.append(eye)
