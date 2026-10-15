@@ -19,6 +19,7 @@ import bpy  # first: in the bpy module, bmesh only exists once bpy is loaded
 import bmesh
 from mathutils import Vector, noise
 
+from blender.lib.mushroom import CAP_SHAPES, Mushroom, Part, mushroom
 from blender.lib.scene import BoxBuilder, unwrap
 from blender.lib.shells import Shell, circle, lathe, place, rect, ring, sweep
 from blender.lib.spec import (
@@ -454,6 +455,92 @@ def _shack(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     b.add_box((dc, -hy - 0.25, 0.08), (dw + 0.2, 0.36, 0.16), "frame")
 
 
+# ---------------------------------------------------------------------------------------------
+# Mushrooms (blender/lib/mushroom.py, shared with mushroom creatures): one, a cluster, or
+# brackets on a wall. Their slots are the parts they have: cap, gills, stalk, ring, spots.
+# ---------------------------------------------------------------------------------------------
+
+MUSHROOM_SLOTS = ("cap", "gills", "stalk", "ring", "spots")
+
+
+def _mushrooms(p: dict[str, float], shape: str, rng: random.Random) -> list[Part]:
+    count = int(p["count"])
+    parts: list[Part] = []
+    for k in range(count):
+        # The first is the biggest, in the middle; the rest round it, smaller, leaning out.
+        size = 1.0 if k == 0 else rng.uniform(0.45, 0.85)
+        a = rng.uniform(0, math.tau)
+        d = 0.0 if k == 0 else p["spread"] * rng.uniform(0.5, 1.0)
+        m = Mushroom(
+            cap_radius=p["cap_radius"] * size * rng.uniform(0.9, 1.1),
+            cap_height=p["cap_height"] * size * rng.uniform(0.85, 1.15),
+            cap_shape=shape,
+            stalk_height=p["stalk_height"] * size * rng.uniform(0.8, 1.15),
+            stalk_radius=p["stalk_radius"] * (0.6 + 0.4 * size),
+            bulb=p["bulb"],
+            lean=(p["lean"] + (p["spread"] * 0.5 if k else 0.0)) * size * rng.uniform(0.5, 1.0),
+            gills=int(p["gills"]),
+            ring=p["ring"] > 0.5,
+            volva=p["volva"] > 0.5,
+            spots=int(p["spots"] * size),
+            spot_radius=p["cap_radius"] * 0.12 * size,
+            seed=rng.randrange(1 << 30),
+            yaw=a,
+            at=(d * math.cos(a), d * math.sin(a), 0.0),
+            segments=int(p["segments"]),
+        )
+        parts.extend(mushroom(m))
+    return parts
+
+
+def _brackets(p: dict[str, float], shape: str, rng: random.Random) -> list[Part]:
+    """Shelf fungi stepped up a wall at +Y: half caps, flat on top, ridged underneath."""
+    parts: list[Part] = []
+    for k in range(int(p["count"])):
+        R = p["cap_radius"] * rng.uniform(0.6, 1.0) * (1.0 - 0.08 * k)
+        H = R * 0.3
+        z = 0.05 + k * p["spread"] * rng.uniform(0.8, 1.2)
+        x = rng.uniform(-1, 1) * p["spread"]
+        prof = [(R * 0.02, 0.0), (R, H * 0.1), (R * 0.98, H * 0.5), (R * 0.7, H), (R * 0.02, H * 1.05)]
+        shell = lathe(prof, 10, start=math.pi, end=math.tau)
+        # Bands of growth: a second, thinner lip under the first.
+        lip = lathe(
+            [(R * 0.02, -H * 0.25), (R * 0.85, -H * 0.15), (R * 0.85, -H * 0.05), (R * 0.02, 0.0)],
+            10,
+            start=math.pi,
+            end=math.tau,
+        )
+        for sh, slot in ((shell, "cap"), (lip, "gills")):
+            parts.append((place(sh, (x, 0.0, z)), slot))
+    return parts
+
+
+PART_RECIPES: dict[
+    str, tuple[Callable[[dict[str, float], str, random.Random], list[Part]], dict[str, float], str]
+] = {
+    "mushroom": (
+        _mushrooms,
+        {
+            "count": 1,
+            "spread": 0.1,
+            "cap_radius": 0.1,
+            "cap_height": 0.07,
+            "stalk_height": 0.12,
+            "stalk_radius": 0.016,
+            "bulb": 0.2,
+            "lean": 0.0,
+            "gills": 24,
+            "ring": 0.0,
+            "volva": 0.0,
+            "spots": 0.0,
+            "segments": 16,
+        },
+        "dome",
+    ),
+    "bracket": (_brackets, {"count": 3, "spread": 0.12, "cap_radius": 0.16}, "flat"),
+}
+
+
 RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     "barrel": (
         _barrel,
@@ -494,18 +581,12 @@ SMOOTH = {
 def build(spec: AssetSpec) -> list[bpy.types.Object]:
     raw: Mapping[str, object] = spec.params
     kind = as_str(require_key(raw, "kind", "params"), "params.kind")
+    if kind in PART_RECIPES:
+        return _build_parts(spec, kind)
     if kind not in RECIPES:
-        raise SpecError(f"params.kind: unknown prop '{kind}'; have {sorted(RECIPES)}")
+        raise SpecError(f"params.kind: unknown prop '{kind}'; have {sorted([*RECIPES, *PART_RECIPES])}")
     recipe, slots, defaults = RECIPES[kind]
-    params = dict(defaults)
-    for key, value in raw.items():
-        if key in ("kind", "seed", "smooth"):
-            continue
-        if key not in defaults:
-            raise SpecError(f"params.{key}: not a parameter of a {kind}; have {sorted(defaults)}")
-        params[key] = as_float(value, f"params.{key}")
-        if params[key] < 0.0 or (params[key] == 0.0 and defaults[key] != 0.0):
-            raise SpecError(f"params.{key}: must be positive, got {params[key]}")
+    params = _params(raw, kind, defaults)
     seed = as_int(raw.get("seed", 1), "params.seed")
     smooth = as_bool(raw.get("smooth", SMOOTH[kind]), "params.smooth")
     if kind == "cart" and params["load"] > 0.5:
@@ -514,6 +595,44 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
 
     builder = BoxBuilder(slots)
     shade = recipe(builder, params, random.Random(seed))
+    return [_finish(builder, spec, shade, smooth)]
+
+
+# Counts and switches that may be 0 (no gills, no spots, no ring, no load, upright).
+MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean"}
+
+
+def _params(raw: Mapping[str, object], kind: str, defaults: dict[str, float]) -> dict[str, float]:
+    params = dict(defaults)
+    for key, value in raw.items():
+        if key in ("kind", "seed", "smooth", "cap_shape"):
+            continue
+        if key not in defaults:
+            raise SpecError(f"params.{key}: not a parameter of a {kind}; have {sorted(defaults)}")
+        params[key] = as_float(value, f"params.{key}")
+        if params[key] < 0.0 or (params[key] == 0.0 and key not in MAY_BE_ZERO):
+            raise SpecError(f"params.{key}: must be positive, got {params[key]}")
+    return params
+
+
+def _build_parts(spec: AssetSpec, kind: str) -> list[bpy.types.Object]:
+    recipe, defaults, default_shape = PART_RECIPES[kind]
+    params = _params(spec.params, kind, defaults)
+    shape = as_str(spec.params.get("cap_shape", default_shape), "params.cap_shape")
+    if shape not in CAP_SHAPES:
+        raise SpecError(f"params.cap_shape: unknown '{shape}'; have {sorted(CAP_SHAPES)}")
+    parts = recipe(params, shape, random.Random(as_int(spec.params.get("seed", 1), "params.seed")))
+    slots = tuple(slot for slot in MUSHROOM_SLOTS if any(p[1] == slot for p in parts))
+    require_materials(spec.materials, slots, spec.generator)
+    builder = BoxBuilder(slots)
+    for shell, slot in parts:
+        _add(builder, shell, slot)
+    return [_finish(builder, spec, None, as_bool(spec.params.get("smooth", True), "params.smooth"))]
+
+
+def _finish(
+    builder: BoxBuilder, spec: AssetSpec, shade: list[float] | None, smooth: bool
+) -> bpy.types.Object:
     obj = builder.to_object(spec.asset_id, spec.materials)
     mesh = obj.data
     if shade is not None:
@@ -532,4 +651,4 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
         if hasattr(mesh, "set_sharp_from_angle"):
             mesh.set_sharp_from_angle(angle=math.radians(40.0))
     unwrap(obj)
-    return [obj]
+    return obj
