@@ -70,14 +70,14 @@ def _plain_material(name: str, spec: MaterialSpec) -> bpy.types.Material:
 def _bits(body: Body) -> tuple[bpy.types.Object, list[tuple[str, str]]]:
     """The eyes and teeth as one mesh, and for each of its vertices: its bone, and which it is ('eye' or 'teeth')."""
     bm = bmesh.new()
-    owners: list[tuple[str, str]] = []
+    owner: dict[bmesh.types.BMVert, tuple[str, str]] = {}
     for centre, r in body.eyes:
         made = bmesh.ops.create_uvsphere(bm, u_segments=10, v_segments=7, radius=r)["verts"]
         for v in made:
             v.co += Vector(centre)
         for f in {f for v in made for f in v.link_faces}:
             f.material_index = 0
-        owners += [("head", "eye")] * len(made)
+        owner.update((v, ("head", "eye")) for v in made)
     for root, tip, r, bone in body.teeth:
         d = Vector(tip) - Vector(root)
         made = bmesh.ops.create_cone(
@@ -88,8 +88,12 @@ def _bits(body: Body) -> tuple[bpy.types.Object, list[tuple[str, str]]]:
             v.co = rot @ v.co + (Vector(root) + Vector(tip)) * 0.5
         for f in {f for v in made for f in v.link_faces}:
             f.material_index = 1
-        owners += [(bone, "teeth")] * len(made)
+        owner.update((v, (bone, "teeth")) for v in made)
     bmesh.ops.triangulate(bm, faces=bm.faces)
+    # In the order the mesh will have them: an op can put new vertices into the slots of ones it
+    # made and threw away, so the order they were made in is not it.
+    bm.verts.index_update()
+    owners = [owner[v] for v in bm.verts]
     me = bpy.data.meshes.new("bits")
     bm.to_mesh(me)
     bm.free()
@@ -119,7 +123,9 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     bpy.data.scenes[0].collection.objects.link(light)
     thin(light, params.triangles)
     unwrap(light, 66.0, 0.004)
-    colour, normal = bake(dense, light, spec.asset_id, params.texture_resolution, params.bake_samples)
+    colour, normal = bake(
+        dense, light, spec.asset_id, params.texture_resolution, params.bake_samples, 3.0 * params.voxel
+    )
     coat = light_material(light, colour, normal)
     coat.name = "coat"
     coat.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = spec.materials[
@@ -134,9 +140,11 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     # Skin weights for the body, before the eyes and teeth join it.
     p, _ = points_and_normals(light)
     names, weights = skin_weights(body, p, animal.softness, animal.default_softness)
-    # Centre the footprint on the origin and stand the coat's lowest hair on the ground: the skin, and
-    # with it the skeleton, the eyes and the teeth (a long tail moves the centre back a good way).
-    lo, hi = p.min(axis=0), p.max(axis=0)
+    # Centre the footprint (the coat and the teeth: a cricket's feelers reach well out) on the origin and
+    # stand the lowest of it on the ground: the skin, and with it the skeleton, the eyes and the teeth.
+    ends = [e for root, tip, _, _ in body.teeth for e in (root, tip)]
+    every = np.vstack([p, np.asarray(ends).reshape(-1, 3)])
+    lo, hi = every.min(axis=0), every.max(axis=0)
     offset = (-float(lo[0] + hi[0]) / 2, -float(lo[1] + hi[1]) / 2, -float(lo[2]))
     light.data.transform(Matrix.Translation(offset))
     body = body.moved(offset)

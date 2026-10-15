@@ -52,6 +52,7 @@ class Pose:
 
 LEGS = {
     "fore": ("upperarm", "forearm", "forepaw", "foretoe", -1.0),
+    "mid": ("midfemur", "midtibia", "midtarsus", "midtoe", 1.0),
     "hind": ("thigh", "shin", "hindpaw", "hindtoe", 1.0),
 }
 
@@ -71,6 +72,11 @@ class Rig:
         self.order = done
         self.head = {b.name: Vector(b.head) for b in body.bones}
         self.tail = {b.name: Vector(b.tail) for b in body.bones}
+        #: The legs this body has ('fore', 'mid', 'hind'), each side's key ('fore.L', ...), and where knees point
+        #: on legs that don't simply bend forward or back (an insect's, up and out: rest axes, the left side).
+        self.legs = [k for k, v in LEGS.items() if f"{v[0]}.L" in self.parent]
+        self.leg_keys = [f"{k}.{s}" for k in self.legs for s in ("L", "R")]
+        self.poles = {k: Vector(v) for k, v in body.poles.items()}
         #: The tail's bones, root first (tail1, tail2, ...).
         self.tails = sorted((n for n in self.order if n.startswith("tail")), key=lambda n: int(n[4:]))
         for pb in armature.pose.bones:
@@ -140,10 +146,15 @@ class Rig:
         d = min(max(to.length, abs(a - b) + 1e-4), a + b - 1e-4)
         axis = to.normalized()
         joint = top + axis * d
-        # Bend: the stifle forward, the elbow back, in the leg's plane.
-        side_v = axis.cross(lateral).normalized()
-        if side_v.dot(forward) * bend < 0:
-            side_v = -side_v
+        # Bend: the stifle forward, the elbow back, in the leg's plane; or towards the leg's pole.
+        if kind in self.poles:
+            p = self.poles[kind]
+            pole = base.to_3x3() @ Vector((p.x if side == "L" else -p.x, p.y, p.z))
+            side_v = (pole - axis * pole.dot(axis)).normalized()
+        else:
+            side_v = axis.cross(lateral).normalized()
+            if side_v.dot(forward) * bend < 0:
+                side_v = -side_v
         cos_a = (a * a + d * d - b * b) / (2 * a * d)
         knee = top + axis * (a * cos_a) + side_v * (a * math.sqrt(max(0.0, 1 - cos_a * cos_a)))
         ball = joint + (paw.ball - joint).normalized() * c

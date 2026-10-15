@@ -87,7 +87,7 @@ def build(rig: Rig, p: Params, paws: dict[str, Paw] | None) -> Pose:
         pose.add(f"ear.{side}", turn(Y, s * v["ears_out"]) @ turn(X, v["ears"] + flick))
     # The tail's turns are spread over however many bones it has (written for four), and a wave runs down it.
     n = len(rig.tails)
-    f = 4.0 / n
+    f = 4.0 / max(n, 1)
     for i, name in enumerate(rig.tails, 1):
         k = 1.0 if i == 1 else 0.6 * f
         wave = v["tail_wave"] * math.sin(v["tail_phase"] - 0.8 * (i - 1))
@@ -103,14 +103,12 @@ def build(rig: Rig, p: Params, paws: dict[str, Paw] | None) -> Pose:
 
 # --- Paws ---------------------------------------------------------------------------------------
 
-LEG_KEYS = ("fore.L", "fore.R", "hind.L", "hind.R")
-
 
 def planted(
     rig: Rig, shift: dict[str, Vector] | None = None, slope: dict[str, float] | None = None
 ) -> dict[str, Paw]:
     out = {}
-    for k in LEG_KEYS:
+    for k in rig.leg_keys:
         p = rig.neutral_paw(k)
         if shift and k in shift:
             p.ball = p.ball + shift[k]
@@ -134,7 +132,7 @@ def stepping(rig: Rig, g: Gait, t: float) -> dict[str, Paw]:
     """Paws through one cycle of a gait at phase `t` (0..1): back along the ground in stance, up and forward in swing."""
     out = {}
     sweep = g.stride * g.duty
-    for k in LEG_KEYS:
+    for k in rig.leg_keys:
         fore = k.startswith("fore")
         p = rig.neutral_paw(k)
         u = (t + g.offsets[k]) % 1.0
@@ -287,7 +285,7 @@ LIE_POSE: Params = {
 
 def lying_paws(rig: Rig) -> dict[str, Paw]:
     out = {}
-    for k in LEG_KEYS:
+    for k in rig.leg_keys:
         p = rig.neutral_paw(k)
         s = 1.0 if k.endswith("L") else -1.0
         if k.startswith("fore"):
@@ -361,7 +359,7 @@ LUNGE_POSE: Params = {
 
 def _lunge_paws(rig: Rig) -> dict[str, Paw]:
     out = {}
-    for k in LEG_KEYS:
+    for k in rig.leg_keys:
         p = rig.neutral_paw(k)
         if k.startswith("fore"):
             p.ball = p.ball + Vector((0.0, 0.26, 0.2))
