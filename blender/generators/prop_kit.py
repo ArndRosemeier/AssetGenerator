@@ -381,6 +381,25 @@ def _planks(
         u += w
 
 
+def _door_leaf(b: BoxBuilder, d0: float, d1: float, dh: float, hy: float) -> None:
+    """The shack's plank door, shut in its doorway: five boards, two ledges, a brace, hinges, a handle."""
+    dc, dw = (d0 + d1) / 2, d1 - d0
+    for k in range(5):
+        b.add_box((d0 + dw * (k + 0.5) / 5, -hy + 0.01, dh / 2), (dw / 5 - 0.008, 0.03, dh - 0.02), "door")
+    for z in (0.3, dh - 0.3):
+        b.add_box((dc, -hy - 0.02, z), (dw - 0.06, 0.03, 0.1), "door")
+    brace = math.atan2(dh - 0.6, dw - 0.1)
+    b.add_box(
+        (dc, -hy - 0.02, dh / 2),
+        (math.hypot(dw - 0.1, dh - 0.6), 0.025, 0.09),
+        "door",
+        rotation=(0.0, -brace, 0.0),
+    )
+    for z in (0.3, dh - 0.3):  # hinges
+        b.add_box((d0 + 0.12, -hy - 0.04, z), (0.22, 0.012, 0.04), "iron")
+    b.add_box((d1 - 0.1, -hy - 0.045, 1.0), (0.04, 0.02, 0.12), "iron")
+
+
 def _shack(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     hx, hy, h = p["width"] / 2, p["depth"] / 2, p["height"]
     door = (0.15, 1.05, 0.0, 1.9)  # in the front wall: (x0, x1, z0, z1)
@@ -401,23 +420,12 @@ def _shack(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _planks(b, rng, -hx, hx, 0.02, h, [], lambda u, v, w, hh: ((u, hy + t / 2, v), (w, t, hh)))
     _planks(b, rng, -hy, hy, 0.02, h, [], lambda u, v, w, hh: ((-hx - t / 2, u, v), (t, w, hh)))
     _planks(b, rng, -hy, hy, 0.02, h, [window], lambda u, v, w, hh: ((hx + t / 2, u, v), (t, w, hh)))
-    # The door, shut, a little inside its frame: boards, two ledges and a brace.
+    # The door, shut, a little inside its frame: boards, two ledges and a brace. Without it
+    # (door = 0) the doorway stands open, for a game that hangs and swings its own leaf.
     d0, d1, _, dh = door
     dc, dw = (d0 + d1) / 2, d1 - d0
-    for k in range(5):
-        b.add_box((d0 + dw * (k + 0.5) / 5, -hy + 0.01, dh / 2), (dw / 5 - 0.008, 0.03, dh - 0.02), "door")
-    for z in (0.3, dh - 0.3):
-        b.add_box((dc, -hy - 0.02, z), (dw - 0.06, 0.03, 0.1), "door")
-    brace = math.atan2(dh - 0.6, dw - 0.1)
-    b.add_box(
-        (dc, -hy - 0.02, dh / 2),
-        (math.hypot(dw - 0.1, dh - 0.6), 0.025, 0.09),
-        "door",
-        rotation=(0.0, -brace, 0.0),
-    )
-    for z in (0.3, dh - 0.3):  # hinges
-        b.add_box((d0 + 0.12, -hy - 0.04, z), (0.22, 0.012, 0.04), "iron")
-    b.add_box((d1 - 0.1, -hy - 0.045, 1.0), (0.04, 0.02, 0.12), "iron")
+    if p["door"] > 0.5:
+        _door_leaf(b, d0, d1, dh, hy)
     # Door and window frames.
     for x in (d0 - 0.04, d1 + 0.04):
         b.add_box((x, -hy - t - 0.01, dh / 2), (0.08, 0.04, dh + 0.04), "frame")
@@ -1161,7 +1169,7 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     "shack": (
         _shack,
         ("boards", "frame", "door", "roof", "iron"),
-        {"width": 4.4, "depth": 3.2, "height": 2.4},
+        {"width": 4.4, "depth": 3.2, "height": 2.4, "door": 1.0},
     ),
     "bones": (_bones, ("bone", "dark"), {"bones": 8, "skulls": 3, "spread": 0.5}),
     "candles": (_candles, ("wax", "wick"), {"count": 5, "height": 0.22, "spread": 0.09}),
@@ -1230,6 +1238,8 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     smooth = as_bool(raw.get("smooth", SMOOTH[kind]), "params.smooth")
     if kind == "cart" and params["load"] > 0.5:
         slots = (*slots, "load")
+    if kind == "shack" and params["door"] <= 0.5:
+        slots = tuple(slot for slot in slots if slot != "door")
     if kind == "forge" and params["fire_only"] > 0.5:
         slots = ("fire",)
     require_materials(spec.materials, slots, spec.generator)
@@ -1240,7 +1250,7 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
 
 
 # Counts and switches that may be 0 (no gills, no spots, no ring, no load, upright).
-MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean", "bones", "fire_only"}
+MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean", "bones", "fire_only", "door"}
 
 
 def _params(raw: Mapping[str, object], kind: str, defaults: dict[str, float]) -> dict[str, float]:
