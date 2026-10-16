@@ -1,0 +1,38 @@
+{
+  "spec_version": 1,
+  "id": "held_crowbar",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "crowbar",
+    "seed": 2
+  },
+  "materials": {
+    "iron": {
+      "base_color": [
+        0.16,
+        0.07,
+        0.05,
+        1.0
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    },
+    "worn": {
+      "base_color": [
+        0.42,
+        0.41,
+        0.4,
+        1.0
+      ],
+      "roughness": 0.4,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 3000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

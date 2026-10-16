@@ -1126,6 +1126,58 @@ def _chain(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _box(b, -0.15, 0.15, -0.15, 0.15, L + w * 0.6, L + w * 0.75, "iron")
 
 
+def _hatchet(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A one-hand hatchet standing on its butt: a slim ash handle swelling to the grip, the iron
+    head on top with a bearded blade out along +X, its edge ground bright, and a short poll."""
+    L, reach = p["handle_length"], p["blade"]
+    _handle(b, L + 0.02, 0.015, 0.012, rng.uniform(-0.004, 0.004))
+    z = L - 0.03
+
+    def blade(t: float) -> tuple[float, float]:
+        # t runs from the eye (0) to the edge (1): thinner in Y, deeper in Z (the beard drops).
+        return (0.011 * (1.0 - 0.85 * t), 0.024 + 0.034 * t * t)
+
+    path = [(reach * i / 8, 0.0, z - 0.012 * (i / 8) ** 2) for i in range(9)]
+    _add(b, sweep(path, rect(1.0, 1.0), scale=blade, up=(0.0, 0.0, 1.0)), "iron")
+    edge = [(reach - 0.014, 0.0, z - 0.012), (reach, 0.0, z - 0.012)]
+    _add(b, sweep(edge, rect(0.003, 0.056), up=(0.0, 0.0, 1.0)), "edge")
+    # The eye round the handle and the poll behind it.
+    _add(
+        b,
+        place(lathe([(0.0, -0.028), (0.021, -0.028), (0.021, 0.028), (0.0, 0.028)], 8), (0.0, 0.0, z)),
+        "iron",
+    )
+    _box(b, -0.045, -0.012, -0.012, 0.012, z - 0.022, z + 0.022, "iron")
+
+
+def _crowbar(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A crowbar standing on its chisel end: a straight bar, bent over at the top into a
+    goose-neck whose split claw points back down; both working ends worn bright."""
+    L, r = p["length"], p["radius"]
+    hook = 0.042 * L / 0.6
+    bar = [(0.0, 0.0, 0.04 + (L - 0.04) * i / 8) for i in range(9)]
+    for i in range(1, 10):
+        a = math.pi * i / 9
+        bar.append((-hook + hook * math.cos(a), 0.0, L + hook * 0.9 * math.sin(a)))
+    bar.append((-2 * hook - 0.004, 0.0, L - 0.02))
+    _add(b, sweep(bar, circle(r, 6), up=(0.0, 1.0, 0.0)), "iron")
+    # The claw: flattened and split, and the chisel at the foot: both bright from use.
+    tip = [(-2 * hook - 0.004, 0.0, L - 0.005), (-2 * hook - 0.008, 0.0, L - 0.05)]
+    for side in (-1.0, 1.0):
+        claw = [(x, side * r * 0.5, z) for x, _, z in tip]
+        _add(
+            b,
+            sweep(claw, rect(r * 0.5, r * 0.42), scale=lambda t: (1.0 - 0.5 * t, 1.0), up=(1.0, 0.0, 0.0)),
+            "worn",
+        )
+    chisel = [(0.0, 0.0, 0.0), (0.0, 0.0, 0.05)]
+    _add(
+        b,
+        sweep(chisel, rect(r * 0.95, r * 1.25), scale=lambda t: (0.35 + 0.65 * t, 1.0), up=(1.0, 0.0, 0.0)),
+        "worn",
+    )
+
+
 def _hard_hat(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A miner's hard hat for a head of radius `head` (the humanoid's headRadius): an enamel dome,
     longer front to back, a ridge over the crown, a brim turned down at the edge, a few dents, and
@@ -1252,6 +1304,8 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     "statue": (_statue, ("stone", "gold"), {"height": 4.0}),
     "brazier": (_brazier, ("iron", "coal"), {"height": 1.2, "radius": 0.4}),
     "chain": (_chain, ("iron",), {"length": 4.0, "link": 0.16}),
+    "hatchet": (_hatchet, ("wood", "iron", "edge"), {"handle_length": 0.4, "blade": 0.1}),
+    "crowbar": (_crowbar, ("iron", "worn"), {"length": 0.6, "radius": 0.013}),
     "hard_hat": (_hard_hat, ("enamel", "iron", "lens"), {"head": 0.1, "dents": 4}),
     "cut_block": (
         _cut_block,
@@ -1285,6 +1339,8 @@ SMOOTH = {
     "brazier": True,
     "chain": True,
     "hard_hat": True,
+    "hatchet": True,
+    "crowbar": True,
 }
 
 
