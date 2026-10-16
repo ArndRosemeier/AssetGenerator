@@ -1126,6 +1126,67 @@ def _chain(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _box(b, -0.15, 0.15, -0.15, 0.15, L + w * 0.6, L + w * 0.75, "iron")
 
 
+def _hard_hat(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A miner's hard hat for a head of radius `head` (the humanoid's headRadius): an enamel dome,
+    longer front to back, a ridge over the crown, a brim turned down at the edge, a few dents, and
+    a lamp on an iron bracket at the front (-Y). Origin under the brim's centre, so a rigid part
+    places it on the head socket."""
+    s = p["head"] / 0.1
+    a, c, t, rb = 0.098 * s, 0.115 * s, 0.006 * s, 0.132 * s
+    long = 1.12  # the dome's stretch front to back
+    arc = [math.radians(d) for d in range(90, -1, -5)]
+    inner = [(a * math.cos(q), c * math.sin(q)) for q in arc]
+    outer = [((a + t) * math.cos(q), 0.008 * s + (c + t - 0.008 * s) * math.sin(q)) for q in reversed(arc)]
+    brim = [
+        (rb - 0.012 * s, -0.001 * s),
+        (rb, -0.009 * s),
+        (rb + 0.004 * s, -0.006 * s),
+        (rb - 0.01 * s, 0.007 * s),
+    ]
+    dome = lathe([(0.0, inner[0][1]), *inner[1:], *brim, *outer[:-1], (0.0, outer[-1][1])], 32)
+
+    # Dents: shallow dimples pushed in along the radius, both skins together, never on the lamp.
+    dents = []
+    for _ in range(int(p["dents"])):
+        yaw = rng.uniform(-math.pi * 0.25, math.pi * 1.25)  # anywhere but the front quarter
+        tilt = rng.uniform(0.35, 1.2)
+        dents.append(
+            (
+                (math.cos(yaw) * math.cos(tilt), math.sin(yaw) * math.cos(tilt), math.sin(tilt)),
+                rng.uniform(0.006, 0.01) * s,
+            )
+        )
+
+    def dented(v: tuple[float, float, float]) -> tuple[float, float, float]:
+        x, y, z = v
+        n = math.sqrt(x * x + y * y + z * z) or 1.0
+        if z < 0.012 * s:
+            return (x, y * long, z)
+        d = 0.0
+        for (dx, dy, dz), depth in dents:
+            dot = (x * dx + y * dy + z * dz) / n
+            d += depth * math.exp(-(((1.0 - dot) / 0.035) ** 2))
+        k = 1.0 - d / n
+        return (x * k, y * k * long, z * k)
+
+    _add(b, transform(dome, dented), "enamel")
+    ridge = [
+        (0.0, (a + t * 0.5) * math.cos(q), 0.008 * s + (c + t * 0.5 - 0.008 * s) * math.sin(q))
+        for q in [math.radians(d) for d in range(25, 146, 10)]
+    ]
+    _add(b, transform(sweep(ridge, rect(0.009 * s, 0.006 * s), up=(1.0, 0.0, 0.0)), dented), "enamel")
+
+    # The lamp: an iron clip on the front of the dome, a short barrel looking forward, a pale lens.
+    q = math.asin(0.55)
+    zl, yl = 0.072 * s, -(a + t) * math.cos(q) * long
+    _box(b, -0.014 * s, 0.014 * s, yl - 0.004 * s, yl + 0.012 * s, zl - 0.03 * s, zl + 0.022 * s, "iron")
+    lr, ll = 0.021 * s, 0.026 * s
+    barrel = lathe([(0.0, 0.0), (lr * 0.8, 0.0), (lr, ll * 0.4), (lr, ll), (lr * 0.82, ll), (0.0, ll)], 14)
+    _add(b, place(barrel, (0.0, yl - 0.003 * s, zl), pitch=math.pi / 2), "iron")
+    lens = lathe([(0.0, 0.0), (lr * 0.84, 0.0), (lr * 0.84, 0.004 * s), (0.0, 0.004 * s)], 14)
+    _add(b, place(lens, (0.0, yl - 0.003 * s - ll + 0.002 * s, zl), pitch=math.pi / 2), "lens")
+
+
 PART_RECIPES: dict[
     str, tuple[Callable[[dict[str, float], str, random.Random], list[Part]], dict[str, float], str]
 ] = {
@@ -1191,6 +1252,7 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     "statue": (_statue, ("stone", "gold"), {"height": 4.0}),
     "brazier": (_brazier, ("iron", "coal"), {"height": 1.2, "radius": 0.4}),
     "chain": (_chain, ("iron",), {"length": 4.0, "link": 0.16}),
+    "hard_hat": (_hard_hat, ("enamel", "iron", "lens"), {"head": 0.1, "dents": 4}),
     "cut_block": (
         _cut_block,
         ("stone",),
@@ -1222,6 +1284,7 @@ SMOOTH = {
     "statue": True,
     "brazier": True,
     "chain": True,
+    "hard_hat": True,
 }
 
 
@@ -1250,7 +1313,7 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
 
 
 # Counts and switches that may be 0 (no gills, no spots, no ring, no load, upright).
-MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean", "bones", "fire_only", "door"}
+MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean", "bones", "fire_only", "door", "dents"}
 
 
 def _params(raw: Mapping[str, object], kind: str, defaults: dict[str, float]) -> dict[str, float]:
