@@ -14,12 +14,15 @@ import { Animator, type GroundFn } from './anim/Animator';
 import { clipLibraryReady } from './anim/clips';
 import { EquipmentRig, type Wardrobe } from './equipment';
 import type { AnimState, Vec3 } from './anim/types';
+import { ghostly, ghostFade, type Ghost, type GhostFade } from './ghost';
 
 export interface HumanoidOptions {
   wardrobe: Wardrobe;
   castShadow?: boolean;
   /** Facial expressions (moods, blinking). */
   expressions?: boolean;
+  /** Seen through and glowing at the rim, in this tint (src/three/ghost.ts); casts no shadow. */
+  ghost?: Ghost;
 }
 
 /** What the humanoid does this frame. */
@@ -53,7 +56,16 @@ export class Humanoid {
     this.animator = new Animator(this.char);
     this.equipment = new EquipmentRig(this.char, opts.wardrobe);
     this.object.add(this.char.object);
+    this.ghost = opts.ghost ?? null;
+    if (this.ghost) ghostly(this.object, this.ghost, this.fadeU);
   }
+
+  private readonly ghost: Ghost | null;
+  private readonly fadeU: GhostFade = ghostFade();
+
+  /** A ghost's fade, 0 (gone) to 1 (fully there); nothing for the living. Set any frame (a uniform). */
+  get fade(): number { return this.fadeU.value; }
+  set fade(v: number) { this.fadeU.value = v; }
 
   /** Height of the built body (m). */
   get height(): number { return this.char.geo.build.body.height; }
@@ -61,6 +73,7 @@ export class Humanoid {
   /** Dress (rebuilds only what changed). */
   dress(eq: EquipmentVisuals | undefined): void {
     this.equipment.set(eq);
+    if (this.ghost) ghostly(this.object, this.ghost, this.fadeU);
   }
 
   /** A socket ('head', 'grip.R', 'hip.L', ...) or null. */
