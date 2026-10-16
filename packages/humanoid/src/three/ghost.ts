@@ -4,7 +4,7 @@
  * before the materials are first compiled; `Humanoid` reapplies it to what `dress` adds.
  */
 import * as THREE from 'three/webgpu';
-import { float, vec3, dot, normalView, positionViewDirection, saturate, pow, sub, materialEmissive, uniform } from 'three/tsl';
+import { float, vec3, vec4, abs, dot, mix, luminance, diffuseColor, normalView, positionViewDirection, saturate, pow, sub, materialEmissive, uniform } from 'three/tsl';
 
 export interface Ghost {
   /** sRGB 0..1. */
@@ -33,10 +33,18 @@ export function ghostly(root: THREE.Object3D, g: Ghost, fade: GhostFade): void {
       if (done.has(n)) continue;
       done.add(n);
       // Facing you, thin; at the edges, where one looks through more of it, stronger.
-      const rim = pow(sub(1, saturate(dot(normalView, positionViewDirection))), 2);
+      const rim = pow(sub(1, saturate(abs(dot(normalView, positionViewDirection)))), 2);
       const seen = float(g.opacity).mul(rim.mul(1.6).add(0.35)).mul(fade);
       n.opacityNode = n.opacityNode ? (n.opacityNode as ReturnType<typeof float>).mul(seen) : seen;
       n.emissiveNode = ((n.emissiveNode ?? materialEmissive) as typeof tint).add(tint.mul(rim.mul(1.4).add(0.25)).mul(fade));
+      // Pale and dim in the light (the light passes through it): its own colours mostly washed out;
+      // what shows is the glow.
+      const base = n.setupDiffuseColor;
+      n.setupDiffuseColor = function (builder) {
+        base.call(this, builder);
+        const c = diffuseColor.rgb;
+        diffuseColor.assign(vec4(mix(c, vec3(luminance(c)), 0.7).mul(0.3), diffuseColor.a));
+      };
       n.transparent = true;
       n.depthWrite = false;
       n.needsUpdate = true;
