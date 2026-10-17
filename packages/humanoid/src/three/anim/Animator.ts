@@ -94,6 +94,7 @@ const _qc = new THREE.Quaternion();
 const _rt = new THREE.Vector3(), _rw = new THREE.Vector3(), _rg = new THREE.Vector3(), _rp = new THREE.Vector3();
 const _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rc = new THREE.Vector3(), _rd = new THREE.Vector3(), _re = new THREE.Vector3(), _rf = new THREE.Vector3();
 const _rq = new THREE.Quaternion();
+const _wq = new THREE.Quaternion();
 const _m0 = new THREE.Matrix4(), _m1 = new THREE.Matrix4();
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _v5 = new THREE.Vector3();
 
@@ -103,12 +104,18 @@ interface FingerRig {
   thumb: boolean;
   /** Base joint: draws the finger in toward the middle finger (the rest hand is spread). */
   close: THREE.Quaternion;
+  /** The thumb's base joint round a handle: swung across the palm, over the curled fingers. */
+  wrap: THREE.Quaternion;
 }
 
 /** Raised-torch arm pose (Pose.arm params), tuned so the shaft points straight up at head height. */
 /** Relaxed hand: curl factor per finger (thumb → little finger) and per joint (base → tip). */
 const RELAXED_FINGER = [1.1, 1.15, 1.35, 1.6, 1.85];
 const RELAXED_JOINT = [0.85, 1.45, 1.1];
+/** Finger curl of a fist closed round a held handle (fingers wrapped right round it). */
+const HOLD = 1.5;
+/** A holding thumb: extra flex at each joint, and how far its base swings across the palm (radians). */
+const THUMB_WRAP = { flex: 0.25, across: 0.35 };
 /** Upper-body bones whose captured idle sway is toned down when standing. */
 const UPPER_BODY = /^(root$|spine0|neck0|head)/;
 const TORCH_RAISED = [1.7, 0.5, -0.4, 0.45, 0.3, -0.9, -0.4] as const;
@@ -285,7 +292,9 @@ export class Animator {
           bones.push(ch.bones[i]);
           axis.push(new THREE.Vector3().crossVectors(d, n).normalize());
         }
-        this.fingers[s].push({ bones, axis, thumb: f === 1, close: new THREE.Quaternion() });
+        // (Mirrored hands: the same swing across the palm turns the other way round its normal.)
+        const wrap = new THREE.Quaternion().setFromAxisAngle(palm, f === 1 ? THUMB_WRAP.across * (s === 'R' ? -1 : 1) : 0);
+        this.fingers[s].push({ bones, axis, thumb: f === 1, close: new THREE.Quaternion(), wrap });
       }
       // Fingers 2..5 lean a little toward the middle finger (MakeHuman rests with them splayed).
       const dir = (f: number) => ch.rest[this.map.idx(`finger${f}-2.${s}`)].clone().sub(ch.rest[this.map.idx(`finger${f}-1.${s}`)]).normalize();
@@ -1012,7 +1021,11 @@ export class Animator {
       } else {
         // One-handed: relaxed at the side, or raised guard.
         // Guard: forearm forward, thumb (blade) up. Relaxed: blade angled down-forward.
-        if (ready) p.arm('R', 0.85 * keep, 0.3, -0.2, 1.45, 0.1, 0.25);
+        // Anything but a sword (a knife, an axe, a club, a tool): the fist low in front of the
+        // chest, the forearm turned so what sticks out of the thumb side (a blade, a head) points
+        // ahead and a little up, at the foe, not back at the face.
+        if (ready && main !== 'blade') p.arm('R', 0.95 * keep, 0.2, 0.3, 0.8, 0.5, -0.3);
+        else if (ready) p.arm('R', 0.85 * keep, 0.3, -0.2, 1.45, 0.1, 0.25);
         else p.arm('R', 0.12, 0.06, 0.1, 0.45 + run * 0.6, 0.05, -0.7);
       }
     }
@@ -1378,10 +1391,10 @@ export class Animator {
 
   private fingerPose(inp: AnimInput, def: ActionDef | undefined, dt: number) {
     const relaxed = 0.28;
-    const grip = (g: GripClass) => (g === 'none' ? relaxed : g === 'shield' ? 1.0 : 1.25);
+    const grip = (g: GripClass) => (g === 'none' ? relaxed : g === 'shield' ? 1.0 : HOLD);
     let cR = grip(inp.main), cL = grip(inp.off);
-    if (inp.main === 'bow' || inp.main === 'crossbow') { cL = 1.25; cR = 0.5; }
-    if (inp.main === 'twohand' || inp.main === 'polearm' || inp.main === 'staff') cL = 1.25;
+    if (inp.main === 'bow' || inp.main === 'crossbow') { cL = HOLD; cR = 0.5; }
+    if (inp.main === 'twohand' || inp.main === 'polearm' || inp.main === 'staff') cL = HOLD;
     if (def && inp.main === 'none' && (def === ACTIONS.punch || def === ACTIONS.block)) { cR = 1.5; cL = 1.5; }
     if (def === ACTIONS.gesture_wave || def === ACTIONS.cast_forward || def === ACTIONS.channel) cR = 0.1;
     if (def === ACTIONS.gesture_point) cR = 1.3;
@@ -1407,14 +1420,18 @@ export class Animator {
       // An open hand (the relaxed curl or less) curls more toward the little finger and in the
       // middle joints, as a hanging hand does; grips and fists curl evenly.
       const open = 1 - smooth(relaxed, relaxed + 0.4, c);
+      // A fist round a handle: the thumb wraps over the fingers instead of lying along the grip.
+      const wrap = smooth(1.2, HOLD, c);
       this.fingers[s].forEach((f, fi) => {
         const spread = (fi - 2.5) * 0.02;
         const grade = 1 + open * (RELAXED_FINGER[fi] - 1);
         f.bones.forEach((b, k) => {
           let amt = c * (k === 0 ? 0.75 : 1) * (f.thumb ? 0.45 + 0.4 * smooth(0.9, 1.45, c) : 1) * grade * (1 + open * (RELAXED_JOINT[k] - 1));
           if (def === ACTIONS.gesture_point && fi === 1) amt = 0.05;
+          if (f.thumb) amt += THUMB_WRAP.flex * wrap;
           b.quaternion.setFromAxisAngle(f.axis[k], amt + spread * (k === 0 ? 1 : 0));
           if (k === 0) b.quaternion.premultiply(f.close);
+          if (k === 0 && f.thumb && wrap > 0) b.quaternion.premultiply(_wq.identity().slerp(f.wrap, wrap));
         });
       });
     }

@@ -493,12 +493,13 @@ export function buildBody(as: HumanAssets, app: HumanoidAppearance): BodyData {
     const dorsal = norm(mulS(cross(fingerDir, across), sgn));
     put(`hand.${s}`, `wrist.${s}`, wrist, basis(fingerDir, dorsal, across));
     // Grip (internal, for held items): item +Y out of the thumb side of the fist,
-    // item +Z (edge) along the knuckles, origin inside the closed fist.
+    // item +Z (edge) along the knuckles, origin inside the closed fist: in the channel the
+    // curled fingers close round, under the middle of the palm (not out at the knuckles).
     const gy = norm(sub(across, mulS(fingerDir, dot3(across, fingerDir))));
     const gz = fingerDir;
     const gx = cross(gy, gz);
     const palm = mulS(dorsal, -1);
-    const gripPos = add(add(wrist, mulS(fingerDir, handLength * 0.42)), mulS(palm, forearmRadius * 0.55));
+    const gripPos = add(add(wrist, mulS(fingerDir, handLength * 0.3)), mulS(palm, forearmRadius * 0.55));
     sockets[`grip.${s}`] = { bone: bi(`wrist.${s}`), pos: gripPos, basis: [gx[0], gx[1], gx[2], gy[0], gy[1], gy[2], gz[0], gz[1], gz[2]] };
   }
   // Mouth (speech/eat FX) and tail root.
