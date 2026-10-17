@@ -2,8 +2,9 @@
 
 Loops: Sniff (stood still, nose working, head casting about), Scurry (the quick pottering trot), Run
 (the bounding run at you, back flexing), Rear (up on the hind legs, front paws hanging, sniffing: it
-has noticed you). Once: Bite (rearing back with the mouth wide, then the snap forward with the paws
-out), Hurt (a flinch, layered on top), Die (over onto its back, the legs curling up).
+has noticed you), Graze (nose to the ground at a food spot, nibbling), Sleep (curled up on the floor,
+the tail round it, breathing slow). Once: Bite (rearing back with the mouth wide, then the snap forward
+with the paws out), Hurt (a flinch, layered on top), Die (over onto its back, the legs curling up).
 
 Gaits are written for the strides in `STRIDES` (metres per cycle at size 1), played by distance.
 """
@@ -24,7 +25,7 @@ from blender.generators.quadruped_generator.clips import (
     planted,
     stepping,
 )
-from blender.generators.quadruped_generator.pose import Pose, Rig, X, turn
+from blender.generators.quadruped_generator.pose import Paw, Pose, Rig, X, turn
 
 STRIDES = {"Scurry": 0.22, "Run": 0.45}
 
@@ -144,6 +145,98 @@ def _rear(rig: Rig, t: float) -> Pose:
     return pose
 
 
+#: Nose down at the food: the neck and head dropped, the chest a little lower, the forepaws where they stand.
+GRAZE_POSE: Params = {
+    "z": -0.003,
+    "chest": -0.05,
+    "neck": -0.3,
+    "head": -0.06,
+    "ears": 0.1,
+    "tail": 0.0,
+}
+
+
+def _graze(rig: Rig, t: float) -> Pose:
+    """Three seconds of nibbling: the jaw going fast, the nose working, the head shifting along the food
+    and lifting off it now and then to chew (0.45..0.6 of the loop)."""
+    w = 2 * math.pi * t
+    breath = math.sin(5 * w)
+    nibble = 0.5 + 0.5 * math.sin(30 * w)
+    lift = math.sin(math.pi * (t - 0.45) / 0.15) if 0.45 <= t < 0.6 else 0.0
+    p = dict(GRAZE_POSE)
+    p["z"] += 0.0008 * breath
+    p["chest"] += 0.01 * breath
+    p["neck"] += 0.12 * lift
+    # The nibble lifts the nose off the food, never into the floor.
+    p["head"] += 0.05 * nibble * (1.0 - lift) + 0.12 * lift
+    p["jaw"] = 0.04 + 0.16 * nibble * (1.0 - 0.6 * lift)
+    p["neck_yaw"] = 0.14 * math.sin(w) + 0.05 * math.sin(3 * w)
+    p["head_yaw"] = 0.06 * math.sin(2 * w + 0.7)
+    p["ears"] += 0.12 * math.sin(4 * w)
+    p["tail_wave"] = 0.08
+    p["tail_phase"] = w
+    return build(rig, p, planted(rig))
+
+
+#: Curled up on its belly: bent round to its right, the head brought back along the flank with the chin on
+#: the floor, the ears laid back, the tail brought round the same side towards the nose.
+SLEEP_POSE: Params = {
+    "z": -0.022,
+    "pitch": 0.02,
+    "back": -0.05,
+    "chest": 0.1,
+    "hips": 0.08,
+    "bend": 0.7,
+    "neck": -0.05,
+    "neck_yaw": 0.9,
+    "head": -0.45,
+    "head_yaw": 0.6,
+    "head_roll": 0.25,
+    "ears": -0.45,
+    "ears_out": 0.15,
+    "tail": -0.14,
+    "tail_yaw": -0.5,
+}
+
+
+def _tucked(rig: Rig, pose: Pose) -> dict[str, Paw]:
+    """The feet folded flat under the body: each paw on the floor below its own shoulder or hip, wherever
+    the curl has taken it, a little forward of it and in under the belly."""
+    motion = rig.solve(pose)
+    out = {}
+    for k in rig.leg_keys:
+        fore = k.startswith("fore")
+        side = k[-1]
+        upper = f"upperarm.{side}" if fore else f"thigh.{side}"
+        top = motion[upper] @ rig.head[upper]
+        forward = (motion[rig.parent[upper]].to_3x3() @ Vector((0.0, 1.0, 0.0))).normalized()
+        p = rig.neutral_paw(k)
+        ball = top + forward * (0.03 if fore else 0.05)
+        p.ball = Vector((ball.x, ball.y, p.ball.z))
+        p.slope = math.pi / 2
+        out[k] = p
+    return out
+
+
+def _sleep(rig: Rig, t: float) -> Pose:
+    """Four seconds asleep: slow breaths (the flank rising), a whisker twitch, one ear flicking at a dream."""
+    w = 2 * math.pi * t
+    breath = math.sin(3 * w)
+    twitch = math.sin(36 * w) * max(0.0, math.sin(math.pi * (t - 0.55) / 0.12)) if 0.55 <= t < 0.67 else 0.0
+    flick = max(0.0, math.sin(math.pi * (t - 0.2) / 0.05)) if 0.2 <= t < 0.25 else 0.0
+    p = dict(SLEEP_POSE)
+    p["z"] += 0.0012 * breath
+    p["back"] += 0.02 * breath
+    p["chest"] += 0.02 * breath
+    p["head"] += 0.03 * twitch
+    p["ear_flick"] = -0.5 * flick
+    p["tail_wave"] = 0.03
+    p["tail_phase"] = w
+    pose = build(rig, p, None)
+    pose.paws = _tucked(rig, build(rig, SLEEP_POSE, None))
+    return pose
+
+
 # The bite: 0.3 s rearing back (the game's wind-up), the snap, a moment's hold.
 BACK_POSE: Params = {
     "back": 0.45,
@@ -246,6 +339,8 @@ CLIPS = [
     Clip("Scurry", 12, True, _scurry),
     Clip("Run", 10, True, _run),
     Clip("Rear", 60, True, _rear),
+    Clip("Graze", 90, True, _graze),
+    Clip("Sleep", 120, True, _sleep),
     Clip("Bite", 20, False, _bite),
     Clip("Hurt", 8, False, _hurt),
     Clip("Die", 24, False, _die),
