@@ -20,3 +20,4 @@ export * from './anim/actions';
 export * from './anim/clips';
 export * from './anim/Animator';
 export * from './ghost';
+export * from './skeletal';
