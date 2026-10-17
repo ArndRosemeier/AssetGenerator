@@ -1,0 +1,48 @@
+{
+  "spec_version": 1,
+  "id": "furn_stove",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "stove",
+    "seed": 1
+  },
+  "materials": {
+    "enamel": {
+      "base_color": [
+        0.72,
+        0.72,
+        0.66,
+        1.0
+      ],
+      "roughness": 0.3,
+      "metallic": 0.0
+    },
+    "iron": {
+      "base_color": [
+        0.05,
+        0.05,
+        0.05,
+        1.0
+      ],
+      "roughness": 0.6,
+      "metallic": 0.0
+    },
+    "chrome": {
+      "base_color": [
+        0.6,
+        0.6,
+        0.62,
+        1.0
+      ],
+      "roughness": 0.25,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.5
+  }
+}

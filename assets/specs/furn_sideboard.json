@@ -1,0 +1,55 @@
+{
+  "spec_version": 1,
+  "id": "furn_sideboard",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "cabinet",
+    "seed": 2,
+    "width": 1.8,
+    "depth": 0.5,
+    "height": 0.9,
+    "doors": 3,
+    "drawers": 1,
+    "cornice": 0,
+    "feet": 0.12
+  },
+  "materials": {
+    "wood": {
+      "base_color": [
+        0.2,
+        0.13,
+        0.075,
+        1.0
+      ],
+      "roughness": 0.6,
+      "metallic": 0.0
+    },
+    "panel": {
+      "base_color": [
+        0.16,
+        0.1,
+        0.06,
+        1.0
+      ],
+      "roughness": 0.55,
+      "metallic": 0.0
+    },
+    "brass": {
+      "base_color": [
+        0.55,
+        0.42,
+        0.18,
+        1.0
+      ],
+      "roughness": 0.35,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.5
+  }
+}

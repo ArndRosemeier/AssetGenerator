@@ -1239,6 +1239,279 @@ def _hard_hat(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _add(b, place(lens, (0.0, yl - 0.003 * s - ll + 0.002 * s, zl), pitch=math.pi / 2), "lens")
 
 
+# ---------------------------------------------------------------------------------------------
+# Grandma's furniture: upholstery as rounded pillows, turned legs, joinery with real thickness.
+# ---------------------------------------------------------------------------------------------
+
+
+def _pillow(
+    hx: float, hy: float, hz: float, at: tuple[float, float, float], e: float = 0.45, tilt: float = 0.0
+) -> Shell:
+    """A rounded box (a superellipsoid) of half sizes hx, hy, hz at `at`, tipped back by `tilt`
+    radians about X: a cushion when `e` is near 0.5, a board with eased edges when it is small."""
+
+    def f(v: tuple[float, float, float]) -> tuple[float, float, float]:
+        x, y, z = (math.copysign(abs(c) ** e, c) for c in v)
+        x, y, z = x * hx, y * hy, z * hz
+        y, z = y * math.cos(tilt) + z * math.sin(tilt), -y * math.sin(tilt) + z * math.cos(tilt)
+        return (at[0] + x, at[1] + y, at[2] + z)
+
+    return transform(_blob(1.0, 1.0, 1.0, (0.0, 0.0, 0.0), 10, 16), f)
+
+
+def _turned(profile: list[tuple[float, float]], at: tuple[float, float, float], seg: int = 12) -> Shell:
+    """A turned part (a leg, a column) from its outline [(radius, z), ...], closed at both ends."""
+    z0, z1 = profile[0][1], profile[-1][1]
+    return place(lathe([(0.0, z0), *profile, (0.0, z1)], seg), at)
+
+
+def _armchair(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """Grandma's wing armchair (or, wider and without wings, her sofa): a deep sprung seat with
+    loose cushions, a buttoned back tipped a little, wings at the head, rolled arms, short turned
+    legs. The front faces -Y."""
+    w, seat, n = p["width"] / 2, p["seat"], max(1, int(p["cushions"]))
+    tilt = 0.17
+    _add(b, _pillow(w - 0.05, 0.37, 0.11, (0.0, 0.0, seat - 0.2)), "plush")
+    inner = w - 0.12
+    for k in range(n):
+        cx = -inner + inner * (2 * k + 1) / n
+        _add(b, _pillow(inner / n - 0.01, 0.31, 0.06, (cx, -0.05, seat - 0.055), e=0.5), "plush")
+    back = (0.0, 0.3, seat + 0.33)
+    _add(b, _pillow(w - 0.06, 0.08, 0.38, back, tilt=tilt), "plush")
+    for side in (-1.0, 1.0):
+        # The wings, the arms and the scroll rolled over at the top of each arm.
+        if p["wings"] > 0.5:
+            _add(b, _pillow(0.06, 0.13, 0.17, (side * (w - 0.08), 0.24, seat + 0.38), tilt=tilt), "plush")
+        _add(b, _pillow(0.07, 0.36, 0.14, (side * (w - 0.06), -0.01, seat - 0.05)), "plush")
+        roll = [(side * (w - 0.055), -0.38, seat + 0.1), (side * (w - 0.055), 0.28, seat + 0.1)]
+        _add(b, sweep(roll, circle(0.075, 12), up=(0.0, 0.0, 1.0)), "plush")
+        for fy in (-1.0, 1.0):
+            leg = [(0.03, 0.0), (0.024, 0.04), (0.028, 0.1), (0.036, 0.16), (0.036, seat - 0.26)]
+            _add(b, _turned(leg, (side * (w - 0.08), fy * 0.3, 0.0), 10), "wood")
+    # Buttons in diamonds across the back, sunk into its front face.
+    c, sn = math.cos(tilt), math.sin(tilt)
+    for k in range(n):
+        cx = -inner + inner * (2 * k + 1) / n
+        for bx, bz in ((-0.12, 0.08), (0.12, 0.08), (0.0, 0.2), (-0.12, 0.32), (0.12, 0.32), (0.0, -0.04)):
+            ly = -0.072
+            at = (cx + bx * min(1.0, inner / n / 0.3), back[1] + ly * c + bz * sn, back[2] - ly * sn + bz * c)
+            _add(b, _blob(0.016, 0.012, 0.016, at, 4, 8), "button")
+
+
+def _side_table(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A round lamp table on one turned column and a round foot."""
+    H, R = p["height"], p["radius"]
+    k = H / 0.62
+    prof = [
+        (0.16, 0.0),
+        (0.16, 0.016),
+        (0.12, 0.034),
+        (0.06, 0.05 * k),
+        (0.036, 0.08 * k),
+        (0.032, 0.12 * k),
+        (0.044, 0.18 * k),
+        (0.046, 0.22 * k),
+        (0.03, 0.28 * k),
+        (0.026, 0.34 * k),
+        (0.036, 0.42 * k),
+        (0.036, 0.46 * k),
+        (0.024, 0.52 * k),
+        (0.04, H - 0.06),
+        (0.07, H - 0.03),
+        (R, H - 0.026),
+        (R + 0.006, H - 0.013),
+        (R, H),
+    ]
+    _add(b, _turned(prof, (0.0, 0.0, 0.0), 24), "wood")
+
+
+def _chair(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A plain kitchen chair: a board seat, square legs tapering to the floor, the back legs
+    running on up into posts with a top rail, a middle rail and three spindles; stretchers low."""
+    seat, back = p["seat"], p["back"]
+    hx, hy = 0.2, 0.19
+    _add(b, _pillow(hx + 0.015, hy + 0.02, 0.016, (0.0, 0.0, seat - 0.016), e=0.15), "wood")
+
+    def taper(t: float) -> tuple[float, float]:
+        return (0.013 + 0.006 * t, 0.013 + 0.006 * t)
+
+    for side in (-1.0, 1.0):
+        x = side * (hx - 0.02)
+        _add(
+            b,
+            sweep([(x, -hy + 0.02, 0.0), (x, -hy + 0.02, seat - 0.03)], rect(1.0, 1.0), scale=taper),
+            "wood",
+        )
+        post = [(x, hy - 0.02, 0.0), (x, hy - 0.02, seat - 0.03), (x * 0.96, hy + 0.03, back)]
+        _add(b, sweep(post, rect(0.019, 0.019), up=(1.0, 0.0, 0.0)), "wood")
+        _add(b, sweep([(x, -hy + 0.02, 0.14), (x, hy - 0.02, 0.14)], circle(0.009, 6)), "wood")
+    _add(b, sweep([(-hx + 0.02, -hy + 0.02, 0.2), (hx - 0.02, -hy + 0.02, 0.2)], circle(0.009, 6)), "wood")
+    lean = 0.05 / (back - seat)
+    for z, h in ((back - 0.05, 0.045), (seat + 0.2, 0.02)):
+        y = hy - 0.02 + (z - seat) * lean
+        _add(b, _pillow(hx - 0.01, 0.012, h, (0.0, y, z), e=0.2, tilt=-math.atan(lean)), "wood")
+    for k in (-1, 0, 1):
+        z0, z1 = seat + 0.2, back - 0.05
+        rail = [
+            (k * 0.08, hy - 0.02 + (z0 - seat) * lean, z0),
+            (k * 0.08, hy - 0.02 + (z1 - seat) * lean, z1),
+        ]
+        _add(b, sweep(rail, circle(0.009, 6)), "wood")
+
+
+def _table(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A kitchen table: a scrubbed top with eased edges on an apron, four turned legs."""
+    H, hx, hy = p["height"], p["length"] / 2, p["width"] / 2
+    _add(b, _pillow(hx, hy, 0.016, (0.0, 0.0, H - 0.016), e=0.12), "top")
+    lx, ly = hx - 0.07, hy - 0.07
+    for side in (-1.0, 1.0):
+        _box(b, side * lx - 0.012, side * lx + 0.012, -ly, ly, H - 0.12, H - 0.032, "wood")
+        _box(b, -lx, lx, side * ly - 0.012, side * ly + 0.012, H - 0.12, H - 0.032, "wood")
+        for fy in (-1.0, 1.0):
+            leg = [(0.018, 0.0), (0.022, 0.03), (0.02, 0.06), (0.03, 0.4), (0.024, 0.5), (0.03, 0.56)]
+            leg += [(0.032, 0.6), (0.032, H - 0.032)]
+            _add(b, _turned(leg, (side * lx, fy * ly, 0.0), 10), "wood")
+
+
+def _cabinet(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A case piece (wardrobe, sideboard, cupboard) facing -Y: a carcass on short turned feet or a
+    plinth, a row of drawers over panelled doors, a top that overhangs, a cornice when tall,
+    brass knobs."""
+    W, D, H = p["width"] / 2, p["depth"] / 2, p["height"]
+    foot, n, drawers = p["feet"], max(1, int(p["doors"])), p["drawers"] > 0.5
+    _box(b, -W + 0.02, W - 0.02, -D + 0.02, D - 0.02, foot, H - 0.03, "wood")
+    _add(b, _pillow(W + 0.02, D + 0.02, 0.015, (0.0, -0.01, H - 0.015), e=0.15), "wood")
+    if p["cornice"] > 0.5:
+        _add(b, _pillow(W + 0.05, D + 0.04, 0.035, (0.0, -0.02, H + 0.025), e=0.2), "wood")
+    if foot > 0.0:
+        for sx in (-1.0, 1.0):
+            for sy in (-1.0, 1.0):
+                f = [(0.022, 0.0), (0.03, foot * 0.5), (0.034, foot + 0.01)]
+                _add(b, _turned(f, (sx * (W - 0.06), sy * (D - 0.06), 0.0), 10), "wood")
+    else:
+        _box(b, -W + 0.03, W - 0.03, -D + 0.03, D - 0.03, 0.0, 0.08, "wood")
+    z0, z1 = max(foot, 0.08) + 0.03, H - 0.06
+    face = -D + 0.02
+    if drawers:
+        dz = min(0.16, (z1 - z0) * 0.2)
+        for k in range(n):
+            x0 = -W + 0.05 + (2 * W - 0.1) * k / n
+            x1 = -W + 0.05 + (2 * W - 0.1) * (k + 1) / n
+            _box(b, x0 + 0.01, x1 - 0.01, face - 0.018, face, z1 - dz, z1, "panel")
+            _add(b, _blob(0.014, 0.018, 0.014, ((x0 + x1) / 2, face - 0.03, z1 - dz / 2), 4, 8), "brass")
+        z1 -= dz + 0.03
+    for k in range(n):
+        x0 = -W + 0.05 + (2 * W - 0.1) * k / n
+        x1 = -W + 0.05 + (2 * W - 0.1) * (k + 1) / n
+        _box(b, x0 + 0.01, x1 - 0.01, face - 0.012, face, z0, z1, "wood")
+        # The raised panel in the door.
+        _box(b, x0 + 0.06, x1 - 0.06, face - 0.024, face - 0.012, z0 + 0.06, z1 - 0.06, "panel")
+        kx = x1 - 0.05 if k % 2 == 0 else x0 + 0.05
+        _add(b, _blob(0.013, 0.016, 0.013, (kx, face - 0.03, (z0 + z1) / 2), 4, 8), "brass")
+
+
+def _bed(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A made double bed, its head to -Y: a wooden frame with a tall headboard and a low
+    footboard between turned posts, the mattress, the eiderdown folded back, two pillows."""
+    W, L = p["width"] / 2, p["length"] / 2
+    for y, top in ((-L, 1.0), (L, 0.62)):
+        for sx in (-1.0, 1.0):
+            post = [
+                (0.03, 0.0),
+                (0.034, 0.05),
+                (0.03, 0.12),
+                (0.032, top - 0.06),
+                (0.042, top - 0.03),
+                (0.02, top),
+            ]
+            _add(b, _turned(post, (sx * W, y, 0.0), 10), "wood")
+        _box(b, -W + 0.02, W - 0.02, y - 0.018, y + 0.018, 0.22, top - 0.08, "wood")
+    for sx in (-1.0, 1.0):
+        _box(b, sx * W - 0.02, sx * W + 0.02, -L, L, 0.2, 0.36, "wood")
+    _add(b, _pillow(W - 0.03, L - 0.04, 0.09, (0.0, 0.0, 0.43), e=0.3), "linen")
+    _add(b, _pillow(W - 0.01, L * 0.62, 0.035, (0.0, L * 0.34, 0.53), e=0.35), "blanket")
+    _add(b, _pillow(W - 0.01, 0.12, 0.05, (0.0, -L + L * 0.76, 0.53), e=0.45), "blanket")
+    for sx in (-1.0, 1.0):
+        _add(b, _pillow(W * 0.42, 0.17, 0.06, (sx * W * 0.47, -L + 0.26, 0.56), e=0.5, tilt=-0.25), "linen")
+
+
+def _stove(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """An enamelled kitchen range on legs, facing -Y: an oven door with a handle bar, a black
+    hob with two plates, a back splash, knobs along the top front."""
+    W, D, H = 0.32, 0.31, p["height"]
+    _add(b, _pillow(W, D, (H - 0.12) / 2, (0.0, 0.0, 0.12 + (H - 0.12) / 2), e=0.12), "enamel")
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            _box(
+                b,
+                sx * (W - 0.03) - 0.015,
+                sx * (W - 0.03) + 0.015,
+                sy * (D - 0.03) - 0.015,
+                sy * (D - 0.03) + 0.015,
+                0.0,
+                0.13,
+                "iron",
+            )
+    _box(b, -W + 0.01, W - 0.01, -D + 0.01, D - 0.01, H, H + 0.012, "iron")
+    for x in (-0.13, 0.13):
+        _add(
+            b,
+            place(lathe([(0.0, 0.0), (0.085, 0.0), (0.085, 0.012), (0.0, 0.012)], 16), (x, -0.02, H + 0.01)),
+            "iron",
+        )
+    _box(b, -W, W, D - 0.02, D + 0.01, H, H + 0.22, "enamel")
+    _add(b, _pillow(W - 0.05, 0.012, 0.21, (0.0, -D - 0.004, 0.42), e=0.15), "enamel")
+    _add(b, sweep([(-0.2, -D - 0.05, 0.66), (0.2, -D - 0.05, 0.66)], circle(0.009, 6)), "chrome")
+    for x in (-0.2, 0.2):
+        _box(b, x - 0.008, x + 0.008, -D - 0.05, -D - 0.005, 0.655, 0.665, "chrome")
+    for k in range(4):
+        _add(
+            b,
+            place(
+                lathe([(0.0, 0.0), (0.018, 0.0), (0.016, 0.02), (0.0, 0.02)], 8),
+                (-0.18 + 0.12 * k, -D, H - 0.06),
+                pitch=math.pi / 2,
+            ),
+            "iron",
+        )
+
+
+def _shelf(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A cellar shelf unit: three uprights, boards at the given heights, a back rail."""
+    W, D, H = p["width"] / 2, p["depth"] / 2, p["height"]
+    for x in (-W, 0.0, W):
+        _box(b, x - 0.02, x + 0.02, -D, D, 0.0, H, "wood")
+    for z in (p["board1"], p["board2"], p["board3"]):
+        _box(b, -W, W, -D, D, z - 0.015, z + 0.015, "wood")
+        _box(b, -W, W, D - 0.025, D, z + 0.015, z + 0.07, "wood")
+    _box(b, -W, W, D - 0.02, D, H - 0.1, H, "wood")
+
+
+def _coat_stand(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+    """A turned coat stand on a round foot, hooks curling out at the top."""
+    H = p["height"]
+    pole = [
+        (0.16, 0.0),
+        (0.16, 0.02),
+        (0.05, 0.05),
+        (0.022, 0.12),
+        (0.02, H - 0.15),
+        (0.03, H - 0.1),
+        (0.018, H - 0.02),
+        (0.03, H),
+    ]
+    _add(b, _turned(pole, (0.0, 0.0, 0.0), 14), "wood")
+    for k in range(4):
+        a = math.tau * k / 4 + 0.4
+        c, sn = math.cos(a), math.sin(a)
+        hook = [
+            (0.015 * c, 0.015 * sn, H - 0.16),
+            (0.1 * c, 0.1 * sn, H - 0.13),
+            (0.14 * c, 0.14 * sn, H - 0.07),
+        ]
+        _add(b, sweep(hook, circle(0.009, 6), up=(0.0, 0.0, 1.0)), "brass")
+
+
 PART_RECIPES: dict[
     str, tuple[Callable[[dict[str, float], str, random.Random], list[Part]], dict[str, float], str]
 ] = {
@@ -1304,6 +1577,27 @@ RECIPES: dict[str, tuple[Recipe, tuple[str, ...], dict[str, float]]] = {
     "statue": (_statue, ("stone", "gold"), {"height": 4.0}),
     "brazier": (_brazier, ("iron", "coal"), {"height": 1.2, "radius": 0.4}),
     "chain": (_chain, ("iron",), {"length": 4.0, "link": 0.16}),
+    "armchair": (
+        _armchair,
+        ("plush", "wood", "button"),
+        {"width": 0.86, "seat": 0.46, "cushions": 1, "wings": 1.0},
+    ),
+    "side_table": (_side_table, ("wood",), {"height": 0.62, "radius": 0.25}),
+    "cabinet": (
+        _cabinet,
+        ("wood", "panel", "brass"),
+        {"width": 1.1, "depth": 0.6, "height": 2.0, "doors": 2, "drawers": 0.0, "cornice": 1.0, "feet": 0.0},
+    ),
+    "bed": (_bed, ("wood", "linen", "blanket"), {"width": 1.5, "length": 2.0}),
+    "stove": (_stove, ("enamel", "iron", "chrome"), {"height": 0.9}),
+    "shelf": (
+        _shelf,
+        ("wood",),
+        {"width": 1.56, "depth": 0.42, "height": 1.9, "board1": 0.35, "board2": 0.95, "board3": 1.55},
+    ),
+    "coat_stand": (_coat_stand, ("wood", "brass"), {"height": 1.8}),
+    "chair": (_chair, ("wood",), {"seat": 0.45, "back": 0.9}),
+    "table": (_table, ("top", "wood"), {"height": 0.77, "length": 1.1, "width": 0.8}),
     "hatchet": (_hatchet, ("wood", "iron", "edge"), {"handle_length": 0.4, "blade": 0.1}),
     "crowbar": (_crowbar, ("iron", "worn"), {"length": 0.6, "radius": 0.013}),
     "hard_hat": (_hard_hat, ("enamel", "iron", "lens"), {"head": 0.1, "dents": 4}),
@@ -1341,6 +1635,15 @@ SMOOTH = {
     "hard_hat": True,
     "hatchet": True,
     "crowbar": True,
+    "armchair": True,
+    "side_table": True,
+    "chair": True,
+    "cabinet": False,
+    "bed": True,
+    "stove": True,
+    "shelf": False,
+    "coat_stand": True,
+    "table": True,
 }
 
 
@@ -1369,7 +1672,22 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
 
 
 # Counts and switches that may be 0 (no gills, no spots, no ring, no load, upright).
-MAY_BE_ZERO = {"gills", "spots", "ring", "volva", "load", "lean", "bones", "fire_only", "door", "dents"}
+MAY_BE_ZERO = {
+    "gills",
+    "spots",
+    "ring",
+    "volva",
+    "load",
+    "lean",
+    "bones",
+    "fire_only",
+    "door",
+    "dents",
+    "wings",
+    "drawers",
+    "cornice",
+    "feet",
+}
 
 
 def _params(raw: Mapping[str, object], kind: str, defaults: dict[str, float]) -> dict[str, float]:

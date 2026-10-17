@@ -1,0 +1,28 @@
+{
+  "spec_version": 1,
+  "id": "furn_chair",
+  "generator": "prop.kit",
+  "params": {
+    "kind": "chair",
+    "seed": 1
+  },
+  "materials": {
+    "wood": {
+      "base_color": [
+        0.2,
+        0.13,
+        0.075,
+        1.0
+      ],
+      "roughness": 0.6,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.5
+  }
+}
