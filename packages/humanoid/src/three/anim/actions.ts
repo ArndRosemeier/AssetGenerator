@@ -273,6 +273,9 @@ function aimPistol(p: Pose, t: number, c: ActionCtx) {
 }
 
 /** Repeating two-handed tool strokes (dig, chop, mine, hammer). */
+/** How far the wrists turn the head of a pick or felling axe down through the blow, radians. */
+const TOOL_SNAP = 1.8;
+
 function toolStroke(p: Pose, t: number, c: ActionCtx, kind: 'dig' | 'chop' | 'mine' | 'hammer' | 'saw') {
   const cycles = kind === 'hammer' ? Math.max(1, Math.round(c.dur / 0.6)) : kind === 'saw' ? Math.max(1, Math.round(c.dur / 0.7)) : 1;
   const u = (t * cycles) % 1;
@@ -300,8 +303,11 @@ function toolStroke(p: Pose, t: number, c: ActionCtx, kind: 'dig' | 'chop' | 'mi
   const r = kf(u, [[0, 0], [0.42, 1], [0.6, -0.3], [0.78, -0.25], [1, 0]]);
   const low = kind === 'mine' ? -0.25 : kind === 'chop' ? 0 : -0.5;
   const two = kind !== 'hammer';
-  p.arm('R', 0.9 + r * 1.8 + low * 0.5, 0.25, -0.2, 1.3 - r * 0.5, 0.3, 0.5 * r);
-  if (two) p.arm('L', 0.8 + r * 1.6 + low * 0.5, -0.05, 0.2, 1.3 - r * 0.4, 0.3, 0.4 * r);
+  // A pick or a felling axe: the wrists snap through the blow, so the head (out of the thumb
+  // side of the fists) comes down ahead into the rock instead of pointing up at the sky.
+  const snap = kind === 'hammer' ? 0 : TOOL_SNAP * kf(u, [[0, 0], [0.42, 0], [0.6, 1], [0.78, 1], [1, 0]]);
+  p.arm('R', 0.9 + r * 1.8 + low * 0.5, 0.25, -0.2, 1.3 - r * 0.5, 0.3, 0.5 * r - snap);
+  if (two) p.arm('L', 0.8 + r * 1.6 + low * 0.5, -0.05, 0.2, 1.3 - r * 0.4, 0.3, 0.4 * r - snap);
   else p.arm('L', 0.8, 0.2, 0, 1.5, 0.6);
   p.spine((kind === 'chop' ? -0.1 : -0.3) + r * 0.25 - Math.max(0, -r) * 0.4, kind === 'chop' ? 0.35 * r : 0.15, 0);
   p.leg('L', 0.3, 0.1, 0, 0.4);
