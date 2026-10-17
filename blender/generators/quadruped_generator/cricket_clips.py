@@ -2,7 +2,9 @@
 
 Loops: Idle (still, feelers sweeping slowly: on the floor or clinging to the rock, which way up is
 the game's), Alert (the same, quick and twitchy: it is after you), Scuttle (the six-legged walk),
-Hop (hops along the floor), Crouch (sunk on its hind legs, quivering: the tell before a leap).
+Hop (hops along the floor), Crouch (sunk on its hind legs, quivering: the tell before a leap),
+Graze (head down to the rock, the mandibles working at its salt, the feelers sweeping low), Rest
+(sunk flat on the rock, feelers laid back and nearly still: asleep with its group).
 Once: Leap (the hind legs kicking out straight behind, held through the flight), Bite (rearing
 back, then the head driven down with the mandibles working), Hurt (a flinch, layered on top), Die
 (over onto its back, legs folding in and twitching).
@@ -132,6 +134,41 @@ def _leap(rig: Rig, t: float) -> Pose:
     return pose
 
 
+#: Head down at the rock, the front of it pitched to the surface.
+GRAZE_POSE = {"z": -0.015, "pitch": -0.1, "head": 0.35, "hips": 0.03, "ears": -0.1}
+
+
+def _graze(rig: Rig, t: float) -> Pose:
+    """Three seconds of nibbling: the mandibles going fast, the head working along the rock and lifting
+    off it now and then (0.5..0.62 of the loop)."""
+    w = 2 * math.pi * t
+    nibble = 0.5 + 0.5 * math.sin(24 * w)
+    lift = math.sin(math.pi * (t - 0.5) / 0.12) if 0.5 <= t < 0.62 else 0.0
+    p = dict(GRAZE_POSE)
+    p["head"] += 0.05 * nibble * (1.0 - lift) - 0.25 * lift
+    p["jaw"] = 0.1 + 0.35 * nibble * (1.0 - 0.7 * lift)
+    p["neck_yaw"] = 0.1 * math.sin(w) + 0.04 * math.sin(3 * w)
+    p["z"] += 0.002 * math.sin(3 * w)
+    pose = build(rig, p, planted(rig))
+    _feelers(pose, t, 1.5, 0.6)
+    return pose
+
+
+#: Sunk flat on the rock, the feelers laid back.
+REST_POSE = {"z": -0.04, "pitch": 0.03, "head": 0.12, "hips": -0.03, "ears": -0.45, "ears_out": 0.2}
+
+
+def _rest(rig: Rig, t: float) -> Pose:
+    """Four seconds asleep: a slow pulse through the body, one feeler drifting."""
+    w = 2 * math.pi * t
+    p = dict(REST_POSE)
+    p["z"] += 0.0015 * math.sin(2 * w)
+    p["hips"] += 0.015 * math.sin(2 * w)
+    pose = build(rig, p, planted(rig))
+    _feelers(pose, t, 1.0, 0.15)
+    return pose
+
+
 WINDUP = 0.5  # of the clip: the game's 0.3 s rear before the snap
 
 
@@ -211,6 +248,8 @@ CLIPS = [
     Clip("Scuttle", 16, True, _scuttle),
     Clip("Hop", 14, True, _hop),
     Clip("Crouch", 24, True, _crouch),
+    Clip("Graze", 90, True, _graze),
+    Clip("Rest", 120, True, _rest),
     Clip("Leap", 10, False, _leap),
     Clip("Bite", 18, False, _bite),
     Clip("Hurt", 8, False, _hurt),
