@@ -1,8 +1,9 @@
 """The dog's clips: everything it does in the game, as baked actions on its skeleton.
 
 Loops: Idle, Trot, Gallop, Stalk (the low circling walk), Lie (lying up at the den), Crouch (the tell
-before a lunge, quivering). Once: Lunge, Bite (the snap), Hurt (a flinch, made to be layered on top of
-whatever it is doing), Die.
+before a lunge, quivering), Graze (head down at a food spot, chewing or lapping, now and then a look
+up). Once: Lunge, Bite (the snap), Hurt (a flinch, made to be layered on top of whatever it is doing),
+Die.
 
 Gaits are written for the stride lengths in `STRIDES` (metres per cycle at size 1): the game plays
 them by distance travelled, so the paws stay put on the ground at any speed.
@@ -342,6 +343,53 @@ def _crouch(rig: Rig, t: float) -> Pose:
     return build(rig, p, planted(rig, CROUCH_SHIFT, CROUCH_SLOPE))
 
 
+#: Head down at the food: the forelegs give at the elbow and the chest drops so the short neck reaches,
+#: the nose just off the floor in front of the forepaws (which stand a little forward, under the head).
+GRAZE_POSE: Params = {
+    "z": -0.05,
+    "pitch": -0.12,
+    "chest": -0.33,
+    "neck": -1.22,
+    "head": 0.42,
+    "ears": 0.15,
+    "ears_out": 0.12,
+    "tail": 0.3,
+}
+#: The look up from the food: head raised to the withers, ears up, still bent over the spot.
+GRAZE_UP: Params = {
+    "z": -0.025,
+    "pitch": -0.05,
+    "chest": -0.15,
+    "neck": -0.4,
+    "head": 0.18,
+    "ears": 0.6,
+    "ears_out": 0.05,
+    "tail": 0.2,
+}
+GRAZE_SHIFT = {"fore.L": Vector((0.0, 0.06, 0.0)), "fore.R": Vector((0.0, 0.06, 0.0))}
+
+
+def _graze(rig: Rig, t: float) -> Pose:
+    """Five seconds at the food: chewing and lapping with the head down, an ear flick, and one look up
+    and round (0.6..0.8 of the loop) before the head goes down again. The paws stay where they are."""
+    w = 2 * math.pi * t
+    up = ease((t - 0.58) / 0.07) * (1.0 - ease((t - 0.78) / 0.08))
+    breath = math.sin(5 * w)
+    chew = 0.5 + 0.5 * math.sin(16 * w)
+    flick = max(0.0, math.sin(math.pi * (t - 0.3) / 0.05)) if 0.3 <= t < 0.35 else 0.0
+    p = mix(GRAZE_POSE, GRAZE_UP, up)
+    p["z"] += 0.003 * breath
+    p["chest"] += 0.012 * breath
+    # The chew: the jaw working and the head nodding up off the food with it (never down into the floor).
+    p["jaw"] = 0.08 + (0.22 - 0.1 * up) * chew
+    p["head"] += 0.05 * (1.0 - up) * (0.5 + 0.5 * math.sin(16 * w + 0.9))
+    p["neck_yaw"] = 0.06 * math.sin(w) * (1.0 - up) + 0.22 * up * math.sin(2 * math.pi * (t - 0.58) / 0.28)
+    p["head_yaw"] = 0.04 * math.sin(3 * w) * (1.0 - up)
+    p["ear_flick"] = 0.7 * flick
+    p["tail_yaw"] = 0.1 * math.sin(2 * w)
+    return build(rig, p, planted(rig, GRAZE_SHIFT))
+
+
 LUNGE_POSE: Params = {
     "z": 0.08,
     "pitch": -0.05,
@@ -461,6 +509,7 @@ CLIPS = [
     Clip("Stalk", 36, True, _stalk),
     Clip("Lie", 120, True, _lie),
     Clip("Crouch", 24, True, _crouch),
+    Clip("Graze", 150, True, _graze),
     Clip("Lunge", 14, False, _lunge),
     Clip("Bite", 10, False, _bite),
     Clip("Hurt", 10, False, _hurt),
