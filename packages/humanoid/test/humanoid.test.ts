@@ -43,3 +43,26 @@ test('a skin mesh needs at most 8 vertex buffers (the WebGPU limit)', async () =
   const geo = new CharacterGeometry(getHumanStatic(assets), buildCharacter(assets, randomAppearance('human', 7)));
   for (const g of [...geo.body, geo.lashes, geo.teeth, geo.tongue]) assert.ok(Object.keys(g.attributes).length <= 8, Object.keys(g.attributes).join(' '));
 });
+
+test('a skeleton lies on its own rest skeleton, inside the body, the same for the same seed', async () => {
+  const { getHumanStatic } = await import('../src/three/staticData');
+  const { CharacterGeometry, Character } = await import('../src/three/Character');
+  const { boneGeometry } = await import('../src/three/skeletal');
+  for (const race of ['human', 'goblin', 'giantkin'] as const) {
+    const app = randomAppearance(race, 5);
+    const ch = new Character(new CharacterGeometry(getHumanStatic(assets), buildCharacter(assets, app)), app);
+    const { bones, glow } = boneGeometry(ch, { crust: 0.8, eyes: [0.7, 0.9, 1] });
+    const p = bones.getAttribute('position'), si = bones.getAttribute('skinIndex'), h = ch.geo.build.body.height;
+    let top = -Infinity, low = Infinity;
+    for (let i = 0; i < p.count; i++) {
+      top = Math.max(top, p.getY(i));
+      low = Math.min(low, p.getY(i));
+      assert.ok(si.getX(i) >= 0 && si.getX(i) < ch.bones.length, `bone ${si.getX(i)}`);
+    }
+    assert.ok(top < h + 0.04 && top > h - 0.08, `${race}: skull top ${top.toFixed(3)} of ${h.toFixed(3)}`);
+    assert.ok(low > -0.03 && low < 0.06, `${race}: feet at ${low.toFixed(3)}`);
+    assert.ok(glow && glow.getAttribute('position').count > 0);
+    const again = boneGeometry(ch, { crust: 0.8 }).bones.getAttribute('position');
+    assert.deepEqual(Array.from(again.array), Array.from(p.array));
+  }
+});
