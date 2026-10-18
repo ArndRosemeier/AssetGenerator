@@ -30,6 +30,13 @@ export interface AnimState {
   lookAt?: Vec3;
   /** Superpower body layer: jump charge, leap, dash. */
   power?: PowerAnim;
+  /**
+   * Sitting or lying ('sit', 'sleep'): how high the seat or the mattress is above the feet's
+   * floor (pos.y), in m. Default: a chair's 0.47 for 'sit', the floor itself for 'sleep'. Keep
+   * pos.y on the floor throughout: sitting down, lying down and getting up move the body. A
+   * sitter's pos is where they stand to sit, SEAT_REACH in front of the seat's middle.
+   */
+  seat?: number;
 }
 
 /** Superpower poses layered over locomotion (see Animator.powerLayer). */

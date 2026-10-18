@@ -14,4 +14,5 @@ export * from './bodyBuild';
 export * from './parts';
 export * from './characterBuild';
 export * from './wearable';
+export * from './seating';
 export { BEARD_IDS, beardCoverage, scalpCoverage } from './faceRegions';
