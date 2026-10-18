@@ -95,7 +95,7 @@ const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE
 const _qc = new THREE.Quaternion(), _qr = new THREE.Quaternion();
 const _rt = new THREE.Vector3(), _rw = new THREE.Vector3(), _rg = new THREE.Vector3(), _rp = new THREE.Vector3();
 const _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rc = new THREE.Vector3(), _rd = new THREE.Vector3(), _re = new THREE.Vector3(), _rf = new THREE.Vector3();
-const _rq = new THREE.Quaternion();
+const _rq = new THREE.Quaternion(), _rh = new THREE.Vector3();
 const _wq = new THREE.Quaternion();
 const _m0 = new THREE.Matrix4(), _m1 = new THREE.Matrix4();
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3(), _v5 = new THREE.Vector3();
@@ -116,6 +116,8 @@ const RELAXED_FINGER = [1.1, 1.15, 1.35, 1.6, 1.85];
 const RELAXED_JOINT = [0.85, 1.45, 1.1];
 /** Finger curl of a fist closed round a held handle (fingers wrapped right round it). */
 const HOLD = 1.5;
+/** Finger curl of a hand resting on a thigh, a lap or a belly. */
+const REST_CURL = 0.62;
 /** A holding thumb: extra flex at each joint, and how far its base swings across the palm (radians). */
 const THUMB_WRAP = { flex: 0.25, across: 0.35 };
 /** Upper-body bones whose captured idle sway is toned down when standing. */
@@ -266,6 +268,9 @@ export class Animator {
   private flyCurl = { L: 0.35, R: 0.35 };
   /** Riding: the crank angle (RIDE, pedalAt; 0 the left pedal down), and the hands and feet onto the bicycle. */
   private crank = 0;
+  /** Seated or lying: where the hands rest (restHands), and this character's way of resting them (a seeded variant). */
+  private restGoals: LimbGoals = { L: { p: new THREE.Vector3(), w: 0, flat: new THREE.Vector3() }, R: { p: new THREE.Vector3(), w: 0, flat: new THREE.Vector3() } };
+  private restW = 0;
   private rideGoals: LimbGoals = { L: { p: new THREE.Vector3(), w: 0 }, R: { p: new THREE.Vector3(), w: 0 }, footL: { p: new THREE.Vector3(), w: 0 }, footR: { p: new THREE.Vector3(), w: 0 } };
 
   constructor(readonly ch: Character) {
@@ -382,6 +387,8 @@ export class Animator {
       // already in its pose: someone lying on the street does not stand up and fall again.
       this.famW.set(f, this.fresh ? target : approach(this.famW.get(f)!, target, rate, dt));
     }
+    // Seated or lying, the hands come to rest (on the thighs or in the lap, on the belly or the mattress).
+    this.restW = Math.max(this.famW.get('sit')! * this.seated(), this.famW.get('sleep')!);
     if (fam === 'dead' && this.deadT < 0) { this.deadT = this.fresh ? 30 : 0; this.deadDir = hash32(this.seed + Math.floor(inp.time)) % 3 === 0 ? -1 : 1; }
     this.fresh = false;
     if (fam !== 'dead') this.deadT = -1; else this.deadT += dt;
@@ -501,6 +508,7 @@ export class Animator {
     this.fingerPose(inp, action?.def, dt);
     if (action?.def.reach && actionCtx && this.actionW > 0.02) this.reachIK(action.def, actionCtx, this.actionW);
     if (this.famW.get('ride')! > 0.002) this.limbIK(this.onBicycle(this.famW.get('ride')!));
+    if (this.restW > 0.002) this.limbIK(this.restHands(this.restW));
     if (this.limbs) this.limbIK(this.limbs);
     // ---- IK & face (near only)
     if (lod === 0 && ground && ovW < 0.5 && (fam === 'ground' || fam === 'sit' || fam === 'stunned') && this.famW.get('ground')! > 0.5) this.footIK(ground, dt);
@@ -815,6 +823,64 @@ export class Animator {
       put((s === 'L' ? g.footL : g.footR)!.p, (s === 'L' ? -1 : 1) * RIDE.pedalHalf, RIDE.crankUp + up + 0.08, RIDE.crankAhead + ahead - 0.06);
     }
     g.L!.w = g.R!.w = g.footL!.w = g.footR!.w = w;
+    return g;
+  }
+
+  /**
+   * Where the hands rest, seated or lying (LimbGoals for limbIK, blended in by `w`), from the body's own
+   * joints so it fits every size. Each character has their way (a seeded variant): seated, both hands on
+   * the thighs, both in the lap, or one of each; lying, the hands on the mattress by the hips, on the
+   * belly, or one of each. A sitter who talks lifts the right hand off to gesture (the talking clip).
+   */
+  private restHands(w: number): LimbGoals {
+    const g = this.restGoals, ch = this.ch, k = this.hipH / 0.9;
+    ch.object.updateMatrixWorld(true);
+    const v = hash32(this.seed ^ 0x5eed) % 6;
+    const hipL = ch.bone('upperleg01.L').getWorldPosition(_ra), hipR = ch.bone('upperleg01.R').getWorldPosition(_rb);
+    const kneeL = ch.bone('lowerleg01.L').getWorldPosition(_rc), kneeR = ch.bone('lowerleg01.R').getWorldPosition(_rd);
+    // The body's right (from the left hip to the right) and up (from the hips toward the chest).
+    const right = _re.subVectors(hipR, hipL).normalize();
+    const chest = ch.bone('spine03').getWorldPosition(_rf);
+    const mid = _rw.addVectors(hipL, hipR).multiplyScalar(0.5);
+    const lying = this.famW.get('sleep')! > 0.5;
+    const along = 0.5 + (hash32(this.seed ^ 0xa1) % 100) / 400; // how far down the thigh (0.5 .. 0.75)
+    for (const s of ['L', 'R'] as const) {
+      const h = g[s]!, side = s === 'L' ? -1 : 1;
+      // Which hand does what: 0..1 the thigh / mattress, 2..3 the lap / belly, 4..5 one of each.
+      const inLap = v === 2 || v === 3 || (v === 4 && s === 'R') || (v === 5 && s === 'L');
+      if (!lying) {
+        const hip = s === 'L' ? hipL : hipR, knee = s === 'L' ? kneeL : kneeR;
+        if (!inLap) {
+          // On the top of the thigh, palm down, the fingers toward the knee and a little in.
+          h.p.copy(hip).lerp(knee, along).addScaledVector(right, -side * 0.02 * k);
+          h.p.y += 0.085 * k;
+          h.flat!.subVectors(knee, hip).addScaledVector(right, -side * 0.35);
+        } else {
+          // In the lap: between the thighs near the hips, one hand over the other, fingers across.
+          h.p.copy(mid).lerp(_rg.addVectors(kneeL, kneeR).multiplyScalar(0.5), 0.3).addScaledVector(right, side * 0.04 * k);
+          h.p.y += (0.07 + (s === 'R' ? 0.025 : 0)) * k;
+          h.flat!.copy(right).multiplyScalar(-side).add(_rg.subVectors(kneeL, hipL).multiplyScalar(0.8));
+        }
+        h.pole = inLap ? [0.7, -0.6, 0.1] : [0.5, -0.5, -0.5];
+        h.w = s === 'R' ? w * (1 - 0.85 * this.talkS) : w;
+      } else {
+        const up = _rh.subVectors(chest, mid).normalize();
+        if (!inLap) {
+          // On the mattress by the hips, palm down, the fingers toward the feet.
+          h.p.copy(mid).addScaledVector(right, side * 0.27 * k).addScaledVector(up, 0.02 * k);
+          h.p.y -= 0.07 * k;
+          h.flat!.copy(up).multiplyScalar(-1);
+          h.pole = [1, 0, -0.4];
+        } else {
+          // On the belly, the fingers across it.
+          h.p.copy(mid).lerp(chest, 0.45 + (s === 'R' ? 0.12 : 0)).addScaledVector(right, side * 0.04 * k);
+          h.p.y += 0.13 * k;
+          h.flat!.copy(right).multiplyScalar(-side);
+          h.pole = [1, 0, -0.6];
+        }
+        h.w = w;
+      }
+    }
     return g;
   }
 
@@ -1518,6 +1584,8 @@ export class Animator {
       if (def.curl.L !== undefined) cL += (def.curl.L - cL) * w;
       if (def.curl.R !== undefined) cR += (def.curl.R - cR) * w;
     }
+    // Resting hands: loosely curled, never splayed.
+    if (this.restW > 0.01) { cL += (REST_CURL - cL) * this.restW; cR += (REST_CURL - cR) * this.restW; }
     // Riding: holding the grips.
     const rw = this.famW.get('ride')!;
     if (rw > 0.01) { cL += (HOLD - cL) * rw; cR += (HOLD - cR) * rw; }
