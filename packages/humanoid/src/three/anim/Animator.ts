@@ -25,6 +25,7 @@ import { Pose, makeBoneMap, kf, clamp, smooth, approach, wrapPi, type BoneMap, t
 import { ACTIONS, sitPose, type ActionCtx, type GripClass, type ActionDef } from './actions';
 import { hash32 } from '@futuremagic/core';
 import { ClipRig, clipLibrary, clipSettings } from './clips';
+import { SEAT_HEIGHT, SEAT_REACH } from '../../seating';
 
 export type GroundFn = (x: number, y: number, z: number) => number | null;
 
@@ -125,6 +126,12 @@ const TORCH_RAISED = [1.7, 0.5, -0.4, 0.45, 0.3, -0.9, -0.4] as const;
  * Idle_Loop (with the calmer procedural arms) when the library lacks them.
  */
 export const MOCAP_IDLES = ['CMU_Idle_1', 'CMU_Idle_2', 'CMU_Idle_3'];
+/** A chair's seat height (m) and where a sitter stands (src/seating.ts). */
+const SEAT_H = SEAT_HEIGHT;
+/** Sitting down and getting up (s) without the clips (procedural only). */
+const SIT_DUR = 1.2, UP_DUR = 1.0;
+/** Rate (1/s) of lying down and getting up from lying (the family cross-fade): about 1.2 s. */
+const LIE_RATE = 1.4;
 /** The motion-captured idles play slower than captured: calmer standing (the baked crowd follows, see idleCycle). */
 const MOCAP_IDLE_RATE = 0.5;
 
@@ -212,6 +219,16 @@ export class Animator {
   private mocapW = 0;
   private talkS = 0;
   private swimU = 0;
+  /**
+   * Seconds since sitting down (Sitting_Enter plays first) and since getting up from a seat
+   * (Sitting_Exit plays, the body still on the seat); Infinity when neither is going on.
+   */
+  private sitT = Infinity;
+  private upT = Infinity;
+  /** Asked to sit now (the seated family may still be fading in or out). */
+  private sitting = false;
+  /** The seat's (or mattress's) height above the floor (m, AnimState.seat). */
+  private seatH = SEAT_H;
   // Air and landing (clip families): time in the air, whether it began with a jump, landing.
   private prevFam: Family = 'ground';
   private airT = 0;
@@ -339,9 +356,22 @@ export class Animator {
     this.time += dt;
     const a = inp.anim;
     const fam = familyOf(a.move);
+    // Sitting down and getting up play their moves; getting up holds the seated family until
+    // the body is on its feet (lying down from the seat needs no getting up).
+    this.sitting = fam === 'sit';
+    if (fam === 'sit') {
+      this.sitT = this.prevFam !== 'sit' ? (this.fresh || this.prevFam === 'sleep' ? Infinity : 0) : this.sitT + dt; // (sitting up from lying: no sit-down)
+      this.upT = Infinity;
+    } else if (this.prevFam === 'sit' && fam !== 'sleep' && !this.fresh) this.upT = 0;
+    else this.upT += dt;
+    const held: Family = this.upT < this.upDur() ? 'sit' : fam;
+    this.seatH = a.seat ?? (fam === 'sleep' ? 0 : SEAT_H);
+    // Lying down and getting up from lying take a while (every family fades at that pace while
+    // it goes on); falling dead is quick.
+    const lying = held === 'sleep' || this.famW.get('sleep')! > 0.002;
     for (const f of FAMILIES) {
-      const target = f === fam ? 1 : 0;
-      const rate = f === 'dead' || fam === 'dead' ? 9 : 7;
+      const target = f === held ? 1 : 0;
+      const rate = f === 'dead' || held === 'dead' ? 9 : lying ? LIE_RATE : 7;
       // A character that comes into view (a crowd member getting its full body up close) is
       // already in its pose: someone lying on the street does not stand up and fall again.
       this.famW.set(f, this.fresh ? target : approach(this.famW.get(f)!, target, rate, dt));
@@ -664,10 +694,16 @@ export class Animator {
       case 'sit': {
         const idle = rig.clip('Sitting_Idle_Loop'), talk = rig.clip('Sitting_Talking_Loop');
         if (!idle || !talk) return false;
-        this.talkS = approach(this.talkS, inp.anim.talking ? 1 : 0, 3, dt);
-        rig.accumulate(idle, this.time / idle.meta.dur, 1 - this.talkS, p);
-        rig.accumulate(talk, this.time / talk.meta.dur, this.talkS, p);
-        this.onSeat(p);
+        const enter = rig.clip('Sitting_Enter'), exit = rig.clip('Sitting_Exit');
+        // (Fading out after getting up: the end of the move, on their feet.)
+        if (this.sitting && enter && this.sitT < enter.meta.dur) rig.accumulate(enter, this.sitT / enter.meta.dur, 1, p);
+        else if (!this.sitting && exit) rig.accumulate(exit, Math.min(1, this.upT / exit.meta.dur), 1, p);
+        else {
+          this.talkS = approach(this.talkS, inp.anim.talking ? 1 : 0, 3, dt);
+          rig.accumulate(idle, this.time / idle.meta.dur, 1 - this.talkS, p);
+          rig.accumulate(talk, this.time / talk.meta.dur, this.talkS, p);
+        }
+        this.onSeat(p, this.seated());
         return true;
       }
       case 'air': {
@@ -697,28 +733,42 @@ export class Animator {
 
   /**
    * Seated: the hips go onto the seat, wherever the clip or pose put them. Seats are made
-   * for people (top about 0.47 m, whatever the sitter's size), and the sitter is placed at
-   * the seat's centre facing out, so the hip joints sit a bit behind the centre, a cushion
-   * of flesh above the seat. A tall sitter's shins angle forward instead of going through
+   * for people (top about 0.47 m, whatever the sitter's size: AnimState.seat), and the sitter
+   * is placed SEAT_REACH in front of the seat's centre facing out, so the hip joints sit a bit
+   * behind the centre, a cushion of flesh above the seat. A tall sitter's shins angle forward instead of going through
    * the floor; a short one's feet dangle.
    */
-  private onSeat(p: Pose) {
+  private onSeat(p: Pose, s = 1) {
     const ch = this.ch, k = this.hipH / 0.9;
     const sc = Math.max(1e-4, ch.object.getWorldScale(_v5).y);
     const rest = ch.rest[0];
     const hipOverRoot = this.hipH - rest.y; // hip joints relative to the root bone (local)
-    const hip = 0.47 / sc + 0.09 * k; // hip joints above the floor (local units)
-    p.root.y = hip - hipOverRoot - rest.y;
-    p.root.z = 0.11 / sc + 0.02 * k - rest.z; // (root z points backward)
+    const hip = this.seatH / sc + 0.09 * k; // hip joints above the floor (local units)
+    // The character stands a step in front of the seat (SEAT_REACH): standing (s = 0) the hips
+    // are over its feet, seated they are on the seat behind.
+    p.root.y = (hip - hipOverRoot - rest.y) * s;
+    p.root.z = (SEAT_REACH / sc + 0.11 / sc + 0.02 * k - rest.z) * s; // (root z points backward)
     // Knee to ankle hangs about straight down in the seated pose; if that reaches under the
     // floor, swing the shins forward until the ankles clear it.
     const shin = ch.rest[this.map.idx('lowerleg01.L')].y - ch.rest[this.map.idx('foot.L')].y;
     const ankle = hip - 0.04 * k - shin; // ankle height with hanging shins
     const under = 0.08 * k - ankle;
     if (under > 0) {
-      const a = 0.6 * Math.acos(clamp(1 - under / shin, 0, 1));
-      for (const s of ['L', 'R'] as const) { p.add(`lowerleg01.${s}`, a, 0, 0); p.add(`foot.${s}`, -a * 0.7, 0, 0); }
+      const a = 0.6 * Math.acos(clamp(1 - under / shin, 0, 1)) * s;
+      for (const side of ['L', 'R'] as const) { p.add(`lowerleg01.${side}`, a, 0, 0); p.add(`foot.${side}`, -a * 0.7, 0, 0); }
     }
+  }
+
+  /** How far down onto the seat the body is: 0 standing in front of it, 1 seated. */
+  private seated(): number {
+    if (!this.sitting) return 1 - smooth(0.1, 0.75, this.upT / this.upDur());
+    const enter = this.clipRig?.clip('Sitting_Enter')?.meta.dur ?? SIT_DUR;
+    return this.sitT < enter ? smooth(0.15, 0.85, this.sitT / enter) : 1;
+  }
+
+  /** How long getting up from a seat takes (s). */
+  private upDur(): number {
+    return this.clipRig?.clip('Sitting_Exit')?.meta.dur ?? UP_DUR;
   }
 
   private familyProcedural(f: Family, p: Pose, inp: AnimInput, vf: number, vr: number, hs: number, dt: number) {
@@ -729,8 +779,9 @@ export class Animator {
       case 'air': return this.air(p, inp.vel[1]);
       case 'glide': return inp.anim.move === 'fly' ? this.flight(p, inp.anim.power?.fly, dt) : this.glide(p, false);
       case 'sit': {
-        sitPose(p, 1);
-        this.onSeat(p);
+        const k = this.seated();
+        sitPose(p, k);
+        this.onSeat(p, k);
         p.spine(0.02 * Math.sin(this.time * 1.6));
         return;
       }
@@ -1179,6 +1230,8 @@ export class Animator {
     const s = limp ? this.deadDir : 1;
     p.add('root', (Math.PI / 2) * k * s, 0, 0);
     p.root.y -= (this.hipH - 0.11) * k;
+    // On a bed: the mattress's height (AnimState.seat).
+    if (!limp) p.root.y += (this.seatH / Math.max(1e-4, this.ch.object.getWorldScale(_v5).y)) * k;
     p.root.z += 0.0;
     p.neck(0, 0.45 * k, 0);
     p.arm('L', 0.1, (limp ? 0.9 : 0.15) * k, 0.3, (limp ? 0.6 : 0.4) * k);
