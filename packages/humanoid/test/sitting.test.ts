@@ -86,3 +86,31 @@ test('lying down on a bed from sitting on its edge, and getting up: on the mattr
   }
   assert.ok(rise.at(-1)!.head.y > 1.3, `on their feet (head at ${rise.at(-1)!.head.y.toFixed(2)} m)`);
 });
+
+test('seated and lying, the hands rest on the body (thighs, lap, belly) or the mattress, never up in the air, each character their own way', async () => {
+  await clipLibraryReady();
+  const ways = new Set<string>();
+  for (const seed of [3, 7, 11, 19, 23, 31]) {
+    const h = await Humanoid.create(randomAppearance('human', seed), { wardrobe: NAKED });
+    run(h, () => ({ move: 'sit', seat: 0.46 }), 3);
+    const hipL = at(h, 'upperleg01.L'), kneeL = at(h, 'lowerleg01.L'), hipR = at(h, 'upperleg01.R'), kneeR = at(h, 'lowerleg01.R');
+    const way: string[] = [];
+    for (const [s, hip, knee] of [['L', hipL, kneeL], ['R', hipR, kneeR]] as const) {
+      const w = at(h, `wrist.${s}`);
+      // Over the thighs, between the hips and the knees, a hand's height above them.
+      const fwd = new THREE.Vector3().subVectors(knee, hip);
+      const u = new THREE.Vector3().subVectors(w, hip).dot(fwd) / fwd.lengthSq();
+      assert.ok(u > -0.2 && u < 1.15, `seed ${seed}: ${s} hand over the thigh or lap (u ${u.toFixed(2)})`);
+      assert.ok(w.y > hip.y - 0.05 && w.y < Math.max(hip.y, knee.y) + 0.2, `seed ${seed}: ${s} hand rests (${w.y.toFixed(2)} m, hips ${hip.y.toFixed(2)})`);
+      way.push(Math.abs(w.x - (hipL.x + hipR.x) / 2) < Math.abs(hip.x - (hipL.x + hipR.x) / 2) ? 'lap' : 'thigh');
+    }
+    ways.add(way.join());
+    run(h, () => ({ move: 'sleep', seat: 0.5 }), 4, 3);
+    const mid = at(h, 'upperleg01.L').add(at(h, 'upperleg01.R')).multiplyScalar(0.5);
+    for (const s of ['L', 'R']) {
+      const w = at(h, `wrist.${s}`);
+      assert.ok(w.y < mid.y + 0.18, `seed ${seed}: lying, the ${s} hand rests (${w.y.toFixed(2)} m, hips ${mid.y.toFixed(2)})`);
+    }
+  }
+  assert.ok(ways.size >= 2, `everyone rests their hands the same way (${[...ways].join(' / ')})`);
+});
