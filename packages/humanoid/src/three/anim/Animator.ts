@@ -25,7 +25,7 @@ import { Pose, makeBoneMap, kf, clamp, smooth, approach, wrapPi, type BoneMap, t
 import { ACTIONS, sitPose, type ActionCtx, type GripClass, type ActionDef } from './actions';
 import { hash32 } from '@futuremagic/core';
 import { ClipRig, clipLibrary, clipSettings } from './clips';
-import { SEAT_HEIGHT, SEAT_REACH } from '../../seating';
+import { RIDE, SEAT_HEIGHT, SEAT_REACH, crankAfter, pedalAt } from '../../seating';
 
 export type GroundFn = (x: number, y: number, z: number) => number | null;
 
@@ -60,8 +60,8 @@ export interface AnimInput {
   sneaking: boolean;
 }
 
-type Family = 'ground' | 'swim' | 'climb' | 'air' | 'glide' | 'sit' | 'sleep' | 'dead' | 'stunned';
-const FAMILIES: Family[] = ['ground', 'swim', 'climb', 'air', 'glide', 'sit', 'sleep', 'dead', 'stunned'];
+type Family = 'ground' | 'swim' | 'climb' | 'air' | 'glide' | 'sit' | 'sleep' | 'ride' | 'dead' | 'stunned';
+const FAMILIES: Family[] = ['ground', 'swim', 'climb', 'air', 'glide', 'sit', 'sleep', 'ride', 'dead', 'stunned'];
 function familyOf(m: MoveState): Family {
   switch (m) {
     case 'swim': return 'swim';
@@ -70,6 +70,7 @@ function familyOf(m: MoveState): Family {
     case 'glide': case 'fly': return 'glide';
     case 'sit': return 'sit';
     case 'sleep': return 'sleep';
+    case 'ride': return 'ride';
     case 'dead': case 'knockdown': return 'dead';
     case 'stunned': return 'stunned';
     default: return 'ground';
@@ -91,7 +92,7 @@ const MOODS: Record<string, [string, number][]> = {
 const _e = new THREE.Euler();
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
 /** The character's world rotation, for the leg IK's poles (its own scratch: `rotateWorldQ` overwrites `_q3`). */
-const _qc = new THREE.Quaternion();
+const _qc = new THREE.Quaternion(), _qr = new THREE.Quaternion();
 const _rt = new THREE.Vector3(), _rw = new THREE.Vector3(), _rg = new THREE.Vector3(), _rp = new THREE.Vector3();
 const _ra = new THREE.Vector3(), _rb = new THREE.Vector3(), _rc = new THREE.Vector3(), _rd = new THREE.Vector3(), _re = new THREE.Vector3(), _rf = new THREE.Vector3();
 const _rq = new THREE.Quaternion();
@@ -128,6 +129,8 @@ const TORCH_RAISED = [1.7, 0.5, -0.4, 0.45, 0.3, -0.9, -0.4] as const;
 export const MOCAP_IDLES = ['CMU_Idle_1', 'CMU_Idle_2', 'CMU_Idle_3'];
 /** A chair's seat height (m) and where a sitter stands (src/seating.ts). */
 const SEAT_H = SEAT_HEIGHT;
+/** Riding: the hip joints this far (m) behind the point under the saddle. */
+const RIDE_BACK = 0.06;
 /** Sitting down and getting up (s) without the clips (procedural only). */
 const SIT_DUR = 1.2, UP_DUR = 1.0;
 /** Rate (1/s) of lying down and getting up from lying (the family cross-fade): about 1.2 s. */
@@ -261,6 +264,9 @@ export class Animator {
   private flyBoost = 0;
   private flyBank = 0;
   private flyCurl = { L: 0.35, R: 0.35 };
+  /** Riding: the crank angle (RIDE, pedalAt; 0 the left pedal down), and the hands and feet onto the bicycle. */
+  private crank = 0;
+  private rideGoals: LimbGoals = { L: { p: new THREE.Vector3(), w: 0 }, R: { p: new THREE.Vector3(), w: 0 }, footL: { p: new THREE.Vector3(), w: 0 }, footR: { p: new THREE.Vector3(), w: 0 } };
 
   constructor(readonly ch: Character) {
     this.map = makeBoneMap(ch.bones.map((b) => b.name));
@@ -365,7 +371,7 @@ export class Animator {
     } else if (this.prevFam === 'sit' && fam !== 'sleep' && !this.fresh) this.upT = 0;
     else this.upT += dt;
     const held: Family = this.upT < this.upDur() ? 'sit' : fam;
-    this.seatH = a.seat ?? (fam === 'sleep' ? 0 : SEAT_H);
+    this.seatH = a.seat ?? (fam === 'sleep' ? 0 : fam === 'ride' ? RIDE.saddle : SEAT_H);
     // Lying down and getting up from lying take a while (every family fades at that pace while
     // it goes on); falling dead is quick.
     const lying = held === 'sleep' || this.famW.get('sleep')! > 0.002;
@@ -385,6 +391,15 @@ export class Animator {
     if (fam === 'ground' && this.prevFam === 'air' && this.airT > 0.3) { this.landT = 0; this.landK = smooth(0.3, 1.0, this.airT); }
     this.landT += dt;
     this.prevFam = fam;
+    // The cranks turn with the distance ridden; stopped, they come round to the nearest pedal down.
+    if (fam === 'ride') {
+      const hs = Math.hypot(inp.vel[0], inp.vel[2]);
+      if (hs > 0.25) this.crank = crankAfter(this.crank, hs * dt);
+      else {
+        const down = Math.round(this.crank / Math.PI) * Math.PI;
+        this.crank = approach(this.crank, down, 3, dt) % (2 * Math.PI);
+      }
+    }
 
     // ---- velocity in character space
     const yaw = inp.yaw;
@@ -485,6 +500,7 @@ export class Animator {
     this.apply(out);
     this.fingerPose(inp, action?.def, dt);
     if (action?.def.reach && actionCtx && this.actionW > 0.02) this.reachIK(action.def, actionCtx, this.actionW);
+    if (this.famW.get('ride')! > 0.002) this.limbIK(this.onBicycle(this.famW.get('ride')!));
     if (this.limbs) this.limbIK(this.limbs);
     // ---- IK & face (near only)
     if (lod === 0 && ground && ovW < 0.5 && (fam === 'ground' || fam === 'sit' || fam === 'stunned') && this.famW.get('ground')! > 0.5) this.footIK(ground, dt);
@@ -759,6 +775,49 @@ export class Animator {
     }
   }
 
+  /**
+   * On a bicycle: the hips on the saddle (a little behind pos, the point under it), leaning
+   * forward to the bars, looking ahead. The hands and feet go onto the bars and pedals after
+   * the pose (onBicycle); the legs and arms here are only near where they end up.
+   */
+  private riding(p: Pose) {
+    const ch = this.ch, k = this.hipH / 0.9;
+    const sc = Math.max(1e-4, ch.object.getWorldScale(_v5).y);
+    const rest = ch.rest[0];
+    p.root.y = this.seatH / sc + 0.07 * k - this.hipH;
+    p.root.z = RIDE_BACK / sc - rest.z; // (root z points backward)
+    p.spine(-0.55 + 0.02 * Math.sin(this.time * 1.6));
+    p.neck(0.35);
+    p.arm('L', 1.1, 0.2, 0, 0.35);
+    p.arm('R', 1.1, 0.2, 0, 0.35);
+    for (const s of ['L', 'R'] as const) {
+      const [ahead, up] = pedalAt(this.crank + (s === 'R' ? Math.PI : 0));
+      // The thigh lifts with the pedal (about its height over the low point), the knee bends with it.
+      const lift = (up + RIDE.crank) / (2 * RIDE.crank);
+      p.leg(s, 0.9 + 0.7 * lift + 0.2 * (ahead / RIDE.crank), 0.05, 0, 0.5 + 1.0 * lift);
+    }
+  }
+
+  /** The hands onto the bars and the feet onto the pedals, in the world, blended in by `w` (LimbGoals for limbIK). */
+  private onBicycle(w: number): LimbGoals {
+    const g = this.rideGoals, o = this.ch.object;
+    o.updateMatrixWorld(true);
+    o.getWorldPosition(_v5);
+    o.getWorldQuaternion(_qr);
+    // In the body's frame (x right, y up, -z ahead) from pos on the ground, in metres.
+    const put = (v: THREE.Vector3, x: number, y: number, ahead: number) => v.set(x, y, -ahead).applyQuaternion(_qr).add(_v5);
+    const bars = this.seatH + RIDE.barsUp;
+    put(g.L!.p, -RIDE.barsHalf, bars, RIDE.barsAhead);
+    put(g.R!.p, RIDE.barsHalf, bars, RIDE.barsAhead);
+    for (const s of ['L', 'R'] as const) {
+      const [ahead, up] = pedalAt(this.crank + (s === 'R' ? Math.PI : 0));
+      // (The ankle a little above and behind the pedal: it is under the ball of the foot.)
+      put((s === 'L' ? g.footL : g.footR)!.p, (s === 'L' ? -1 : 1) * RIDE.pedalHalf, RIDE.crankUp + up + 0.08, RIDE.crankAhead + ahead - 0.06);
+    }
+    g.L!.w = g.R!.w = g.footL!.w = g.footR!.w = w;
+    return g;
+  }
+
   /** How far down onto the seat the body is: 0 standing in front of it, 1 seated. */
   private seated(): number {
     if (!this.sitting) return 1 - smooth(0.1, 0.75, this.upT / this.upDur());
@@ -786,6 +845,7 @@ export class Animator {
         return;
       }
       case 'sleep': return this.lying(p, 1, false);
+      case 'ride': return this.riding(p);
       case 'dead': return this.dead(p);
       case 'stunned': {
         this.ground(p, inp, 0, 0, 0, dt);
@@ -1458,6 +1518,9 @@ export class Animator {
       if (def.curl.L !== undefined) cL += (def.curl.L - cL) * w;
       if (def.curl.R !== undefined) cR += (def.curl.R - cR) * w;
     }
+    // Riding: holding the grips.
+    const rw = this.famW.get('ride')!;
+    if (rw > 0.01) { cL += (HOLD - cL) * rw; cR += (HOLD - cR) * rw; }
     const lc = this.limbs?.curl;
     if (lc) {
       const w = clamp(this.limbs!.curlW ?? 1, 0, 1);

@@ -5,7 +5,7 @@ export type { Vec3 };
 
 export type MoveState =
   | 'idle' | 'walk' | 'run' | 'sprint' | 'crouch' | 'swim' | 'fly' | 'fall' | 'jump' | 'climb' | 'glide'
-  | 'sit' | 'sleep' | 'dead' | 'stunned' | 'knockdown';
+  | 'sit' | 'sleep' | 'ride' | 'dead' | 'stunned' | 'knockdown';
 
 /** A one-shot action currently playing (attack, cast, gesture, work...). */
 export interface ActionAnim {
@@ -35,6 +35,7 @@ export interface AnimState {
    * floor (pos.y), in m. Default: a chair's 0.47 for 'sit', the floor itself for 'sleep'. Keep
    * pos.y on the floor throughout: sitting down, lying down and getting up move the body. A
    * sitter's pos is where they stand to sit, SEAT_REACH in front of the seat's middle.
+   * Riding ('ride'): the saddle's height (default RIDE.saddle); pos is the point under the saddle.
    */
   seat?: number;
 }
