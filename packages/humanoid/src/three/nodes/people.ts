@@ -521,8 +521,9 @@ export function createShellNodeMaterial(spec: ShellSpec, layer: number, color: T
     hsParams: { value: new THREE.Vector4(t, spec.density, spec.kind === 'beard' ? 1 : 0, spec.beardStyle) },
     hsLimits: { value: new THREE.Vector4(spec.recede, spec.maxAbsX ?? 99, spec.minY ?? -99, 0) },
     hsOffset: { value: spec.length * t },
+    hsCut: { value: new THREE.Vector4(0, 0, 0, 1) },
   };
-  return sharedGraph('shell', uniforms, { sheenColor: color.clone().multiplyScalar(0.8) }, shellGraph) as unknown as ShellLayerHandle;
+  return { ...sharedGraph('shell', uniforms, { sheenColor: color.clone().multiplyScalar(0.8) }, shellGraph), uniforms } as unknown as ShellLayerHandle;
 }
 
 function shellGraph(P: (name: string) => unknown) {
@@ -530,7 +531,7 @@ function shellGraph(P: (name: string) => unknown) {
     roughness: 0.62, metalness: 0, specularIntensity: 0.25, envMapIntensity: 0.15,
     sheen: 0.35, sheenRoughness: 0.4, transparent: true, depthWrite: false,
   });
-  const hsColor = P('hsColor'), hsParams = P('hsParams'), hsLimits = P('hsLimits'), hsOffset = P('hsOffset');
+  const hsColor = P('hsColor'), hsParams = P('hsParams'), hsLimits = P('hsLimits'), hsOffset = P('hsOffset'), hsCut = P('hsCut');
   // Strands lean downward/backward with height (combed), lifting off the surface.
   displaceBeforeSkinning(material, () => normalGeometry.mul(hsOffset).add(vec3(0.0, -1.0, 0.6).mul(hsOffset).mul(0.35)));
   const vHsFace = attribute('aFace', 'vec4').xyz;
@@ -541,6 +542,8 @@ function shellGraph(P: (name: string) => unknown) {
       const F = vHsFace.toVar();
       const cov = select(hsParams.z.greaterThan(0.5), h_beardCoverage(hsParams.w, F), h_scalpCoverage(F, hsLimits.x)).toVar();
       If(abs(F.x).greaterThan(hsLimits.y).or(F.y.lessThan(hsLimits.z)), () => { cov.assign(0.0); });
+      // Under a hat (headwear.ts): none above its band.
+      If(dot(hsCut.xyz, positionGeometry).greaterThan(hsCut.w), () => { cov.assign(0.0); });
       // Streaks along the flow (narrow across, long along), anti-aliased toward their mean.
       const q = vec2(F.x.mul(46.0).add(F.z.mul(26.0)), F.y.mul(7.0).sub(F.z.mul(4.0))).toVar();
       const n = h_noise2(q).mul(0.65).add(h_noise2(q.mul(vec2(2.1, 1.6)).add(7.3)).mul(0.35)).toVar();
@@ -629,6 +632,7 @@ export function createHairNodeMaterial(leaf: boolean): PatchedMaterial<HairUnifo
     uColor: { value: new THREE.Color(0.1, 0.07, 0.05) },
     uTip: { value: new THREE.Color(0.14, 0.1, 0.07) },
     uSpec: { value: new THREE.Vector4(0.45, 0.6, 0, leaf ? 1 : 0) },
+    uCut: { value: new THREE.Vector4(0, 0, 0, 1) },
   };
   return { ...sharedGraph(`hair ${leaf}`, uniforms, {}, (P) => hairGraph(leaf, P)), uniforms } as unknown as PatchedMaterial<HairUniforms>;
 }
@@ -647,17 +651,19 @@ function hairGraph(leaf: boolean, P: (name: string) => unknown) {
     sheen: leaf ? 0.2 : 0,
     envMapIntensity: leaf ? 0.5 : 0.15,
   });
-  const uColor = P('uColor'), uTip = P('uTip'), uSpec = P('uSpec');
+  const uColor = P('uColor'), uTip = P('uTip'), uSpec = P('uSpec'), uCut = P('uCut');
   const vHairAux = attribute('hairAux', 'vec2');
   const vUv = uv();
+  // Under a hat (headwear.ts): the strands above its band are not drawn, nor do they cast shadows.
+  const uncut = step(dot(uCut.xyz, positionGeometry), uCut.w);
   // Mip-aware alpha boost: thin strands average out in lower mips and would
   // fall below the alpha test (cards thinning/sparkling with distance).
   material.opacityNode = Fn(() => {
     const dd = fwidth(vUv.mul(vec2(256.0, 512.0))).toVar();
     const mipLevel = max(0.0, log2(max(max(dd.x, dd.y), 1e-4)));
-    return materialOpacity.mul(texture(tex, vUv).g).mul(add(1.0, mipLevel.mul(0.3)));
+    return materialOpacity.mul(texture(tex, vUv).g).mul(add(1.0, mipLevel.mul(0.3))).mul(uncut);
   })();
-  material.maskShadowNode = texture(tex, vUv).g.greaterThanEqual(material.alphaTest);
+  material.maskShadowNode = texture(tex, vUv).g.mul(uncut).greaterThanEqual(material.alphaTest);
   const hairEval = Fn(() => {
     const st = texture(tex, vUv).toVar();
     const hairT = leaf ? vec3(0.0, 0.0, 1.0) : normalize(tangentView);

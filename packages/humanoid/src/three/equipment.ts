@@ -32,6 +32,7 @@ import { maskDepth } from '../faceRegions';
 import type { GripClass } from './anim/actions';
 import type { SkyVisPatch } from './sky';
 import { smoothstep } from '@futuremagic/core';
+import { bandPlane, planeToModel, type HatBand } from '../headwear';
 
 /** What a game's items are: the host's side of the equipment. */
 export interface Wardrobe {
@@ -665,8 +666,11 @@ export class EquipmentRig {
     // covers all three corners; a union would cut holes at seams between garments).
     const covered = new Uint32Array(this.ch.geo.st.renderVerts);
     let hideHair = false, hideBeard = false;
+    let hairBand: HatBand | null = null;
     let eyeMask: WearableSpec['eyeMask'] | null = null;
-    const fit = this.ch.geo.build.body.fit;
+    const body = this.ch.geo.build.body, bodyFit = body.fit;
+    // Headwear fits the head and the hair on it (headwear.ts).
+    const fit: BodyFit = bodyFit.head ? { ...bodyFit, head: { ...bodyFit.head, hair: this.ch.hairShape() } } : bodyFit;
     const layers: { layer: ShellLayer; seed: number; slot?: string }[] = [];
     for (const [slot, item] of Object.entries(eq) as [EquipSlot, NonNullable<EquipmentVisuals[EquipSlot]>][]) {
       if (!item || item.defId === 'no-underwear') continue;
@@ -682,6 +686,7 @@ export class EquipmentRig {
       }
       if (!spec) continue;
       hideHair ||= !!spec.hideHair;
+      hairBand = spec.hairBand ?? hairBand;
       hideBeard ||= !!spec.hideBeard;
       for (const r of spec.hideRegions ?? []) hiddenRegions.add(r);
       eyeMask = spec.eyeMask ?? eyeMask;
@@ -710,6 +715,7 @@ export class EquipmentRig {
     }
     run(() => {
       this.applyHidden([...hiddenRegions], hideHair, hideBeard, covered);
+      this.ch.setHairCut(hairBand && fit.head ? planeToModel(body.sockets.head, bandPlane(fit.head, hairBand)) : null);
       this.ch.setEyeMask(eyeMask?.color ?? null, !!eyeMask?.under);
       done?.();
     });

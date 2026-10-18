@@ -40,6 +40,9 @@ export function sharedGraph<M extends THREE.NodeMaterial>(key: string, values: V
   const material = graph.clone() as M;
   // Setup hooks (setDiffuse, onLightingModel, setupPosition overrides) are own functions; clone() skips them.
   for (const k of Object.keys(graph)) if (typeof graph[k] === 'function') material[k] = graph[k];
+  // (three r186's NodeMaterial.copy drops alphaTest: without it hair cards and lashes drew as solid
+  // ribbons instead of strands, and a hat's hair cut never discarded anything.)
+  material.alphaTest = graph.alphaTest;
   material.setValues(params);
   material[OWN] = values;
   return { material, graph };

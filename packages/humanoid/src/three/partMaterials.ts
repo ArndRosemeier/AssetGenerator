@@ -53,6 +53,8 @@ export interface HairUniforms {
   uColor: { value: THREE.Color };
   uTip: { value: THREE.Color };
   uSpec: { value: THREE.Vector4 }; // x primary, y secondary, z shift, w leaf mode
+  /** Hair cut (rest model space): strands where xyz·p > w are under a hat and not drawn. */
+  uCut: { value: THREE.Vector4 };
 }
 
 export function createHairMaterial(leaf: boolean): PatchedMaterial<HairUniforms> {
