@@ -50,6 +50,8 @@ export function shellIndex(st: HumanStatic, spec: ShellSpec): Uint16Array {
 export interface ShellLayerHandle {
   material: THREE.MeshPhysicalMaterial;
   sky: SkyVisPatch;
+  /** Its own values; hsCut: the hair cut under a hat (as HairUniforms.uCut). */
+  uniforms: { hsCut: { value: THREE.Vector4 } };
 }
 
 /**

@@ -25,6 +25,7 @@ import {
   type PatchedMaterial, type EyeUniforms, type HairUniforms, type HornUniforms,
 } from './partMaterials';
 import { shellIndex, createShellMaterial, scalpShellFor, beardShellFor } from './hairShells';
+import { measureHair } from '../headwear';
 
 /** Shell triangle subsets per (style) spec — identical for every body. */
 const shellIndexCache = new Map<string, Uint16Array>();
@@ -166,6 +167,9 @@ export class Character {
   readonly skinLow: SkinMaterialHandle;
   readonly eyeMat: PatchedMaterial<EyeUniforms>;
   private hairMats: PatchedMaterial<HairUniforms>[] = [];
+  /** The scalp fur shells' hair cuts (setHairCut). */
+  private scalpCuts: THREE.Vector4[] = [];
+  private hairMap: number[] | null | undefined;
   private hornMat: PatchedMaterial<HornUniforms> | null = null;
   private skyPatches: SkyVisPatch[] = [];
   private ownMaterials: THREE.Material[] = [];
@@ -317,6 +321,7 @@ export class Character {
         const layers = lod === 0 ? spec.layers : Math.min(3, spec.layers);
         for (let k = 0; k < layers; k++) {
           const sh = createShellMaterial({ ...spec, layers }, k, hairLin);
+          if (spec.kind === 'scalp') this.scalpCuts.push(sh.uniforms.hsCut.value);
           this.skyPatches.push(sh.sky);
           this.ownMaterials.push(sh.material);
           const m = skinned(g, sh.material, lod, false);
@@ -393,6 +398,27 @@ export class Character {
   }
 
   /** Show/hide scalp hair & beard (helmets, hoods). */
+  /**
+   * Cut the scalp hair at a hat's band: `plane` (rest model space, [nx, ny, nz, d]) has the hair where
+   * n·p > d under the hat, not drawn; null draws it all again.
+   */
+  setHairCut(plane: [number, number, number, number] | null) {
+    const p = plane ?? [0, 0, 0, 1];
+    for (const m of this.hairMats) m.uniforms.uCut.value.set(p[0], p[1], p[2], p[3]);
+    for (const v of this.scalpCuts) v.set(p[0], p[1], p[2], p[3]);
+  }
+
+  /** The hair's outer shape over the head (headwear.ts), measured once from its rest geometry. */
+  hairShape(): number[] | undefined {
+    const b = this.geo.build.body, h = b.fit.head;
+    if (!h) return undefined;
+    if (this.hairMap === undefined) {
+      const hair = this.geo.build.parts[0].parts.filter((p) => p.name === 'hair').map((p) => p.position);
+      this.hairMap = hair.length ? measureHair(h, b.sockets.head, hair) : null;
+    }
+    return this.hairMap ?? undefined;
+  }
+
   setHairHidden(hair: boolean, beard: boolean) {
     for (const m of this.hairMeshes) m.visible = !hair;
     for (const m of this.beardMeshes) m.visible = !beard;

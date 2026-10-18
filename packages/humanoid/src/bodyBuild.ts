@@ -20,6 +20,7 @@ import type { HumanoidAppearance } from './types';
 import { computeShape, type ShapeParams } from './shape';
 import type { BoneGroup } from './races';
 import type { BodyFit } from './wearable';
+import { measureHead } from './headwear';
 import { v3sub as sub, v3add as add, v3scale as mulS, v3dot as dot3, v3cross as cross, v3norm as norm } from '@futuremagic/core';
 
 export interface SocketFrame {
@@ -509,6 +510,8 @@ export function buildBody(as: HumanAssets, app: HumanoidAppearance): BodyData {
   const mouth: V3 = mw ? [mx / mw, my / mw - 0.008 * sc, mz / mw] : add(H('jaw'), [0, 0, -0.08]);
   put('mouth', 'head', mouth, bodyAligned);
   put('tail', 'root', add(H('spine05'), [0, -0.03 * sc, waistRadius * 0.9]), bodyAligned);
+  // The skull's shape, for hats that fit it (headwear.ts).
+  fit.head = measureHead(pos, BODY, (v) => as.skinIdx[v * 4] === headBone && as.skinW[v * 4] >= 200, (v) => earMask[v] > 0.5, eyes, sockets.head, headRadius);
 
   return {
     pos, normal, heads, tails, eyes, fit, sockets,

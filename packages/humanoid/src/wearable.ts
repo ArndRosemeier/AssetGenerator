@@ -11,6 +11,7 @@
  * meshes built by the items module and attached to a bone socket.
  */
 import type * as THREE from 'three/webgpu';
+import type { HatBand, HeadShape } from './headwear';
 
 /** Abstract body regions (the humanoid module maps them to skin weights / bones). */
 export type BodyRegion =
@@ -86,6 +87,8 @@ export interface BodyFit {
   /** Horns/ears that helmets must leave room for. */
   earPoint: number;
   hasHorns: boolean;
+  /** The head's shape (headwear.ts): hats are built over it. With `hair` once the character's hair is known. */
+  head?: HeadShape;
   /** Joint-to-joint lengths (rest pose) for parts that follow the skeleton (the raised dead's bones). */
   bones?: { upperArm: number; forearm: number; thigh: number; shin: number; neck: number; chest: number; spine: number };
 }
@@ -94,6 +97,8 @@ export interface WearableSpec {
   layers: (ShellLayer | RigidPart)[];
   /** Hide scalp hair (helmets, hoods up). */
   hideHair?: boolean;
+  /** A hat's band (headwear.ts): the hair above it is under the hat and not drawn; below it, it shows. */
+  hairBand?: HatBand;
   /** Hide beard (full helms). */
   hideBeard?: boolean;
   /** Hide body regions entirely under rigid armor to avoid poke-through. */
