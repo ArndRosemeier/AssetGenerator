@@ -46,6 +46,26 @@ def _open_edges(vertices: list[tuple[float, float, float]], faces: list[list[int
     return sum(1 for n in count.values() if n != 2)
 
 
+def _shells(faces: tuple | list) -> list[list[int]]:
+    """Face indices grouped into connected shells (faces sharing a vertex)."""
+    parent: dict[int, int] = {}
+
+    def find(i: int) -> int:
+        parent.setdefault(i, i)
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for face in faces:
+        for corner in face[1:]:
+            parent[find(corner)] = find(face[0])
+    groups: dict[int, list[int]] = {}
+    for index, face in enumerate(faces):
+        groups.setdefault(find(face[0]), []).append(index)
+    return list(groups.values())
+
+
 def _signed_volume(vertices: tuple | list, faces: tuple | list) -> float:
     total = 0.0
     for face in faces:
@@ -140,7 +160,13 @@ class KitGeneratorTests(unittest.TestCase):
                 for part in asset.parts:
                     mesh: Mesh = part.mesh
                     self.assertEqual(_open_edges(list(mesh.vertices), mesh.faces), 0, part.name)
-                    self.assertGreater(_signed_volume(mesh.vertices, mesh.faces), 0.0, part.name)
+                    # Every closed shell faces out on its own: one inside-out shell hides in a
+                    # positive total (the shovel blade did) but renders hollow in any engine.
+                    for shell in _shells(mesh.faces):
+                        volume = _signed_volume(mesh.vertices, [mesh.faces[i] for i in shell])
+                        self.assertGreater(
+                            volume, 0.0, f"{part.name}: inside-out shell of {len(shell)} faces"
+                        )
                     triangles += mesh.triangle_count()
                 # The bevel adds triangles in Blender; before it the mesh must already fit.
                 self.assertLessEqual(triangles, spec.qa.max_triangles)

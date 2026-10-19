@@ -70,6 +70,11 @@ def format_report(report: Report) -> str:
             f"{roundtrip['uv_layers']} uv"
         )
 
+    look = report.get("look")
+    if look is not None:
+        for line in look["summary"]:
+            lines.append(f"  look: {line}")
+
     for entry in report.get("checks", []):
         mark = "ok  " if entry["ok"] else ("FAIL" if entry["severity"] == "error" else "warn")
         lines.append(f"  [{mark}] {entry['name']}: {entry['detail']}")

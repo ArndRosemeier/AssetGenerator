@@ -2,11 +2,11 @@ name: assetkit
 on:
   push:
     branches: [main]
-    paths: ['assetkit/**', 'blender/**', 'tools/ag.py', 'tools/blenderctl.py', 'tools/backend_matrix.py', 'assets/specs/**', 'tests/**', '.github/workflows/assetkit.yml']
+    paths: ['assetkit/**', 'assetview/**', 'blender/**', 'tools/ag.py', 'tools/blenderctl.py', 'tools/backend_matrix.py', 'assets/specs/**', 'tests/**', '.github/workflows/assetkit.yml']
   pull_request:
-    paths: ['assetkit/**', 'blender/**', 'tools/ag.py', 'tools/blenderctl.py', 'tools/backend_matrix.py', 'assets/specs/**', 'tests/**', '.github/workflows/assetkit.yml']
+    paths: ['assetkit/**', 'assetview/**', 'blender/**', 'tools/ag.py', 'tools/blenderctl.py', 'tools/backend_matrix.py', 'assets/specs/**', 'tests/**', '.github/workflows/assetkit.yml']
 jobs:
-  # The kit and its generators, without Blender: seconds.
+  # The kit, its generators and the inspection sheet, without Blender: seconds.
   kit:
     runs-on: ubuntu-latest
     steps:
@@ -14,6 +14,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: pip install -q numpy
       - run: python -m unittest discover tests -v
   # The same specs on the oldest and the newest supported Blender must give the same assets.
   backend-matrix:

@@ -125,6 +125,7 @@ pins and prefers the managed 4.5.12 LTS under `tools/blender-bin/` for reproduci
 | `python tools/ag.py regenerate` | Rebuild all specs (Blender already present) |
 | `python tools/ag.py preview <id>` | Re-render after a generate that skipped previews |
 | `python tools/ag.py validate <id>` | Re-check the shipped `.glb` against its spec |
+| `python tools/ag.py look <id>` | Nine-view inspection sheet + measurements (kit assets without Blender; others from their `.glb`) |
 | `python tools/ag.py specs` / `generators` | Discover what exists |
 | `... --json` | Machine-readable report |
 | `python tools/cave_profile.py <id>` | Read floor/ceiling heights out of a shipped cave `.glb`: flat rows mean flat rock |
@@ -141,6 +142,7 @@ Exit codes:
 Outputs:
 
 - `assets/out/<id>.glb`
+- `assets/out/look/<id>.png` (inspection sheet)
 - `assets/out/previews/<id>_{hero,front,side}.png`
 
 Never call `blender.exe` directly. Direct calls skip the report contract and lose
@@ -151,16 +153,24 @@ the feedback loop.
 ## The iteration loop (do this every time)
 
 1. Write or edit `assets/specs/<id>.json`.
-2. Run `generate` (use `--no-preview` until geometry is stable, then full generate).
-3. Read the report. Failed gates print the actual measured value.
-4. **Open the preview PNGs with the image reader and look at them.** Check:
-   - proportions / silhouette
-   - plank or panel rhythm
-   - z-fighting (black speckles, flickering seams)
-   - blown-out or too-dark materials
-   - whether it reads as the intended object at a glance
-5. Fix the **spec** first. Touch the generator only when no parameter can express the change.
-6. Stop when exit code is `0` **and** the previews look correct.
+2. For a kit generator, iterate on shape with `python tools/ag.py look <id>`: about a second,
+   no Blender. It writes `assets/out/look/<id>.png` and prints the measurements.
+3. Run `generate` (use `--no-preview` until geometry is stable, then full generate). It writes
+   the same inspection sheet from the shipped `.glb`.
+4. Read the report. Failed gates print the actual measured value; the `look:` lines flag
+   floating parts, holes, inside-out parts and an asset that would tip over.
+5. **Open the inspection sheet with the image reader and look at it.** Its nine views:
+
+   | Row | Views | Check |
+   | --- | --- | --- |
+   | 1 | FRONT, SIDE, TOP: orthographic, one shared scale and grid | proportions, real sizes against the grid, symmetry, what touches the ground line |
+   | 2 | HERO, BACK: perspective; SCALE: front beside a 1.75 m person | silhouette, whether it reads as the object, whether its size is believable |
+   | 3 | PARTS: a colour per material (legend); FACING: inside-out faces red, holes yellow; WIRE: polygon edges | which piece is which, normals, topology density |
+
+6. **Open the preview PNGs** for materials and light: proportions are on the sheet, looks are
+   here (plank rhythm, z-fighting speckles, blown-out or too-dark materials).
+7. Fix the **spec** first. Touch the generator only when no parameter can express the change.
+8. Stop when exit code is `0` **and** the sheet and previews look correct.
 
 Do not declare success from a green report alone.
 
@@ -358,6 +368,7 @@ Reference implementation: [`blender/generators/hard_surface_crate.py`](../blende
 assets/specs/           committed asset definitions
 assets/out/             generated .glb + previews (gitignored)
 assetkit/               stable generator API: meshes, shells, noise, finishing steps (no bpy)
+assetview/              inspection sheet and measurements (numpy, no Blender)
 blender/backend/        turns a kit Asset into Blender objects; compat.py holds version shims
 blender/lib/            scene, materials, QA, export, preview helpers
 blender/generators/     parametric builders
