@@ -5,6 +5,7 @@
     python tools/ag.py regenerate
     python tools/ag.py preview crate_small
     python tools/ag.py validate crate_small
+    python tools/ag.py look crate_small
 
 For a fresh clone (bootstrap Blender + rebuild everything):
 
@@ -244,6 +245,31 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return _emit(result, args.json)
 
 
+def cmd_look(args: argparse.Namespace) -> int:
+    """The inspection sheet, in this Python when it has numpy, else in Blender's (which always does)."""
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        install = require_blender()
+        payload = {"target": args.target, "out_dir": str(OUT_DIR), "glb": args.glb}
+        report = run_entrypoint(install, "look", payload).report
+        if not report.get("ok"):
+            print(format_report(report))  # type: ignore[arg-type]
+            return 1
+        look = report["look"]
+    else:
+        from assetview.cli import look_target
+
+        look = look_target(args.target, OUT_DIR, args.glb)
+    if args.json:
+        print(json.dumps(look, indent=2))
+    else:
+        for line in look["summary"]:  # type: ignore[index]
+            print(line)
+        print(f"-> look: {look['sheet']}")  # type: ignore[index]
+    return 0
+
+
 def cmd_pack(args: argparse.Namespace) -> int:
     specs = [load_and_check_spec(reference) for reference in args.specs]
     install = require_blender()
@@ -296,6 +322,14 @@ def build_parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate", help="re-check an exported glb against its spec")
     validate.add_argument("spec", help="spec id or path")
     validate.set_defaults(func=cmd_validate)
+
+    look = subparsers.add_parser(
+        "look",
+        help="nine-view inspection sheet + measurements (kit assets without Blender, others from their .glb)",
+    )
+    look.add_argument("target", help="spec id or path to a .glb")
+    look.add_argument("--glb", action="store_true", help="look at the shipped .glb even for a kit asset")
+    look.set_defaults(func=cmd_look)
 
     pack = subparsers.add_parser(
         "pack", help="build specs and pack them, AO baked into vertex colours, into one .fmpk file"

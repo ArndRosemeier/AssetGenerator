@@ -102,6 +102,26 @@ out in order by the backend:
 
 A step says *what*, never *how*: how Blender 4.5 or 5.2 does it is the backend's business.
 
+## Looking at an asset
+
+`assetview/` draws a nine-view inspection sheet and measures what pictures show badly. It uses
+numpy and a small software rasterizer, not Blender, so a kit asset is drawn straight from its
+generator in about a second:
+
+```bash
+python tools/ag.py look prop_shovel          # kit: from the generator, before bevel and unwrap
+python tools/ag.py look prop_shovel --glb    # any asset: from the shipped .glb
+```
+
+Every `generate` writes the same sheet from the shipped file (`assets/out/look/<id>.png`) and adds
+its measurements to the report: size, triangles per material, parts, floating parts (not on the
+ground and touching nothing that is), open edges, inside-out parts, and balance (centre of mass
+against the hull of the footing). These are measurements, not gates: a chain hangs and a
+bracket sits on a wall on purpose.
+
+The sheet found an inside-out shovel blade that every QA gate passed (QA checks the whole mesh's
+volume; one inverted shell hid in the positive total). The kit tests now hold every shell.
+
 ## Writing a kit generator
 
 1. Parse `spec.params` with the strict helpers in `blender/lib/spec.py`, as before.

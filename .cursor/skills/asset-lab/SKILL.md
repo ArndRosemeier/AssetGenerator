@@ -62,14 +62,18 @@ Doctor prints the same prerequisite report. If anything FAILs, run
 Add `--json` for the raw report. Exit codes: `0` pass, `1` QA/build failure, `2` bad
 spec or missing toolchain.
 
-Outputs land in `assets/out/<id>.glb` and `assets/out/previews/<id>_{hero,front,side}.png`.
+Outputs land in `assets/out/<id>.glb`, `assets/out/look/<id>.png` (inspection sheet) and
+`assets/out/previews/<id>_{hero,front,side}.png`. `python tools/ag.py look <id>` redraws the
+sheet alone (a kit asset in about a second, without Blender).
 
 ## The iteration loop
 
 1. Create or edit `assets/specs/<id>.json`.
 2. Run `generate`.
 3. Read the report. Failed gates include measured values.
-4. **Open the preview PNGs and look at them.** Numbers cannot catch a bad silhouette.
+4. **Open the inspection sheet and the preview PNGs and look at them.** The sheet shows
+   proportions on a metric grid, scale beside a person, parts, inside-out faces (red) and holes
+   (yellow); the previews show materials and light. Numbers cannot catch a bad silhouette.
 5. Adjust the **spec** first; change the generator only when params cannot express it.
 
 ## Writing a spec

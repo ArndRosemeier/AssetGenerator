@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import importlib
 from collections.abc import Mapping
 
+from assetview import from_glb, look
 from blender.backend import build_objects
 from blender.lib.export import clip_checks, export_glb, import_glb, roundtrip_checks
 from blender.lib.qa import collect_stats, run_checks
@@ -41,13 +42,16 @@ def handle(payload: Mapping[str, object]) -> Report:
     checks.extend(roundtrip_checks(stats, roundtrip_stats))
     if rigged:
         checks.extend(clip_checks(glb_path))
+    # The inspection sheet of the shipped file: the first thing to look at after a build.
+    inspection = look(from_glb(glb_path), spec.asset_id, out_dir / "look" / f"{spec.asset_id}.png")
 
     return {
         "ok": not failed_checks(checks),
         "command": "generate",
         "asset_id": spec.asset_id,
         "generator": spec.generator,
-        "outputs": {"glb": str(glb_path)},
+        "outputs": {"glb": str(glb_path), "look": inspection["sheet"]},
+        "look": inspection,
         "stats": stats,
         "roundtrip": roundtrip_stats,
         "checks": checks,

@@ -39,8 +39,11 @@ Full agent manual: `docs/AGENT_GUIDE.md`.
 
 1. Write or edit `assets/specs/<id>.json`.
 2. `python tools/ag.py generate <id>` (build, QA, export, round-trip, previews).
-3. Read the report. Exit code 0 means every gate passed.
-4. Inspect `assets/out/previews/` with the image reader (silhouette, z-fight, materials).
+3. Read the report. Exit code 0 means every gate passed; `look:` lines flag floating
+   parts, holes, inside-out parts and tipping.
+4. Open the inspection sheet `assets/out/look/<id>.png` (proportions on a metric grid, scale
+   beside a person, parts, inside-out faces) and the previews in `assets/out/previews/`
+   (materials, light). Kit assets: `python tools/ag.py look <id>` redraws the sheet in a second.
 5. Iterate on the **spec** first. Touch the generator only when no parameter can express
    the change.
 6. After adding several specs, or when verifying a clone: `python tools/ag.py regenerate`

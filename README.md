@@ -170,6 +170,7 @@ That writes `assets/out/crate_small.glb` and three renders in `assets/out/previe
 | `python tools/ag.py regenerate` | Rebuild every asset in `assets/specs/` |
 | `python tools/ag.py preview <id>` | Re-render previews from the existing `.glb` |
 | `python tools/ag.py validate <id>` | Re-open the shipped `.glb` and re-run the gates on it |
+| `python tools/ag.py look <id>` | Nine-view inspection sheet + measurements, in about a second |
 | `python tools/ag.py specs` | List available specs |
 | `python tools/ag.py generators` | List registered generators |
 
@@ -195,8 +196,13 @@ is read back in and compared against the authored scene, which catches the silen
 losses that normally travel downstream looking like success.
 
 **Renders the agent can look at.** Numbers cannot tell you that a crate has the
-proportions of a filing cabinet. Every generate ends with three Cycles renders that the
-agent inspects directly.
+proportions of a filing cabinet. Every generate writes an inspection sheet
+(`assets/out/look/<id>.png`): orthographic views on one metric grid, perspective views, the
+asset beside a 1.75 m person, and diagnostic views (a colour per material, inside-out faces
+in red, holes in yellow, polygon edges), with the measurements a picture shows badly in its
+header: floating parts, holes, inside-out parts, whether it would tip over. It is drawn by a
+small software rasterizer (`assetview/`, numpy, no Blender), so `ag.py look <id>` shows a kit
+asset in about a second. Three Cycles renders follow for materials and light.
 
 Nothing is papered over. A failed check is an error with the measured value in it, and a
 non-zero exit code.
@@ -217,6 +223,7 @@ assets/out/            generated .glb files and previews (gitignored)
 assets/humans/         MakeHuman / MPFB library (wardrobe.json committed, .glb gitignored)
 assets/monsters/       Quaternius catalog (committed) + fetched .glb files (gitignored)
 assetkit/              stable generator API, no Blender (see docs/ASSETKIT.md)
+assetview/             inspection sheet + measurements (numpy, no Blender)
 blender/backend/       builds a kit Asset in Blender; compat.py holds every version shim
 blender/lib/           scene setup, QA, export, preview helpers
 blender/generators/    one module per asset family

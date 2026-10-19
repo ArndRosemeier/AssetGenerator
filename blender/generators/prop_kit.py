@@ -189,14 +189,13 @@ def _shovel(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     for i in reversed(range(n)):  # back face
         u = -1.0 + 2.0 * i / (n - 1)
         sect.append((u, dish * u * u + 0.004))
-    sect = [(x, y) for x, y in sect]
 
     def width(t: float) -> tuple[float, float]:
         # t runs from the tip (0) up to the shoulder (1).
         return (bw * max(math.sin(math.pi / 2 * min(t * 1.6, 1.0)), 0.12), 1.0)
 
     blade = [(0.0, 0.0, bl * i / 10) for i in range(11)]
-    _add(b, sweep(blade, [(x, y) for x, y in reversed(sect)], scale=width, up=(0.0, -1.0, 0.0)), "iron")
+    _add(b, sweep(blade, sect, scale=width, up=(0.0, -1.0, 0.0)), "iron")
 
 
 # ---------------------------------------------------------------------------------------------
