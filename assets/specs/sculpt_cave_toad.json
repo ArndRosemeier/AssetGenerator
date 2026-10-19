@@ -1,0 +1,281 @@
+{
+  "spec_version": 1,
+  "id": "sculpt_cave_toad",
+  "generator": "organic.sculpt",
+  "params": {
+    "parts": {
+      "body": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.04,
+            0.2
+          ],
+          "radii": [
+            0.2,
+            0.25,
+            0.15
+          ]
+        }
+      },
+      "head": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.19,
+            0.24
+          ],
+          "radii": [
+            0.17,
+            0.13,
+            0.105
+          ]
+        }
+      },
+      "eye": {
+        "sphere": {
+          "centre": [
+            0.095,
+            -0.215,
+            0.33
+          ],
+          "radius": 0.045
+        }
+      },
+      "front_leg": {
+        "union": [
+          {
+            "capsule": {
+              "a": [
+                0.13,
+                -0.12,
+                0.17
+              ],
+              "b": [
+                0.22,
+                -0.2,
+                0.05
+              ],
+              "radius": 0.045,
+              "radius_b": 0.03
+            }
+          },
+          {
+            "capsule": {
+              "a": [
+                0.22,
+                -0.2,
+                0.05
+              ],
+              "b": [
+                0.24,
+                -0.27,
+                0.02
+              ],
+              "radius": 0.03,
+              "radius_b": 0.022
+            }
+          },
+          {
+            "ellipsoid": {
+              "centre": [
+                0.25,
+                -0.27,
+                0.018
+              ],
+              "radii": [
+                0.055,
+                0.06,
+                0.018
+              ]
+            }
+          }
+        ]
+      },
+      "hind_leg": {
+        "union": [
+          {
+            "capsule": {
+              "a": [
+                0.13,
+                0.13,
+                0.17
+              ],
+              "b": [
+                0.27,
+                0.05,
+                0.08
+              ],
+              "radius": 0.075,
+              "radius_b": 0.05
+            }
+          },
+          {
+            "capsule": {
+              "a": [
+                0.27,
+                0.05,
+                0.08
+              ],
+              "b": [
+                0.23,
+                0.25,
+                0.035
+              ],
+              "radius": 0.048,
+              "radius_b": 0.03
+            }
+          },
+          {
+            "ellipsoid": {
+              "centre": [
+                0.23,
+                0.3,
+                0.018
+              ],
+              "radii": [
+                0.065,
+                0.085,
+                0.018
+              ]
+            }
+          }
+        ]
+      },
+      "mouth": {
+        "capsule": {
+          "a": [
+            -0.13,
+            -0.29,
+            0.215
+          ],
+          "b": [
+            0.13,
+            -0.29,
+            0.215
+          ],
+          "radius": 0.013
+        }
+      }
+    },
+    "shape": {
+      "above": {
+        "height": 0.0,
+        "shape": {
+          "displace": {
+            "amount": 0.006,
+            "scale": 22.0,
+            "seed": 11,
+            "octaves": 2,
+            "shape": {
+              "subtract": {
+                "from": {
+                  "smooth_union": {
+                    "k": 0.05,
+                    "shapes": [
+                      {
+                        "ref": "body"
+                      },
+                      {
+                        "ref": "head"
+                      },
+                      {
+                        "mirror_x": {
+                          "ref": "eye"
+                        }
+                      },
+                      {
+                        "mirror_x": {
+                          "ref": "front_leg"
+                        }
+                      },
+                      {
+                        "mirror_x": {
+                          "ref": "hind_leg"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "cut": {
+                  "ref": "mouth"
+                },
+                "k": 0.01
+              }
+            }
+          }
+        }
+      }
+    },
+    "base_slot": "skin",
+    "paint": {
+      "eye": {
+        "mirror_x": {
+          "sphere": {
+            "centre": [
+              0.1,
+              -0.225,
+              0.338
+            ],
+            "radius": 0.036
+          }
+        }
+      },
+      "belly": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.0,
+            0.03
+          ],
+          "radii": [
+            0.17,
+            0.26,
+            0.12
+          ]
+        }
+      }
+    },
+    "paint_reach": 0.003,
+    "max_triangles": 5000
+  },
+  "materials": {
+    "skin": {
+      "base_color": [
+        0.2,
+        0.22,
+        0.13,
+        1
+      ],
+      "roughness": 0.7,
+      "metallic": 0.0
+    },
+    "belly": {
+      "base_color": [
+        0.55,
+        0.5,
+        0.36,
+        1
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    },
+    "eye": {
+      "base_color": [
+        0.85,
+        0.6,
+        0.08,
+        1
+      ],
+      "roughness": 0.2,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

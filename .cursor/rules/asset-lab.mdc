@@ -51,6 +51,13 @@ Full agent manual: `docs/AGENT_GUIDE.md`.
 
 Exit codes: `0` pass, `1` QA/build failed, `2` bad spec or missing toolchain.
 
+## Organic forms
+
+Rocks, roots, stumps, bodies, horns, fungus: write an `organic.sculpt` spec (the shape as a
+JSON tree of distance-function primitives, smooth unions, cuts and noise; regions painted with
+their own materials) before writing a generator. Reference: "Sculpting organic forms" in
+`docs/ASSETKIT.md`; examples `assets/specs/sculpt_*.json`.
+
 ## Adding a generator
 
 1. Create `blender/generators/<family>_<name>.py` with `MATERIAL_SLOTS` and

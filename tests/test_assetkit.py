@@ -20,6 +20,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 BLENDER_MODULES = ("bpy", "bmesh", "mathutils")
+NEEDS_NUMPY = {"organic.sculpt"}  # distance-function meshing: built here only where numpy is
+
+try:
+    import numpy  # noqa: F401
+
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
 
 
 class _BlockBlender(importlib.abc.MetaPathFinder):
@@ -64,6 +72,20 @@ def _shells(faces: tuple | list) -> list[list[int]]:
     for index, face in enumerate(faces):
         groups.setdefault(find(face[0]), []).append(index)
     return list(groups.values())
+
+
+def _face_area(vertices: tuple | list, face: tuple | list) -> float:
+    """Area of a (planar) polygon, as a fan of triangles."""
+    a = vertices[face[0]]
+    total = [0.0, 0.0, 0.0]
+    for i in range(1, len(face) - 1):
+        b, c = vertices[face[i]], vertices[face[i + 1]]
+        u = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        v = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+        total[0] += u[1] * v[2] - u[2] * v[1]
+        total[1] += u[2] * v[0] - u[0] * v[2]
+        total[2] += u[0] * v[1] - u[1] * v[0]
+    return 0.5 * (total[0] ** 2 + total[1] ** 2 + total[2] ** 2) ** 0.5
 
 
 def _signed_volume(vertices: tuple | list, faces: tuple | list) -> float:
@@ -148,7 +170,7 @@ class KitGeneratorTests(unittest.TestCase):
         specs = [
             load_spec(path)
             for path in sorted((REPO_ROOT / "assets" / "specs").glob("*.json"))
-            if _generator(path) in KIT_GENERATORS
+            if _generator(path) in KIT_GENERATORS and (_HAS_NUMPY or _generator(path) not in NEEDS_NUMPY)
         ]
         self.assertTrue(specs, "no spec uses a kit generator")
         for spec in specs:
@@ -167,6 +189,9 @@ class KitGeneratorTests(unittest.TestCase):
                         self.assertGreater(
                             volume, 0.0, f"{part.name}: inside-out shell of {len(shell)} faces"
                         )
+                    # QA's no_degenerate_faces in Blender: no face under 1e-10 m^2.
+                    smallest = min(_face_area(mesh.vertices, face) for face in mesh.faces)
+                    self.assertGreater(smallest, 1e-10, f"{part.name}: a zero-area face")
                     triangles += mesh.triangle_count()
                 # The bevel adds triangles in Blender; before it the mesh must already fit.
                 self.assertLessEqual(triangles, spec.qa.max_triangles)

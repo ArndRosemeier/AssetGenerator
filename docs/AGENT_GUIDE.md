@@ -342,6 +342,12 @@ Rock materials need slots `rock` and `vein` (vein colour is baked into albedo st
 Write it against the asset kit unless it needs something the kit does not have yet (rigs,
 animation, baked textures): [`ASSETKIT.md`](ASSETKIT.md).
 
+For anything organic (rocks, stumps, roots, bodies, horns, fungus) you may not need a
+generator at all: `organic.sculpt` takes the shape as a JSON tree of spheres, capsules, smooth
+unions, cuts and noise, and paints regions with their own materials. Write a spec, run
+`python tools/ag.py look <id>`, adjust, repeat. See "Sculpting organic forms" in
+[`ASSETKIT.md`](ASSETKIT.md).
+
 1. Create `blender/generators/<family>_<name>.py` with:
    - `MATERIAL_SLOTS: tuple[str, ...]`
    - `build(spec: AssetSpec) -> assetkit.Asset`

@@ -38,6 +38,7 @@ GENERATORS: Final[dict[str, str]] = {
     "creature.crawler": "blender.generators.crawler_generator",
     "creature.quadruped": "blender.generators.quadruped_generator",
     "creature.mushroom": "blender.generators.mushroom_creature",
+    "organic.sculpt": "blender.generators.organic_sculpt",
 }
 
 
@@ -45,7 +46,7 @@ GENERATORS: Final[dict[str, str]] = {
 # import no Blender module, so they run without Blender and do not change when Blender does.
 # tests/test_assetkit.py holds every one of them to that; tools/backend_matrix.py builds their specs
 # on each supported Blender version and requires the same result.
-KIT_GENERATORS: Final[frozenset[str]] = frozenset({"hard_surface.crate", "prop.kit"})
+KIT_GENERATORS: Final[frozenset[str]] = frozenset({"hard_surface.crate", "prop.kit", "organic.sculpt"})
 
 
 class UnknownGeneratorError(KeyError):
