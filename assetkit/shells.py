@@ -1,4 +1,4 @@
-"""Closed shells built in plain Python, for `BoxBuilder.add_mesh`.
+"""Closed shells built in plain Python, for `MeshBuilder.add` (or `BoxBuilder.add_mesh`).
 
 Every function returns `(vertices, faces)`: a watertight shell whose faces wind
 counter-clockwise seen from outside, so QA's manifold and signed-volume checks
@@ -162,6 +162,44 @@ def place(shell: Shell, at: Vec, *, yaw: float = 0.0, pitch: float = 0.0, roll: 
         return (x + at[0], y + at[1], z + at[2])
 
     return transform(shell, f)
+
+
+def box(lower: Vec, upper: Vec) -> Shell:
+    """An axis-aligned box between two corners: eight vertices, six quads."""
+    xs, ys, zs = (lower[0], upper[0]), (lower[1], upper[1]), (lower[2], upper[2])
+    verts = [(xs[i & 1], ys[(i >> 1) & 1], zs[i >> 2]) for i in range(8)]
+    faces = [[0, 2, 3, 1], [4, 5, 7, 6], [0, 1, 5, 4], [2, 6, 7, 3], [0, 4, 6, 2], [1, 3, 7, 5]]
+    return verts, faces
+
+
+def grid_cube(cuts: int) -> Shell:
+    """The unit cube round the origin (side 1) with every face cut into a (cuts + 1)^2 quad grid,
+    neighbouring faces sharing their edge vertices: a box to bend into a block or a boulder."""
+    if cuts < 0:
+        raise ValueError(f"cuts must be 0 or more, got {cuts}")
+    n = cuts + 1
+    index: dict[tuple[int, int, int], int] = {}
+    verts: list[Vec] = []
+
+    def vert(cell: tuple[int, int, int]) -> int:
+        if cell not in index:
+            index[cell] = len(verts)
+            verts.append((cell[0] / n - 0.5, cell[1] / n - 0.5, cell[2] / n - 0.5))
+        return index[cell]
+
+    faces: list[list[int]] = []
+    # Each face's two grid axes (b, c) with b x c pointing out along the face's own axis a.
+    for a, b, c in ((0, 1, 2), (1, 2, 0), (2, 0, 1)):
+        for side in (0, n):
+            for u in range(n):
+                for v in range(n):
+                    quad = []
+                    for du, dv in ((0, 0), (1, 0), (1, 1), (0, 1)):
+                        cell = [0, 0, 0]
+                        cell[a], cell[b], cell[c] = side, u + du, v + dv
+                        quad.append(vert((cell[0], cell[1], cell[2])))
+                    faces.append(quad if side == n else quad[::-1])
+    return verts, faces
 
 
 def _sub(a: Vec, b: Vec) -> Vec:

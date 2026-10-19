@@ -11,9 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-import bpy
-
-from blender.lib.scene import BoxBuilder, apply_bevel, shade_flat, unwrap
+from assetkit import Asset, Bevel, MeshBuilder, Part, ShadeFlat, Unwrap
 from blender.lib.spec import (
     AssetSpec,
     SpecError,
@@ -121,7 +119,7 @@ def _band_starts(total: float, count: int, gap: float, offset: float) -> list[tu
     return [(offset + index * (size + gap), offset + index * (size + gap) + size) for index in range(count)]
 
 
-def build(spec: AssetSpec) -> list[bpy.types.Object]:
+def build(spec: AssetSpec) -> Asset:
     require_materials(spec.materials, MATERIAL_SLOTS, spec.generator)
     params = parse_params(spec.params)
 
@@ -130,7 +128,7 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
     thickness = params.plank_thickness
     post = params.post_size
 
-    builder = BoxBuilder(MATERIAL_SLOTS)
+    builder = MeshBuilder(MATERIAL_SLOTS)
 
     # Posts are sunk half a plank into the floor and lid rather than butting against
     # them: coplanar faces would z-fight in every renderer that sees the crate.
@@ -183,8 +181,5 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
                 "planks",
             )
 
-    obj = builder.to_object(spec.asset_id, spec.materials)
-    apply_bevel(obj, width=params.bevel_width, segments=1, angle_deg=30.0)
-    shade_flat(obj)
-    unwrap(obj)
-    return [obj]
+    finish = (Bevel(width=params.bevel_width, segments=1, angle_deg=30.0), ShadeFlat(), Unwrap())
+    return Asset((Part(spec.asset_id, builder.build(), spec.materials, finish),))

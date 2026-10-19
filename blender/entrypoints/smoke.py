@@ -11,11 +11,13 @@ from collections.abc import Mapping
 
 import bpy
 
+from assetkit import Asset, MeshBuilder, Part
+from blender.backend import compat, realize
 from blender.lib.export import export_glb, import_glb
 from blender.lib.qa import collect_stats
 from blender.lib.report import Report, check, failed_checks
 from blender.lib.runner import execute
-from blender.lib.scene import BoxBuilder, reset_scene
+from blender.lib.scene import reset_scene
 from blender.lib.spec import MaterialSpec
 
 
@@ -23,19 +25,21 @@ def handle(payload: Mapping[str, object]) -> Report:
     out_dir = Path(str(payload["out_dir"]))
 
     reset_scene()
-    builder = BoxBuilder(("smoke",))
+    builder = MeshBuilder(("smoke",))
     builder.add_box((0.0, 0.0, 0.5), (1.0, 1.0, 1.0), "smoke")
-    obj = builder.to_object(
-        "smoke_cube",
-        {"smoke": MaterialSpec(base_color=(0.8, 0.3, 0.2, 1.0), roughness=0.5, metallic=0.0)},
-    )
+    material = MaterialSpec(base_color=(0.8, 0.3, 0.2, 1.0), roughness=0.5, metallic=0.0)
+    (obj,) = realize(Asset((Part("smoke_cube", builder.build(), {"smoke": material}),)))
 
     glb_path = export_glb([obj], out_dir / "smoke_cube.glb")
     reimported = import_glb(glb_path)
     stats = collect_stats(reimported)
 
     checks = [
-        check("blender_version", bpy.app.version >= (4, 2, 0), f"Blender {bpy.app.version_string}"),
+        check(
+            "blender_version",
+            compat.SUPPORTED_MIN <= compat.version()[:2] < compat.SUPPORTED_BELOW,
+            f"Blender {bpy.app.version_string}",
+        ),
         check("gltf_roundtrip", stats["triangles"] == 12, f"{stats['triangles']} tris after reimport"),
         check("materials_survived", stats["materials"] == 1, f"{stats['materials']} material(s)"),
     ]

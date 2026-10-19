@@ -49,7 +49,7 @@ python tools/ag.py generate prop_barrel
 ## Props for vertex-coloured engines (`pack`)
 
 `prop.kit` (blender/generators/prop_kit.py) builds small props from closed shells
-(blender/lib/shells.py): barrels, buckets, picks, shovels, cut stone. `ag.py pack` builds a list
+(assetkit/shells.py): barrels, buckets, picks, shovels, cut stone. `ag.py pack` builds a list
 of specs, bakes ambient occlusion into their vertices, multiplies it into the materials' base
 colours and writes one `.fmpk` file that an engine without textures can draw (Dunfinity does):
 
@@ -216,20 +216,47 @@ assets/specs/          asset definitions (the source of truth, committed)
 assets/out/            generated .glb files and previews (gitignored)
 assets/humans/         MakeHuman / MPFB library (wardrobe.json committed, .glb gitignored)
 assets/monsters/       Quaternius catalog (committed) + fetched .glb files (gitignored)
+assetkit/              stable generator API, no Blender (see docs/ASSETKIT.md)
+blender/backend/       builds a kit Asset in Blender; compat.py holds every version shim
 blender/lib/           scene setup, QA, export, preview helpers
 blender/generators/    one module per asset family
 blender/entrypoints/   scripts Blender executes; they only ever write a JSON report
 tools/ag.py            the CLI everything goes through
+tools/backend_matrix.py  the same specs on several Blender versions
+tests/                 kit tests, no Blender needed
 tools/bootstrap.py     one-command Blender setup
 viewer/lab/            Engine library viewer (humans, monsters, generated assets)
 .cursor/               rule and skill that keep the agent in the validated loop
 ```
 
+## The asset kit: generators that outlive Blender versions
+
+Generators are written against `assetkit/`, a small stable API (meshes, closed shells, noise,
+finishing steps such as bevel, shading and unwrap) that never imports Blender. They return
+plain data; `blender/backend/` builds it in whichever Blender runs, and every Blender-version
+difference lives in `blender/backend/compat.py`. So a new Blender changes the backend, not the
+generators, and kit generators can be tested without Blender in under a second:
+
+```bash
+python -m unittest discover tests
+```
+
+Newer Blender versions may make better assets; they must not break the spec's contract (QA
+gates, materials, size) or change an asset unseen. `tools/backend_matrix.py` builds the specs
+on two or more Blender versions and lists each asset as `same`, `changed` or `BROKEN`:
+
+```bash
+python tools/backend_matrix.py --python bpy45/bin/python --python bpy52/bin/python
+```
+
+`hard_surface.crate` and `prop.kit` are kit generators so far. Details and the API:
+[`docs/ASSETKIT.md`](docs/ASSETKIT.md).
+
 ## Adding a generator
 
 Create `blender/generators/<family>_<name>.py` exposing `MATERIAL_SLOTS` and
-`build(spec) -> list[bpy.types.Object]`, then register it in `blender/lib/registry.py`.
-Use `blender/generators/hard_surface_crate.py` as the reference.
+`build(spec) -> assetkit.Asset`, register it in `blender/lib/registry.py` and add it to
+`KIT_GENERATORS`. Use `blender/generators/hard_surface_crate.py` as the reference.
 
 ## For agents
 

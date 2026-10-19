@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import importlib
 from collections.abc import Mapping
 
+from blender.backend import build_objects
 from blender.lib.export import clip_checks, export_glb, import_glb, roundtrip_checks
 from blender.lib.qa import collect_stats, run_checks
 from blender.lib.registry import resolve_generator_module
@@ -27,7 +28,7 @@ def handle(payload: Mapping[str, object]) -> Report:
     module = importlib.import_module(resolve_generator_module(spec.generator))
 
     reset_scene()
-    objects = module.build(spec)
+    objects = build_objects(module, spec)
 
     stats = collect_stats(objects)
     checks = run_checks(objects, spec.qa, stats, topology=True)

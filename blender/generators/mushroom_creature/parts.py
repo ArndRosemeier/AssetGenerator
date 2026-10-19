@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from blender.generators.quadruped_generator.anatomy import Body
 from blender.lib.mushroom import Mushroom, mushroom
-from blender.lib.shells import Shell, Vec, lathe
+from assetkit.shells import Shell, Vec, lathe
 
 #: The stalk's bones, foot to top; the cap's bone sits on the top.
 STALK = ("stalk1", "stalk2", "stalk3")

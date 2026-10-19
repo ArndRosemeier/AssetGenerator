@@ -51,8 +51,11 @@ Exit codes: `0` pass, `1` QA/build failed, `2` bad spec or missing toolchain.
 ## Adding a generator
 
 1. Create `blender/generators/<family>_<name>.py` with `MATERIAL_SLOTS` and
-   `build(spec) -> list[bpy.types.Object]`.
-2. Register it in `blender/lib/registry.py` (generators are registered; asset IDs are not).
+   `build(spec) -> assetkit.Asset`, written against the asset kit (`docs/ASSETKIT.md`):
+   no `bpy`, `bmesh` or `mathutils` imports. Blender-version differences go only in
+   `blender/backend/compat.py`.
+2. Register it in `blender/lib/registry.py` and add it to `KIT_GENERATORS` (generators are
+   registered; asset IDs are not). `python -m unittest discover tests` must pass.
 3. Parse `spec.params` with strict helpers from `blender/lib/spec.py`; reject impossible
    values with messages that include the actual numbers.
 4. Prefer parametric primitives; avoid coplanar exterior faces (z-fighting).

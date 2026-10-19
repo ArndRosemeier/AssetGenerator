@@ -1,7 +1,7 @@
 """Small hand props for dungeons and mines: barrels, buckets, tools, cut stone.
 
 One generator, `prop.kit`, with a recipe per `kind`. Each recipe composes closed
-shells (blender/lib/shells.py) into one mesh with material slots, so QA's
+shells (assetkit/shells.py) into one mesh with material slots, so QA's
 manifold and outward-normal gates hold. Props are made to be seen up close in a
 headlamp's beam: proportions follow real objects and every part has thickness.
 
@@ -15,13 +15,10 @@ import math
 import random
 from collections.abc import Callable, Mapping
 
-import bpy  # first: in the bpy module, bmesh only exists once bpy is loaded
-import bmesh
-from mathutils import Vector, noise
-
+from assetkit import Asset, MeshBuilder, ShadeFlat, ShadeSmooth, Unwrap, noise
+from assetkit import Part as KitPart
+from assetkit.shells import Shell, Vec, circle, grid_cube, lathe, place, rect, ring, sweep, transform
 from blender.lib.mushroom import CAP_SHAPES, Mushroom, Part, mushroom
-from blender.lib.scene import BoxBuilder, unwrap
-from blender.lib.shells import Shell, circle, lathe, place, rect, ring, sweep, transform
 from blender.lib.spec import (
     AssetSpec,
     SpecError,
@@ -34,12 +31,11 @@ from blender.lib.spec import (
 )
 
 # A recipe may return a shade per vertex (a colour multiplier the pack bakes in: tool marks, grime).
-Recipe = Callable[[BoxBuilder, dict[str, float], random.Random], list[float] | None]
+Recipe = Callable[[MeshBuilder, dict[str, float], random.Random], list[float] | None]
 
 
-def _add(b: BoxBuilder, shell: Shell, slot: str) -> None:
-    verts, faces = shell
-    b.add_mesh(verts, faces, slot)
+def _add(b: MeshBuilder, shell: Shell, slot: str) -> None:
+    b.add(shell, slot)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -47,7 +43,7 @@ def _add(b: BoxBuilder, shell: Shell, slot: str) -> None:
 # ---------------------------------------------------------------------------------------------
 
 
-def _barrel(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _barrel(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     h, r0, bulge = p["height"], p["radius"], p["bulge"]
     staves, thick = int(p["staves"]), 0.022
     rows = 5
@@ -83,7 +79,7 @@ def _barrel(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
 # ---------------------------------------------------------------------------------------------
 
 
-def _bucket(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _bucket(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     rt, rb, h, w = p["radius_top"], p["radius_bottom"], p["height"], 0.006
     _add(b, lathe([(0.0, 0.0), (rb, 0.0), (rt, h), (rt - w, h), (rb - w, w), (0.0, w)], 24), "tin")
     _add(
@@ -125,7 +121,7 @@ def _bucket(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
 # ---------------------------------------------------------------------------------------------
 
 
-def _handle(b: BoxBuilder, length: float, r0: float, r1: float, bend: float) -> None:
+def _handle(b: MeshBuilder, length: float, r0: float, r1: float, bend: float) -> None:
     path = [(bend * math.sin(math.pi * i / 10), 0.0, length * i / 10) for i in range(11)]
     _add(
         b,
@@ -139,7 +135,7 @@ def _handle(b: BoxBuilder, length: float, r0: float, r1: float, bend: float) -> 
     )
 
 
-def _pick(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _pick(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     L, reach = p["handle_length"], p["head_length"] / 2
     _handle(b, L + 0.03, 0.016, 0.021, rng.uniform(-0.006, 0.006))
     z = L - 0.035
@@ -165,7 +161,7 @@ def _pick(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     )
 
 
-def _shovel(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _shovel(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     L, bw, bl = p["handle_length"], p["blade_width"] / 2, p["blade_length"]
     base = bl * 0.95
     # The handle starts in the socket and ends in a T grip.
@@ -208,48 +204,41 @@ def _shovel(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
 # ---------------------------------------------------------------------------------------------
 
 
-def _cut_block(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[float]:
+def _cut_block(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> list[float]:
     sx, sy, sz = p["size_x"], p["size_y"], p["size_z"]
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=1.0)
-    cuts = max(2, int(max(sx, sy, sz) / 0.1))
-    bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=cuts, use_grid_fill=True)
+    cube, faces = grid_cube(max(2, int(max(sx, sy, sz) / 0.1)))
     seed = rng.uniform(0, 100)
     chip = p["chip"]
     shade: list[float] = []
-    for v in bm.verts:
-        x, y, z = v.co.x * sx, v.co.y * sy, (v.co.z + 0.5) * sz
+    verts: list[Vec] = []
+    for co in cube:
+        x, y, z = co[0] * sx, co[1] * sy, (co[2] + 0.5) * sz
         # Which face: the largest normalised coordinate.
-        ax = max(range(3), key=lambda i: abs(v.co[i]))
-        n = Vector((0.0, 0.0, 0.0))
-        n[ax] = 1.0 if v.co[ax] > 0 else -1.0
-        d = 0.004 * noise.noise(Vector((x * 6 + seed, y * 6, z * 6)))
+        ax = max(range(3), key=lambda i: abs(co[i]))
+        n = [0.0, 0.0, 0.0]
+        n[ax] = 1.0 if co[ax] > 0 else -1.0
+        d = 0.004 * noise.noise(x * 6 + seed, y * 6, z * 6)
         # Here and there an edge knocked off where a block was dropped: sparse, sharp chips.
-        edge = sorted(abs(v.co[i]) for i in range(3))[1]  # second largest: near an edge when ~0.5
-        k = noise.noise(Vector((x * 5 - seed, y * 5, z * 5)))
+        edge = sorted(abs(co[i]) for i in range(3))[1]  # second largest: near an edge when ~0.5
+        k = noise.noise(x * 5 - seed, y * 5, z * 5)
         knocked = edge > 0.4 and k > 0.1
         if knocked:
             d -= chip * min(1.0, (k - 0.1) * 3.0) * (edge - 0.4) / 0.1
-        v.co = Vector((x, y, z)) + n * d
+        verts.append((x + n[0] * d, y + n[1] * d, z + n[2] * d))
         # Tool marks and the fresh, paler stone where a chip came off: in the colour, not the mesh.
-        along = (y if ax != 1 else x) * 18.0 + 0.6 * noise.noise(Vector((x * 2, y * 2 + seed, z * 2)))
-        mark = 0.9 + 0.1 * math.sin(along * math.tau) * (
-            0.5 + 0.5 * noise.noise(Vector((x * 3, y * 3, z * 3 + seed)))
-        )
+        along = (y if ax != 1 else x) * 18.0 + 0.6 * noise.noise(x * 2, y * 2 + seed, z * 2)
+        mark = 0.9 + 0.1 * math.sin(along * math.tau) * (0.5 + 0.5 * noise.noise(x * 3, y * 3, z * 3 + seed))
         shade.append(mark * (1.12 if knocked else 1.0))
-    verts = [tuple(v.co) for v in bm.verts]
-    faces = [[v.index for v in f.verts] for f in bm.faces]
-    bm.free()
-    b.add_mesh(verts, faces, "stone")
+    b.add_shell(verts, faces, "stone")
     return shade
 
 
 def _hexa(
-    b: BoxBuilder, bottom: list[tuple[float, float, float]], top: list[tuple[float, float, float]], slot: str
+    b: MeshBuilder, bottom: list[tuple[float, float, float]], top: list[tuple[float, float, float]], slot: str
 ) -> None:
     """A six-sided solid from four bottom and four top corners, each counter-clockwise from above."""
     faces = [[3, 2, 1, 0], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]
-    b.add_mesh(bottom + top, faces, slot)
+    b.add_shell(bottom + top, faces, slot)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -257,7 +246,7 @@ def _hexa(
 # ---------------------------------------------------------------------------------------------
 
 
-def _cart(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[float] | None:
+def _cart(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> list[float] | None:
     gauge, wr = p["gauge"] / 2, p["wheel_radius"]
     axle_z = p["rail_top"] + wr
     hx0, hy0, hx1, hy1 = 0.4, 0.66, 0.52, 0.82  # half width and length at the bottom and the top
@@ -351,7 +340,7 @@ def _cart(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[float]
 
 
 def _planks(
-    b: BoxBuilder,
+    b: MeshBuilder,
     rng: random.Random,
     x0: float,
     x1: float,
@@ -381,7 +370,7 @@ def _planks(
         u += w
 
 
-def _door_leaf(b: BoxBuilder, d0: float, d1: float, dh: float, hy: float) -> None:
+def _door_leaf(b: MeshBuilder, d0: float, d1: float, dh: float, hy: float) -> None:
     """The shack's plank door, shut in its doorway: five boards, two ledges, a brace, hinges, a handle."""
     dc, dw = (d0 + d1) / 2, d1 - d0
     for k in range(5):
@@ -400,7 +389,7 @@ def _door_leaf(b: BoxBuilder, d0: float, d1: float, dh: float, hy: float) -> Non
     b.add_box((d1 - 0.1, -hy - 0.045, 1.0), (0.04, 0.02, 0.12), "iron")
 
 
-def _shack(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _shack(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     hx, hy, h = p["width"] / 2, p["depth"] / 2, p["height"]
     door = (0.15, 1.05, 0.0, 1.9)  # in the front wall: (x0, x1, z0, z1)
     window = (-0.4, 0.4, 1.25, 1.85)  # in the right side wall: (y0, y1, z0, z1)
@@ -579,7 +568,7 @@ def _long_bone(length: float, r: float) -> Shell:
     return sweep(path, circle(1.0, 8), scale=girth, up=(0.0, 0.0, 1.0))
 
 
-def _bones(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _bones(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A heap of long bones with skulls set on and round it, as an ossuary stacks them."""
     for k in range(int(p["bones"])):
         length = rng.uniform(0.3, 0.46)
@@ -609,7 +598,7 @@ def _bones(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
             _add(b, place(shell, at, yaw=yaw, roll=tilt), slot)
 
 
-def _candles(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _candles(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """Candles of several heights standing in a pool of their own spilt wax."""
     spread = p["spread"]
     _add(
@@ -657,7 +646,7 @@ def _candles(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
 # ---------------------------------------------------------------------------------------------
 
 
-def _rope(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _rope(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A coil of rope lying flat, its end run off to a piton driven into the floor at +Y."""
     R, rr, turns = p["radius"], p["thickness"] / 2, p["turns"]
     n = int(turns * 16)
@@ -689,7 +678,7 @@ def _rope(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     )
 
 
-def _plank_bridge(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _plank_bridge(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """Planks nailed across two beams spanning X, a rope rail on posts along each side."""
     L, W = p["length"], p["width"]
     # The beams: rough baulks running the full span.
@@ -748,7 +737,7 @@ def _plank_bridge(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> Non
 V3 = tuple[float, float, float]
 
 
-def _leaf(b: BoxBuilder, base: V3, tip: V3, width: float, slot: str, thick: float = 0.003) -> None:
+def _leaf(b: MeshBuilder, base: V3, tip: V3, width: float, slot: str, thick: float = 0.003) -> None:
     """A flat leaf from `base` to `tip`, widest a third of the way, lying across the horizontal."""
     dx, dy, dz = tip[0] - base[0], tip[1] - base[1], tip[2] - base[2]
     flat = math.hypot(dx, dy) or 1.0
@@ -762,7 +751,7 @@ def _leaf(b: BoxBuilder, base: V3, tip: V3, width: float, slot: str, thick: floa
     _hexa(b, ring_, [(x, y, z + thick) for x, y, z in ring_], slot)
 
 
-def _frond(b: BoxBuilder, length: float, yaw: float, rise: float, rng: random.Random) -> None:
+def _frond(b: MeshBuilder, length: float, yaw: float, rise: float, rng: random.Random) -> None:
     """One fern frond: an arching stem with paired leaflets, shrinking to the tip."""
     n = 14
     cy, sy = math.cos(yaw), math.sin(yaw)
@@ -785,13 +774,13 @@ def _frond(b: BoxBuilder, length: float, yaw: float, rise: float, rng: random.Ra
             _leaf(b, (x, y, z), tip, size * 0.42, "leaf")
 
 
-def _fern(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _fern(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     for k in range(int(p["fronds"])):
         yaw = math.tau * k / p["fronds"] + rng.uniform(-0.25, 0.25)
         _frond(b, p["length"] * rng.uniform(0.75, 1.1), yaw, rng.uniform(0.75, 1.1), rng)
 
 
-def _moss(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _moss(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """Cushions of moss: low lumpy domes run together."""
     seed = rng.uniform(0, 100)
     for k in range(int(p["tufts"])):
@@ -804,13 +793,13 @@ def _moss(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
 
         def lump(v: V3, cx: float = cx, cy: float = cy, h: float = h) -> V3:
             x, y, z = v
-            swell = 1.0 + 0.3 * noise.noise(Vector((x * 22 + seed, y * 22, z * 22)))
+            swell = 1.0 + 0.3 * noise.noise(x * 22 + seed, y * 22, z * 22)
             return (cx + x * swell, cy + y * swell, z * swell if z > 0 else z)
 
         _add(b, transform(dome, lump), "moss")
 
 
-def _vines(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _vines(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """Strands of vine hanging from a knot of roots overhead, leaves all down them."""
     H, spread = p["length"], p["spread"]
     for k in range(int(p["strands"])):
@@ -838,7 +827,7 @@ def _vines(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
             _leaf(b, (x, y, z), tip, size * 0.75, "leaf")
 
 
-def _flowers(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _flowers(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A clump of pale flowers reaching for the light: stems, a few leaves, five-petalled heads."""
     for k in range(int(p["count"])):
         a = rng.uniform(0, math.tau)
@@ -873,7 +862,7 @@ def _flowers(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
 # ---------------------------------------------------------------------------------------------
 
 
-def _gate(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _gate(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """An iron grille gate across X: a frame, round bars with spear tips, flat cross bands."""
     W, H = p["width"], p["height"]
     for x in (-W / 2 + 0.05, W / 2 - 0.05):
@@ -910,7 +899,7 @@ def _gate(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     )
 
 
-def _crystals(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _crystals(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """Hexagonal spars with pyramid tips, sprouting from one root and leaning outwards."""
     for k in range(int(p["count"])):
         size = 1.0 if k == 0 else rng.uniform(0.3, 0.75)
@@ -925,7 +914,7 @@ def _crystals(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
         _add(b, place(spar, (d * math.cos(a), d * math.sin(a), 0.0), roll=lean, yaw=a), "crystal")
 
 
-def _drips(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _drips(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """Cooled lava hanging from a crust overhead: knobbly cones run together at the root."""
     L0 = p["length"]
     _add(b, _blob(L0 * 0.24, L0 * 0.2, L0 * 0.05, (0.0, 0.0, L0), 4, 10), "rock")
@@ -942,27 +931,22 @@ def _drips(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
         _add(b, place(lathe(prof, 8), (d * math.cos(a), d * math.sin(a), 0.0), yaw=rng.uniform(0, 1)), "rock")
 
 
-def _boulder(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[float]:
+def _boulder(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> list[float]:
     """A fallen block: a squared lump with broken faces, flat where it landed."""
     sx, sy, sz = p["size_x"], p["size_y"], p["size_z"]
-    bm = bmesh.new()
-    bmesh.ops.create_cube(bm, size=1.0)
-    bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=3, use_grid_fill=True)
+    cube, faces = grid_cube(3)
     seed = rng.uniform(0, 100)
     shade: list[float] = []
-    for v in bm.verts:
-        q = Vector((v.co.x, v.co.y, v.co.z))
+    verts: list[Vec] = []
+    for co in cube:
         # Round the corners a little towards a sphere, then break the faces with coarse noise.
-        q = q.lerp(q.normalized() * 0.62, 0.35)
-        n = noise.noise(Vector((q.x * 2.2 + seed, q.y * 2.2, q.z * 2.2)))
-        q *= 1.0 + 0.16 * n
-        x, y, z = q.x * sx, q.y * sy, (q.z + 0.5) * sz
-        v.co = Vector((x, y, max(z, 0.0)))
-        shade.append(0.85 + 0.15 * noise.noise(Vector((x * 3, y * 3 + seed, z * 3))))
-    verts = [tuple(v.co) for v in bm.verts]
-    faces = [[v.index for v in f.verts] for f in bm.faces]
-    bm.free()
-    b.add_mesh(verts, faces, "rock")
+        length = math.sqrt(co[0] ** 2 + co[1] ** 2 + co[2] ** 2)
+        qx, qy, qz = (c + (c / length * 0.62 - c) * 0.35 for c in co)
+        swell = 1.0 + 0.16 * noise.noise(qx * 2.2 + seed, qy * 2.2, qz * 2.2)
+        x, y, z = qx * swell * sx, qy * swell * sy, (qz * swell + 0.5) * sz
+        verts.append((x, y, max(z, 0.0)))
+        shade.append(0.85 + 0.15 * noise.noise(x * 3, y * 3 + seed, z * 3))
+    b.add_shell(verts, faces, "rock")
     return shade
 
 
@@ -971,7 +955,7 @@ def _boulder(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> list[flo
 # ---------------------------------------------------------------------------------------------
 
 
-def _box(b: BoxBuilder, x0: float, x1: float, y0: float, y1: float, z0: float, z1: float, slot: str) -> None:
+def _box(b: MeshBuilder, x0: float, x1: float, y0: float, y1: float, z0: float, z1: float, slot: str) -> None:
     _hexa(
         b,
         [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)],
@@ -980,7 +964,7 @@ def _box(b: BoxBuilder, x0: float, x1: float, y0: float, y1: float, z0: float, z
     )
 
 
-def _forge(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _forge(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A squat stone hearth with a chimney hood, its firebox open to the front (-Y), an anvil
     beside it. With `fire_only` it is just the glowing coals in the firebox, for the glow pass."""
     if p["fire_only"] > 0.5:
@@ -1015,7 +999,7 @@ def _forge(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     )
 
 
-def _statue(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _statue(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A dwarf king carved in one stone, facing -Y: broad robed body, a beard to his belt,
     a crown, and both hands on the haft of a hammer stood before him. On a stepped plinth."""
     H = p["height"]
@@ -1073,7 +1057,7 @@ def _statue(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _box(b, hx - 0.32 * s, hx + 0.32 * s, hy - 0.15 * s, hy + 0.15 * s, z0, z0 + 0.3 * s, "stone")
 
 
-def _brazier(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _brazier(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A wide iron bowl on three splayed legs, a ring joining them, dead coals in the bowl."""
     H, R = p["height"], p["radius"]
     bowl = [
@@ -1108,7 +1092,7 @@ def _brazier(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
         _add(b, _blob(0.06, 0.05, 0.035, (d * math.cos(a), d * math.sin(a), H - 0.1), 3, 6), "coal")
 
 
-def _chain(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _chain(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """Heavy oval links hanging straight, each turned a quarter to the last, from a ceiling plate."""
     L, w = p["length"], p["link"]
     t = w * 0.16  # bar thickness
@@ -1126,7 +1110,7 @@ def _chain(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _box(b, -0.15, 0.15, -0.15, 0.15, L + w * 0.6, L + w * 0.75, "iron")
 
 
-def _hatchet(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _hatchet(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A one-hand hatchet standing on its butt: a slim ash handle swelling to the grip, the iron
     head on top with a bearded blade out along +X, its edge ground bright, and a short poll."""
     L, reach = p["handle_length"], p["blade"]
@@ -1150,7 +1134,7 @@ def _hatchet(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _box(b, -0.045, -0.012, -0.012, 0.012, z - 0.022, z + 0.022, "iron")
 
 
-def _crowbar(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _crowbar(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A crowbar standing on its chisel end: a straight bar, bent over at the top into a
     goose-neck whose split claw points back down; both working ends worn bright."""
     L, r = p["length"], p["radius"]
@@ -1178,7 +1162,7 @@ def _crowbar(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     )
 
 
-def _hard_hat(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _hard_hat(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A miner's hard hat for a head of radius `head` (the humanoid's headRadius): an enamel dome,
     longer front to back, a ridge over the crown, a brim turned down at the edge, a few dents, and
     a lamp on an iron bracket at the front (-Y). Origin under the brim's centre, so a rigid part
@@ -1265,7 +1249,7 @@ def _turned(profile: list[tuple[float, float]], at: tuple[float, float, float], 
     return place(lathe([(0.0, z0), *profile, (0.0, z1)], seg), at)
 
 
-def _armchair(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _armchair(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """Grandma's wing armchair (or, wider and without wings, her sofa): a deep sprung seat with
     loose cushions, a buttoned back tipped a little, wings at the head, rolled arms, short turned
     legs. The front faces -Y."""
@@ -1298,7 +1282,7 @@ def _armchair(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
             _add(b, _blob(0.016, 0.012, 0.016, at, 4, 8), "button")
 
 
-def _side_table(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _side_table(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A round lamp table on one turned column and a round foot."""
     H, R = p["height"], p["radius"]
     k = H / 0.62
@@ -1325,7 +1309,7 @@ def _side_table(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _add(b, _turned(prof, (0.0, 0.0, 0.0), 24), "wood")
 
 
-def _chair(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _chair(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A plain kitchen chair: a board seat, square legs tapering to the floor, the back legs
     running on up into posts with a top rail, a middle rail and three spindles; stretchers low."""
     seat, back = p["seat"], p["back"]
@@ -1359,7 +1343,7 @@ def _chair(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
         _add(b, sweep(rail, circle(0.009, 6)), "wood")
 
 
-def _table(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _table(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A kitchen table: a scrubbed top with eased edges on an apron, four turned legs."""
     H, hx, hy = p["height"], p["length"] / 2, p["width"] / 2
     _add(b, _pillow(hx, hy, 0.016, (0.0, 0.0, H - 0.016), e=0.12), "top")
@@ -1373,7 +1357,7 @@ def _table(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
             _add(b, _turned(leg, (side * lx, fy * ly, 0.0), 10), "wood")
 
 
-def _cabinet(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _cabinet(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A case piece (wardrobe, sideboard, cupboard) facing -Y: a carcass on short turned feet or a
     plinth, a row of drawers over panelled doors, a top that overhangs, a cornice when tall,
     brass knobs."""
@@ -1410,7 +1394,7 @@ def _cabinet(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
         _add(b, _blob(0.013, 0.016, 0.013, (kx, face - 0.03, (z0 + z1) / 2), 4, 8), "brass")
 
 
-def _bed(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _bed(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A made double bed, its head to -Y: a wooden frame with a tall headboard and a low
     footboard between turned posts, the mattress, the eiderdown folded back, two pillows."""
     W, L = p["width"] / 2, p["length"] / 2
@@ -1435,7 +1419,7 @@ def _bed(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
         _add(b, _pillow(W * 0.42, 0.17, 0.06, (sx * W * 0.47, -L + 0.26, 0.56), e=0.5, tilt=-0.25), "linen")
 
 
-def _stove(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _stove(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """An enamelled kitchen range on legs, facing -Y: an oven door with a handle bar, a black
     hob with two plates, a back splash, knobs along the top front."""
     W, D, H = 0.32, 0.31, p["height"]
@@ -1476,7 +1460,7 @@ def _stove(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
         )
 
 
-def _shelf(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _shelf(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A cellar shelf unit: three uprights, boards at the given heights, a back rail."""
     W, D, H = p["width"] / 2, p["depth"] / 2, p["height"]
     for x in (-W, 0.0, W):
@@ -1487,7 +1471,7 @@ def _shelf(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
     _box(b, -W, W, D - 0.02, D, H - 0.1, H, "wood")
 
 
-def _coat_stand(b: BoxBuilder, p: dict[str, float], rng: random.Random) -> None:
+def _coat_stand(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
     """A turned coat stand on a round foot, hooks curling out at the top."""
     H = p["height"]
     pole = [
@@ -1647,7 +1631,7 @@ SMOOTH = {
 }
 
 
-def build(spec: AssetSpec) -> list[bpy.types.Object]:
+def build(spec: AssetSpec) -> Asset:
     raw: Mapping[str, object] = spec.params
     kind = as_str(require_key(raw, "kind", "params"), "params.kind")
     if kind in PART_RECIPES:
@@ -1666,9 +1650,9 @@ def build(spec: AssetSpec) -> list[bpy.types.Object]:
         slots = ("fire",)
     require_materials(spec.materials, slots, spec.generator)
 
-    builder = BoxBuilder(slots)
+    builder = MeshBuilder(slots)
     shade = recipe(builder, params, random.Random(seed))
-    return [_finish(builder, spec, shade, smooth)]
+    return _finish(builder, spec, shade, smooth)
 
 
 # Counts and switches that may be 0 (no gills, no spots, no ring, no load, upright).
@@ -1703,7 +1687,7 @@ def _params(raw: Mapping[str, object], kind: str, defaults: dict[str, float]) ->
     return params
 
 
-def _build_parts(spec: AssetSpec, kind: str) -> list[bpy.types.Object]:
+def _build_parts(spec: AssetSpec, kind: str) -> Asset:
     recipe, defaults, default_shape = PART_RECIPES[kind]
     params = _params(spec.params, kind, defaults)
     shape = as_str(spec.params.get("cap_shape", default_shape), "params.cap_shape")
@@ -1712,31 +1696,17 @@ def _build_parts(spec: AssetSpec, kind: str) -> list[bpy.types.Object]:
     parts = recipe(params, shape, random.Random(as_int(spec.params.get("seed", 1), "params.seed")))
     slots = tuple(slot for slot in MUSHROOM_SLOTS if any(p[1] == slot for p in parts))
     require_materials(spec.materials, slots, spec.generator)
-    builder = BoxBuilder(slots)
+    builder = MeshBuilder(slots)
     for shell, slot in parts:
         _add(builder, shell, slot)
-    return [_finish(builder, spec, None, as_bool(spec.params.get("smooth", True), "params.smooth"))]
+    return _finish(builder, spec, None, as_bool(spec.params.get("smooth", True), "params.smooth"))
 
 
-def _finish(
-    builder: BoxBuilder, spec: AssetSpec, shade: list[float] | None, smooth: bool
-) -> bpy.types.Object:
-    obj = builder.to_object(spec.asset_id, spec.materials)
-    mesh = obj.data
+def _finish(builder: MeshBuilder, spec: AssetSpec, shade: list[float] | None, smooth: bool) -> Asset:
     if shade is not None:
-        attr = mesh.attributes.new("shade", "FLOAT", "POINT")
-        attr.data.foreach_set("value", shade)
+        builder.set_point_attribute("shade", shade)
     # Settle on the origin: footprint centred, resting on Z=0 (tool marks and bends move it a little).
-    xs = [v.co.x for v in mesh.vertices]
-    ys = [v.co.y for v in mesh.vertices]
-    shift = Vector(((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, min(v.co.z for v in mesh.vertices)))
-    for v in mesh.vertices:
-        v.co -= shift
-    for polygon in mesh.polygons:
-        polygon.use_smooth = smooth
-    if smooth:
-        # Keep hard edges hard: split normals where faces turn by more than ~40 degrees.
-        if hasattr(mesh, "set_sharp_from_angle"):
-            mesh.set_sharp_from_angle(angle=math.radians(40.0))
-    unwrap(obj)
-    return obj
+    mesh = builder.build().settled()
+    # Smooth keeps hard edges hard: normals split where faces turn by more than ~40 degrees.
+    shading = ShadeSmooth(sharp_angle_deg=40.0) if smooth else ShadeFlat()
+    return Asset((KitPart(spec.asset_id, mesh, spec.materials, (shading, Unwrap())),))

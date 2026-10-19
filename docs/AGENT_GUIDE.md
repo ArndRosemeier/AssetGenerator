@@ -7,6 +7,7 @@ everything through `tools/ag.py`. You do **not** open the Blender UI.
 
 Also see:
 
+- The asset kit (stable generator API, Blender version policy): [`ASSETKIT.md`](ASSETKIT.md)
 - Always-on rules: [`.cursor/rules/asset-lab.mdc`](../.cursor/rules/asset-lab.mdc)
 - Skill (short workflow): [`.cursor/skills/asset-lab/SKILL.md`](../.cursor/skills/asset-lab/SKILL.md)
 - Human overview: [`README.md`](../README.md)
@@ -58,7 +59,7 @@ in, regenerable products out.
 ## Mental model
 
 ```text
-JSON spec  -->  generator (bpy)  -->  QA gates  -->  .glb export
+JSON spec  -->  generator (kit)  -->  backend (bpy)  -->  QA gates  -->  .glb export
                       |                               |
                       +---- preview PNGs <------------+
                       |                               |
@@ -68,7 +69,10 @@ JSON spec  -->  generator (bpy)  -->  QA gates  -->  .glb export
 
 - **Specs** (`assets/specs/*.json`) are the source of truth. Diffable, strict, no prose.
 - **Generators** (`blender/generators/`) are parametric builders. Prefer tuning a
-  parameter over inventing one-off geometry.
+  parameter over inventing one-off geometry. Kit generators (`KIT_GENERATORS` in
+  `blender/lib/registry.py`) return plain data through `assetkit/` and never touch `bpy`;
+  the backend (`blender/backend/`) builds it in whatever Blender runs. See
+  [`ASSETKIT.md`](ASSETKIT.md).
 - **QA** measures the mesh that will ship. Modifiers are applied before export.
 - **Previews** are how you judge look. Numbers alone are not enough.
 
@@ -325,18 +329,24 @@ Rock materials need slots `rock` and `vein` (vein colour is baked into albedo st
 
 ## Adding a generator
 
+Write it against the asset kit unless it needs something the kit does not have yet (rigs,
+animation, baked textures): [`ASSETKIT.md`](ASSETKIT.md).
+
 1. Create `blender/generators/<family>_<name>.py` with:
    - `MATERIAL_SLOTS: tuple[str, ...]`
-   - `build(spec: AssetSpec) -> list[bpy.types.Object]`
-2. Register the module path in `blender/lib/registry.py`.
+   - `build(spec: AssetSpec) -> assetkit.Asset`
+2. Register the module path in `blender/lib/registry.py` and add its name to `KIT_GENERATORS`.
 3. Parse `spec.params` into a frozen dataclass using the strict helpers in
    `blender/lib/spec.py`. Reject impossible dimensions with messages that include the
    **actual numbers**.
-4. Prefer `BoxBuilder` from `blender/lib/scene.py`. Interpenetrate boxes; avoid
-   coplanar exterior faces.
-5. Finish with `apply_bevel` → `shade_flat` → `unwrap` so QA measures the shipped mesh.
-6. Add a sample spec under `assets/specs/` and run `generate` until report + previews
-   both look right.
+4. Build with `assetkit.MeshBuilder` and `assetkit.shells`. Interpenetrate boxes; avoid
+   coplanar exterior faces. No `bpy`, `bmesh` or `mathutils` (use `assetkit.noise`).
+5. Finish with the steps `Bevel` → `ShadeFlat` → `Unwrap` so QA measures the shipped mesh.
+6. Run `python -m unittest discover tests` (no Blender needed), then add a sample spec under
+   `assets/specs/` and run `generate` until report + previews both look right.
+
+A generator that must use `bpy` returns `list[bpy.types.Object]` as before; anything that
+differs between Blender versions goes through `blender/backend/compat.py`.
 
 Reference implementation: [`blender/generators/hard_surface_crate.py`](../blender/generators/hard_surface_crate.py).
 
@@ -347,10 +357,14 @@ Reference implementation: [`blender/generators/hard_surface_crate.py`](../blende
 ```text
 assets/specs/           committed asset definitions
 assets/out/             generated .glb + previews (gitignored)
+assetkit/               stable generator API: meshes, shells, noise, finishing steps (no bpy)
+blender/backend/        turns a kit Asset into Blender objects; compat.py holds version shims
 blender/lib/            scene, materials, QA, export, preview helpers
 blender/generators/     parametric builders
 blender/entrypoints/    scripts Blender runs; they only write a JSON report
 tools/ag.py             the only CLI you should use day to day
+tools/backend_matrix.py same specs on several Blender versions: contract holds, changes listed
+tests/                  kit tests, run without Blender
 tools/bootstrap.py      one-shot Blender install + smoke test
 tools/blenderctl.py     locate / download / invoke Blender
 .cursor/rules/          always-on working agreement
