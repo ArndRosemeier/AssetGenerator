@@ -66,3 +66,43 @@ def noise(x: float, y: float, z: float) -> float:
             _lerp(u, _grad(p[ab + 1], x, y - 1, z - 1), _grad(p[bb + 1], x - 1, y - 1, z - 1)),
         ),
     )
+
+
+def noise_array(x: object, y: object, z: object) -> object:
+    """`noise` over numpy arrays, value for value (the SDF shapes displace with it). Needs numpy."""
+    import numpy as np
+
+    x, y, z = (np.asarray(v, dtype=np.float64) for v in (x, y, z))
+    p = np.asarray(_P, dtype=np.int64)
+    fx, fy, fz = np.floor(x), np.floor(y), np.floor(z)
+    xi, yi, zi = fx.astype(np.int64) & 255, fy.astype(np.int64) & 255, fz.astype(np.int64) & 255
+    x, y, z = x - fx, y - fy, z - fz
+    u, v, w = (t * t * t * (t * (t * 6.0 - 15.0) + 10.0) for t in (x, y, z))
+
+    def grad(h: object, gx: object, gy: object, gz: object) -> object:
+        h = h & 15
+        a = np.where(h < 8, gx, gy)
+        b = np.where(h < 4, gy, np.where((h == 12) | (h == 14), gx, gz))
+        return np.where(h & 1 == 0, a, -a) + np.where(h & 2 == 0, b, -b)
+
+    a = p[xi] + yi
+    aa, ab = p[a] + zi, p[a + 1] + zi
+    b = p[xi + 1] + yi
+    ba, bb = p[b] + zi, p[b + 1] + zi
+
+    def lerp(t: object, lo: object, hi: object) -> object:
+        return lo + t * (hi - lo)
+
+    return lerp(
+        w,
+        lerp(
+            v,
+            lerp(u, grad(p[aa], x, y, z), grad(p[ba], x - 1, y, z)),
+            lerp(u, grad(p[ab], x, y - 1, z), grad(p[bb], x - 1, y - 1, z)),
+        ),
+        lerp(
+            v,
+            lerp(u, grad(p[aa + 1], x, y, z - 1), grad(p[ba + 1], x - 1, y, z - 1)),
+            lerp(u, grad(p[ab + 1], x, y - 1, z - 1), grad(p[bb + 1], x - 1, y - 1, z - 1)),
+        ),
+    )

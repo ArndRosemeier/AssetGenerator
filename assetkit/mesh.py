@@ -66,11 +66,20 @@ class MeshBuilder:
     def add_shell(self, vertices: Sequence[Vec], faces: Sequence[Sequence[int]], slot: str) -> None:
         """Add one closed shell. Faces wind counter-clockwise seen from outside; QA gates
         manifoldness and signed volume, so a hole or an inverted face fails the build."""
+        self.add_painted(vertices, faces, [slot] * len(faces))
+
+    def add_painted(
+        self, vertices: Sequence[Vec], faces: Sequence[Sequence[int]], slots: Sequence[str]
+    ) -> None:
+        """Add one closed shell whose faces carry their own material slots (`sdf.paint`)."""
         if len(vertices) < 4 or len(faces) < 4:
             raise ValueError(f"A closed shell needs 4+ verts and 4+ faces, got {len(vertices)}/{len(faces)}")
-        index = self.slot_index(slot)
+        if len(slots) != len(faces):
+            raise ValueError(f"{len(slots)} slots for {len(faces)} faces")
+        indices = {slot: self.slot_index(slot) for slot in set(slots)}
         start = len(self._vertices)
-        for corners in faces:
+        for corners, slot in zip(faces, slots, strict=True):
+            index = indices[slot]
             if len(corners) < 3:
                 raise ValueError(f"Face needs 3+ corners, got {list(corners)}")
             if len(set(corners)) != len(corners):

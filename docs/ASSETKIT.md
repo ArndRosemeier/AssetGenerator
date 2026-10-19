@@ -71,6 +71,7 @@ Everything below is exported from `assetkit`.
 | `add_box(center, size, slot, rotation=None)` | Box round `center`; `rotation` is XYZ Euler in radians |
 | `add_box_bounds(lower, upper, slot)` | Box between two corners |
 | `add(shell, slot)` / `add_shell(verts, faces, slot)` | A closed shell; faces counter-clockwise seen from outside |
+| `add_painted(verts, faces, slots)` | A closed shell with a material slot per face (`sdf.paint`) |
 | `set_point_attribute(name, values)` | One float per vertex (`shade` is multiplied into colours by `ag.py pack`) |
 | `build() -> Mesh` | Freeze it |
 
@@ -101,6 +102,70 @@ out in order by the backend:
 | `Unwrap(angle_limit_deg=66, island_margin=0.02)` | UVs into the unit square |
 
 A step says *what*, never *how*: how Blender 4.5 or 5.2 does it is the backend's business.
+
+## Sculpting organic forms
+
+Boxes, lathes and sweeps model furniture and tools well and bodies, roots and rocks badly.
+For those, say what the form *is* and let the kit find the vertices: `assetkit.sdf` builds
+shapes as signed distance functions, and `organic.sculpt` takes the shape tree straight from
+the spec, so a new organic asset is a JSON file, not code.
+
+```json
+"generator": "organic.sculpt",
+"params": {
+  "parts": {
+    "eye": {"sphere": {"centre": [0.095, -0.215, 0.33], "radius": 0.045}}
+  },
+  "shape": {"above": {"height": 0.0, "shape": {
+    "displace": {"amount": 0.006, "scale": 22.0, "seed": 11, "shape":
+      {"smooth_union": {"k": 0.05, "shapes": [
+        {"ellipsoid": {"centre": [0, 0.04, 0.2], "radii": [0.2, 0.25, 0.15]}},
+        {"mirror_x": {"ref": "eye"}}
+      ]}}}}}},
+  "base_slot": "skin",
+  "paint": {"eye": {"mirror_x": {"ref": "eye"}}},
+  "max_triangles": 5000
+}
+```
+
+| Kind | Nodes |
+| --- | --- |
+| Primitives | `sphere`, `ellipsoid`, `box` (rounded), `capsule` (tapering with `radius_b`: limbs, horns, roots), `cylinder`, `torus` |
+| Combinations | `union`, `smooth_union` (`k` metres of blend, like clay pressed together), `subtract` (optional `k`), `intersect` |
+| Cuts | `below` / `above` a height: flat tops and flat bottoms |
+| Placement | `move`, `rotate` (degrees, X then Y then Z), `scale`, `mirror_x` (model one side of a body, get both) |
+| Surface | `displace` (seeded noise: `amount` metres, features `1/scale` across, `octaves`), `round`, `shell` (hollow) |
+| Reuse | `parts` names nodes; `{"ref": "name"}` uses one, in the shape or in `paint` |
+
+The full node reference, with every key, is at the top of `assetkit/sculpt.py`. Errors name
+the path to the bad node (`params.shape.subtract.cut[1].sphere.radius: ...`).
+
+`paint` gives regions their own material: a face inside a region (or within `paint_reach`)
+takes its slot. A region can be a part of the shape (eyes, horns) or any volume laid over it
+(moss over the top). The mesh is cut along each region's edge, so borders follow the region
+instead of zigzagging along triangles. Other keys: `sharp_angle` (degrees; smooth shading
+keeps sharper edges hard), `smooth`, `settle` (default on: footprint centred, resting on z=0).
+
+How it is meshed, and what that guarantees:
+
+1. **Marching tetrahedra** on a grid fine enough for about four times the budget: always
+   closed and manifold (marching cubes is not), wound outward.
+2. **Quadric edge collapse** (`assetkit/simplify.py`) down to `max_triangles`: triangles
+   gather where the form bends and thin out where it is flat. A collapse that would pinch the
+   surface, turn a face over or line three corners up is refused, so the result stays closed,
+   manifold, outward and free of zero-area faces: QA's gates hold.
+3. **Projection** of every vertex back onto the true surface (simplifying leaves curves a
+   little inside).
+4. **The same spec gives the same mesh bit for bit** on numpy 1.26 (Blender 4.5) and 2.x
+   (Blender 5, CI): all vector maths is written out element by element, never through BLAS
+   (`@`, `einsum`, `norm`), whose rounding differs between builds. A test holds a golden hash.
+
+`assetkit.sdf` and `organic.sculpt` need numpy (Blender's Python has it; the rest of the kit
+is standard library only). A sculpt builds in one to five seconds, so `ag.py look` takes that
+long for one. The look sheet shades every triangle flat; the Cycles previews show the smooth
+shading the asset ships with.
+
+Examples: `sculpt_boulder_mossy`, `sculpt_tree_stump`, `sculpt_cave_toad` in `assets/specs/`.
 
 ## Looking at an asset
 
@@ -148,4 +213,5 @@ When a generator needs something the kit lacks (a boolean, a modifier, a baked t
 
 Not in the kit yet: rigs, animation clips, baked textures and procedural materials. The
 generators that need them (`creature.*`, `nature.rock`, `hard_surface.kit_cell`) stay on
-`bpy` until those steps exist.
+`bpy` until those steps exist. Organic *shapes* are in (`organic.sculpt`); a sculpted
+creature is a statue until rigs are.

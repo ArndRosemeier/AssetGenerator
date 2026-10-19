@@ -1,0 +1,179 @@
+{
+  "spec_version": 1,
+  "id": "sculpt_tree_stump",
+  "generator": "organic.sculpt",
+  "params": {
+    "parts": {
+      "trunk": {
+        "capsule": {
+          "a": [
+            0,
+            0,
+            -0.1
+          ],
+          "b": [
+            0,
+            0,
+            0.62
+          ],
+          "radius": 0.3,
+          "radius_b": 0.26
+        }
+      },
+      "roots": {
+        "union": [
+          {
+            "capsule": {
+              "a": [
+                0.1,
+                0.05,
+                0.25
+              ],
+              "b": [
+                0.62,
+                0.12,
+                -0.02
+              ],
+              "radius": 0.11,
+              "radius_b": 0.035
+            }
+          },
+          {
+            "capsule": {
+              "a": [
+                -0.05,
+                0.1,
+                0.25
+              ],
+              "b": [
+                -0.28,
+                0.6,
+                -0.02
+              ],
+              "radius": 0.1,
+              "radius_b": 0.03
+            }
+          },
+          {
+            "capsule": {
+              "a": [
+                -0.1,
+                -0.05,
+                0.25
+              ],
+              "b": [
+                -0.6,
+                -0.22,
+                -0.02
+              ],
+              "radius": 0.12,
+              "radius_b": 0.035
+            }
+          },
+          {
+            "capsule": {
+              "a": [
+                0.05,
+                -0.1,
+                0.25
+              ],
+              "b": [
+                0.22,
+                -0.58,
+                -0.02
+              ],
+              "radius": 0.09,
+              "radius_b": 0.03
+            }
+          }
+        ]
+      }
+    },
+    "shape": {
+      "above": {
+        "height": 0.0,
+        "shape": {
+          "below": {
+            "height": 0.6,
+            "shape": {
+              "displace": {
+                "amount": 0.012,
+                "scale": 14.0,
+                "seed": 4,
+                "octaves": 2,
+                "shape": {
+                  "smooth_union": {
+                    "k": 0.12,
+                    "shapes": [
+                      {
+                        "ref": "trunk"
+                      },
+                      {
+                        "ref": "roots"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "base_slot": "bark",
+    "paint": {
+      "wood": {
+        "above": {
+          "height": 0.585,
+          "shape": {
+            "cylinder": {
+              "a": [
+                0,
+                0,
+                0.5
+              ],
+              "b": [
+                0,
+                0,
+                0.7
+              ],
+              "radius": 0.255
+            }
+          }
+        }
+      }
+    },
+    "paint_reach": 0.004,
+    "max_triangles": 3500,
+    "sharp_angle": 60
+  },
+  "materials": {
+    "bark": {
+      "base_color": [
+        0.17,
+        0.11,
+        0.07,
+        1
+      ],
+      "roughness": 0.92,
+      "metallic": 0.0
+    },
+    "wood": {
+      "base_color": [
+        0.55,
+        0.4,
+        0.24,
+        1
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 4000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.0
+  }
+}

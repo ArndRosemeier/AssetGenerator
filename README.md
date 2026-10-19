@@ -256,7 +256,18 @@ on two or more Blender versions and lists each asset as `same`, `changed` or `BR
 python tools/backend_matrix.py --python bpy45/bin/python --python bpy52/bin/python
 ```
 
-`hard_surface.crate` and `prop.kit` are kit generators so far. Details and the API:
+`hard_surface.crate`, `prop.kit` and `organic.sculpt` are kit generators so far. Details and
+the API: [`docs/ASSETKIT.md`](docs/ASSETKIT.md).
+
+## Sculpting organic forms in JSON
+
+`organic.sculpt` takes the shape itself from the spec: a tree of spheres, ellipsoids, rounded
+boxes, tapering capsules and tori, combined with smooth unions (clay pressed together),
+subtractions and flat cuts, mirrored, and roughened with seeded noise. Regions are painted with
+their own materials (eyes, moss, cut wood), the mesh cut along their edges. The kit meshes it
+(marching tetrahedra, then quadric simplification to `max_triangles`) into a closed, manifold,
+outward mesh that passes QA, the same bit for bit on every machine. A rock, a stump with roots
+or a toad is a JSON file: see `assets/specs/sculpt_*.json` and
 [`docs/ASSETKIT.md`](docs/ASSETKIT.md).
 
 ## Adding a generator
