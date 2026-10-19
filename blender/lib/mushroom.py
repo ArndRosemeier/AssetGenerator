@@ -15,7 +15,7 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from blender.lib.shells import Shell, Vec, circle, lathe, place, ring, sweep
+from assetkit.shells import Shell, Vec, circle, lathe, place, ring, sweep
 
 Part = tuple[Shell, str]
 

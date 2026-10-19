@@ -41,6 +41,13 @@ GENERATORS: Final[dict[str, str]] = {
 }
 
 
+# Generators written against the asset kit (assetkit/): their `build` returns an `Asset` and they
+# import no Blender module, so they run without Blender and do not change when Blender does.
+# tests/test_assetkit.py holds every one of them to that; tools/backend_matrix.py builds their specs
+# on each supported Blender version and requires the same result.
+KIT_GENERATORS: Final[frozenset[str]] = frozenset({"hard_surface.crate", "prop.kit"})
+
+
 class UnknownGeneratorError(KeyError):
     """Raised when a spec names a generator that does not exist."""
 

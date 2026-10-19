@@ -8,13 +8,12 @@ and corrupts geometry when applied twice.
 
 from __future__ import annotations
 
-import json
-import struct
 from collections.abc import Sequence
 from pathlib import Path
 
 import bpy
 
+from blender.lib.glb import Glb
 from blender.lib.report import CheckResult, MeshStats, check
 from blender.lib.scene import activate, reset_scene
 
@@ -147,24 +146,12 @@ def roundtrip_checks(before: MeshStats, after: MeshStats) -> list[CheckResult]:
 def still_clips(source: Path) -> list[str]:
     """The animations in a .glb in which nothing moves (every channel holds one value): a clip
     exported as a still. Read from the file itself."""
-    data = source.read_bytes()
-    size = struct.unpack_from("<I", data, 12)[0]
-    doc = json.loads(data[20 : 20 + size])
-    binary = data[28 + size :]
-    width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}
-
-    def values(index: int) -> list[tuple[float, ...]]:
-        acc = doc["accessors"][index]
-        view = doc["bufferViews"][acc["bufferView"]]
-        n = width[acc["type"]]
-        at = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
-        return [struct.unpack_from(f"<{n}f", binary, at + 4 * n * k) for k in range(acc["count"])]
-
+    glb = Glb(source)
     still = []
-    for anim in doc.get("animations", []):
+    for anim in glb.doc.get("animations", []):
         moves = False
         for sampler in anim["samplers"]:
-            out = values(sampler["output"])
+            out = glb.values(sampler["output"])
             if any(abs(v[d] - out[0][d]) > 1e-5 for v in out for d in range(len(v))):
                 moves = True
                 break

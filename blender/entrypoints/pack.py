@@ -33,6 +33,7 @@ from collections.abc import Mapping
 import bpy  # first: in the bpy module, bmesh only exists once bpy is loaded
 import bmesh
 
+from blender.backend import build_objects
 from blender.lib.registry import resolve_generator_module
 from blender.lib.report import Report
 from blender.lib.runner import execute
@@ -108,7 +109,7 @@ def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]
     spec = load_spec(spec_path)
     module = importlib.import_module(resolve_generator_module(spec.generator))
     reset_scene()
-    obj = _joined(module.build(spec))
+    obj = _joined(build_objects(module, spec))
     ao = _bake_ao(obj, samples)
     mesh = obj.data
     mesh.calc_loop_triangles()

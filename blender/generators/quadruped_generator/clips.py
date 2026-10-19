@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import bpy
 from mathutils import Vector
 
+from blender.backend import compat
 from blender.generators.quadruped_generator.pose import Paw, Pose, Rig, X, Y, Z, turn
 
 FPS = 30
@@ -532,7 +533,7 @@ def bake_clips(armature: bpy.types.Object, rig: Rig, clips: list[Clip] = CLIPS) 
         for f in range(count):
             t = (f % clip.frames) / clip.frames if clip.loop else f / max(1, clip.frames - 1)
             rig.key(clip.at(rig, t), f + 1)
-        for fc in action.fcurves:
+        for fc in compat.action_fcurves(action):
             for kp in fc.keyframe_points:
                 kp.interpolation = "LINEAR"
         armature.animation_data.action = None

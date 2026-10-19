@@ -21,7 +21,7 @@ from blender.generators.mushroom_creature.parts import STALK, Piece, Plan, ball,
 from blender.generators.quadruped_generator.clips import Clip, ease
 from blender.generators.quadruped_generator.pose import Pose, Rig, X, Y, turn
 from blender.lib.mushroom import Mushroom
-from blender.lib.shells import circle, sweep
+from assetkit.shells import circle, sweep
 
 ROOTS = 6
 #: Metres for a stalk 0.8 m tall (scaled with it). The foot stands this high on its roots.

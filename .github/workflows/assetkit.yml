@@ -1,0 +1,38 @@
+name: assetkit
+on:
+  push:
+    branches: [main]
+    paths: ['assetkit/**', 'blender/**', 'tools/ag.py', 'tools/blenderctl.py', 'tools/backend_matrix.py', 'assets/specs/**', 'tests/**', '.github/workflows/assetkit.yml']
+  pull_request:
+    paths: ['assetkit/**', 'blender/**', 'tools/ag.py', 'tools/blenderctl.py', 'tools/backend_matrix.py', 'assets/specs/**', 'tests/**', '.github/workflows/assetkit.yml']
+jobs:
+  # The kit and its generators, without Blender: seconds.
+  kit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover tests -v
+  # The same specs on the oldest and the newest supported Blender must give the same assets.
+  backend-matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: |
+            3.11
+            3.13
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: bpy-4.5-5.2-${{ runner.os }}
+      - name: Libraries the bpy wheels load
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libxi6 libxxf86vm1 libxfixes3 libxrender1 libxkbcommon0 libsm6 libgl1 libegl1
+      - name: Blender 4.5 LTS and 5.2 as Python modules
+        run: |
+          python3.11 -m venv bpy45 && bpy45/bin/pip install -q "bpy==4.5.*" numpy
+          python3.13 -m venv bpy52 && bpy52/bin/pip install -q "bpy==5.2.*" numpy
+      - run: python3.11 tools/backend_matrix.py --python bpy45/bin/python --python bpy52/bin/python

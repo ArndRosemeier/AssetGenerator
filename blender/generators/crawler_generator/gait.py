@@ -7,6 +7,7 @@ import re
 
 import bpy
 
+from blender.backend import compat
 from blender.generators.crawler_generator.params import CrawlerParams
 from blender.lib.scene import activate
 
@@ -123,7 +124,7 @@ def _record_action(
         apply_frame(cycle_t)
         bpy.context.scene.frame_set(frame)
         _key_pose(armature, frame)
-    for fcurve in action.fcurves:
+    for fcurve in compat.action_fcurves(action):
         for key in fcurve.keyframe_points:
             key.interpolation = "LINEAR"
     armature.animation_data.action = None

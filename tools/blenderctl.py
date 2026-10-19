@@ -150,17 +150,30 @@ def _bpy_module() -> BlenderInstall | None:
     python = os.environ.get("BLENDER_PYTHON")
     if not python:
         return None
+    return module_install(Path(python), "BLENDER_PYTHON (bpy module)")
+
+
+def module_install(python: Path, source: str) -> BlenderInstall:
+    """A Python interpreter that has the `bpy` module, checked by importing it."""
     completed = subprocess.run(
-        [python, "-c", "import bpy; print('Blender', bpy.app.version_string)"],
+        [str(python), "-c", "import bpy; print('Blender', bpy.app.version_string)"],
         capture_output=True,
         text=True,
         timeout=300,
     )
     match = _VERSION_RE.search(completed.stdout)
     if match is None:
-        raise BlenderError(f"BLENDER_PYTHON={python} cannot import bpy.\n{completed.stderr.strip()[:500]}")
+        raise BlenderError(f"{python} cannot import bpy.\n{completed.stderr.strip()[:500]}")
     version = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
-    return BlenderInstall(executable=Path(python), version=version, source="BLENDER_PYTHON (bpy module)", module=True)
+    return BlenderInstall(executable=python, version=version, source=source, module=True)
+
+
+def binary_install(executable: Path, source: str) -> BlenderInstall:
+    """A Blender binary, checked by asking it for its version."""
+    resolved = executable.resolve()
+    if not resolved.is_file():
+        raise BlenderError(f"No Blender binary at {executable}")
+    return BlenderInstall(executable=resolved, version=probe_version(resolved), source=source)
 
 
 def find_blender() -> BlenderInstall | None:
