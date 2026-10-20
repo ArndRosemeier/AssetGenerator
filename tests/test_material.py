@@ -228,6 +228,82 @@ class BakeTests(unittest.TestCase):
 
 
 @unittest.skipIf(np is None, "numpy is not installed")
+class NormalMapTests(unittest.TestCase):
+    def test_the_exact_shape_and_relief_give_the_normals(self) -> None:
+        from assetkit import sdf
+        from assetkit.material import Surface, detail_normals
+
+        ball = sdf.sphere((0, 0, 0), 0.3)
+        verts, faces = sdf.mesh(ball, 400)  # coarse: its face normals are far from the ball's
+        surface = Surface(verts, faces)
+        rng = np.random.default_rng(2)
+        tri = rng.integers(0, len(faces), 500)
+        bary = rng.dirichlet((2.0, 2.0, 2.0), 500)
+        v = np.asarray(verts)[np.asarray(faces)[tri]]
+        flat = np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0])
+        flat /= np.linalg.norm(flat, axis=1, keepdims=True)
+        points = (v * bary[:, :, None]).sum(axis=1)
+        truth = points / np.linalg.norm(points, axis=1, keepdims=True)
+        exact = detail_normals(None, surface, tri, bary, flat, shape=ball)
+        self.assertLess(float(np.degrees(np.arccos(np.clip((exact * truth).sum(axis=1), -1, 1))).max()), 1.0)
+        self.assertGreater(
+            float(np.degrees(np.arccos(np.clip((flat * truth).sum(axis=1), -1, 1))).max()), 3.0
+        )
+        # Relief tilts them; a pattern without relief leaves them as they are.
+        bumpy = parse_pattern(
+            {"layers": [{"cells": {"color": [0, 0, 0], "size": 0.05, "relief": -0.004}}]}, "p"
+        )
+        plain = parse_pattern({"layers": [{"cells": {"color": [0, 0, 0], "size": 0.05}}]}, "p")
+        tilted = detail_normals(bumpy, surface, tri, bary, truth)
+        same = detail_normals(plain, surface, tri, bary, truth)
+        self.assertTrue(np.allclose(same, truth))
+        self.assertGreater(
+            float(np.degrees(np.arccos(np.clip((tilted * truth).sum(axis=1), -1, 1))).max()), 5.0
+        )
+
+    def test_a_normal_map_is_baked_against_the_frames_given(self) -> None:
+        """A flat square, its tangent along +X: relief rising along +X tilts the normals
+        towards -X, which the map stores as a red channel below a half."""
+        from assetkit.texbake import Frames, SlotLook, bake
+
+        quad = np.array([[0, 0, 0], [0.5, 0, 0], [0.5, 0.5, 0], [0, 0.5, 0]], dtype=np.float64)
+        triangles = np.array([[0, 1, 2], [0, 2, 3]])
+        uvs = quad[triangles][:, :, :2] * 2.0
+        up = np.tile([0.0, 0.0, 1.0], (2, 3, 1))
+        frames = Frames(normals=up, tangents=np.tile([1.0, 0.0, 0.0], (2, 3, 1)), signs=np.ones((2, 3)))
+        ramp = parse_pattern(
+            {
+                "layers": [
+                    {"gradient": {"color": [0, 0, 0], "axis": "x", "from": 0.5, "to": 0.0, "relief": 0.05}}
+                ]
+            },
+            "p",
+        )
+        maps = bake(
+            quad,
+            triangles,
+            uvs,
+            np.zeros(2, dtype=np.int64),
+            [SlotLook(ramp, (0.5, 0.5, 0.5), 0.5)],
+            size=64,
+            frames=frames,
+        )
+        middle = maps.normal[32, 32]
+        self.assertLess(middle[0], 0.46)  # tilted against the rise
+        self.assertAlmostEqual(middle[1], 0.5, delta=0.02)
+        plain = bake(
+            quad,
+            triangles,
+            uvs,
+            np.zeros(2, dtype=np.int64),
+            [SlotLook(None, (0.5, 0.5, 0.5), 0.5)],
+            size=64,
+            frames=frames,
+        )
+        self.assertIsNone(plain.normal)  # nothing beyond the mesh: no map
+
+
+@unittest.skipIf(np is None, "numpy is not installed")
 class PngTests(unittest.TestCase):
     def test_every_filter_decodes(self) -> None:
         from assetview.paint import decode_png
