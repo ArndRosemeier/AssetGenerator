@@ -16,11 +16,14 @@ from __future__ import annotations
 import numpy as np
 
 from assetkit import Asset
+from assetkit.asset import pattern_of
 from assetkit.skinning import clip_flags, clip_report, deform, shared_skin
+from assetkit.texbake import SlotLook
 from assetview.font import draw_text, text_width
 from assetview.model import ViewModel
+from assetview.paint import PatternPaint
 from assetview.raster import Camera, Pass, frame, rasterize
-from assetview.sheet import BACKGROUND, DIM, FLAG, HEADER, LABEL, _lambert, _normals
+from assetview.sheet import BACKGROUND, DIM, FLAG, HEADER, LABEL, _lambert, _normals, surface_colors
 
 BIG = 320
 SMALL = 160
@@ -30,8 +33,9 @@ SIDE = Camera((-1.0, 0.0, 0.0))
 FILM = Camera((-1.0, 0.4, -0.3), ortho=False)  # mostly from the side: legs and bobbing read best
 
 
-def _model(asset: Asset, positions: np.ndarray) -> ViewModel:
-    """The skinned part as a view model with `positions` (no welding: skin indices stay valid)."""
+def _model(asset: Asset, positions: np.ndarray, painted: bool = True) -> ViewModel:
+    """The skinned part as a view model with `positions` (no welding: skin indices stay valid).
+    Its paint, if any, evaluates patterns at rest, so they move with the skin."""
     part = next(p for p in asset.parts if p.skin is not None)
     mesh = part.mesh
     tris, real, tri_slot = [], [], []
@@ -42,14 +46,25 @@ def _model(asset: Asset, positions: np.ndarray) -> ViewModel:
             real.append((k == 1, True, k == n - 2))
             tri_slot.append(slot)
     colors = [tuple(part.materials[s].base_color[:3]) for s in mesh.slots]
+    looks = [
+        SlotLook(pattern_of(part.materials[s]), colors[i], part.materials[s].roughness)  # type: ignore[arg-type]
+        for i, s in enumerate(mesh.slots)
+    ]
+    triangles = np.asarray(tris, dtype=np.int64)
+    slot_of = np.asarray(tri_slot, dtype=np.int64)
+    paint = None
+    if painted and any(look.pattern is not None for look in looks):
+        origins = [part.pattern_origin] * len(looks)
+        paint = PatternPaint(np.asarray(mesh.vertices, dtype=np.float64), triangles, slot_of, looks, origins)
     return ViewModel(
         positions=np.asarray(positions, dtype=np.float64),
-        triangles=np.asarray(tris, dtype=np.int64),
-        tri_slot=np.asarray(tri_slot, dtype=np.int64),
+        triangles=triangles,
+        tri_slot=slot_of,
         slots=list(mesh.slots),
         slot_colors=np.asarray(colors, dtype=np.float64),
         real_edges=np.asarray(real, dtype=bool),
         source="kit asset",
+        paint=paint,
     )
 
 
@@ -168,9 +183,14 @@ def render_rig_sheet(asset: Asset, title: str) -> tuple[np.ndarray, list[dict[st
             sheet, "; ".join(flags) if flags else "ok", 12 + text_width(label), y0 + 4, FLAG if flags else DIM
         )
         for k, positions in enumerate(posed):
-            m = _model(asset, positions)
+            m = _model(asset, positions, painted=False)
             pas = rasterize(m, fr, SMALL)
             tile = _shade(m, pas, SMALL, None, material)
+            if model.paint is not None:
+                hit = pas.tri >= 0
+                tile[hit] = (
+                    surface_colors(model, pas, at=m) * _lambert(_normals(m), pas)[pas.tri[hit]][:, None]
+                )
             ground_row = int(round(fr.project(np.array([[0.0, 0.0, ground]]))[0][0, 1]))
             if 0 <= ground_row < SMALL:
                 empty = pas.tri[ground_row] < 0

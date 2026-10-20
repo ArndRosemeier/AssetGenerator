@@ -16,14 +16,132 @@
   },
   "materials": {
     "frame": {
-      "base_color": [0.19, 0.12, 0.07, 1.0],
+      "base_color": [
+        0.19,
+        0.12,
+        0.07,
+        1.0
+      ],
       "roughness": 0.82,
-      "metallic": 0.0
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.11,
+                0.07,
+                0.04
+              ],
+              "scale": 20,
+              "stretch": [
+                1,
+                1,
+                10
+              ],
+              "coverage": 0.45,
+              "contrast": 2.5
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.09,
+                0.075,
+                0.06
+              ],
+              "axis": "z",
+              "from": 0.0,
+              "to": 0.14,
+              "amount": 0.6,
+              "roughness": 0.95
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.36,
+                0.25,
+                0.15
+              ],
+              "radius": 0.007,
+              "amount": 0.8,
+              "breakup": 0.5
+            }
+          }
+        ]
+      }
     },
     "planks": {
-      "base_color": [0.42, 0.28, 0.15, 1.0],
+      "base_color": [
+        0.42,
+        0.28,
+        0.15,
+        1.0
+      ],
       "roughness": 0.75,
-      "metallic": 0.0
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.52,
+                0.36,
+                0.2
+              ],
+              "scale": 30,
+              "stretch": [
+                12,
+                12,
+                1
+              ],
+              "coverage": 0.45,
+              "contrast": 2,
+              "amount": 0.6
+            }
+          },
+          {
+            "grain": {
+              "color": [
+                0.27,
+                0.17,
+                0.09
+              ],
+              "axis": "z",
+              "spacing": 0.007,
+              "warp": 2.5,
+              "sharpness": 5,
+              "amount": 0.6,
+              "seed": 2
+            }
+          },
+          {
+            "cavities": {
+              "color": [
+                0.12,
+                0.08,
+                0.05
+              ],
+              "radius": 0.012,
+              "amount": 0.8
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.64,
+                0.49,
+                0.32
+              ],
+              "radius": 0.006,
+              "amount": 0.8,
+              "breakup": 0.5,
+              "roughness": 0.9
+            }
+          }
+        ]
+      }
     }
   },
   "qa": {

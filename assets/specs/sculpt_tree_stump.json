@@ -156,7 +156,86 @@
         1
       ],
       "roughness": 0.92,
-      "metallic": 0.0
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.07,
+                0.045,
+                0.03
+              ],
+              "scale": 7,
+              "stretch": [
+                1,
+                1,
+                6
+              ],
+              "coverage": 0.45,
+              "contrast": 4,
+              "roughness": 1.0
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.26,
+                0.19,
+                0.12
+              ],
+              "scale": 11,
+              "stretch": [
+                1,
+                1,
+                4
+              ],
+              "coverage": 0.2,
+              "contrast": 3,
+              "seed": 3,
+              "amount": 0.6
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.13,
+                0.19,
+                0.05
+              ],
+              "scale": 4,
+              "coverage": 0.22,
+              "contrast": 2.5,
+              "seed": 7,
+              "amount": 0.85,
+              "roughness": 0.95
+            }
+          },
+          {
+            "cavities": {
+              "color": [
+                0.03,
+                0.02,
+                0.012
+              ],
+              "radius": 0.05,
+              "amount": 0.8
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.3,
+                0.23,
+                0.15
+              ],
+              "radius": 0.03,
+              "amount": 0.45,
+              "breakup": 0.6
+            }
+          }
+        ]
+      }
     },
     "wood": {
       "base_color": [
@@ -166,7 +245,51 @@
         1
       ],
       "roughness": 0.8,
-      "metallic": 0.0
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "grain": {
+              "color": [
+                0.36,
+                0.23,
+                0.12
+              ],
+              "axis": "radial",
+              "spacing": 0.022,
+              "warp": 0.6,
+              "sharpness": 3
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.62,
+                0.5,
+                0.34
+              ],
+              "scale": 9,
+              "coverage": 0.3,
+              "amount": 0.5
+            }
+          },
+          {
+            "spots": {
+              "color": [
+                0.25,
+                0.15,
+                0.08
+              ],
+              "size": 0.04,
+              "spacing": 0.25,
+              "density": 0.4,
+              "softness": 0.8,
+              "amount": 0.6,
+              "seed": 2
+            }
+          }
+        ]
+      }
     }
   },
   "qa": {
