@@ -9,6 +9,12 @@ A node is an object with exactly one key, its kind:
     {"cylinder":  {"a": [x, y, z], "b": [x, y, z], "radius": r, "rounding": r?}}
     {"cone":      {"a": [x, y, z], "b": [x, y, z], "radius": r, "radius_b": r}}  flat-ended (0: a point)
     {"torus":     {"centre": [x, y, z], "radius": r, "thickness": t, "axis": "x" | "y" | "z"?}}
+    {"loft":      {"sections": [[z, half_width, half_depth, y?, x?], ...]}}
+                  horizontal ellipses up z, flowing smoothly from one to the next, flat at both
+                  ends: a torso, a vase, a bottle, a barrel, an oval trunk
+    {"sweep":     {"points": [[x, y, z], ...], "radius": r | [r, ...]}}
+                  a smooth tube through the points, its radius flowing from one point's to the
+                  next: trunks that swell, limbs with muscle, tails, horns, roots, branches
     {"union":     [node, ...]}
     {"smooth_union": {"k": metres, "shapes": [node, ...]}}
     {"subtract":  {"from": node, "cut": [node, ...], "k": metres?}}
@@ -33,6 +39,13 @@ A node is an object with exactly one key, its kind:
                   between `sizes` (1, 1). Only the copies: union them with `on`.
     {"displace":  {"amount": metres, "scale": per_metre, "seed": int?, "octaves": int?, "shape": node}}
     {"round":     {"radius": metres, "shape": node}}
+    {"squash":    {"axis": [x, y, z], "by": factor, "about": [x, y, z], "shape": node}}
+                  scaled by `factor` along any direction about a point: a palm flattened, a
+                  torso deeper than wide, a foot spread (factor > 1 stretches)
+    {"layer":     {"on": node, "thickness": metres, "within": node, "k": metres?}}
+                  a layer `thickness` thick over the surface of `on`, where it lies inside
+                  `within`: clothing, a sash, bracers, a strap, a helmet, armour plates, moss.
+                  Union it with `on`; paint it with the same `within` for its own material.
     {"shell":     {"thickness": metres, "shape": node}}
     {"ref":       "name"}                                   a node from the spec's `parts`
 
@@ -54,6 +67,8 @@ class SculptError(ValueError):
 
 
 def build_shape(node: Node, parts: Mapping[str, Node], path: str, _seen: tuple[str, ...] = ()) -> sdf.Shape:
+    if isinstance(node, sdf.Shape):  # a part built in code (a figure's pieces)
+        return node
     if not isinstance(node, dict) or len(node) != 1:
         raise SculptError(f"{path}: a shape is an object with exactly one key (its kind), got {node!r:.80}")
     ((kind, body),) = node.items()
@@ -141,11 +156,7 @@ Builder = Callable[[dict, Mapping[str, Node], str, tuple[str, ...]], sdf.Shape]
 
 def _smooth_union(f: dict, parts: Mapping[str, Node], path: str, seen: tuple[str, ...]) -> sdf.Shape:
     shapes = _shapes(f["shapes"], parts, f"{path}.shapes", seen)
-    k = _num(f, "k", path)
-    result = shapes[0]
-    for shape in shapes[1:]:
-        result = sdf.smooth_union(result, shape, k)
-    return result
+    return sdf.blend(shapes, _num(f, "k", path)) if len(shapes) > 1 else shapes[0]
 
 
 def _subtract(f: dict, parts: Mapping[str, Node], path: str, seen: tuple[str, ...]) -> sdf.Shape:
@@ -185,6 +196,8 @@ _BUILDERS: dict[str, Builder] = {
     "cone": lambda f, p, path, s: sdf.cone(
         _vec(f, "a", path), _vec(f, "b", path), _num(f, "radius", path), _num(f, "radius_b", path)
     ),
+    "sweep": lambda f, p, path, s: _sweep(f, path),
+    "loft": lambda f, p, path, s: _loft(f, path),
     "repeat": lambda f, p, path, s: _repeat(f, p, path, s),
     "scatter": lambda f, p, path, s: _scatter(f, p, path, s),
     "torus": lambda f, p, path, s: sdf.torus(
@@ -210,6 +223,14 @@ _BUILDERS: dict[str, Builder] = {
         _int(f, "octaves", path, 1),
     ),  # fmt: skip
     "round": lambda f, p, path, s: sdf.round_(_inner(f, p, path, s), _num(f, "radius", path)),
+    "squash": lambda f, p, path, s: sdf.squash(
+        _inner(f, p, path, s), _vec(f, "axis", path), _num(f, "by", path), _vec(f, "about", path)
+    ),
+    "layer": lambda f, p, path, s: sdf.intersect(
+        sdf.round_(build_shape(f["on"], p, f"{path}.on", s), _num(f, "thickness", path)),
+        build_shape(f["within"], p, f"{path}.within", s),
+        _num(f, "k", path, 0.0),
+    ),
     "shell": lambda f, p, path, s: sdf.shell(_inner(f, p, path, s), _num(f, "thickness", path)),
 }
 
@@ -221,6 +242,8 @@ _FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "cylinder": (("a", "b", "radius", "rounding"), ("a", "b", "radius")),
     "torus": (("centre", "radius", "thickness", "axis"), ("centre", "radius", "thickness")),
     "cone": (("a", "b", "radius", "radius_b"), ("a", "b", "radius", "radius_b")),
+    "sweep": (("points", "radius"), ("points", "radius")),
+    "loft": (("sections",), ("sections",)),
     "repeat": (("count", "step", "around", "start", "shape"), ("shape",)),
     "scatter": (
         ("on", "shape", "count", "seed", "at", "spacing", "facing", "angle", "sink", "align", "sizes"),
@@ -236,8 +259,44 @@ _FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "scale": (("by", "shape"), ("by", "shape")),
     "displace": (("amount", "scale", "seed", "octaves", "shape"), ("amount", "scale", "shape")),
     "round": (("radius", "shape"), ("radius", "shape")),
+    "squash": (("axis", "by", "about", "shape"), ("axis", "by", "about", "shape")),
+    "layer": (("on", "thickness", "within", "k"), ("on", "thickness", "within")),
     "shell": (("thickness", "shape"), ("thickness", "shape")),
 }
+
+
+def _loft(f: dict, path: str) -> sdf.Shape:
+    sections = f["sections"]
+    ok = (
+        isinstance(sections, list)
+        and len(sections) >= 2
+        and all(
+            isinstance(row, list)
+            and len(row) in (3, 5)
+            and all(isinstance(v, int | float) and not isinstance(v, bool) for v in row)
+            for row in sections
+        )
+    )
+    if not ok:
+        raise SculptError(
+            f"{path}.sections: expected two or more [z, half_width, half_depth] (or [z, w, d, y, x])"
+        )
+    return sdf.loft(sections)
+
+
+def _sweep(f: dict, path: str) -> sdf.Shape:
+    points = f["points"]
+    if not isinstance(points, list) or len(points) < 2:
+        raise SculptError(f"{path}.points: expected two or more [x, y, z] points")
+    pts = [_vec({"p": p}, "p", f"{path}.points[{i}]") for i, p in enumerate(points)]
+    radius = f["radius"]
+    if isinstance(radius, list):
+        if len(radius) != len(pts) or any(
+            isinstance(r, bool) or not isinstance(r, int | float) for r in radius
+        ):
+            raise SculptError(f"{path}.radius: expected one number, or one per point ({len(pts)})")
+        return sdf.sweep(pts, [float(r) for r in radius])
+    return sdf.sweep(pts, _num(f, "radius", path))
 
 
 def _rotate(f: dict, parts: Mapping[str, Node], path: str, seen: tuple[str, ...]) -> sdf.Shape:

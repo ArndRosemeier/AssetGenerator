@@ -33,6 +33,9 @@ Colours are linear RGB 0..1, as `base_color`. Masks:
     edges     where the surface bends outward tighter than `radius` metres: worn, lighter edges
     cavities  where it bends inward tighter than `radius`: dirt in creases
     (edges and cavities take `breakup` 0..1 to break the mask up with noise)
+    inside    wherever a `shape` (a sculpt node, or a ref to a part) is: `soft` metres of
+              blend at its border (0.002), `grow` metres outward. Eyes, irises, lips, a painted
+              emblem, a rust patch: its border runs through the texture, not along triangles
     bricks    the mortar joints of a running bond: `size` [length, height] (courses up Z, bricks
               along X and Y, so every wall face and corner shows the bond), `mortar` (joint
               width, 0.012), `fill` 0..1 paints each brick by a random share, `seed`
@@ -88,6 +91,7 @@ _KINDS: dict[str, dict[str, object]] = {
     "edges": {"radius": 0.05, "breakup": 0.0, "seed": 0},
     "cavities": {"radius": 0.05, "breakup": 0.0, "seed": 0},
     "bricks": {"size": None, "mortar": 0.012, "fill": 0.0, "seed": 0},
+    "inside": {"shape": None, "soft": 0.002, "grow": 0.0},
 }
 _COMMON = ("color", "amount", "roughness", "relief")
 
@@ -155,6 +159,11 @@ def _layer(raw: object, path: str) -> Layer:
             ):
                 raise PatternError(f"{here}.stretch: expected [x, y, z], positive numbers")
             params[key] = tuple(float(x) for x in value)
+        elif key == "shape":
+            value = body.get(key)
+            if not (isinstance(value, dict) and len(value) == 1):
+                raise PatternError(f"{here}.shape: expected a shape (a sculpt node, or {{'ref': part}})")
+            params[key] = value
         elif kind == "bricks" and key == "size":
             value = body.get(key)
             if not (
@@ -189,6 +198,8 @@ def _layer(raw: object, path: str) -> Layer:
             raise PatternError(f"{here}.{key}: expected 0..1")
     if kind == "spots" and "spacing" in params and params["spacing"] < params["size"]:  # type: ignore[operator]
         raise PatternError(f"{here}.spacing: at least the spot size ({params['size']})")
+    if kind == "inside" and params["soft"] < 0:  # type: ignore[operator]
+        raise PatternError(f"{here}.soft: 0 or more metres")
     if kind == "bricks" and params["mortar"] < 0:  # type: ignore[operator]
         raise PatternError(f"{here}.mortar: 0 or more metres")
     if kind == "gradient" and params["from"] == params["to"]:
@@ -298,7 +309,7 @@ def detail_normals(
         exact /= np.maximum(np.sqrt((exact * exact).sum(axis=1)), 1e-30)[:, None]
         # Where the projection went astray (to another part of the shape), keep the base normal.
         moved = np.sqrt(((p - (q - o)) ** 2).sum(axis=1))
-        good = (np.abs(d) < step) & (moved < 0.05) & ((exact * n).sum(axis=1) > 0.2)
+        good = (np.abs(d) < step) & (moved < 0.02) & ((exact * n).sum(axis=1) > 0.5)
         n = np.where(good[:, None], exact, n)
     if pattern is not None and any(layer.relief != 0.0 for layer in pattern.layers):
         helper = np.where(np.abs(n[:, 2:3]) < 0.9, [[0.0, 0.0, 1.0]], [[1.0, 0.0, 0.0]])
@@ -442,7 +453,42 @@ def _mask(
         return m
     if layer.kind == "bricks":
         return _bricks(p, normal, k, per)
+    if layer.kind == "inside":
+        shape = k["shape"]
+        if not callable(shape):
+            shape = _built(shape)
+        soft = max(float(k["soft"]), 1e-6)  # type: ignore[arg-type]
+        d = shape(np.asarray(p, dtype=np.float64)) - float(k["grow"])  # type: ignore[arg-type, operator]
+        return 1.0 - _smoothstep(-0.5 * soft, 0.5 * soft, d)
     raise AssertionError(layer.kind)
+
+
+_BUILT: dict[str, Callable[[object], object]] = {}
+
+
+def _built(node: object) -> Callable[[object], object]:
+    """A shape node (no refs) built once per pattern evaluation run."""
+    import json
+
+    key = json.dumps(node, sort_keys=True)
+    if key not in _BUILT:
+        from assetkit.sculpt import build_shape
+
+        _BUILT[key] = build_shape(node, {}, "pattern inside.shape")
+    return _BUILT[key]
+
+
+def resolve_shapes(pattern: Pattern, build: Callable[[object, str], object]) -> Pattern:
+    """`pattern` with each `inside` layer's shape node built by `build(node, path)`: a generator
+    resolves refs to its own parts (a figure's eyes) this way."""
+    layers = []
+    for i, layer in enumerate(pattern.layers):
+        if layer.kind == "inside" and not callable(layer.params["shape"]):
+            params = dict(layer.params)
+            params["shape"] = build(params["shape"], f"pattern.layers[{i}].inside.shape")
+            layer = replace(layer, params=params)
+        layers.append(layer)
+    return replace(pattern, layers=tuple(layers))
 
 
 def _fit(length: float, period: float) -> float:

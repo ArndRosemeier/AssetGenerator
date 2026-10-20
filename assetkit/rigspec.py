@@ -36,6 +36,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from assetkit import sdf
+from assetkit.figure import Figure
 from assetkit.motion import MotionError, build_clips
 from assetkit.rig import Bone, Clip, Leg, Skeleton, Vec, add, mirror, twin_name
 
@@ -61,17 +62,24 @@ def build_rig(
     size: float,
     offset: Vec,
     path: str,
+    figure: Figure | None = None,
 ) -> Rig:
     """`parts` are the spec's part nodes, `shape_of` builds one; `offset` is how far the mesh was
-    moved after meshing (settling), applied to the bones and the carried parts alike."""
+    moved after meshing (settling), applied to the bones and the carried parts alike. With a
+    `figure`, its bones, what they carry, its legs and its clips come first; the spec adds
+    bones (a tail, a jaw) and clips, and replaces a clip of the same name."""
     spec = _object(raw, path)
     _only(spec, ("bones", "carry", "legs", "softness", "fps", "clips"), path)
 
-    bones_raw = _object(spec.get("bones"), f"{path}.bones")
-    if not bones_raw:
+    bones_raw = _object(spec.get("bones", {}), f"{path}.bones")
+    if not bones_raw and figure is None:
         raise RigError(f"{path}.bones: a rig needs bones")
     bones: list[Bone] = []
     carried: dict[str, list[str]] = {}
+    preset: dict[str, list[sdf.Shape]] = {}
+    if figure is not None:
+        bones += [Bone(b.name, add(b.head, offset), add(b.tail, offset), b.parent) for b in figure.bones]
+        preset = {name: list(shapes) for name, shapes in figure.carry.items()}
     for name, value in bones_raw.items():
         here = f"{path}.bones.{name}"
         if name.endswith(".R"):
@@ -107,10 +115,18 @@ def build_rig(
             if part not in parts:
                 raise RigError(f"{here}: no part '{part}'; parts are {sorted(parts)}")
         carried[name] = list(value)
-    if not carried:
+    if not carried and not preset:
         raise RigError(f"{path}.carry: no bone carries a part, so nothing would move")
 
     carriers: dict[str, list[sdf.Shape]] = {}
+    for name, shapes in preset.items():
+        if name in carried:
+            continue
+        moved = [sdf.move(shape, offset) for shape in shapes]
+        carriers[name] = moved
+        twin = twin_name(name)
+        if name.endswith(".L") and twin is not None:
+            carriers[twin] = [sdf.flip_x(s) for s in moved]
     for name, part_names in carried.items():
         shapes = [sdf.move(shape_of(p), offset) for p in part_names]
         carriers[name] = shapes
@@ -119,6 +135,17 @@ def build_rig(
             carriers[twin] = [sdf.flip_x(s) for s in shapes]
 
     legs: dict[str, Leg] = {}
+    if figure is not None:
+        for name, leg in figure.legs.items():
+            legs[name] = leg
+            twin = twin_name(name)
+            if twin is not None:
+                legs[twin] = Leg(
+                    twin_name(leg.upper) or leg.upper,
+                    twin_name(leg.lower) or leg.lower,
+                    (twin_name(leg.foot) or leg.foot) if leg.foot else None,
+                    None,
+                )
     for name, value in _object(spec.get("legs", {}), f"{path}.legs").items():
         here = f"{path}.legs.{name}"
         fields = _object(value, here)
@@ -140,13 +167,15 @@ def build_rig(
                 (twin_name(leg.foot) or leg.foot) if leg.foot else None,
                 mirror(knee) if knee else None,
             )
-    softness_raw = spec.get("softness", 0.02 * size)
+    softness_raw = spec.get("softness", figure.default_softness if figure is not None else 0.02 * size)
     if isinstance(softness_raw, int | float) and not isinstance(softness_raw, bool):
         default_softness, softness = float(softness_raw), {}
+        if figure is not None:
+            softness = _with_twins(figure.softness)
     else:
         fields = _object(softness_raw, f"{path}.softness")
         default_softness = float(fields.get("default", 0.02 * size))
-        softness = {}
+        softness = _with_twins(figure.softness) if figure is not None else {}
         for name, value in fields.items():
             if name == "default":
                 continue
@@ -160,11 +189,22 @@ def build_rig(
         if value <= 0:
             raise RigError(f"{path}.softness.{name}: must be positive")
 
+    if figure is not None:
+        spec = {**spec, "clips": {**figure.clips, **_object(spec.get("clips", {}), f"{path}.clips")}}
     try:
         clips = build_clips(spec, skeleton, legs, path)
     except MotionError as exc:
         raise RigError(str(exc)) from exc
     return Rig(skeleton, legs, carriers, softness, default_softness, tuple(clips))
+
+
+def _with_twins(values: Mapping[str, float]) -> dict[str, float]:
+    out = dict(values)
+    for name, value in values.items():
+        twin = twin_name(name)
+        if name.endswith(".L") and twin is not None:
+            out.setdefault(twin, value)
+    return out
 
 
 def _ends(part: object, parts: Mapping[str, object], path: str) -> tuple[Vec, Vec]:

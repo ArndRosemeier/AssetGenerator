@@ -101,10 +101,12 @@ class PatternPaint:
                 {"layer": layer.kind, "covers": round(c, 3)}
                 for layer, c in zip(look.pattern.layers, shares, strict=True)
             ]
+            # An `inside` layer paints small things on purpose (eyes, an emblem): it does not
+            # show only when its shape misses the surface altogether.
             flags = [
                 f"{d['layer']} (layer {i + 1}) does not show ({d['covers']:.0%})"
                 for i, d in enumerate(layers)
-                if d["covers"] < 0.01
+                if (shares[i] <= 0.0 if look.pattern.layers[i].kind == "inside" else d["covers"] < 0.01)
             ]  # type: ignore[operator]
             flags += [
                 f"{d['layer']} (layer {i + 1}) covers {d['covers']:.0%}: it hides the layers beneath"
