@@ -16,7 +16,10 @@ a new spec, not new code.
 
 Optional: `paint_reach` (metres; default 1% of the shape's size), `smooth` (default
 true), `sharp_angle` (degrees; smooth shading keeps edges sharper than this hard),
-`settle` (default true: footprint centred on the origin, lowest point on z = 0).
+`settle` (default true: footprint centred on the origin, lowest point on z = 0). `detail`
+(default 4, up to 16): how finely the shape is sampled before simplifying, in times the
+triangle budget; raise it when small features (a cup's rim, a claw) come out torn, at the
+cost of build time.
 """
 
 from __future__ import annotations
@@ -53,6 +56,7 @@ _KEYS = (
     "sharp_angle",
     "settle",
     "rig",
+    "detail",
 )
 
 
@@ -79,7 +83,10 @@ def build(spec: AssetSpec) -> Asset:
         regions = {name: build_shape(node, parts, f"params.paint.{name}") for name, node in paint_raw.items()}
         size = max(u - lo for lo, u in zip(shape.lower, shape.upper, strict=True))
         reach = as_float(raw.get("paint_reach", 0.01 * size), "params.paint_reach")
-        shell, face_slots = _meshed(shape, regions, base_slot, reach, budget)
+        detail = as_float(raw.get("detail", 4.0), "params.detail")
+        if not 2.0 <= detail <= 16.0:
+            raise SpecError("params.detail: expected 2..16")
+        shell, face_slots = _meshed(shape, regions, base_slot, reach, budget, detail)
     except (SculptError, ValueError) as exc:
         raise SpecError(str(exc)) from exc
 
@@ -129,11 +136,16 @@ def build(spec: AssetSpec) -> Asset:
 
 
 def _meshed(
-    shape: sdf.Shape, regions: dict[str, sdf.Shape], base_slot: str, reach: float, budget: int
+    shape: sdf.Shape,
+    regions: dict[str, sdf.Shape],
+    base_slot: str,
+    reach: float,
+    budget: int,
+    detail: float = 4.0,
 ) -> tuple[sdf.Shell, list[str]]:
     """Mesh and paint within `budget` triangles. Cutting along paint borders adds triangles,
     so while it overshoots, mesh again leaving room for what the borders took."""
-    shell = sdf.mesh(shape, max_triangles=budget)
+    shell = sdf.mesh(shape, max_triangles=budget, detail=detail)
     if not regions:
         return shell, [base_slot] * len(shell[1])
     target = budget

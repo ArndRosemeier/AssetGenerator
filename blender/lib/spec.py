@@ -91,11 +91,13 @@ class MaterialSpec:
     metallic: float
     #: Layers painted over the base values and baked to textures (assetkit/material.py), or None.
     pattern: Pattern | None = None
+    #: 1 opaque; below 1 see-through by that much (glass, a membrane): glTF alphaMode BLEND.
+    alpha: float = 1.0
 
     @staticmethod
     def parse(raw: object, path: str) -> MaterialSpec:
         mapping = _as_mapping(raw, path)
-        _reject_unknown(mapping, ("base_color", "roughness", "metallic", "pattern"), path)
+        _reject_unknown(mapping, ("base_color", "roughness", "metallic", "pattern", "alpha"), path)
         color_raw = _require(mapping, "base_color", path)
         if not isinstance(color_raw, list) or len(color_raw) != 4:
             raise SpecError(f"{path}.base_color: expected a list of 4 numbers (RGBA)")
@@ -111,6 +113,9 @@ class MaterialSpec:
             raise SpecError(f"{path}.roughness: expected 0..1, got {roughness}")
         if not 0.0 <= metallic <= 1.0:
             raise SpecError(f"{path}.metallic: expected 0..1, got {metallic}")
+        alpha = as_float(mapping["alpha"], f"{path}.alpha") if "alpha" in mapping else 1.0
+        if not 0.0 <= alpha <= 1.0:
+            raise SpecError(f"{path}.alpha: expected 0..1, got {alpha}")
         pattern = None
         if "pattern" in mapping:
             try:
@@ -122,6 +127,7 @@ class MaterialSpec:
             roughness=roughness,
             metallic=metallic,
             pattern=pattern,
+            alpha=alpha,
         )
 
 

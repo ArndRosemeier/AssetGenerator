@@ -161,8 +161,10 @@ def _lambert(normals: np.ndarray, pas: Pass) -> np.ndarray:
 def _shaded(
     model: ViewModel, pas: Pass, normals: np.ndarray, slot_colors: np.ndarray, painted: bool = False
 ) -> np.ndarray:
-    """Lit by triangle, coloured by material: one colour per slot, or with `painted` (and a
-    model whose materials vary over the surface) the colour at each pixel's surface point."""
+    """Coloured by material: one colour per slot, or with `painted` (and a model whose materials
+    vary over the surface) the colour at each pixel's surface point. With `painted` also lit as
+    it ships, smooth across soft edges and hard at creases; otherwise flat per triangle, which
+    shows the topology."""
     tile = np.empty((TILE, TILE, 3))
     tile[:] = BACKGROUND
     hit = pas.tri >= 0
@@ -170,8 +172,41 @@ def _shaded(
     color = slot_colors[model.tri_slot[tri]]
     if painted and model.paint is not None:
         color = surface_colors(model, pas)
-    tile[hit] = color * _lambert(normals, pas)[tri][:, None]
+    light = smooth_light(model, pas, normals) if painted else _lambert(normals, pas)[tri]
+    tile[hit] = color * light[:, None]
     return tile
+
+
+CREASE = np.cos(np.radians(40.0))  # where a vertex normal leans further from its face, the edge is hard
+
+
+def smooth_light(model: ViewModel, pas: Pass, normals: np.ndarray, at: ViewModel | None = None) -> np.ndarray:
+    """Diffuse light per hit pixel with the normals the asset ships: blended across each
+    triangle where its shading is smooth, the face's own at hard edges and on flat parts (from
+    the kit's shading steps, or the normals a shipped file stores). With `at`, the pass was
+    drawn from `at` (the same triangles, posed): its own normals light it."""
+    source = at or model
+    face = normals if at is None else _normals(at)
+    _, tri, bary = pixel_barycentrics(source.positions, source.triangles, pas)
+    own = face[tri]
+    stored = source.corner_normals
+    if stored is not None and at is None and not np.isnan(stored[tri]).any():
+        corner = stored[tri]
+    else:
+        vertex = np.zeros_like(source.positions)
+        p, t = source.positions, source.triangles
+        weighted = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])
+        for k in range(3):
+            np.add.at(vertex, t[:, k], weighted)
+        vertex /= np.maximum(np.linalg.norm(vertex, axis=1, keepdims=True), 1e-12)
+        corner = vertex[t[tri]]  # (N, 3, 3)
+        limit = (source.crease if source.crease is not None else np.full(len(t), CREASE))[tri]
+        keep = (corner * own[:, None, :]).sum(axis=2) >= limit[:, None]
+        corner = np.where(keep[..., None], corner, own[:, None, :])
+    n = (corner * bary[:, :, None]).sum(axis=1)
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    n = np.where(pas.front[tri][:, None], n, -n)
+    return 0.32 + 0.68 * np.clip(n @ _light(pas.frame), 0.0, 1.0)
 
 
 def surface_colors(model: ViewModel, pas: Pass, at: ViewModel | None = None) -> np.ndarray:

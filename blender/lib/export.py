@@ -130,9 +130,7 @@ def roundtrip_checks(before: MeshStats, after: MeshStats) -> list[CheckResult]:
                 f"{before[key]} in scene vs {after[key]} in glb",
             )
         )
-    dimension_delta = max(
-        abs(a - b) for a, b in zip(before["dimensions_m"], after["dimensions_m"])
-    )
+    dimension_delta = max(abs(a - b) for a, b in zip(before["dimensions_m"], after["dimensions_m"]))
     checks.append(
         check(
             "roundtrip_dimensions",
@@ -146,22 +144,37 @@ def roundtrip_checks(before: MeshStats, after: MeshStats) -> list[CheckResult]:
 def still_clips(source: Path) -> list[str]:
     """The animations in a .glb in which nothing moves (every channel holds one value): a clip
     exported as a still. Read from the file itself."""
-    glb = Glb(source)
-    still = []
-    for anim in glb.doc.get("animations", []):
-        moves = False
-        for sampler in anim["samplers"]:
-            out = glb.values(sampler["output"])
-            if any(abs(v[d] - out[0][d]) > 1e-5 for v in out for d in range(len(v))):
-                moves = True
-                break
-        if not moves:
-            still.append(anim.get("name", "?"))
-    return still
+    return [c["name"] for c in Glb(source).clips() if not c["moves"]]  # type: ignore[misc]
 
 
-def clip_checks(source: Path) -> list[CheckResult]:
-    """Every clip of a rigged asset moves (none came out of the export as a still)."""
-    still = still_clips(source)
-    said = f"still: {', '.join(still)}" if still else "every clip moves"
-    return [check("roundtrip_clips_move", not still, said)]
+def clip_checks(source: Path, expected: Sequence[tuple[str, float, bool]] = ()) -> list[CheckResult]:
+    """Read back from the shipped file: every clip moves; with `expected` (name, seconds, loop)
+    from the kit, the file has exactly those clips, each as long as asked, and loops end where
+    they start."""
+    clips = Glb(source).clips()
+    still = [c["name"] for c in clips if not c["moves"]]
+    checks = [
+        check(
+            "roundtrip_clips_move", not still, f"still: {', '.join(still)}" if still else "every clip moves"
+        )
+    ]  # type: ignore[arg-type]
+    if expected:
+        found = {str(c["name"]): c for c in clips}
+        wrong = []
+        for name, seconds, loop in expected:
+            c = found.get(name)
+            if c is None:
+                wrong.append(f"{name} missing")
+            elif abs(float(c["seconds"]) - seconds) > 1e-3:  # type: ignore[arg-type]
+                wrong.append(f"{name} lasts {float(c['seconds']):.3f} s, not {seconds:.3f} s")  # type: ignore[arg-type]
+            elif loop and not c["closed"]:
+                wrong.append(f"{name} does not end where it starts")
+        extra = sorted(set(found) - {name for name, _, _ in expected})
+        wrong += [f"unexpected clip {name}" for name in extra]
+        listed = ", ".join(
+            f"{c['name']} {float(c['seconds']):.3f} s" + (" closed" if c["closed"] else "") for c in clips
+        )  # type: ignore[arg-type]
+        checks.append(
+            check("roundtrip_clips_match", not wrong, "; ".join(wrong) if wrong else f"in file: {listed}")
+        )
+    return checks

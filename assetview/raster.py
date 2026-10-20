@@ -116,8 +116,13 @@ def rasterize(model: ViewModel, fr: Frame, size: int) -> Pass:
             candidates.append(
                 _batch(batch, side, lo, corners, area, tri_close, edge_len, model.real_edges, size)
             )
+    # A see-through material (glass) covers every other pixel, so what lies behind it shows.
+    see = model.see_through()
     if candidates:
         pix, z, t, near = (np.concatenate(c) for c in zip(*candidates, strict=True))
+        if see.any():
+            keep = ~see[t] | (((pix % size) + (pix // size)) % 2 == 0)
+            pix, z, t, near = pix[keep], z[keep], t[keep], near[keep]
         order = np.lexsort((-z, pix))
         pix, z, t, near = pix[order], z[order], t[order], near[order]
         first = np.ones(len(pix), dtype=bool)
@@ -138,6 +143,8 @@ def rasterize(model: ViewModel, fr: Frame, size: int) -> Pass:
         w1 = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area[t]
         w2 = 1.0 - w0 - w1
         inside = (w0 >= -1e-9) & (w1 >= -1e-9) & (w2 >= -1e-9)
+        if see[t]:
+            inside &= (xs + ys) % 2 == 0
         if not inside.any():
             continue
         z = w0 * tri_close[t, 0] + w1 * tri_close[t, 1] + w2 * tri_close[t, 2]

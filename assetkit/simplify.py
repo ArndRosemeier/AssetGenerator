@@ -23,9 +23,12 @@ FOLD_LIMIT = 0.2  # a face may turn by up to ~78 degrees in one collapse, no fur
 SLIVER = 1e-4  # a face with less area than this share of its longest edge squared has no reliable normal
 
 
-def simplify(vertices: np.ndarray, faces: np.ndarray, max_triangles: int) -> tuple[np.ndarray, np.ndarray]:
+def simplify(
+    vertices: np.ndarray, faces: np.ndarray, max_triangles: int, weights: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """Collapse edges until at most `max_triangles` remain (or no edge can go without breaking
-    the mesh). Returns compacted (vertices, faces)."""
+    the mesh). Returns compacted (vertices, faces). `weights` (one per vertex) scale how much
+    moving each vertex costs: above 1 keeps detail there (a thin limb), below 1 lets it go."""
     vertices = np.asarray(vertices, dtype=np.float64)
     faces = np.asarray(faces, dtype=np.int64)
     if len(faces) <= max_triangles:
@@ -34,7 +37,7 @@ def simplify(vertices: np.ndarray, faces: np.ndarray, max_triangles: int) -> tup
     pos = [list(map(float, v)) for v in vertices]
     tris = [list(map(int, f)) for f in faces]
     alive = [True] * len(tris)
-    quadric = _quadrics(vertices, faces)
+    quadric = _quadrics(vertices, faces, weights)
     vert_faces: list[set[int]] = [set() for _ in pos]
     for index, (a, b, c) in enumerate(tris):
         vert_faces[a].add(index)
@@ -109,7 +112,7 @@ def simplify(vertices: np.ndarray, faces: np.ndarray, max_triangles: int) -> tup
     )
 
 
-def _quadrics(vertices: np.ndarray, faces: np.ndarray) -> list[Quadric]:
+def _quadrics(vertices: np.ndarray, faces: np.ndarray, weights: np.ndarray | None = None) -> list[Quadric]:
     a, b, c = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
     cross = np.cross(b - a, c - a)
     # Written out rather than norm/einsum, so every numpy build rounds alike (see sdf._dot).
@@ -123,6 +126,8 @@ def _quadrics(vertices: np.ndarray, faces: np.ndarray) -> list[Quadric]:
     total = np.zeros((len(vertices), 10))
     for k in range(3):
         np.add.at(total, faces[:, k], per_face)
+    if weights is not None:
+        total *= np.asarray(weights, dtype=np.float64)[:, None]
     return total.tolist()
 
 
@@ -177,39 +182,50 @@ def _folds(
     faces round the edge.
     """
     around = (vert_faces[u] | vert_faces[v]) - shared
-    surface = [0.0, 0.0, 0.0]
-    for f in vert_faces[u] | vert_faces[v]:
-        n = _normal([pos[w] for w in tris[f]])
-        surface = [s + c for s, c in zip(surface, n, strict=True)]
-    surface_length = math.sqrt(sum(c * c for c in surface))
+    surface: tuple[float, float, float] | None = None  # worked out only if a sliver needs it
     for f in around:
-        corners = [pos[w] for w in tris[f]]
-        moved = [target if w in (u, v) else pos[w] for w in tris[f]]
-        after = _normal(moved)
-        length_after = math.sqrt(sum(c * c for c in after))
-        before = _normal(corners)
-        length_before = math.sqrt(sum(c * c for c in before))
-        longest = max(math.dist(corners[i], corners[(i + 1) % 3]) for i in range(3))
-        longest_after = max(math.dist(moved[i], moved[(i + 1) % 3]) for i in range(3))
-        sliver_before = length_before < SLIVER * longest * longest
-        if length_after < SLIVER * longest_after * longest_after and not sliver_before:
-            return True  # would line three corners up: a zero-area face QA rejects
+        a, b, c = tris[f]
+        pa, pb, pc = pos[a], pos[b], pos[c]
+        before, longest = _face(pa, pb, pc)
+        ma = target if a in (u, v) else pa
+        mb = target if b in (u, v) else pb
+        mc = target if c in (u, v) else pc
+        after, longest_after = _face(ma, mb, mc)
+        length_after = math.sqrt(after[0] * after[0] + after[1] * after[1] + after[2] * after[2])
         if length_after < 1e-18:
             return True
+        length_before = math.sqrt(before[0] * before[0] + before[1] * before[1] + before[2] * before[2])
+        sliver_before = length_before < SLIVER * longest
+        if length_after < SLIVER * longest_after and not sliver_before:
+            return True  # would line three corners up: a zero-area face QA rejects
         if sliver_before:
-            reference, reference_length, limit = surface, surface_length, 0.0
+            if surface is None:
+                sx = sy = sz = 0.0
+                for g in vert_faces[u] | vert_faces[v]:
+                    ga, gb, gc = tris[g]
+                    n = _normal3(pos[ga], pos[gb], pos[gc])
+                    sx, sy, sz = sx + n[0], sy + n[1], sz + n[2]
+                surface = (sx, sy, sz)
+            reference, limit = surface, 0.0
+            reference_length = math.sqrt(surface[0] ** 2 + surface[1] ** 2 + surface[2] ** 2)
         else:
             reference, reference_length, limit = before, length_before, FOLD_LIMIT
-        if (
-            sum(x * y for x, y in zip(reference, after, strict=True))
-            < limit * reference_length * length_after
-        ):
+        dot = reference[0] * after[0] + reference[1] * after[1] + reference[2] * after[2]
+        if dot < limit * reference_length * length_after:
             return True
     return False
 
 
-def _normal(corners: list[list[float]]) -> tuple[float, float, float]:
-    (ax, ay, az), (bx, by, bz), (cx, cy, cz) = corners
-    ux, uy, uz = bx - ax, by - ay, bz - az
-    vx, vy, vz = cx - ax, cy - ay, cz - az
+def _normal3(a: list[float], b: list[float], c: list[float]) -> tuple[float, float, float]:
+    ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+    vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
     return (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
+
+
+def _face(a: list[float], b: list[float], c: list[float]) -> tuple[tuple[float, float, float], float]:
+    """A triangle's (area-weighted) normal and its longest edge squared."""
+    ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+    vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+    wx, wy, wz = vx - ux, vy - uy, vz - uz
+    longest = max(ux * ux + uy * uy + uz * uz, vx * vx + vy * vy + vz * vz, wx * wx + wy * wy + wz * wz)
+    return (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx), longest

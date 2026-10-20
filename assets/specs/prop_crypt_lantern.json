@@ -1,0 +1,471 @@
+{
+  "spec_version": 1,
+  "id": "prop_crypt_lantern",
+  "generator": "prop.assembly",
+  "params": {
+    "parts": {
+      "hoop": {
+        "torus": {
+          "centre": [
+            0,
+            0,
+            0
+          ],
+          "radius": 0.086,
+          "thickness": 0.007
+        },
+        "slot": "iron"
+      },
+      "rivet": {
+        "sphere": {
+          "centre": [
+            0,
+            0,
+            0
+          ],
+          "radius": 0.0045
+        },
+        "slot": "iron",
+        "segments": 6
+      }
+    },
+    "pieces": [
+      {
+        "lathe": {
+          "profile": [
+            [
+              0.105,
+              0
+            ],
+            [
+              0.105,
+              0.012
+            ],
+            [
+              0.098,
+              0.018
+            ],
+            [
+              0.094,
+              0.03
+            ],
+            [
+              0.088,
+              0.034
+            ]
+          ]
+        },
+        "slot": "iron"
+      },
+      {
+        "lathe": {
+          "profile": [
+            [
+              0.03,
+              0.034
+            ],
+            [
+              0.036,
+              0.036
+            ],
+            [
+              0.036,
+              0.044
+            ],
+            [
+              0.028,
+              0.046
+            ]
+          ]
+        },
+        "slot": "iron"
+      },
+      {
+        "cylinder": {
+          "a": [
+            0,
+            0,
+            0.044
+          ],
+          "b": [
+            0,
+            0,
+            0.15
+          ],
+          "radius": 0.022,
+          "radius_b": 0.021
+        },
+        "slot": "wax"
+      },
+      {
+        "lathe": {
+          "profile": [
+            [
+              0.021,
+              0.15
+            ],
+            [
+              0.016,
+              0.156
+            ],
+            [
+              0.004,
+              0.157
+            ]
+          ]
+        },
+        "slot": "wax"
+      },
+      {
+        "cylinder": {
+          "a": [
+            0,
+            0,
+            0.155
+          ],
+          "b": [
+            0,
+            0,
+            0.168
+          ],
+          "radius": 0.0015
+        },
+        "slot": "iron"
+      },
+      {
+        "cylinder": {
+          "a": [
+            0,
+            0,
+            0.034
+          ],
+          "b": [
+            0,
+            0,
+            0.318
+          ],
+          "radius": 0.074
+        },
+        "slot": "glass"
+      },
+      {
+        "box": {
+          "size": [
+            0.016,
+            0.016,
+            0.31
+          ]
+        },
+        "at": [
+          0.084,
+          0,
+          0.172
+        ],
+        "rotate": [
+          0,
+          0,
+          45
+        ],
+        "slot": "iron",
+        "repeat": {
+          "around": 4,
+          "start": 45
+        }
+      },
+      {
+        "ref": "hoop",
+        "at": [
+          0,
+          0,
+          0.12
+        ]
+      },
+      {
+        "ref": "hoop",
+        "at": [
+          0,
+          0,
+          0.235
+        ]
+      },
+      {
+        "ref": "rivet",
+        "at": [
+          0.094,
+          0,
+          0.03
+        ],
+        "repeat": {
+          "around": 8,
+          "start": 22.5
+        }
+      },
+      {
+        "lathe": {
+          "profile": [
+            [
+              0.108,
+              0.318
+            ],
+            [
+              0.108,
+              0.33
+            ],
+            [
+              0.098,
+              0.338
+            ],
+            [
+              0.06,
+              0.39
+            ],
+            [
+              0.035,
+              0.41
+            ],
+            [
+              0.032,
+              0.41
+            ]
+          ]
+        },
+        "slot": "iron"
+      },
+      {
+        "ref": "rivet",
+        "at": [
+          0.1,
+          0,
+          0.334
+        ],
+        "repeat": {
+          "around": 8,
+          "start": 22.5
+        }
+      },
+      {
+        "cylinder": {
+          "a": [
+            0,
+            0,
+            0.405
+          ],
+          "b": [
+            0,
+            0,
+            0.45
+          ],
+          "radius": 0.03
+        },
+        "slot": "iron"
+      },
+      {
+        "lathe": {
+          "profile": [
+            [
+              0.042,
+              0.45
+            ],
+            [
+              0.042,
+              0.458
+            ],
+            [
+              0.03,
+              0.465
+            ],
+            [
+              0.012,
+              0.468
+            ]
+          ]
+        },
+        "slot": "iron"
+      },
+      {
+        "torus": {
+          "centre": [
+            0,
+            0,
+            0.497
+          ],
+          "radius": 0.032,
+          "thickness": 0.009,
+          "axis": "y"
+        },
+        "slot": "iron"
+      }
+    ],
+    "bevel": 0.0015,
+    "detail": 0.8
+  },
+  "materials": {
+    "iron": {
+      "base_color": [
+        0.06,
+        0.055,
+        0.05,
+        1
+      ],
+      "roughness": 0.55,
+      "metallic": 0.5,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.2,
+                0.085,
+                0.035
+              ],
+              "scale": 22,
+              "coverage": 0.3,
+              "contrast": 3,
+              "roughness": 0.95
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.11,
+                0.05,
+                0.022
+              ],
+              "scale": 55,
+              "coverage": 0.3,
+              "contrast": 3,
+              "seed": 3,
+              "amount": 0.7,
+              "roughness": 0.9
+            }
+          },
+          {
+            "facing": {
+              "color": [
+                0.3,
+                0.13,
+                0.05
+              ],
+              "direction": [
+                0,
+                0,
+                -1
+              ],
+              "angle": 60,
+              "soft": 30,
+              "breakup": 0.6,
+              "scale": 35,
+              "amount": 0.5,
+              "roughness": 0.95
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.3,
+                0.29,
+                0.27
+              ],
+              "radius": 0.004,
+              "breakup": 0.5,
+              "amount": 0.8,
+              "roughness": 0.35
+            }
+          }
+        ]
+      }
+    },
+    "glass": {
+      "base_color": [
+        0.5,
+        0.56,
+        0.5,
+        1
+      ],
+      "roughness": 0.12,
+      "metallic": 0.0,
+      "alpha": 0.32,
+      "pattern": {
+        "layers": [
+          {
+            "gradient": {
+              "color": [
+                0.1,
+                0.09,
+                0.08
+              ],
+              "axis": "z",
+              "from": 0.33,
+              "to": 0.22,
+              "breakup": 0.5,
+              "amount": 0.8,
+              "roughness": 0.6
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.35,
+                0.33,
+                0.27
+              ],
+              "scale": 25,
+              "coverage": 0.3,
+              "contrast": 2,
+              "amount": 0.6,
+              "roughness": 0.5
+            }
+          }
+        ]
+      }
+    },
+    "wax": {
+      "base_color": [
+        0.82,
+        0.76,
+        0.6,
+        1
+      ],
+      "roughness": 0.55,
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "grain": {
+              "color": [
+                0.9,
+                0.86,
+                0.72
+              ],
+              "axis": "z",
+              "spacing": 0.012,
+              "warp": 2,
+              "sharpness": 3,
+              "amount": 0.5
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.62,
+                0.55,
+                0.4
+              ],
+              "axis": "z",
+              "from": 0.05,
+              "to": 0.11,
+              "amount": 0.5
+            }
+          }
+        ]
+      }
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 0.6
+  }
+}

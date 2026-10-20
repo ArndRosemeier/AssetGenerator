@@ -52,6 +52,12 @@ def make_material(name: str, spec: MaterialSpec) -> bpy.types.Material:
     principled.inputs["Base Color"].default_value = spec.base_color
     principled.inputs["Roughness"].default_value = spec.roughness
     principled.inputs["Metallic"].default_value = spec.metallic
+    alpha = getattr(spec, "alpha", 1.0)
+    if alpha < 1.0:
+        from blender.backend import compat  # here: the backend package imports this module
+
+        principled.inputs["Alpha"].default_value = alpha
+        compat.set_blended(material)
     return material
 
 
@@ -149,16 +155,43 @@ def activate(obj: bpy.types.Object) -> None:
     view_layer.objects.active = obj
 
 
-def apply_bevel(obj: bpy.types.Object, width: float, segments: int, angle_deg: float) -> None:
-    """Bevel and immediately apply, so QA measures the geometry that ships."""
+def apply_bevel(
+    obj: bpy.types.Object, width: float, segments: int, angle_deg: float, only: str | None = None
+) -> None:
+    """Bevel and immediately apply, so QA measures the geometry that ships. With `only` (a float
+    point attribute), just the sharp edges whose two vertices have it at 0.5 or more."""
+    import math
+
     modifier = obj.modifiers.new(name="Bevel", type="BEVEL")
     modifier.width = width
     modifier.segments = segments
-    modifier.limit_method = "ANGLE"
-    modifier.angle_limit = angle_deg * 3.141592653589793 / 180.0
     modifier.harden_normals = False
+    weight_name = None
+    if only is None:
+        modifier.limit_method = "ANGLE"
+        modifier.angle_limit = math.radians(angle_deg)
+    else:
+        from blender.backend import compat  # here: the backend package imports this module
+
+        mesh = obj.data
+        marked = [d.value >= 0.5 for d in mesh.attributes[only].data]
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bm.edges.ensure_lookup_table()
+        limit = math.radians(angle_deg)
+        weights = [0.0] * len(mesh.edges)
+        for edge in bm.edges:
+            a, b = edge.verts
+            if marked[a.index] and marked[b.index] and len(edge.link_faces) == 2:
+                if edge.calc_face_angle(0.0) > limit:
+                    weights[edge.index] = 1.0
+        bm.free()
+        weight_name = compat.set_edge_bevel_weights(mesh, weights)
+        modifier.limit_method = "WEIGHT"
     activate(obj)
     bpy.ops.object.modifier_apply(modifier=modifier.name)
+    if weight_name is not None and weight_name in obj.data.attributes:
+        obj.data.attributes.remove(obj.data.attributes[weight_name])
 
 
 def unwrap(obj: bpy.types.Object, angle_limit_deg: float = 66.0, island_margin: float = 0.02) -> None:

@@ -60,6 +60,12 @@ their own materials) before writing a generator. Reference: "Sculpting organic f
 ("Rigging and animating a sculpt" in `docs/ASSETKIT.md`): model limbs apart from the body
 (A-pose), then read the rig sheet `assets/out/look/<id>_rig.png` and its flags.
 
+## Hard-surface props
+
+Lanterns, chests, tools, furniture: write a `prop.assembly` spec (exact pieces: box, cylinder,
+sphere, torus, lathe, tube, extrude; placed, repeated, mirrored, grouped). Reference:
+"Hard-surface props in JSON" in `docs/ASSETKIT.md`; example `assets/specs/prop_crypt_lantern.json`.
+
 ## Surfaces
 
 Bark, wood grain, moss, warts, worn edges, dirt in creases: give the spec's material a

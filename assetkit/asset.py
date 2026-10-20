@@ -30,6 +30,7 @@ class Material(Protocol):
 
     #: Optional: an `assetkit.material.Pattern` baked over the base values into textures (the
     #: part then needs an `Unwrap` step). A material without the attribute is plain.
+    #: Optional: `alpha` below 1 makes it see-through (glass); without it, opaque.
 
 
 def pattern_of(material: Material) -> object | None:
@@ -39,11 +40,14 @@ def pattern_of(material: Material) -> object | None:
 
 @dataclass(frozen=True)
 class Bevel:
-    """Bevel edges sharper than `angle_deg`, applied to the mesh (QA measures the result)."""
+    """Bevel edges sharper than `angle_deg`, applied to the mesh (QA measures the result). With
+    `only`, just the edges whose two vertices have that point attribute at 0.5 or more (a
+    generator marks the pieces big enough to bevel; rivets and wires stay as they are)."""
 
     width: float
     segments: int = 1
     angle_deg: float = 30.0
+    only: str | None = None
 
 
 @dataclass(frozen=True)

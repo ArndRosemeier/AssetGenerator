@@ -39,6 +39,19 @@ class ViewModel:
     source: str
     #: Colour per surface point (assetview/paint.py) where materials vary over the surface, or None.
     paint: Paint | None = None
+    #: Per slot, 1 opaque, below 1 see-through (glass); None: all opaque.
+    slot_alpha: np.ndarray | None = None
+    #: How the asset is shaded: per triangle, the cosine of the angle beyond which a vertex
+    #: normal is not shared (2: flat, -2: all smooth); or normals per triangle corner (T, 3, 3),
+    #: as a shipped file stores them. None: smooth with hard creases past 40 degrees.
+    crease: np.ndarray | None = None
+    corner_normals: np.ndarray | None = None
+
+    def see_through(self) -> np.ndarray:
+        """Per triangle, whether its material is see-through."""
+        if self.slot_alpha is None:
+            return np.zeros(len(self.triangles), dtype=bool)
+        return self.slot_alpha[self.tri_slot] < 0.95
 
     def islands(self) -> np.ndarray:
         """Connected part per triangle (shared welded vertices)."""
@@ -74,10 +87,13 @@ def from_asset(asset: Asset) -> ViewModel:
     colors: list[tuple[float, float, float]] = []
     looks: list[SlotLook] = []
     origins: list[tuple[float, float, float]] = []
+    alphas: list[float] = []
+    crease: list[float] = []
     for part in asset.parts:
         mesh = part.mesh
         offset = len(points)
         points.extend(mesh.vertices)
+        cos = shading_crease(part.finish)
         slot_base = len(slots)
         for slot in mesh.slots:
             slots.append(slot if len(asset.parts) == 1 else f"{part.name}.{slot}")
@@ -85,12 +101,14 @@ def from_asset(asset: Asset) -> ViewModel:
             colors.append(tuple(material.base_color[:3]))
             looks.append(SlotLook(pattern_of(material), colors[-1], material.roughness))  # type: ignore[arg-type]
             origins.append(part.pattern_origin)
+            alphas.append(float(getattr(material, "alpha", 1.0)))
         for face, slot in zip(mesh.faces, mesh.face_slots, strict=True):
             n = len(face)
             for k in range(1, n - 1):
                 tris.append((offset + face[0], offset + face[k], offset + face[k + 1]))
                 real.append((k == 1, True, k == n - 2))
                 tri_slot.append(slot_base + slot)
+                crease.append(cos)
     welded, remap = _weld(np.asarray(points, dtype=np.float64))
     triangles = remap[np.asarray(tris, dtype=np.int64)]
     slot_of = np.asarray(tri_slot, dtype=np.int64)
@@ -106,7 +124,25 @@ def from_asset(asset: Asset) -> ViewModel:
         real_edges=np.asarray(real, dtype=bool),
         source="kit asset (before bevel and unwrap)" + (", patterns evaluated" if paint else ""),
         paint=paint,
+        slot_alpha=np.asarray(alphas, dtype=np.float64),
+        crease=np.asarray(crease, dtype=np.float64),
     )
+
+
+def shading_crease(finish: object) -> float:
+    """The cosine past which a part's shading keeps an edge hard, from its finishing steps."""
+    import math
+
+    from assetkit import ShadeFlat, ShadeSmooth
+
+    cos = 2.0  # unshaded parts ship flat
+    for step in finish:  # type: ignore[attr-defined]
+        if isinstance(step, ShadeFlat):
+            cos = 2.0
+        elif isinstance(step, ShadeSmooth):
+            angle = step.sharp_angle_deg
+            cos = -2.0 if angle is None else math.cos(math.radians(angle))
+    return cos
 
 
 def from_glb(path: Path) -> ViewModel:
@@ -115,15 +151,19 @@ def from_glb(path: Path) -> ViewModel:
     materials = doc.get("materials", [])
     slots = [m.get("name", f"material_{i}") for i, m in enumerate(materials)] or ["default"]
     colors = []
+    alphas: list[float] = []
     textured = False
     for m in materials or [{}]:
         pbr = m.get("pbrMetallicRoughness", {})
         textured |= "baseColorTexture" in pbr
         colors.append(tuple(pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0])[:3]))
+        blended = m.get("alphaMode") == "BLEND"
+        alphas.append(float(pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0])[3]) if blended else 1.0)
     points: list[np.ndarray] = []
     tris: list[np.ndarray] = []
     tri_slot: list[np.ndarray] = []
     corner_uvs: list[np.ndarray] = []
+    corner_normals: list[np.ndarray] = []
     offset = 0
     for node in doc.get("nodes", []):
         if "mesh" not in node:
@@ -138,6 +178,13 @@ def from_glb(path: Path) -> ViewModel:
                 -1, 3
             )
             tris.append(index + offset)
+            if "NORMAL" in primitive["attributes"]:
+                normal = np.asarray(glb.values(primitive["attributes"]["NORMAL"]), dtype=np.float64)
+                normal = normal @ matrix[:3, :3].T
+                normal = np.stack([normal[:, 0], -normal[:, 2], normal[:, 1]], axis=1)
+                corner_normals.append(normal[index])
+            else:
+                corner_normals.append(np.full((len(index), 3, 3), np.nan))
             if "TEXCOORD_0" in primitive["attributes"]:
                 uv = np.asarray(glb.values(primitive["attributes"]["TEXCOORD_0"]), dtype=np.float64)
                 corner_uvs.append(uv[index])
@@ -169,6 +216,8 @@ def from_glb(path: Path) -> ViewModel:
         real_edges=np.ones(triangles.shape, dtype=bool),
         source=f"shipped file {path.name}" + (", textures sampled" if textured else ""),
         paint=paint,
+        slot_alpha=np.asarray(alphas, dtype=np.float64) if alphas else None,
+        corner_normals=np.concatenate(corner_normals),
     )
 
 

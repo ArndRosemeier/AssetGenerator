@@ -26,6 +26,9 @@ A clip is a list of motions, applied in order and added up:
         a trot pairs diagonals, a hop moves them together. A '.L' leg's '.R' twin steps half a
         cycle later unless it is listed itself. The legs are solved by inverse kinematics: the
         feet stay on the ground, the knees bend the way they were modelled.
+        `"per_leg": {"leg.R": {"lift": 0.01, "duty": 0.45}}` gives one leg its own lift and
+        duty (a limp: the bad leg drags and bears weight briefly); its stride follows from its
+        duty so its planted foot keeps pace with the body and nothing skates.
 
 A loop must contain whole cycles (it ends where it began); `cycles` defaults to 1.
 """
@@ -33,7 +36,7 @@ A loop must contain whole cycles (it ends where it began); `cycles` defaults to 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from assetkit.rig import Clip, Leg, Pose, Skeleton, Vec, add, solve, turn, twin_name
 
@@ -69,7 +72,15 @@ def build_clip(
     if not isinstance(motions_raw, list) or not motions_raw:
         raise MotionError(f"{path}.motions: expected a non-empty list")
     motions = [_motion(m, skeleton, legs, loop, f"{path}.motions[{i}]") for i, m in enumerate(motions_raw)]
-    count = max(2, round(seconds * fps))
+    # A loop of n frames lasts n / fps (the backend closes it with frame 0 again); a clip played
+    # once spans its first to its last frame, so it needs one frame more.
+    steps = round(seconds * fps)
+    if abs(steps - seconds * fps) > 1e-6:
+        raise MotionError(
+            f"{path}.seconds: {seconds} s is not a whole number of frames at {fps} fps; "
+            f"give the rig an `fps` that fits ({_fitting_rates([seconds])}) or round the length"
+        )
+    count = max(2, steps if loop else steps + 1)
     by_upper = {leg.upper: leg for leg in legs.values()}
     frames = []
     for f in range(count):
@@ -79,6 +90,23 @@ def build_clip(
             apply(pose, t)
         frames.append(solve(skeleton, pose, by_upper))
     return Clip(name=name, fps=fps, loop=loop, frames=tuple(frames))
+
+
+RATES = (24, 30, 25, 60, 48, 50, 120)
+
+
+def _fitting_rates(lengths: Sequence[float]) -> str:
+    rates = [r for r in RATES if all(abs(round(s * r) - s * r) < 1e-6 for s in lengths)]
+    return ", ".join(str(r) for r in rates) if rates else "none of " + ", ".join(map(str, RATES))
+
+
+def pick_fps(lengths: Sequence[float]) -> int | None:
+    """The first common frame rate (24, 30, 25, 60, ...) at which every length in seconds is a
+    whole number of frames, so every clip lasts exactly what the spec says; None if none does."""
+    for rate in RATES:
+        if all(abs(round(s * rate) - s * rate) < 1e-6 for s in lengths):
+            return rate
+    return None
 
 
 Apply = Callable[[Pose, float], None]
@@ -210,7 +238,7 @@ def _keys(fields: dict, skeleton: Skeleton, loop: bool, path: str) -> Apply:
 
 
 def _gait(fields: dict, skeleton: Skeleton, legs: Mapping[str, Leg], loop: bool, path: str) -> Apply:
-    _only(fields, ("legs", "stride", "lift", "duty", "cycles", "direction"), path)
+    _only(fields, ("legs", "stride", "lift", "duty", "cycles", "direction", "per_leg"), path)
     phases_raw = _object(fields.get("legs"), f"{path}.legs")
     if not phases_raw:
         raise MotionError(f"{path}.legs: name at least one leg")
@@ -246,21 +274,35 @@ def _gait(fields: dict, skeleton: Skeleton, legs: Mapping[str, Leg], loop: bool,
         raise MotionError(f"{path}.direction: must not be [0, 0]")
     dx, dy = direction[0] / norm, direction[1] / norm
     ankles = {name: skeleton[by_name[name].lower].tail for name in phases}
+    # Per leg: its own lift and duty (a limp: the bad leg barely lifts and bears weight briefly).
+    # Its stride follows from its duty, so every planted foot keeps pace with the body: no skating.
+    own = {name: (lift, duty, stride) for name in phases}
+    for leg_name, raw in _object(fields.get("per_leg", {}), f"{path}.per_leg").items():
+        here = f"{path}.per_leg.{leg_name}"
+        if leg_name not in phases:
+            raise MotionError(f"{here}: no leg '{leg_name}' in this gait ({sorted(phases)})")
+        entry = _object(raw, here)
+        _only(entry, ("lift", "duty"), here)
+        d = _number(entry, "duty", here, duty)
+        if not 0.05 <= d <= 0.95:
+            raise MotionError(f"{here}.duty: expected 0.05..0.95, got {d}")
+        own[leg_name] = (_number(entry, "lift", here, lift), d, stride * d / duty)
 
     def apply(pose: Pose, t: float) -> None:
         for leg_name, phase in phases.items():
+            leg_lift, leg_duty, leg_stride = own[leg_name]
             s = (cycles * t + phase) % 1.0
-            if s < duty:  # planted: slides back under the body as it passes over
-                along = 0.5 - s / duty
+            if s < leg_duty:  # planted: slides back under the body as it passes over
+                along = 0.5 - s / leg_duty
                 up = 0.0
             else:  # swinging forward, lifted
-                u = (s - duty) / (1.0 - duty)
+                u = (s - leg_duty) / (1.0 - leg_duty)
                 along = -0.5 + u * u * (3 - 2 * u)
-                up = lift * math.sin(math.pi * u)
+                up = leg_lift * math.sin(math.pi * u)
             ankle = ankles[leg_name]
             pose.reach[by_name[leg_name].upper] = (
-                ankle[0] + dx * stride * along,
-                ankle[1] + dy * stride * along,
+                ankle[0] + dx * leg_stride * along,
+                ankle[1] + dy * leg_stride * along,
                 ankle[2] + up,
             )
 

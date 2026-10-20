@@ -20,10 +20,20 @@ from assetkit.asset import pattern_of
 from assetkit.skinning import clip_flags, clip_report, deform, shared_skin
 from assetkit.texbake import SlotLook
 from assetview.font import draw_text, text_width
-from assetview.model import ViewModel
+from assetview.model import ViewModel, shading_crease
 from assetview.paint import PatternPaint
 from assetview.raster import Camera, Pass, frame, rasterize
-from assetview.sheet import BACKGROUND, DIM, FLAG, HEADER, LABEL, _lambert, _normals, surface_colors
+from assetview.sheet import (
+    BACKGROUND,
+    DIM,
+    FLAG,
+    HEADER,
+    LABEL,
+    _lambert,
+    _normals,
+    smooth_light,
+    surface_colors,
+)
 
 BIG = 320
 SMALL = 160
@@ -65,6 +75,7 @@ def _model(asset: Asset, positions: np.ndarray, painted: bool = True) -> ViewMod
         real_edges=np.asarray(real, dtype=bool),
         source="kit asset",
         paint=paint,
+        crease=np.full(len(triangles), shading_crease(part.finish)),
     )
 
 
@@ -186,11 +197,13 @@ def render_rig_sheet(asset: Asset, title: str) -> tuple[np.ndarray, list[dict[st
             m = _model(asset, positions, painted=False)
             pas = rasterize(m, fr, SMALL)
             tile = _shade(m, pas, SMALL, None, material)
-            if model.paint is not None:
-                hit = pas.tri >= 0
-                tile[hit] = (
-                    surface_colors(model, pas, at=m) * _lambert(_normals(m), pas)[pas.tri[hit]][:, None]
-                )
+            hit = pas.tri >= 0
+            color = (
+                surface_colors(model, pas, at=m)
+                if model.paint is not None
+                else material[m.tri_slot[pas.tri[hit]]]
+            )
+            tile[hit] = color * smooth_light(m, pas, _normals(m))[:, None]
             ground_row = int(round(fr.project(np.array([[0.0, 0.0, ground]]))[0][0, 1]))
             if 0 <= ground_row < SMALL:
                 empty = pas.tri[ground_row] < 0

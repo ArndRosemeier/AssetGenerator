@@ -48,7 +48,8 @@ def handle(payload: Mapping[str, object]) -> Report:
     roundtrip_stats = collect_stats(reimported)
     checks.extend(roundtrip_checks(stats, roundtrip_stats))
     if rigged:
-        checks.extend(clip_checks(glb_path))
+        expected = [(c.name, c.seconds, c.loop) for c in kit_asset.clips] if kit_asset is not None else []
+        checks.extend(clip_checks(glb_path, expected))
     # The inspection sheet of the shipped file: the first thing to look at after a build.
     inspection = look(from_glb(glb_path), spec.asset_id, out_dir / "look" / f"{spec.asset_id}.png")
     if kit_asset is not None and kit_asset.skeleton is not None:

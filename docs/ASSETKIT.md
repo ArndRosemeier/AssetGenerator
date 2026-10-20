@@ -137,12 +137,24 @@ the spec, so a new organic asset is a JSON file, not code.
 
 | Kind | Nodes |
 | --- | --- |
-| Primitives | `sphere`, `ellipsoid`, `box` (rounded), `capsule` (tapering with `radius_b`: limbs, horns, roots), `cylinder`, `torus` |
+| Primitives | `sphere`, `ellipsoid`, `box` (rounded), `capsule` (tapering with `radius_b`: limbs, horns, roots), `cylinder`, `cone` (flat ends: cups, spikes, shades), `torus` |
 | Combinations | `union`, `smooth_union` (`k` metres of blend, like clay pressed together), `subtract` (optional `k`), `intersect` |
 | Cuts | `below` / `above` a height: flat tops and flat bottoms |
-| Placement | `move`, `rotate` (degrees, X then Y then Z), `scale`, `mirror_x` (model one side of a body, get both) |
+| Placement | `move`, `rotate` (degrees, X then Y then Z, `about` a pivot: tilt a chest at the waist), `scale`, `mirror_x` (model one side of a body, get both) |
+| Many | `repeat` (`count` copies a `step` apart, or `around` the Z axis: segments, ribs, legs), `scatter` (copies set on another shape's surface: barnacles, warts, spikes; below) |
 | Surface | `displace` (seeded noise: `amount` metres, features `1/scale` across, `octaves`), `round`, `shell` (hollow) |
 | Reuse | `parts` names nodes; `{"ref": "name"}` uses one, in the shape or in `paint` |
+
+`scatter` places copies of a shape modelled at the origin, pointing up, on the surface of
+another: `{"scatter": {"on": {"ref": "rock"}, "shape": {"ref": "barnacle"}, "count": 7,
+"seed": 3, "spacing": 0.15, "angle": 55, "sink": 0.012, "sizes": [0.8, 1.15]}}` drops seven
+at seeded places at least 15 cm apart where the rock faces within 55 degrees of up, stands each
+along the surface and sinks it 12 mm in; `"at": [[x, y], ...]` sets copies at chosen places.
+It returns only the copies: union them with the rock, and paint them with the same node.
+
+Articulated bodies (insects, skeletons, armour) read as articulated when their pieces stay
+distinct: join segments with `smooth_union` of a small `k` (1 to 2 cm), not one big blend; a
+blob with limbs comes from a single large `k` over everything.
 
 The full node reference, with every key, is at the top of `assetkit/sculpt.py`. Errors name
 the path to the bad node (`params.shape.subtract.cut[1].sphere.radius: ...`).
@@ -151,28 +163,81 @@ the path to the bad node (`params.shape.subtract.cut[1].sphere.radius: ...`).
 takes its slot. A region can be a part of the shape (eyes, horns) or any volume laid over it
 (moss over the top). The mesh is cut along each region's edge, so borders follow the region
 instead of zigzagging along triangles. Other keys: `sharp_angle` (degrees; smooth shading
-keeps sharper edges hard), `smooth`, `settle` (default on: footprint centred, resting on z=0).
+keeps sharper edges hard), `smooth`, `settle` (default on: footprint centred, resting on z=0),
+`detail` (default 4, up to 16: how finely the shape is sampled, in times the budget; raise it
+when small features such as a cup's rim come out torn, at the cost of build time).
 
 How it is meshed, and what that guarantees:
 
-1. **Marching tetrahedra** on a grid fine enough for about four times the budget: always
-   closed and manifold (marching cubes is not), wound outward.
-2. **Quadric edge collapse** (`assetkit/simplify.py`) down to `max_triangles`: triangles
-   gather where the form bends and thin out where it is flat. A collapse that would pinch the
-   surface, turn a face over or line three corners up is refused, so the result stays closed,
-   manifold, outward and free of zero-area faces: QA's gates hold.
-3. **Projection** of every vertex back onto the true surface (simplifying leaves curves a
-   little inside).
+1. **Marching tetrahedra** on a grid fine enough for about `detail` times the budget: always
+   closed and manifold (marching cubes is not), wound outward. Where a tenth of the surface is
+   thinner than a cell across its radius (legs, fingers), it samples again up to twice as
+   finely, so thin parts are resolved at all.
+2. **Quadric edge collapse** (`assetkit/simplify.py`) down to 85% of `max_triangles`:
+   triangles gather where the form bends and thin out where it is flat. Each vertex's error is
+   weighed by how thin the shape is there, so a 2 cm leg keeps its roundness next to a 30 cm
+   body. A collapse that would pinch the surface, turn a face over or line three corners up is
+   refused, so the result stays closed, manifold, outward and free of zero-area faces.
+3. **Refining** spends the rest of the budget splitting the edges longest for the thickness
+   where they lie, each new vertex put on the true surface, then **relaxing** evens the
+   triangles out along the surface. Every vertex ends on the true surface.
 4. **The same spec gives the same mesh bit for bit** on numpy 1.26 (Blender 4.5) and 2.x
    (Blender 5, CI): all vector maths is written out element by element, never through BLAS
    (`@`, `einsum`, `norm`), whose rounding differs between builds. A test holds a golden hash.
 
 `assetkit.sdf` and `organic.sculpt` need numpy (Blender's Python has it; the rest of the kit
-is standard library only). A sculpt builds in one to five seconds, so `ag.py look` takes that
-long for one. The look sheet shades every triangle flat; the Cycles previews show the smooth
-shading the asset ships with.
+is standard library only). A sculpt builds in five to twenty seconds (thin parts and many
+scattered copies cost the most), so `ag.py look` takes that long for one.
 
-Examples: `sculpt_boulder_mossy`, `sculpt_tree_stump`, `sculpt_cave_toad` in `assets/specs/`.
+Examples: `sculpt_boulder_mossy`, `sculpt_tree_stump`, `sculpt_barnacle_rock` (scatter),
+`sculpt_cave_toad`, `creature_gloom_crawler` (an insect of distinct segments),
+`creature_crypt_husk` (a hunched biped, ribs by `repeat`, a ragged skirt) in `assets/specs/`.
+
+## Hard-surface props in JSON
+
+Lanterns, cages, chests, tools, furniture, fittings: things made of turned, cut and bent parts
+with crisp edges. `prop.assembly` takes them from the spec as exact pieces, each a closed shell
+with its own material slot, placed, repeated, mirrored and grouped. A new prop is a spec.
+
+```json
+"generator": "prop.assembly",
+"params": {
+  "parts": {"rivet": {"sphere": {"centre": [0, 0, 0], "radius": 0.0045}, "slot": "iron", "segments": 6}},
+  "pieces": [
+    {"lathe": {"profile": [[0.105, 0], [0.105, 0.012], [0.094, 0.03], [0.088, 0.034]]}, "slot": "iron"},
+    {"cylinder": {"a": [0, 0, 0.034], "b": [0, 0, 0.318], "radius": 0.074}, "slot": "glass"},
+    {"box": {"size": [0.016, 0.016, 0.31]}, "at": [0.084, 0, 0.172], "slot": "iron",
+     "repeat": {"around": 4, "start": 45}},
+    {"ref": "rivet", "at": [0.094, 0, 0.03], "repeat": {"around": 8}},
+    {"torus": {"centre": [0, 0, 0.497], "radius": 0.032, "thickness": 0.009, "axis": "y"}, "slot": "iron"}
+  ],
+  "bevel": 0.0015
+}
+```
+
+| Shape | Keys |
+| --- | --- |
+| `box` | `size` round the origin, or `lower` and `upper` corners |
+| `cylinder` | `a`, `b`, `radius`, `radius_b` (a cone; 0 for a point): a rod between two points |
+| `sphere` | `centre`, `radius` |
+| `torus` | `centre`, `radius`, `thickness`, `axis` x, y or z: rings, hoops, handles |
+| `lathe` | `profile` [[r, z], ...] turned about Z (open ends close to the axis): caps, bases, bottles |
+| `tube` | `path` [[x, y, z], ...], `radius`, `smooth` (default true): bent rods, bails, wires |
+| `extrude` | `outline` [[x, y], ...] raised `height` from z = 0: plates, blades, brackets |
+
+Every piece takes `slot`, `scale`, `rotate` (degrees, X then Y then Z), `at`, `repeat`
+(`{"count", "step"}` or `{"around", "start"}`), `mirror` (`x` or `y`), `segments` and
+`bevel`, applied in that order; a `group` (a list of pieces) takes them too, and `ref` uses a
+named piece from `parts`. Round shapes get their sides from their size (rods, tubes and rings
+at least 12, so they shade round). Pieces may overlap (a post through a cap); each stays
+closed, so QA holds. The reference is at the top of `assetkit/assembly.py`.
+
+`bevel` (metres) rounds the edges of pieces at least 8 bevels thick (caps, posts, plates) and
+leaves thinner ones alone (rivets, wires, thin hoops), where a bevel would collapse or bloat
+them; `"bevel": true | false` on a piece decides instead. The generator checks the triangle
+count the bevel will produce against `qa.max_triangles` before Blender starts.
+
+Example: `prop_crypt_lantern` (rusted iron, see-through glass, a candle).
 
 ## Rigging and animating a sculpt
 
@@ -217,13 +282,18 @@ moved. `"bone": "ear.*"` turns both ears, the right one mirrored. Times `t` run 
 | `turn` | a bone swings: `pitch`/`yaw`/`roll` degrees times a wave (`sine`, `bounce`, `constant`) at `cycles` per clip, `phase` 0..1 |
 | `move` | the whole body moves `x`/`y`/`z` metres: bob (`bounce`), sway, hop |
 | `keys` | poses at times (`at: [{t, turns, move}]`), eased `smooth` or `linear`; a key leaves out what is at rest |
-| `gait` | legs step in place: `legs: {name: phase}`, `stride`, `lift`, `duty` (share of a cycle on the ground). Feet are planted by inverse kinematics; knees bend the way they were modelled. A `.L` leg's twin steps half a cycle later unless listed |
+| `gait` | legs step in place: `legs: {name: phase}`, `stride`, `lift`, `duty` (share of a cycle on the ground). Feet are planted by inverse kinematics; knees bend the way they were modelled. A `.L` leg's twin steps half a cycle later unless listed. `per_leg: {"leg.R": {"lift": 0.015, "duty": 0.5}}` gives one leg its own lift and duty: a **limp** (its stride follows from its duty, so no foot skates) |
 
 Recipes that work: a **walk** staggers four feet (`hind.L 0, fore.L 0.25, hind.R 0.5,
 fore.R 0.75`) or alternates two (`leg.L 0`), with a `bounce` bob at two cycles. **Arms** swing
 against the legs: `upper_arm.L` and `upper_arm.R` as two `turn`s half a cycle apart (`.*`
 would swing them together). **Feet stay put** in a clip that is not a walk (idle, attack):
 add a `gait` with `stride: 0`. A **loop** must hold whole cycles; the clip ends where it began.
+
+Every clip lasts exactly its `seconds`: without an `fps` the rig picks the first of 24, 30, 25,
+60, ... at which every clip is a whole number of frames (3.0, 1.2 and 0.9 s give 30), and
+`generate` reads the clips back from the shipped file (`roundtrip_clips_match`: names, lengths,
+loops that end where they start).
 
 ### What the checks mean
 
@@ -233,6 +303,7 @@ gradient) and six frames of every clip. Its frames are the skinning sum Blender 
 
 | Flag | Cause | Fix |
 | --- | --- | --- |
+| `skin tears ... at chest/upper_arm.L` | the named bones' skin stretches past 2x (or folds under 0.25x) | turn those joints less, soften those bones, or model them further apart |
 | `X shares skin with Y: model them apart` | a limb fused to the body or another limb | move the limb out of the smooth-union `k` (A-pose, legs apart) |
 | `skin tears` (over 2x) / `skin folds` (under 0.25x) | a joint turned too far for its blend, or fused geometry | turn less, soften that bone (`softness`), model apart |
 | `sinks into the ground` | the body moves down while feet are not planted | add a `gait` with `stride: 0`, or move less |
@@ -273,7 +344,9 @@ Layers paint in order. Each has a `color` (linear 0..1, like `base_color`), an `
 | `mottle` | patches of noise | `scale` features per metre (6), `coverage` 0..1 (0.5), `contrast` (2), `octaves` (3), `seed`, `stretch` [x, y, z] ([1, 1, 1]; [1, 1, 6] makes streaks six times taller) |
 | `grain` | stripes | `spacing` (required), `axis` x, y, z (layers across that axis) or `radial` (rings round Z: a cut log), `warp` in spacings (1), `sharpness` (2: higher is thinner lines), `seed` |
 | `spots` | round spots | `size` diameter (required), `spacing` on the surface (2 x size), `density` share of places with a spot (0.7), `softness` 0 crisp to 1 blurred (0.3), `seed` |
-| `gradient` | a fade | `axis` (z), full at `from`, none at `to`: grime at the base, sun-bleached tops |
+| `gradient` | a fade | `axis` (z), full at `from`, none at `to`: grime at the base, sun-bleached tops; `breakup` 0..1 makes the line ragged |
+| `facing` | where the surface faces `direction` ([0, 0, 1]: up) within `angle` degrees (45), fading over `soft` more (20) | `breakup`, `scale`, `seed`: moss and snow on tops, dust on ledges, rust under overhangs ([0, 0, -1]) |
+| `cells` | lines where cells `size` across meet, `width` wide (8% of size) | `fill` 0..1 paints each cell's inside by a random share: plates, scales, cracks, cobbles |
 | `edges` | outward bends tighter than `radius` (0.05) | `breakup` 0..1 breaks the line with noise; worn, lighter edges |
 | `cavities` | inward bends tighter than `radius` | the same keys; dirt in creases and joins |
 
@@ -281,6 +354,10 @@ Layers paint in order. Each has a `color` (linear 0..1, like `base_color`), an `
 curvature (a sculpt's shoulders, where a leg joins the body), sharp ones by distance to the
 crease (a crate's bevelled corners, which no vertex curvature sees). A right-angled edge reads
 the same before and after a one-segment bevel.
+
+A material's `alpha` (0..1, default 1) makes it see-through: glass, a membrane. It ships as
+glTF `alphaMode: BLEND`, and the inspection sheet draws it as a fine checker so what is behind
+it shows.
 
 Patterns are written in the coordinates the asset was written in: a sculpt's patterns in its
 shape's coordinates, before it is settled on the ground (the same as its rig). A kit generator
@@ -316,7 +393,9 @@ Limits:
 - `ag.py pack` (vertex colours, no textures) still colours by each material's base colour.
 
 Examples: `sculpt_tree_stump` (bark, moss, rings), `sculpt_boulder_mossy` (strata, lichen),
-`sculpt_cave_toad` (warts, mottle), `sculpt_cave_imp`, `crate_small` (grain, worn edges).
+`sculpt_barnacle_rock` (moss creeping down by `facing`), `sculpt_cave_toad` (warts),
+`creature_gloom_crawler` (chitin plates by `cells`), `crate_small` (grain, worn edges),
+`prop_crypt_lantern` (rust, worn edges, glass).
 
 ## Looking at an asset
 
@@ -328,6 +407,10 @@ generator in about a second:
 python tools/ag.py look prop_shovel          # kit: from the generator, before bevel and unwrap
 python tools/ag.py look prop_shovel --glb    # any asset: from the shipped .glb
 ```
+
+The colour views are lit as the asset ships: smooth where its shading is smooth, hard at
+creases and on flat parts (a kit asset by its shading steps, a shipped file by its own
+normals). The wire and facing views stay flat per triangle, to show the topology.
 
 Every `generate` writes the same sheet from the shipped file (`assets/out/look/<id>.png`) and adds
 its measurements to the report: size, triangles per material, parts, floating parts (not on the

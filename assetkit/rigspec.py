@@ -11,7 +11,6 @@
       "carry": {"body": ["body"], "head": ["head", "eye"], "foot.L": ["foot"]},
       "legs": {"hind.L": {"upper": "thigh.L", "lower": "shin.L", "foot": "foot.L"}},
       "softness": {"default": 0.015, "head": 0.008},
-      "fps": 24,
       "clips": {"Walk": {"seconds": 1.0, "loop": true, "motions": [...]}}
     }
 
@@ -26,7 +25,9 @@
   over `softness` metres (default 2% of the shape's size): smaller is a crisper joint.
 - `legs` name two-bone limbs (upper, lower, optional foot) for `gait` (see assetkit/motion.py);
   `knee` gives the bend direction for a leg modelled straight.
-- `clips`: see assetkit/motion.py. Clip names become the glTF animation names.
+- `clips`: see assetkit/motion.py. Clip names become the glTF animation names. Each lasts
+  exactly its `seconds`: without an `fps`, the rig takes the first of 24, 30, 25, 60, ... at
+  which every length is a whole number of frames (1.2 s and 0.9 s give 30).
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from assetkit import sdf
-from assetkit.motion import MotionError, build_clip
+from assetkit.motion import RATES, MotionError, build_clip, pick_fps
 from assetkit.rig import Bone, Clip, Leg, Skeleton, Vec, add, mirror, twin_name
 
 
@@ -159,11 +160,25 @@ def build_rig(
         if value <= 0:
             raise RigError(f"{path}.softness.{name}: must be positive")
 
-    fps = spec.get("fps", 24)
+    clips_raw = _object(spec.get("clips", {}), f"{path}.clips")
+    fps = spec.get("fps")
+    if fps is None:
+        # Without an fps, the first common rate at which every clip lasts exactly its seconds.
+        lengths = [
+            float(c["seconds"])
+            for c in clips_raw.values()
+            if isinstance(c, dict) and isinstance(c.get("seconds"), int | float) and c["seconds"] > 0
+        ]
+        fps = pick_fps(lengths) if lengths else 24
+        if fps is None:
+            raise RigError(
+                f"{path}.clips: no common frame rate ({', '.join(map(str, RATES))}) makes every clip "
+                f"length {sorted(set(lengths))} s a whole number of frames; set `fps` or round the lengths"
+            )
     if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 120:
         raise RigError(f"{path}.fps: expected a whole number 1..120")
     clips = []
-    for name, value in _object(spec.get("clips", {}), f"{path}.clips").items():
+    for name, value in clips_raw.items():
         try:
             clips.append(build_clip(name, value, skeleton, legs, fps, f"{path}.clips.{name}"))
         except MotionError as exc:

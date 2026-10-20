@@ -281,10 +281,18 @@ builds the armature and one glTF animation per clip, matching the kit's own skin
 limbs, tearing skin and feet through the floor. See `assets/specs/sculpt_cave_toad.json` and
 `sculpt_cave_imp.json`.
 
+## Hard-surface props in JSON
+
+`prop.assembly` builds lanterns, chests, tools and fittings from exact pieces written in the
+spec: boxes, rods between two points, spheres, rings, turned profiles, bent tubes and extruded
+outlines, each with its own material, placed, repeated round an axis or in a row, mirrored and
+grouped. A bevel rounds the pieces thick enough for one. See `assets/specs/prop_crypt_lantern.json`
+and "Hard-surface props in JSON" in [`docs/ASSETKIT.md`](docs/ASSETKIT.md).
+
 ## Materials as recipes
 
-A spec's material can carry a `pattern`: layers of mottling, grain, spots, gradients, worn
-edges and dirty creases, written in JSON. The kit evaluates them on the surface and bakes them
+A spec's material can carry a `pattern`: layers of mottling, grain, spots, cells, gradients,
+moss on what faces up, worn edges and dirty creases, written in JSON; `alpha` makes it glass. The kit evaluates them on the surface and bakes them
 into colour and roughness textures on the final UVs; the .glb ships them. `ag.py look` shows the
 patterns without Blender and reports how much each layer paints, so an invisible or
 overpowering layer is caught before a build. See "Materials" in

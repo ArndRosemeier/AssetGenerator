@@ -58,3 +58,23 @@ def action_fcurves(action: bpy.types.Action) -> list[bpy.types.FCurve]:
         for bag in strip.channelbags
         for fcurve in bag.fcurves
     ]
+
+
+def set_blended(material: bpy.types.Material) -> None:
+    """Draw the material see-through by its alpha (glTF alphaMode BLEND).
+
+    4.2 replaced `blend_method` with `surface_render_method`; every supported version has it,
+    and the glTF exporter writes BLEND for an alpha below 1 either way.
+    """
+    material.surface_render_method = "BLENDED"
+
+
+def set_edge_bevel_weights(mesh: bpy.types.Mesh, weights: list[float]) -> str:
+    """One bevel weight per edge, for a bevel limited by weight; returns the attribute's name.
+
+    4.0 moved bevel weights from `MeshEdge.bevel_weight` to this float edge attribute.
+    """
+    name = "bevel_weight_edge"
+    attribute = mesh.attributes.get(name) or mesh.attributes.new(name, "FLOAT", "EDGE")
+    attribute.data.foreach_set("value", weights)
+    return name
