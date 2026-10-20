@@ -300,6 +300,12 @@ class LookTests(unittest.TestCase):
         stacked = measure(self._model(((0, 0, 0), (1, 1, 1)), ((0.2, 0.2, 1), (0.6, 0.6, 1.5))))
         self.assertIsNone(proud["coplanar_overlap"])
         self.assertIsNone(stacked["coplanar_overlap"])
+        # Sealed: a third part pressed flat against both hides the overlap (a post sunk flush
+        # behind a plank), so nothing can flicker there.
+        sealed = measure(
+            self._model(((0, 0, 0), (1, 1, 1)), ((0.2, 0, 0.2), (0.6, 0.05, 0.6)), ((0, -0.1, 0), (1, 0, 1)))
+        )
+        self.assertIsNone(sealed["coplanar_overlap"])
 
     def test_a_narrow_worn_edge_registers_on_a_large_flat_face(self) -> None:
         from assetkit.material import parse_pattern

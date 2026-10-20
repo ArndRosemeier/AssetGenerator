@@ -487,7 +487,8 @@ bracket sits on a wall on purpose.
 facing the same way, and overlap; no renderer can tell which is in front, so that area
 flickers. A plank flush with its frame, two crossed beams of the same width, a trim plate at
 the wall's own depth. The FACING view marks them yellow. Move one part a millimetre or more,
-or make one a little narrower. (Faces resting on the ground are left out: nobody sees them.)
+or make one a little narrower. (Faces resting on the ground, or sealed behind a third part
+pressed flat against them, are left out: nobody sees them.)
 
 ### Kits: assets that go together
 

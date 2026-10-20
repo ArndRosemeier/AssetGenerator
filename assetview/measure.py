@@ -131,10 +131,34 @@ def _coplanar_overlap(p: np.ndarray, t: np.ndarray, islands: np.ndarray) -> dict
             pairs.append((int(i), int(j)))
         if len(pairs) > 50_000:
             break
+    # Faces turned the other way in the same plane, per direction bin, sorted by offset: a third
+    # part pressed flat against the overlap hides it (a post sunk flush behind a plank).
+    facing: dict[tuple[int, ...], tuple[np.ndarray, np.ndarray]] = {}
+    for key in np.unique(direction, axis=0):
+        members = keep[(direction == key).all(axis=1)]
+        members = members[np.argsort(d[members])]
+        facing[tuple(int(x) for x in key)] = (d[members], members)
     total, best, best_at, tris = 0.0, 0.0, None, set()
     for i, j in pairs:
-        area = _overlap_area(p[t[i]], p[t[j]], n[i])
+        u, v = _basis(n[i])
+        shared = _clip(_flat(p[t[i]], u, v), _flat(p[t[j]], u, v))
+        area = _polygon_area(shared)
         if area <= 0.0:
+            continue
+        offsets, members = facing.get(
+            tuple(int(x) for x in np.round(-n[i] * 20.0)), (np.zeros(0), np.zeros(0, int))
+        )
+        lo_k, hi_k = (
+            np.searchsorted(offsets, -d[i] - COPLANAR),
+            np.searchsorted(offsets, -d[i] + COPLANAR, side="right"),
+        )
+        hidden = 0.0
+        for k in members[lo_k:hi_k]:
+            if (n[k] @ n[i]) > -0.9998:
+                continue
+            hidden += _polygon_area(_clip(shared, _flat(p[t[k]], u, v)))
+        area -= min(hidden, area)
+        if area <= 1e-9:
             continue
         total += area
         tris.update((i, j))
@@ -145,24 +169,35 @@ def _coplanar_overlap(p: np.ndarray, t: np.ndarray, islands: np.ndarray) -> dict
     return {"area_m2": round(total, 6), "at": _round(best_at), "triangles": sorted(tris)}
 
 
-def _overlap_area(tri_a: np.ndarray, tri_b: np.ndarray, normal: np.ndarray) -> float:
-    """Area shared by two triangles in (about) one plane: clip one by the other, in the plane."""
+Polygon = list[tuple[float, float]]
+
+
+def _basis(normal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Two unit axes spanning the plane with this normal."""
     helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
     u = np.cross(normal, helper)
     u /= np.linalg.norm(u)
-    v = np.cross(normal, u)
-    pa = [(float(q @ u), float(q @ v)) for q in tri_a]
-    pb = [(float(q @ u), float(q @ v)) for q in tri_b]
+    return u, np.cross(normal, u)
 
-    def signed(poly: list[tuple[float, float]]) -> float:
-        return 0.5 * sum(
-            x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1], strict=False)
-        )
 
-    if signed(pb) < 0:
-        pb.reverse()
-    out = pa
-    for (x0, y0), (x1, y1) in zip(pb, pb[1:] + pb[:1], strict=False):
+def _flat(points: np.ndarray, u: np.ndarray, v: np.ndarray) -> Polygon:
+    return [(float(q @ u), float(q @ v)) for q in points]
+
+
+def _signed_area(poly: Polygon) -> float:
+    return 0.5 * sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1], strict=True))
+
+
+def _polygon_area(poly: Polygon) -> float:
+    return abs(_signed_area(poly)) if len(poly) >= 3 else 0.0
+
+
+def _clip(poly: Polygon, convex: Polygon) -> Polygon:
+    """The part of `poly` inside the convex polygon `convex` (Sutherland-Hodgman)."""
+    if _signed_area(convex) < 0:
+        convex = convex[::-1]
+    out = poly
+    for (x0, y0), (x1, y1) in zip(convex, convex[1:] + convex[:1], strict=True):
         if not out:
             break
 
@@ -171,8 +206,8 @@ def _overlap_area(tri_a: np.ndarray, tri_b: np.ndarray, normal: np.ndarray) -> f
         ) -> float:
             return (x1 - x0) * (q[1] - y0) - (y1 - y0) * (q[0] - x0)
 
-        clipped: list[tuple[float, float]] = []
-        for s, e in zip(out, out[1:] + out[:1], strict=False):
+        clipped: Polygon = []
+        for s, e in zip(out, out[1:] + out[:1], strict=True):
             ss, se = side(s), side(e)
             if se >= 0:
                 if ss < 0:
@@ -183,7 +218,7 @@ def _overlap_area(tri_a: np.ndarray, tri_b: np.ndarray, normal: np.ndarray) -> f
                 f = ss / (ss - se)
                 clipped.append((s[0] + f * (e[0] - s[0]), s[1] + f * (e[1] - s[1])))
         out = clipped
-    return abs(signed(out)) if len(out) >= 3 else 0.0
+    return out
 
 
 def _floating(parts: list[dict], ground: float, tolerance: float) -> list[int]:
