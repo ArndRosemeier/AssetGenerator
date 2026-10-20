@@ -104,7 +104,30 @@ def rasterize(model: ViewModel, fr: Frame, size: int) -> Pass:
         [np.linalg.norm(b - a, axis=1), np.linalg.norm(c - b, axis=1), np.linalg.norm(a - c, axis=1)], axis=1
     )
 
-    for t in np.nonzero(visible)[0]:
+    # Small triangles (nearly all of them) are drawn together, a batch per size: every candidate
+    # pixel of every triangle at once, then the nearest triangle per pixel by one sort.
+    span = np.maximum(hi - lo, 1).max(axis=1)
+    candidates: list[tuple[np.ndarray, ...]] = []
+    done = np.zeros(len(area), dtype=bool)
+    for side in (2, 4, 8, 16, 32, 64):
+        batch = np.nonzero(visible & ~done & (span <= side))[0]
+        done[batch] = True
+        if len(batch):
+            candidates.append(
+                _batch(batch, side, lo, corners, area, tri_close, edge_len, model.real_edges, size)
+            )
+    if candidates:
+        pix, z, t, near = (np.concatenate(c) for c in zip(*candidates, strict=True))
+        order = np.lexsort((-z, pix))
+        pix, z, t, near = pix[order], z[order], t[order], near[order]
+        first = np.ones(len(pix), dtype=bool)
+        first[1:] = pix[1:] != pix[:-1]
+        depth.flat[pix[first]] = z[first]
+        tri.flat[pix[first]] = t[first]
+        wire.flat[pix[first]] = near[first]
+
+    # The few large ones, one at a time.
+    for t in np.nonzero(visible & ~done)[0]:
         x0, y0 = max(lo[t, 0], 0), max(lo[t, 1], 0)
         x1, y1 = min(hi[t, 0], size - 1), min(hi[t, 1], size - 1)
         ys, xs = np.mgrid[y0 : y1 + 1, x0 : x1 + 1]
@@ -132,3 +155,46 @@ def rasterize(model: ViewModel, fr: Frame, size: int) -> Pass:
                 near |= weight * twice / max(edge_len[t, k], 1e-9) < 0.6
         wire[y0 : y1 + 1, x0 : x1 + 1][win] = near[win]
     return Pass(tri=tri, wire=wire, closeness=depth, front=front, frame=fr)
+
+
+def _batch(
+    batch: np.ndarray,
+    side: int,
+    lo: np.ndarray,
+    corners: np.ndarray,
+    area: np.ndarray,
+    tri_close: np.ndarray,
+    edge_len: np.ndarray,
+    real_edges: np.ndarray,
+    size: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Every pixel inside one of `batch`'s triangles (each within a side x side box): flat pixel
+    index, closeness, triangle id, and whether it lies on a polygon edge."""
+    dy, dx = np.mgrid[0 : side + 1, 0 : side + 1]
+    xs = lo[batch, 0][:, None] + dx.ravel()[None, :]
+    ys = lo[batch, 1][:, None] + dy.ravel()[None, :]
+    px, py = xs + 0.5, ys + 0.5
+    c = corners[batch]
+    ax, ay = c[:, 0, 0][:, None], c[:, 0, 1][:, None]
+    bx, by = c[:, 1, 0][:, None], c[:, 1, 1][:, None]
+    cx, cy = c[:, 2, 0][:, None], c[:, 2, 1][:, None]
+    a = area[batch][:, None]
+    w0 = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / a
+    w1 = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / a
+    w2 = 1.0 - w0 - w1
+    inside = (w0 >= -1e-9) & (w1 >= -1e-9) & (w2 >= -1e-9) & (xs >= 0) & (xs < size) & (ys >= 0) & (ys < size)
+    tc = tri_close[batch]
+    z = w0 * tc[:, 0:1] + w1 * tc[:, 1:2] + w2 * tc[:, 2:3]
+    twice = np.abs(a)
+    near = np.zeros_like(inside)
+    for k, weight in enumerate((w2, w0, w1)):
+        near |= real_edges[batch, k][:, None] & (
+            weight * twice / np.maximum(edge_len[batch, k], 1e-9)[:, None] < 0.6
+        )
+    rows, cols = np.nonzero(inside)
+    return (
+        ys[rows, cols] * size + xs[rows, cols],
+        z[rows, cols],
+        batch[rows],
+        near[rows, cols],
+    )

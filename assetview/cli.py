@@ -6,7 +6,8 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from assetview import from_asset, from_glb, look
+from assetview import from_asset, from_glb, look, write_png
+from assetview.rigsheet import render_rig_sheet
 from blender.lib.registry import KIT_GENERATORS, resolve_generator_module
 from blender.lib.spec import SpecError, load_spec
 
@@ -24,9 +25,11 @@ def look_target(target: str, out_dir: Path, from_shipped: bool) -> dict[str, obj
         return report
     spec_path = path if path.is_file() else SPEC_DIR / f"{target.removesuffix('.json')}.json"
     spec = load_spec(spec_path)
+    asset = None
     if spec.generator in KIT_GENERATORS and not from_shipped:
         module = importlib.import_module(resolve_generator_module(spec.generator))
-        model = from_asset(module.build(spec))
+        asset = module.build(spec)
+        model = from_asset(asset)
     else:
         glb = out_dir / spec.glb_name
         if not glb.is_file():
@@ -36,4 +39,20 @@ def look_target(target: str, out_dir: Path, from_shipped: bool) -> dict[str, obj
         model = from_glb(glb)
     report = look(model, spec.asset_id, out_dir / "look" / f"{spec.asset_id}.png")
     report["asset_id"] = spec.asset_id
+    if asset is not None and asset.skeleton is not None:
+        report.update(look_rig(asset, spec.asset_id, out_dir))
     return report
+
+
+def look_rig(asset: object, asset_id: str, out_dir: Path) -> dict[str, object]:
+    """The rig sheet of a rigged kit asset, and the lines it adds to the report."""
+    image, clips, warnings = render_rig_sheet(asset, asset_id)  # type: ignore[arg-type]
+    path = out_dir / "look" / f"{asset_id}_rig.png"
+    write_png(path, image)
+    lines = [f"rig: {len(asset.skeleton.bones)} bones, sheet {path.name}"]  # type: ignore[attr-defined]
+    lines += [f"rig: {w}" for w in warnings]
+    for c in clips:
+        lines.append(
+            f"clip {c['clip']}: {c['seconds']} s, " + ("; ".join(c["flags"]) if c["flags"] else "ok")
+        )  # type: ignore[arg-type]
+    return {"rig_sheet": str(path), "clips": clips, "rig_warnings": warnings, "rig_summary": lines}

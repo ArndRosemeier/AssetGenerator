@@ -264,9 +264,11 @@ def cmd_look(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(look, indent=2))
     else:
-        for line in look["summary"]:  # type: ignore[index]
+        for line in [*look["summary"], *look.get("rig_summary", [])]:  # type: ignore[index, union-attr]
             print(line)
         print(f"-> look: {look['sheet']}")  # type: ignore[index]
+        if "rig_sheet" in look:  # type: ignore[operator]
+            print(f"-> rig: {look['rig_sheet']}")  # type: ignore[index]
     return 0
 
 

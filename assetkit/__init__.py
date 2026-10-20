@@ -5,8 +5,10 @@ using only this package and the standard library. It never imports `bpy`,
 `bmesh` or `mathutils`, so it runs and can be tested without Blender, and a new
 Blender version changes the backend (blender/backend/), not the generators.
 
-`assetkit.sdf` (distance-function shapes and their meshing), `assetkit.simplify`
-and `assetkit.sculpt` (shape trees as JSON) also need numpy; import them by name.
+`assetkit.sdf` (distance-function shapes and their meshing), `assetkit.simplify`,
+`assetkit.sculpt` (shape trees as JSON), `assetkit.skinning` and `assetkit.rigspec`
+(rigs as JSON) also need numpy; import them by name. `assetkit.rig` (skeletons,
+poses, clips) and `assetkit.motion` (clips as JSON) are standard library only.
 
 API_VERSION counts breaking changes to what is exported here. Adding is not
 breaking; renaming or changing a meaning is, and needs every kit generator moved

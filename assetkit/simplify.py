@@ -48,7 +48,7 @@ def simplify(vertices: np.ndarray, faces: np.ndarray, max_triangles: int) -> tup
     def push(u: int, v: int) -> None:
         if u > v:
             u, v = v, u
-        cost = _candidates(quadric[u], quadric[v], pos[u], pos[v])[0][0]
+        cost = min(c for c, _ in _candidates(quadric[u], quadric[v], pos[u], pos[v], ordered=False))
         heapq.heappush(heap, (cost, u, v, version[u], version[v]))
 
     edges = {tuple(sorted((f[i], f[(i + 1) % 3]))) for f in tris for i in range(3)}
@@ -136,7 +136,7 @@ def _error(q: Quadric, p: list[float]) -> float:
 
 
 def _candidates(
-    qu: Quadric, qv: Quadric, pu: list[float], pv: list[float]
+    qu: Quadric, qv: Quadric, pu: list[float], pv: list[float], ordered: bool = True
 ) -> list[tuple[float, list[float]]]:
     """Places for the merged vertex with the error each costs, cheapest first: the quadric's
     minimum when it is well defined and near the edge, the two ends and the middle."""
@@ -154,7 +154,8 @@ def _candidates(
         length = math.dist(pu, pv)
         if math.dist((x, y, z), middle) <= length:  # a far minimum is a sliver's artefact, not a fit
             candidates.insert(0, [x, y, z])
-    return sorted(((max(_error(q, p), 0.0), p) for p in candidates), key=lambda pair: pair[0])
+    priced = [(max(_error(q, p), 0.0), p) for p in candidates]
+    return sorted(priced, key=lambda pair: pair[0]) if ordered else priced
 
 
 def _ring(u: int, vert_faces: list[set[int]], tris: list[list[int]]) -> set[int]:
