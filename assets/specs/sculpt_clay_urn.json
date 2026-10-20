@@ -1,0 +1,347 @@
+{
+  "spec_version": 1,
+  "id": "sculpt_clay_urn",
+  "generator": "organic.sculpt",
+  "params": {
+    "parts": {
+      "body": {
+        "loft": {
+          "sections": [
+            [
+              0.0,
+              0.11,
+              0.1
+            ],
+            [
+              0.03,
+              0.125,
+              0.115
+            ],
+            [
+              0.07,
+              0.11,
+              0.1
+            ],
+            [
+              0.2,
+              0.24,
+              0.2
+            ],
+            [
+              0.36,
+              0.29,
+              0.24
+            ],
+            [
+              0.52,
+              0.24,
+              0.2
+            ],
+            [
+              0.62,
+              0.12,
+              0.105
+            ],
+            [
+              0.7,
+              0.095,
+              0.085
+            ],
+            [
+              0.76,
+              0.13,
+              0.115
+            ],
+            [
+              0.79,
+              0.13,
+              0.115
+            ]
+          ]
+        }
+      },
+      "hollow": {
+        "loft": {
+          "sections": [
+            [
+              0.09,
+              0.08,
+              0.07
+            ],
+            [
+              0.2,
+              0.21,
+              0.17
+            ],
+            [
+              0.36,
+              0.26,
+              0.21
+            ],
+            [
+              0.5,
+              0.2,
+              0.16
+            ],
+            [
+              0.6,
+              0.08,
+              0.068
+            ],
+            [
+              0.7,
+              0.065,
+              0.055
+            ],
+            [
+              0.76,
+              0.1,
+              0.085
+            ],
+            [
+              0.84,
+              0.1,
+              0.085
+            ]
+          ]
+        }
+      },
+      "handles": {
+        "mirror_x": {
+          "sweep": {
+            "points": [
+              [
+                0.17,
+                0.0,
+                0.62
+              ],
+              [
+                0.27,
+                0.0,
+                0.62
+              ],
+              [
+                0.3,
+                0.0,
+                0.52
+              ],
+              [
+                0.24,
+                0.0,
+                0.44
+              ]
+            ],
+            "radius": [
+              0.02,
+              0.022,
+              0.022,
+              0.024
+            ]
+          }
+        }
+      },
+      "band": {
+        "box": {
+          "centre": [
+            0,
+            0,
+            0.43
+          ],
+          "size": [
+            1.0,
+            1.0,
+            0.035
+          ]
+        }
+      },
+      "band_low": {
+        "box": {
+          "centre": [
+            0,
+            0,
+            0.2
+          ],
+          "size": [
+            1.0,
+            1.0,
+            0.02
+          ]
+        }
+      },
+      "lip_band": {
+        "box": {
+          "centre": [
+            0,
+            0,
+            0.775
+          ],
+          "size": [
+            1.0,
+            1.0,
+            0.02
+          ]
+        }
+      }
+    },
+    "shape": {
+      "smooth_union": {
+        "k": 0.025,
+        "shapes": [
+          {
+            "subtract": {
+              "from": {
+                "ref": "body"
+              },
+              "cut": [
+                {
+                  "ref": "hollow"
+                }
+              ],
+              "k": 0.01
+            }
+          },
+          {
+            "ref": "handles"
+          }
+        ]
+      }
+    },
+    "base_slot": "clay",
+    "max_triangles": 6000
+  },
+  "materials": {
+    "clay": {
+      "base_color": [
+        0.55,
+        0.29,
+        0.17,
+        1
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.62,
+                0.36,
+                0.21
+              ],
+              "scale": 8,
+              "coverage": 0.4,
+              "amount": 0.6
+            }
+          },
+          {
+            "grain": {
+              "color": [
+                0.47,
+                0.24,
+                0.14
+              ],
+              "axis": "z",
+              "spacing": 0.008,
+              "warp": 0.3,
+              "sharpness": 4,
+              "amount": 0.35,
+              "relief": -0.0006
+            }
+          },
+          {
+            "inside": {
+              "shape": {
+                "ref": "band"
+              },
+              "color": [
+                0.13,
+                0.08,
+                0.06
+              ],
+              "soft": 0.003
+            }
+          },
+          {
+            "inside": {
+              "shape": {
+                "ref": "band_low"
+              },
+              "color": [
+                0.13,
+                0.08,
+                0.06
+              ],
+              "soft": 0.003
+            }
+          },
+          {
+            "inside": {
+              "shape": {
+                "ref": "lip_band"
+              },
+              "color": [
+                0.13,
+                0.08,
+                0.06
+              ],
+              "soft": 0.003
+            }
+          },
+          {
+            "cells": {
+              "color": [
+                0.3,
+                0.17,
+                0.1
+              ],
+              "size": 0.06,
+              "width": 0.0015,
+              "amount": 0.4
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.7,
+                0.5,
+                0.36
+              ],
+              "radius": 0.012,
+              "amount": 0.6,
+              "breakup": 0.5
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.3,
+                0.22,
+                0.16
+              ],
+              "axis": "z",
+              "from": 0.0,
+              "to": 0.18,
+              "breakup": 0.5,
+              "amount": 0.6
+            }
+          }
+        ]
+      }
+    }
+  },
+  "lods": [
+    {
+      "max_triangles": 2400
+    },
+    {
+      "max_triangles": 900
+    }
+  ],
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.0
+  }
+}

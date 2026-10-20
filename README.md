@@ -171,6 +171,7 @@ That writes `assets/out/crate_small.glb` and three renders in `assets/out/previe
 | `python tools/ag.py preview <id>` | Re-render previews from the existing `.glb` |
 | `python tools/ag.py validate <id>` | Re-open the shipped `.glb` and re-run the gates on it |
 | `python tools/ag.py look <id>` | Nine-view inspection sheet + measurements, in about a second |
+| `python tools/ag.py look <id>_lod1` | A LOD level of an asset whose spec has `lods` (`generate` builds them all) |
 | `python tools/ag.py look kit:<name>` | Several assets placed together (`assets/kits/<name>.json`), every joint measured |
 | `python tools/ag.py specs` | List available specs |
 | `python tools/ag.py generators` | List registered generators |

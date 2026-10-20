@@ -219,7 +219,7 @@ def sweep(points: Sequence[Vec], radius: float | Sequence[float]) -> Shape:
             samples.append(_catmull_rom(p0, p1, p2, p3, t))
             r = _catmull_rom_scalar(rad[i - 1], rad[i], rad[i + 1], rad[i + 2], t)
             sample_r.append(max(r, 0.25 * min(rad[i], rad[i + 1])))
-    pieces, blends = [], []
+    pieces = []
     for a, b, ra, rb in zip(samples[:-1], samples[1:], sample_r[:-1], sample_r[1:], strict=True):
         length = float(math.sqrt(float(((b - a) ** 2).sum())))
         if length < 1e-9:
@@ -227,25 +227,10 @@ def sweep(points: Sequence[Vec], radius: float | Sequence[float]) -> Shape:
         if abs(ra - rb) >= 0.98 * length:  # a step steeper than the span: keep it just inside
             rb = ra + math.copysign(0.98 * length, rb - ra)
         pieces.append(capsule(tuple(a), tuple(b), ra, rb))
-        blends.append(0.15 * min(ra, rb))
-    boxes = [(_vec(s.lower), _vec(s.upper)) for s in pieces]
-
-    def distance(p: np.ndarray) -> np.ndarray:
-        # Neighbouring pieces meet at a faint crease a plain minimum would keep (and the normal
-        # map would show): blend each in over a sixth of its radius, which smooths the crease
-        # and swells the tube by under 1%.
-        result = pieces[0](p)
-        for s, (lo, hi), k in zip(pieces[1:], boxes[1:], blends[1:], strict=True):
-            gap = _length(np.maximum(np.maximum(lo - p, p - hi), 0.0))
-            near = np.nonzero(gap < result + k)[0]
-            if not len(near):
-                continue
-            d, r = s(p[near]), result[near]
-            h = np.clip(0.5 + 0.5 * (r - d) / k, 0.0, 1.0)
-            result[near] = r + (d - r) * h - k * h * (1.0 - h)
-        return result
-
-    return Shape(distance, *_union_bounds(pieces, 0.0), "sweep")
+    # Each piece is a round cone ending in the spheres it shares with its neighbours, so their
+    # union is the exact distance to one continuous tube.
+    shape = union(*pieces)
+    return Shape(shape.distance, shape.lower, shape.upper, "sweep")
 
 
 def loft(sections: Sequence[Sequence[float]], rounding: float | None = None) -> Shape:
@@ -301,10 +286,8 @@ def loft(sections: Sequence[Sequence[float]], rounding: float | None = None) -> 
         outside = np.sqrt(np.maximum(a, 0.0) ** 2 + np.maximum(b, 0.0) ** 2)
         return outside + np.minimum(np.maximum(a, b), 0.0) - r_end
 
-    pad = float(max(w.max(), d.max()))
     lo = (float((cx - w).min()), float((cy - d).min()), zs[0])
     hi = (float((cx + w).max()), float((cy + d).max()), zs[-1])
-    del pad
     return Shape(distance, lo, hi, "loft")
 
 
@@ -532,6 +515,14 @@ def half_space(height: float, above: bool = False) -> Shape:
 # --------------------------------------------------------------------------------------------
 
 
+def _floor(p: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+    """The least distance a shape within the box [lo, hi] can have at `p`: the distance to the
+    box outside it; inside, no deeper than half the box's thinnest side. A shape whose floor is
+    no nearer than the result so far cannot change a minimum (nor a blend past its width)."""
+    gap = _length(np.maximum(np.maximum(lo - p, p - hi), 0.0))
+    return np.where(gap > 0.0, gap, -0.5 * float((hi - lo).min()))
+
+
 def union(*shapes: Shape) -> Shape:
     if not shapes:
         raise ValueError("union needs at least one shape")
@@ -542,8 +533,7 @@ def union(*shapes: Shape) -> Shape:
         for s, (lo, hi) in zip(shapes[1:], boxes[1:], strict=True):
             # A shape is no nearer than its bounding box: where the box is already further than
             # the nearest shape so far, the minimum cannot change, so skip the work there.
-            gap = _length(np.maximum(np.maximum(lo - p, p - hi), 0.0))
-            near = gap < result
+            near = _floor(p, lo, hi) < result
             if near.all():
                 result = np.minimum(result, s(p))
             elif near.any():
@@ -582,8 +572,7 @@ def blend(shapes: Sequence[Shape], k: float | Sequence[float]) -> Shape:
     def distance(p: np.ndarray) -> np.ndarray:
         result = shapes[0](p)
         for s, (lo, hi), kk in zip(shapes[1:], boxes[1:], ks[1:], strict=True):
-            gap = _length(np.maximum(np.maximum(lo - p, p - hi), 0.0))
-            near = np.nonzero(gap < result + kk)[0]
+            near = np.nonzero(_floor(p, lo, hi) < result + kk)[0]
             if not len(near):
                 continue
             da, db = result[near], s(p[near])
@@ -614,7 +603,7 @@ def squash(shape: Shape, axis: Vec, factor: float, about: Vec) -> Shape:
          for z in (shape.lower[2], shape.upper[2])]
     )  # fmt: skip
     q = corners - c
-    moved = c + q + (factor - 1.0) * (q @ u)[:, None] * u
+    moved = c + q + (factor - 1.0) * _dot(q, np.tile(u, (len(q), 1)))[:, None] * u
     return Shape(distance, *_box_bounds(moved.min(axis=0), moved.max(axis=0)), shape.label)
 
 
