@@ -17,7 +17,7 @@ import numpy as np
 
 from assetkit import Asset
 from assetkit.asset import pattern_of
-from assetkit.skinning import clip_flags, clip_report, deform, shared_skin
+from assetkit.skinning import clip_flags, clip_report, deform, glued_limbs, shared_skin
 from assetkit.texbake import SlotLook
 from assetview.font import draw_text, text_width
 from assetview.model import ViewModel, shading_crease
@@ -214,6 +214,11 @@ def render_rig_sheet(asset: Asset, title: str) -> tuple[np.ndarray, list[dict[st
     parents = {b.name: b.parent for b in bones}
     warnings = [
         f"{a} shares skin with {b} ({n} vertices): model them apart" for a, b, n in shared_skin(skin, parents)
+    ]
+    warnings += [
+        f"{limb} is fused to {body} along {share:.0%} of its length: it reads as part of the body;"
+        " model it further out"
+        for limb, body, share in glued_limbs(rest, faces, skin, bones)
     ]
     x = 6 + text_width(title, 2) + 12
     draw_text(sheet, title, 6, 6, LABEL, scale=2)

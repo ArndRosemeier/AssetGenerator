@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 
 import numpy as np
 
-from assetkit.rig import Clip, Motion, Skin, q_matrix
+from assetkit.rig import Bone, Clip, Motion, Skin, q_matrix
 from assetkit.sdf import Shape
 
 MAX_INFLUENCES = 4
@@ -150,6 +150,54 @@ def shared_skin(
     return sorted(((a, b, n) for (a, b), n in count.items() if n >= 3), key=lambda t: -t[2])
 
 
+def glued_limbs(
+    points: np.ndarray, faces: np.ndarray, skin: Skin, bones: Sequence[Bone], limit: float = 0.5
+) -> list[tuple[str, str, float]]:
+    """Limbs fused to the body along their length: per limb bone and each bone whose skin borders
+    its own, the share of the limb's length that border runs along. Where a limb meets its
+    parent at a joint, the border stays near one end (a share of 0.1-0.3); an arm tucked against
+    the ribs, fused by the blend, borders the chest down most of its length. Such a limb reads as
+    a lump of the body, not a limb, and tears when it moves. Pairs past `limit`, worst first."""
+    top = dominant(skin)
+    names = skin.bones
+    by_name = {b.name: b for b in bones}
+    tri = np.asarray(faces, dtype=np.int64)
+    pairs = np.concatenate([tri[:, [0, 1]], tri[:, [1, 2]], tri[:, [2, 0]]])
+    edges = np.unique(np.sort(pairs, axis=1), axis=0)
+    a, b = top[edges[:, 0]], top[edges[:, 1]]
+    cross = np.nonzero(a != b)[0]
+    middle = 0.5 * (points[edges[cross, 0]] + points[edges[cross, 1]])
+    out = []
+    for k, name in enumerate(names):
+        bone = by_name.get(name)
+        if bone is None or bone.parent is None:
+            continue
+        h, t = np.asarray(bone.head), np.asarray(bone.tail)
+        d = t - h
+        length2 = float(d @ d)
+        if length2 < 1e-12:
+            continue
+        length = math.sqrt(length2)
+        own = points[top == k]
+        if len(own) < 8:
+            continue
+        along = np.clip(((own - h) @ d) / length2, 0.0, 1.0)
+        radius = float(np.median(np.linalg.norm(own - (h + along[:, None] * d), axis=1)))
+        mine = (a[cross] == k) | (b[cross] == k)
+        others = np.where(a[cross] == k, b[cross], a[cross])
+        for j in np.unique(others[mine]):
+            pick = mine & (others == j)
+            if pick.sum() < 4:
+                continue
+            u = ((middle[pick] - h) @ d) / length
+            # A joint's border slants across the limb: it spans up to its diameter on its own.
+            spread = float(np.percentile(u, 90) - np.percentile(u, 10)) - 2.0 * radius
+            share = max(0.0, spread) / length
+            if share > limit:
+                out.append((name, names[int(j)], round(share, 2)))
+    return sorted(out, key=lambda t: -t[2])
+
+
 def dominant(skin: Skin) -> np.ndarray:
     """Per vertex, the index (into `skin.bones`) of its strongest bone."""
     return np.array([idx[int(np.argmax(w))] for idx, w in zip(skin.indices, skin.weights, strict=True)])
@@ -213,6 +261,12 @@ def clip_report(
             name = skin.bones[top[v]]
             at[name] = at.get(name, 0) + 1
     where = [name for name, _ in sorted(at.items(), key=lambda kv: -kv[1])[:3]]
+    # How far the body moves between frames a quarter of the clip apart (what four stills, or a
+    # glance, show), over the asset's size: a walk whose feet barely travel reads as standing.
+    n = len(clip.frames)
+    quarters = [deform(points, skin, clip.frames[round(i * n / 4) % n]) for i in range(4)]
+    step = max(float(np.linalg.norm(quarters[i] - quarters[i - 1], axis=1).max()) for i in range(1, 4))
+    size = float(np.ptp(points, axis=0).max())
     return {
         "clip": clip.name,
         "seconds": round(clip.seconds, 3),
@@ -225,8 +279,15 @@ def clip_report(
         "strained_edges": strained,
         "edges": int(len(edges)),
         "moves_m": round(moved, 4),
+        "quarter_step": round(step / max(size, 1e-9), 3),
         "where": where,
     }
+
+
+#: Clip names that promise travel: a clip so named must visibly move its feet (or wings, or body).
+LOCOMOTION = (
+    "walk", "run", "trot", "gallop", "sprint", "jog", "crawl", "scuttle", "hop", "fly", "swim", "slither",
+)  # fmt: skip
 
 
 def clip_flags(report: Mapping[str, object]) -> list[str]:
@@ -245,6 +306,14 @@ def clip_flags(report: Mapping[str, object]) -> list[str]:
         flags.append(f"skin tears: stretches to {report['stretch_max']:.1f}x{at}")
     if report["stretch_min"] < 0.25:  # type: ignore[operator]
         flags.append(f"skin folds: collapses to {report['stretch_min']:.2f}x{at}")
+    name = str(report.get("clip", "")).lower()
+    travels = any(word in name for word in LOCOMOTION)
+    step = float(report.get("quarter_step", 1.0))  # type: ignore[arg-type]
+    if travels and float(report.get("moves_m", 1.0)) >= 1e-3 and step < 0.08:  # type: ignore[operator]
+        flags.append(
+            f"barely moves: {step:.0%} of the asset's size between quarter frames; a "
+            f"{report['clip']} reads as standing still (raise the stride, the swing)"
+        )
     if report["strained_edges"] > 0.05 * report["edges"]:  # type: ignore[operator]
         flags.append(f"{report['strained_edges']} edges strained (weights too hard?)")
     return flags

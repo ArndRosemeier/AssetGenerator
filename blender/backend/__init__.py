@@ -27,7 +27,7 @@ from assetkit.asset import pattern_of
 from assetkit.rig import Clip, Motion, Skeleton, Skin
 from blender.backend import compat
 from blender.lib.scene import activate, apply_bevel, make_material, shade_flat, unwrap
-from blender.lib.spec import AssetSpec
+from blender.lib.spec import AssetSpec, TextureSpec
 
 
 def build_objects(module: ModuleType, spec: AssetSpec) -> list[bpy.types.Object]:
@@ -41,12 +41,12 @@ def build(module: ModuleType, spec: AssetSpec) -> tuple[list[bpy.types.Object], 
     compat.require_supported()
     result = module.build(spec)
     if isinstance(result, Asset):
-        return realize(result), result
+        return realize(result, spec.textures), result
     return result, None
 
 
-def realize(asset: Asset) -> list[bpy.types.Object]:
-    objects = [_realize_part(part) for part in asset.parts]
+def realize(asset: Asset, textures: TextureSpec | None = None) -> list[bpy.types.Object]:
+    objects = [_realize_part(part, textures or TextureSpec()) for part in asset.parts]
     if asset.skeleton is None:
         return objects
     armature = _armature(asset.skeleton, asset.parts[0].name)
@@ -180,7 +180,7 @@ def _vertex_groups(obj: bpy.types.Object, skin: Skin) -> None:
             groups[i].add([vertex], w, "REPLACE")
 
 
-def _realize_part(part: Part) -> bpy.types.Object:
+def _realize_part(part: Part, textures: TextureSpec) -> bpy.types.Object:
     source = part.mesh
     mesh = bpy.data.meshes.new(part.name)
     mesh.from_pydata(list(source.vertices), [], [list(face) for face in source.faces])
@@ -202,11 +202,11 @@ def _realize_part(part: Part) -> bpy.types.Object:
     for step in part.finish:
         _finish(obj, step)
     if part.shape is not None or any(pattern_of(part.materials[slot]) is not None for slot in source.slots):
-        _paint(obj, part)
+        _paint(obj, part, textures)
     return obj
 
 
-def _paint(obj: bpy.types.Object, part: Part) -> None:
+def _paint(obj: bpy.types.Object, part: Part, textures: TextureSpec) -> None:
     """Bake the part's material patterns on its final mesh and UVs (assetkit/texbake.py), into
     one colour and one roughness texture, wired into every patterned slot's material (plain
     slots keep their values), and, where the part has an exact shape or a pattern has relief,
@@ -248,6 +248,8 @@ def _paint(obj: bpy.types.Object, part: Part) -> None:
         origin=part.pattern_origin,
         frames=frames,
         shape=part.shape,
+        texels_per_metre=textures.texels_per_metre,
+        max_size=textures.max_size,
     )
     color = _image(f"{part.name}_color", to_srgb(maps.color), "sRGB")
     rough = _image(f"{part.name}_roughness", np.repeat(maps.roughness[..., None], 3, axis=2), "Non-Color")
