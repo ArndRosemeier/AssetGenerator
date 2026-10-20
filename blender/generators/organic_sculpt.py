@@ -24,9 +24,12 @@ cost of build time.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from assetkit import Asset, MeshBuilder, Part, ShadeFlat, ShadeSmooth, Unwrap, sdf
+from assetkit.material import resolve_shapes
 from assetkit.rigspec import RigError, build_rig
 from assetkit.sculpt import SculptError, build_shape
 from assetkit.skinning import bind
@@ -90,6 +93,7 @@ def build(spec: AssetSpec) -> Asset:
     except (SculptError, ValueError) as exc:
         raise SpecError(str(exc)) from exc
 
+    materials = _resolved(spec.materials, parts)
     builder = MeshBuilder(slots)
     builder.add_painted(shell[0], shell[1], face_slots)
     mesh = builder.build()
@@ -109,7 +113,7 @@ def build(spec: AssetSpec) -> Asset:
     # mesh, so it moves them too.
     offset = tuple(a - b for a, b in zip(mesh.vertices[0], unsettled.vertices[0], strict=True))
     if "rig" not in raw:
-        return Asset((Part(spec.asset_id, mesh, spec.materials, finish, pattern_origin=offset, shape=shape),))
+        return Asset((Part(spec.asset_id, mesh, materials, finish, pattern_origin=offset, shape=shape),))
 
     try:
         rig = build_rig(
@@ -131,7 +135,7 @@ def build(spec: AssetSpec) -> Asset:
         )
     except (RigError, SculptError, ValueError) as exc:
         raise SpecError(str(exc)) from exc
-    part = Part(spec.asset_id, mesh, spec.materials, finish, skin=skin, pattern_origin=offset, shape=shape)
+    part = Part(spec.asset_id, mesh, materials, finish, skin=skin, pattern_origin=offset, shape=shape)
     return Asset((part,), skeleton=rig.skeleton, clips=rig.clips)
 
 
@@ -159,3 +163,21 @@ def _meshed(
             break
         shell = sdf.reduce(shape, shell, target)
     raise ValueError(f"painting needs {len(painted[1])} triangles, over the budget of {budget}")
+
+
+def _resolved(materials: dict, parts: dict) -> dict:
+    """The materials with each `inside` layer's shape built here, so it can name the spec's
+    parts (`{"ref": "eye"}`)."""
+    out = {}
+    for name, material in materials.items():
+        pattern = getattr(material, "pattern", None)
+        if pattern is not None and any(layer.kind == "inside" for layer in pattern.layers):
+            try:
+                pattern = resolve_shapes(
+                    pattern, lambda node, path, n=name: build_shape(node, parts, f"materials.{n}.{path}")
+                )
+            except SculptError as exc:
+                raise SpecError(str(exc)) from exc
+            material = replace(material, pattern=pattern)
+        out[name] = material
+    return out

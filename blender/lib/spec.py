@@ -164,6 +164,27 @@ class QaSpec:
 
 
 @dataclass(frozen=True)
+class TextureSpec:
+    """How finely patterns are baked: texels per metre of surface, and the largest map (a power of
+    two). 512 and 1024 suit a game prop; a close-up hero asset takes 1024 per metre and 4096."""
+
+    texels_per_metre: float = 512.0
+    max_size: int = 1024
+
+    @staticmethod
+    def parse(raw: object, path: str) -> TextureSpec:
+        mapping = _as_mapping(raw, path)
+        _reject_unknown(mapping, ("texels_per_metre", "max_size"), path)
+        density = as_float(mapping.get("texels_per_metre", 512.0), f"{path}.texels_per_metre")
+        if not 16.0 <= density <= 4096.0:
+            raise SpecError(f"{path}.texels_per_metre: expected 16..4096, got {density}")
+        size = as_int(mapping.get("max_size", 1024), f"{path}.max_size")
+        if size not in (64, 128, 256, 512, 1024, 2048, 4096):
+            raise SpecError(f"{path}.max_size: expected a power of two 64..4096, got {size}")
+        return TextureSpec(density, size)
+
+
+@dataclass(frozen=True)
 class AssetSpec:
     spec_version: int
     asset_id: str
@@ -172,6 +193,10 @@ class AssetSpec:
     materials: Mapping[str, MaterialSpec]
     qa: QaSpec
     source_path: Path
+    #: Lighter versions of the asset (`<id>_lod1`, `<id>_lod2`, ...): per level, its own triangle
+    #: budget and parameter overrides. `generate` builds them after the asset itself.
+    lods: tuple[Mapping[str, object], ...] = ()
+    textures: TextureSpec = TextureSpec()
 
     @property
     def glb_name(self) -> str:
@@ -181,7 +206,9 @@ class AssetSpec:
 def parse_spec(raw: object, source_path: Path) -> AssetSpec:
     path = source_path.name
     mapping = _as_mapping(raw, path)
-    _reject_unknown(mapping, ("spec_version", "id", "generator", "params", "materials", "qa"), path)
+    _reject_unknown(
+        mapping, ("spec_version", "id", "generator", "params", "materials", "qa", "lods", "textures"), path
+    )
 
     spec_version = as_int(_require(mapping, "spec_version", path), f"{path}.spec_version")
     if spec_version != SPEC_VERSION:
@@ -203,6 +230,8 @@ def parse_spec(raw: object, source_path: Path) -> AssetSpec:
     }
 
     qa = QaSpec.parse(_require(mapping, "qa", path), f"{path}.qa")
+    lods = _parse_lods(mapping.get("lods", []), qa, f"{path}.lods")
+    textures = TextureSpec.parse(mapping.get("textures", {}), f"{path}.textures")
 
     return AssetSpec(
         spec_version=spec_version,
@@ -212,7 +241,71 @@ def parse_spec(raw: object, source_path: Path) -> AssetSpec:
         materials=materials,
         qa=qa,
         source_path=source_path,
+        lods=lods,
+        textures=textures,
     )
+
+
+def _parse_lods(raw: object, qa: QaSpec, path: str) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(raw, list):
+        raise SpecError(f"{path}: expected a list of levels, each {{'max_triangles': n, 'params': {{...}}}}")
+    out = []
+    budget = qa.max_triangles
+    for i, level in enumerate(raw):
+        here = f"{path}[{i}]"
+        mapping = _as_mapping(level, here)
+        _reject_unknown(mapping, ("max_triangles", "params", "textures"), here)
+        if not mapping:
+            raise SpecError(f"{here}: give a `max_triangles` and/or `params` to change")
+        if "max_triangles" in mapping:
+            n = as_int(mapping["max_triangles"], f"{here}.max_triangles")
+            if not 8 <= n < budget:
+                raise SpecError(f"{here}.max_triangles: {n} must be 8..{budget - 1}, below the level before")
+            budget = n
+        if "params" in mapping:
+            _as_mapping(mapping["params"], f"{here}.params")
+        if "textures" in mapping:
+            TextureSpec.parse(mapping["textures"], f"{here}.textures")
+        out.append(mapping)
+    return tuple(out)
+
+
+def lod_raw(spec: AssetSpec, level: int) -> dict[str, object]:
+    """The spec of LOD `level` (1 = the first lighter one) as JSON: the asset's own spec with the
+    level's budget and parameter overrides, its id `<id>_lod<level>`, and textures half as dense
+    per level (or the level's own `textures`). Every level keeps the asset's materials, rig and
+    clips, so they swap in place in a game."""
+    if not 1 <= level <= len(spec.lods):
+        raise SpecError(f"{spec.asset_id}: no LOD {level}; it has {len(spec.lods)}")
+    raw = json.loads(spec.source_path.read_text(encoding="utf-8"))
+    raw.pop("lods", None)
+    raw["id"] = f"{spec.asset_id}_lod{level}"
+    params = dict(raw["params"])
+    qa = dict(raw["qa"])
+    for entry in spec.lods[:level]:  # each level builds on the one before
+        params.update(entry.get("params", {}))  # type: ignore[arg-type]
+        if "max_triangles" in entry:
+            qa["max_triangles"] = entry["max_triangles"]
+            if "max_triangles" in params:
+                params["max_triangles"] = entry["max_triangles"]
+    raw["params"], raw["qa"] = params, qa
+    # Each level halves the texture density and the largest map, unless it says otherwise.
+    textures = spec.lods[level - 1].get("textures")
+    if textures is None:
+        base = spec.textures
+        textures = {
+            "texels_per_metre": max(16.0, base.texels_per_metre / 2**level),
+            "max_size": max(64, base.max_size // 2**level),
+        }
+    raw["textures"] = textures
+    return raw
+
+
+def lod_spec(spec: AssetSpec, level: int, path: Path) -> AssetSpec:
+    """LOD `level` written to `path` and loaded from there (Blender reads specs from files)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(lod_raw(spec, level), indent=2) + "\n", encoding="utf-8")
+    return load_spec(path)
 
 
 def load_spec(path: Path) -> AssetSpec:

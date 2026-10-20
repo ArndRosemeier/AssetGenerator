@@ -138,11 +138,12 @@ the spec, so a new organic asset is a JSON file, not code.
 | Kind | Nodes |
 | --- | --- |
 | Primitives | `sphere`, `ellipsoid`, `box` (rounded), `capsule` (tapering with `radius_b`: limbs, horns, roots), `cylinder`, `cone` (flat ends: cups, spikes, shades), `torus` |
+| Long forms | `sweep` (a smooth tube through `points`, its `radius` flowing from one point's to the next: trunks, branches, roots, tails, tentacles, handles), `loft` (horizontal ellipses up Z, `sections` [[z, half_width, half_depth, y?, x?], ...]: urns, bottles, barrels, oval trunks, torsos) |
 | Combinations | `union`, `smooth_union` (`k` metres of blend, like clay pressed together), `subtract` (optional `k`), `intersect` |
 | Cuts | `below` / `above` a height: flat tops and flat bottoms |
-| Placement | `move`, `rotate` (degrees, X then Y then Z, `about` a pivot: tilt a chest at the waist), `scale`, `mirror_x` (model one side of a body, get both) |
+| Placement | `move`, `rotate` (degrees, X then Y then Z, `about` a pivot: tilt a chest at the waist), `scale`, `squash` (scale along any `axis` `by` a factor `about` a point: flatten, deepen, spread), `mirror_x` (model one side of a body, get both) |
 | Many | `repeat` (`count` copies a `step` apart, or `around` the Z axis: segments, ribs, legs), `scatter` (copies set on another shape's surface: barnacles, warts, spikes; below) |
-| Surface | `displace` (seeded noise: `amount` metres, features `1/scale` across, `octaves`), `round`, `shell` (hollow) |
+| Surface | `displace` (seeded noise: `amount` metres, features `1/scale` across, `octaves`), `round`, `shell` (hollow), `layer` (a coat `thickness` thick over a shape, `within` a region: moss on a log's top, a crust, armour plates, a strap; paint it with its own node) |
 | Reuse | `parts` names nodes; `{"ref": "name"}` uses one, in the shape or in `paint` |
 
 `scatter` places copies of a shape modelled at the origin, pointing up, on the surface of
@@ -151,6 +152,16 @@ another: `{"scatter": {"on": {"ref": "rock"}, "shape": {"ref": "barnacle"}, "cou
 at seeded places at least 15 cm apart where the rock faces within 55 degrees of up, stands each
 along the surface and sinks it 12 mm in; `"at": [[x, y], ...]` sets copies at chosen places.
 It returns only the copies: union them with the rock, and paint them with the same node.
+
+Stacked spheres and capsules show their seams (a trunk of three blobs reads as a stack of
+pots); a `sweep` or a `loft` is one continuous form, swelling and narrowing where its radii
+or sections say:
+
+```json
+"trunk": {"sweep": {"points": [[-1.1, 0, 0.13], [-0.55, 0.05, 0.16], [0.15, -0.04, 0.15], [1.12, 0, 0.08]],
+                    "radius": [0.17, 0.14, 0.15, 0.045]}},
+"moss":  {"layer": {"on": {"ref": "log"}, "thickness": 0.014, "within": {"ref": "moss_patch"}}}
+```
 
 Articulated bodies (insects, skeletons, armour) read as articulated when their pieces stay
 distinct: join segments with `smooth_union` of a small `k` (1 to 2 cm), not one big blend; a
@@ -190,7 +201,8 @@ How it is meshed, and what that guarantees:
 is standard library only). A sculpt builds in two to fifteen seconds (thin parts, noise over
 everything and many scattered copies cost the most), so `ag.py look` takes about that long.
 
-Examples: `sculpt_boulder_mossy`, `sculpt_tree_stump`, `sculpt_barnacle_rock` (scatter),
+Examples: `sculpt_driftwood_log` (sweeps, a moss `layer`), `sculpt_clay_urn` (a hollow
+`loft`, swept handles, painted bands, LODs), `sculpt_boulder_mossy`, `sculpt_tree_stump`, `sculpt_barnacle_rock` (scatter),
 `sculpt_cave_toad`, `creature_gloom_crawler` (an insect of distinct segments),
 `creature_crypt_husk` (a hunched biped, ribs by `repeat`, a ragged skirt) in `assets/specs/`.
 
@@ -350,6 +362,8 @@ gradient) and six frames of every clip. Its frames are the skinning sum Blender 
 | `skin tears` (over 2x) / `skin folds` (under 0.25x) | a joint turned too far for its blend, or fused geometry | turn less, soften that bone (`softness`), model apart |
 | `sinks into the ground` | the body moves down while feet are not planted | add a `gait` with `stride: 0`, or move less |
 | `nothing moves` | every motion is zero or cancels | check bones and amplitudes |
+| `barely moves: 3% of the asset's size between quarter frames` | a walk (run, trot, crawl, ...) whose feet travel too little to see in four stills or a glance | raise the gait's `stride` (two thirds of the leg reads as a walk) and the swings |
+| `X is fused to Y along 70% of its length` | a limb lying against the body inside the blend, so the skin of its whole length borders the body's | model it further out (an A-pose for arms, legs apart) or blend it in with a smaller `k` |
 
 Limits worth knowing:
 - glTF engines skin by linear blending, and a thick joint (a shoulder against a chest)
@@ -392,6 +406,7 @@ where it paints; see "Normal maps" below). Distances are metres.
 | `cells` | lines where cells `size` across meet, `width` wide (8% of size) | `fill` 0..1 paints each cell's inside by a random share: plates, scales, cracks, cobbles |
 | `edges` | outward bends tighter than `radius` (0.05) | `breakup` 0..1 breaks the line with noise; worn, lighter edges |
 | `cavities` | inward bends tighter than `radius` | the same keys; dirt in creases and joins |
+| `inside` | wherever a `shape` is (a sculpt node, or `{"ref": part}` in a sculpt): `soft` metres of border (0.002), `grow` metres outward | painted bands, an emblem, eyes, rust patches: the border runs through the texture, so it is crisp and smooth at any triangle count, where a `paint` region follows the mesh |
 | `bricks` | the mortar joints of a running bond: courses `size` [length, height] up Z, bricks running along both X and Y, so every wall face and corner shows the bond | `mortar` joint width (0.012; 0 for none), `fill` 0..1 paints each brick by a random share (a second `bricks` layer with `mortar: 0` and `fill` tints brick by brick), `seed`; with a negative `relief` the joints are sunk |
 
 `edges` and `cavities` read the surface two ways, so they work on any mesh: smooth bends by
@@ -420,7 +435,8 @@ How it is built:
   starts) and evaluates it (numpy). `Surface` holds the mesh's curvature and creases.
 - `assetkit/texbake.py` fills every texel inside a UV triangle with the pattern at the 3D point
   it maps to, grows each island 8 texels outward so filtering never reaches the empty gap, and
-  picks the size: about 512 texels per metre, the nearest power of two, 256 to 1024.
+  picks the size: about 512 texels per metre, the nearest power of two, 256 to 1024 (a spec's
+  `textures` changes both; see "LODs and close-ups").
 - The backend (`_paint` in `blender/backend/__init__.py`) only reads the final mesh and UVs and
   wires two packed images. The kit does the baking, so the maps do not depend on the Blender
   version beyond the UV layout it unwraps.
@@ -461,6 +477,30 @@ Examples: `sculpt_tree_stump` (bark, moss, rings), `sculpt_boulder_mossy` (strat
 `sculpt_barnacle_rock` (moss creeping down by `facing`), `sculpt_cave_toad` (warts),
 `creature_gloom_crawler` (chitin plates by `cells`), `crate_small` (grain, worn edges),
 `prop_crypt_lantern` (rust, worn edges, glass).
+
+## LODs and close-ups
+
+Build the asset for the closest view it will get, and let `lods` make the distant versions:
+
+```json
+"textures": {"texels_per_metre": 1024, "max_size": 4096},
+"lods": [{"max_triangles": 2400}, {"max_triangles": 900, "params": {"detail": 3}}]
+```
+
+- `max_triangles` (in the spec's `params` for a sculpt) is the asset's budget: spend it where a
+  close-up must read (a hero prop, a creature the camera meets). A 40 000-triangle sculpt meshes in
+  about a minute.
+- `textures` sets how finely patterns are baked: `texels_per_metre` (512) and the largest map,
+  `max_size` (1024; up to 4096).
+- Each entry of `lods` is a lighter level, `<id>_lod1`, `<id>_lod2`, ...: its `max_triangles`
+  (the QA budget, and the sculpt's own budget) and any `params` to override (an assembly's
+  `detail`, its `bevel`), each level building on the one before. Its textures are half as dense
+  per level unless it gives its own `textures`.
+- `generate` builds every level after the asset, each through the same QA (skin against Blender,
+  clips read back), into `<id>_lod1.glb`, ... . Every level keeps the materials, the skeleton and
+  the clips, so a game swaps them in place. `look <id>_lod1` shows a level.
+
+On `sculpt_cave_toad`: 4 900, 1 960 and 784 triangles, 1.7 MB, 0.76 MB and 0.33 MB.
 
 ## Looking at an asset
 

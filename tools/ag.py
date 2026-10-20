@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from blender.lib.registry import GENERATORS, UnknownGeneratorError, resolve_generator_module
 from blender.lib.report import Report, format_report
-from blender.lib.spec import AssetSpec, SpecError, load_spec
+from blender.lib.spec import AssetSpec, SpecError, load_spec, lod_spec
 from tools.blenderctl import (
     BLENDER_VERSION,
     BlenderError,
@@ -47,13 +47,17 @@ DEFAULT_SAMPLES: Final[int] = 48
 
 
 def resolve_spec_path(reference: str) -> Path:
-    """Accept a spec id, a bare filename or a path."""
+    """Accept a spec id, a bare filename or a path; `<id>_lod<n>` names an asset's LOD level."""
     candidate = Path(reference)
     if candidate.is_file():
         return candidate.resolve()
     for guess in (SPEC_DIR / reference, SPEC_DIR / f"{reference}.json"):
         if guess.is_file():
             return guess.resolve()
+    base, _, level = reference.removesuffix(".json").rpartition("_lod")
+    if base and level.isdigit() and (SPEC_DIR / f"{base}.json").is_file():
+        spec = load_spec(SPEC_DIR / f"{base}.json")
+        return lod_spec(spec, int(level), OUT_DIR / "lods" / f"{base}_lod{level}.json").source_path
     available = sorted(path.stem for path in SPEC_DIR.glob("*.json"))
     raise SpecError(f"No spec matches '{reference}'. Available specs: {available}")
 
@@ -156,8 +160,19 @@ def generate_one(
         {"spec_path": str(spec.source_path), "out_dir": str(OUT_DIR)},
     )
     status = _emit(result, as_json)
-    if status != 0 or no_preview:
+    if status != 0:
         return status
+    # The lighter levels, each built and checked like the asset itself (no previews).
+    for level in range(1, len(spec.lods) + 1):
+        lod = lod_spec(spec, level, OUT_DIR / "lods" / f"{spec.asset_id}_lod{level}.json")
+        print(f"\n--- LOD {level}: {lod.asset_id} (max {lod.qa.max_triangles} triangles) ---")
+        lod_result = run_entrypoint(
+            install, "generate", {"spec_path": str(lod.source_path), "out_dir": str(OUT_DIR)}
+        )
+        if _emit(lod_result, as_json) != 0:
+            return 1
+    if no_preview:
+        return 0
 
     glb_path = OUT_DIR / spec.glb_name
     preview_result = _run_preview(install, spec.asset_id, glb_path, resolution, samples)

@@ -10,7 +10,7 @@ from pathlib import Path
 from assetview import from_asset, from_glb, look, write_png
 from assetview.rigsheet import render_rig_sheet
 from blender.lib.registry import KIT_GENERATORS, resolve_generator_module
-from blender.lib.spec import SpecError, load_spec
+from blender.lib.spec import SpecError, load_spec, lod_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_DIR = REPO_ROOT / "assets" / "specs"
@@ -28,6 +28,11 @@ def look_target(target: str, out_dir: Path, from_shipped: bool) -> dict[str, obj
         report["asset_id"] = path.stem
         return report
     spec_path = path if path.is_file() else SPEC_DIR / f"{target.removesuffix('.json')}.json"
+    base, _, level = target.removesuffix(".json").rpartition("_lod")
+    if not spec_path.is_file() and base and level.isdigit() and (SPEC_DIR / f"{base}.json").is_file():
+        spec_path = lod_spec(
+            load_spec(SPEC_DIR / f"{base}.json"), int(level), out_dir / "lods" / f"{base}_lod{level}.json"
+        ).source_path
     spec = load_spec(spec_path)
     asset = None
     if spec.generator in KIT_GENERATORS and not from_shipped:

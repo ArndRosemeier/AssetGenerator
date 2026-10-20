@@ -190,6 +190,198 @@ def capsule(a: Vec, b: Vec, radius: float, radius_b: float | None = None) -> Sha
     return Shape(distance, lo, hi, "capsule")
 
 
+def sweep(points: Sequence[Vec], radius: float | Sequence[float]) -> Shape:
+    """A smooth tube through `points` (a curve through every one of them), its thickness
+    `radius` everywhere or, given one per point, flowing smoothly from one to the next: a trunk
+    that swells and narrows, a limb with its muscle, a tail, a horn, a root, a branch. One
+    continuous form, where stacked spheres and capsules show their seams."""
+    pts = [_vec(p) for p in points]
+    if len(pts) < 2:
+        raise ValueError("sweep needs at least two points")
+    radii = [float(radius)] * len(pts) if isinstance(radius, int | float) else [float(r) for r in radius]
+    if len(radii) != len(pts):
+        raise ValueError(f"sweep: {len(pts)} points but {len(radii)} radii")
+    for r in radii:
+        _positive(r, "sweep radius")
+    # Phantom end points mirror the first and last spans, so the curve starts and ends straight on.
+    ext = [2 * pts[0] - pts[1], *pts, 2 * pts[-1] - pts[-2]]
+    rad = [radii[0], *radii, radii[-1]]
+    samples: list[np.ndarray] = [pts[0]]
+    sample_r: list[float] = [radii[0]]
+    for i in range(1, len(ext) - 2):
+        p0, p1, p2, p3 = ext[i - 1], ext[i], ext[i + 1], ext[i + 2]
+        span = float(math.sqrt(float(((p2 - p1) ** 2).sum())))
+        if span < 1e-9:
+            continue
+        # Pieces short enough that the curve bends a few degrees per piece and the radius
+        # flows: by the span's mean radius, 6 to 16 of them.
+        n = int(min(16, max(6, math.ceil(span / (0.35 * 0.5 * (rad[i] + rad[i + 1]))))))
+        for k in range(1, n + 1):
+            t = k / n
+            samples.append(_catmull_rom(p0, p1, p2, p3, t))
+            r = _catmull_rom_scalar(rad[i - 1], rad[i], rad[i + 1], rad[i + 2], t)
+            sample_r.append(max(r, 0.25 * min(rad[i], rad[i + 1])))
+    heads, tails, r_heads, r_tails = [], [], [], []
+    for a, b, ra, rb in zip(samples[:-1], samples[1:], sample_r[:-1], sample_r[1:], strict=True):
+        length = float(math.sqrt(float(((b - a) ** 2).sum())))
+        if length < 1e-9:
+            continue
+        if abs(ra - rb) >= 0.98 * length:  # a step steeper than the span: keep it just inside
+            rb = ra + math.copysign(0.98 * length, rb - ra)
+        heads.append(a)
+        tails.append(b)
+        r_heads.append(ra)
+        r_tails.append(rb)
+    pa, pb = np.array(heads), np.array(tails)
+    ra_, rb_ = np.array(r_heads), np.array(r_tails)
+    ba = pb - pa
+    length = np.sqrt(ba[:, 0] * ba[:, 0] + ba[:, 1] * ba[:, 1] + ba[:, 2] * ba[:, 2])
+    axis = ba / length[:, None]
+    sin_a = (ra_ - rb_) / length
+    cos_a = np.sqrt(1.0 - sin_a * sin_a)
+
+    def cones(p: np.ndarray, sel: np.ndarray) -> np.ndarray:
+        """Least distance from points `p` to the pieces `sel`, all at once, element by element."""
+        q = p[:, None, :] - pa[None, sel, :]
+        ax = axis[sel]
+        y = q[..., 0] * ax[:, 0] + q[..., 1] * ax[:, 1] + q[..., 2] * ax[:, 2]
+        rx = q - y[..., None] * ax[None, :, :]
+        x = np.sqrt(rx[..., 0] * rx[..., 0] + rx[..., 1] * rx[..., 1] + rx[..., 2] * rx[..., 2])
+        s_, c_, r0, r1, ln = sin_a[sel], cos_a[sel], ra_[sel], rb_[sel], length[sel]
+        k = -x * s_ + y * c_
+        d = x * c_ + y * s_ - r0
+        d = np.where(k < 0.0, np.sqrt(x * x + y * y) - r0, d)
+        d = np.where(k > ln * c_, np.sqrt(x * x + (y - ln) * (y - ln)) - r1, d)
+        return d.min(axis=1)
+
+    # Consecutive pieces in groups, each inside a bounding sphere: a group no nearer than the
+    # best distance so far cannot lower it, and along a curve the spheres are tight.
+    groups = [np.arange(i, min(i + 6, len(pa))) for i in range(0, len(pa), 6)]
+    g_centre = np.array([(pa[g].sum(axis=0) + pb[g].sum(axis=0)) / (2 * len(g)) for g in groups])
+    g_radius = np.array(
+        [
+            float(np.max(np.sqrt(((np.concatenate([pa[g], pb[g]]) - g_centre[i]) ** 2).sum(axis=1))))
+            + float(max(ra_[g].max(), rb_[g].max()))
+            for i, g in enumerate(groups)
+        ]
+    )
+
+    def distance(p: np.ndarray) -> np.ndarray:
+        # Each piece is a round cone ending in the spheres it shares with its neighbours, so the
+        # least distance to any of them is the exact distance to one continuous tube.
+        out = np.empty(len(p))
+        step = 50_000
+        for start in range(0, len(p), step):
+            q = p[start : start + step]
+            gap = q[:, None, :] - g_centre[None, :, :]
+            floor = np.sqrt(gap[..., 0] * gap[..., 0] + gap[..., 1] * gap[..., 1] + gap[..., 2] * gap[..., 2])
+            floor = floor - g_radius[None, :]
+            best = np.full(len(q), np.inf)
+            first = np.argmin(floor, axis=1)
+            for g in range(len(groups)):  # the most promising group first, exactly
+                pick = np.nonzero(first == g)[0]
+                if len(pick):
+                    best[pick] = cones(q[pick], groups[g])
+            for g in range(len(groups)):  # then any other group that could still be nearer
+                pick = np.nonzero((first != g) & (floor[:, g] < best))[0]
+                if len(pick):
+                    best[pick] = np.minimum(best[pick], cones(q[pick], groups[g]))
+            out[start : start + step] = best
+        return out
+
+    big = np.maximum(ra_, rb_)[:, None]
+    lo = np.minimum(pa, pb) - big
+    hi = np.maximum(pa, pb) + big
+    return Shape(distance, *_box_bounds(lo.min(axis=0), hi.max(axis=0)), "sweep")
+
+
+def loft(sections: Sequence[Sequence[float]], rounding: float | None = None) -> Shape:
+    """A form built up the Z axis from horizontal ellipses: each section is [z, half_width,
+    half_depth] or [z, half_width, half_depth, y, x] (its centre), and between them the outline
+    flows smoothly. Flat at the lowest and highest section. A torso (wide, shallow, its chest
+    forward of its hips), a vase, a bottle, a barrel, an oval trunk: where a sweep's round
+    cross-section and round ends do not fit. The rims of the flat ends are rounded over
+    `rounding` metres (default a third of the smaller end section's depth; 0 for sharp)."""
+    rows = [list(map(float, s)) + [0.0] * (5 - len(s)) for s in sections]
+    if len(rows) < 2 or any(len(s) not in (3, 5) for s in sections):
+        raise ValueError("loft needs two or more sections of [z, half_width, half_depth] or [z, w, d, y, x]")
+    zs = [r[0] for r in rows]
+    if any(b <= a for a, b in zip(zs, zs[1:], strict=False)):
+        raise ValueError("loft sections must rise in z")
+    for r in rows:
+        _positive(r[1], "loft half_width")
+        _positive(r[2], "loft half_depth")
+    # A dense table up z (Catmull-Rom through the sections), looked up by interpolation.
+    n = 64 * (len(rows) - 1) + 1
+    table_z = np.linspace(zs[0], zs[-1], n)
+    ext = [rows[0], *rows, rows[-1]]
+    cols = []
+    for c in range(1, 5):
+        values = np.empty(n)
+        for k, z in enumerate(table_z):
+            i = min(max(int(np.searchsorted(zs, z, side="right")) - 1, 0), len(rows) - 2)
+            t = (z - zs[i]) / (zs[i + 1] - zs[i])
+            values[k] = _catmull_rom_scalar(ext[i][c], ext[i + 1][c], ext[i + 2][c], ext[i + 3][c], t)
+        cols.append(values)
+    w, d, cy, cx = cols
+    w = np.maximum(w, 0.2 * min(r[1] for r in rows))
+    d = np.maximum(d, 0.2 * min(r[2] for r in rows))
+    # How fast the outline moves with z bounds how much the distance below may overstate.
+    dz = table_z[1] - table_z[0]
+    slope = np.sqrt(1.0 + np.maximum.reduce([np.abs(np.gradient(v, dz)) for v in (w, d, cy, cx)]) ** 2)
+
+    r_end = (
+        min(rows[0][1], rows[0][2], rows[-1][1], rows[-1][2]) / 3.0 if rounding is None else float(rounding)
+    )
+
+    def distance(p: np.ndarray) -> np.ndarray:
+        z = np.clip(p[:, 2], zs[0], zs[-1])
+        wz, dz_, yz, xz = (np.interp(z, table_z, v) for v in (w, d, cy, cx))
+        lz = np.interp(z, table_z, slope)
+        u, v = (p[:, 0] - xz) / wz, (p[:, 1] - yz) / dz_
+        side = (np.sqrt(u * u + v * v) - 1.0) * np.minimum(wz, dz_) / lz
+        ends = np.maximum(zs[0] - p[:, 2], p[:, 2] - zs[-1])
+        if r_end <= 0:
+            return np.maximum(side, ends)
+        # A rounded rim (as a rounded box's edge): the corner where side and end meet.
+        a, b = side + r_end, ends + r_end
+        outside = np.sqrt(np.maximum(a, 0.0) ** 2 + np.maximum(b, 0.0) ** 2)
+        return outside + np.minimum(np.maximum(a, b), 0.0) - r_end
+
+    lo = (float((cx - w).min()), float((cy - d).min()), zs[0])
+    hi = (float((cx + w).max()), float((cy + d).max()), zs[-1])
+    return Shape(distance, lo, hi, "loft")
+
+
+def _catmull_rom(p0: np.ndarray, p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, t: float) -> np.ndarray:
+    """The centripetal Catmull-Rom curve from p1 (t = 0) to p2 (t = 1): through the points,
+    without the loops and overshoots of the uniform kind."""
+
+    def knot(ti: float, a: np.ndarray, b: np.ndarray) -> float:
+        return ti + max(float(((b - a) ** 2).sum()) ** 0.25, 1e-9)
+
+    t0 = 0.0
+    t1 = knot(t0, p0, p1)
+    t2 = knot(t1, p1, p2)
+    t3 = knot(t2, p2, p3)
+    u = t1 + (t2 - t1) * t
+    a1 = (t1 - u) / (t1 - t0) * p0 + (u - t0) / (t1 - t0) * p1
+    a2 = (t2 - u) / (t2 - t1) * p1 + (u - t1) / (t2 - t1) * p2
+    a3 = (t3 - u) / (t3 - t2) * p2 + (u - t2) / (t3 - t2) * p3
+    b1 = (t2 - u) / (t2 - t0) * a1 + (u - t0) / (t2 - t0) * a2
+    b2 = (t3 - u) / (t3 - t1) * a2 + (u - t1) / (t3 - t1) * a3
+    return (t2 - u) / (t2 - t1) * b1 + (u - t1) / (t2 - t1) * b2
+
+
+def _catmull_rom_scalar(r0: float, r1: float, r2: float, r3: float, t: float) -> float:
+    """A smooth value from r1 (t = 0) to r2 (t = 1), uniform Catmull-Rom, its slope at each end
+    held to the steeper neighbour's so a swelling never overshoots far."""
+    m1 = 0.5 * (r2 - r0)
+    m2 = 0.5 * (r3 - r1)
+    t2, t3 = t * t, t * t * t
+    return (2 * t3 - 3 * t2 + 1) * r1 + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * r2 + (t3 - t2) * m2
+
+
 def cylinder(a: Vec, b: Vec, radius: float, rounding: float = 0.0) -> Shape:
     """A flat-ended cylinder from `a` to `b`, its rims rounded by `rounding`."""
     pa, pb = _vec(a), _vec(b)
@@ -385,6 +577,14 @@ def half_space(height: float, above: bool = False) -> Shape:
 # --------------------------------------------------------------------------------------------
 
 
+def _floor(p: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
+    """The least distance a shape within the box [lo, hi] can have at `p`: the distance to the
+    box outside it; inside, no deeper than half the box's thinnest side. A shape whose floor is
+    no nearer than the result so far cannot change a minimum (nor a blend past its width)."""
+    gap = _length(np.maximum(np.maximum(lo - p, p - hi), 0.0))
+    return np.where(gap > 0.0, gap, -0.5 * float((hi - lo).min()))
+
+
 def union(*shapes: Shape) -> Shape:
     if not shapes:
         raise ValueError("union needs at least one shape")
@@ -395,8 +595,7 @@ def union(*shapes: Shape) -> Shape:
         for s, (lo, hi) in zip(shapes[1:], boxes[1:], strict=True):
             # A shape is no nearer than its bounding box: where the box is already further than
             # the nearest shape so far, the minimum cannot change, so skip the work there.
-            gap = _length(np.maximum(np.maximum(lo - p, p - hi), 0.0))
-            near = gap < result
+            near = _floor(p, lo, hi) < result
             if near.all():
                 result = np.minimum(result, s(p))
             elif near.any():
@@ -416,6 +615,58 @@ def smooth_union(a: Shape, b: Shape, k: float) -> Shape:
         return db + (da - db) * h - k * h * (1.0 - h)
 
     return Shape(distance, *_union_bounds((a, b), k * 0.25), "smooth_union")
+
+
+def blend(shapes: Sequence[Shape], k: float | Sequence[float]) -> Shape:
+    """`smooth_union` of many shapes in order (each blended into all before it over its own
+    `k`), the same values as folding them pairwise, but each shape is only evaluated where
+    it can still change the result (within `k` of the surface so far): a body of fifty parts
+    costs little more than its nearest few."""
+    if not shapes:
+        raise ValueError("blend needs at least one shape")
+    ks = [float(k)] * len(shapes) if isinstance(k, int | float) else [float(v) for v in k]
+    if len(ks) != len(shapes):
+        raise ValueError(f"blend: {len(shapes)} shapes but {len(ks)} k values")
+    for v in ks[1:]:
+        _positive(v, "blend k")
+    boxes = [(_vec(s.lower), _vec(s.upper)) for s in shapes]
+
+    def distance(p: np.ndarray) -> np.ndarray:
+        result = shapes[0](p)
+        for s, (lo, hi), kk in zip(shapes[1:], boxes[1:], ks[1:], strict=True):
+            near = np.nonzero(_floor(p, lo, hi) < result + kk)[0]
+            if not len(near):
+                continue
+            da, db = result[near], s(p[near])
+            h = np.clip(0.5 + 0.5 * (db - da) / kk, 0.0, 1.0)
+            result[near] = db + (da - db) * h - kk * h * (1.0 - h)
+        return result
+
+    return Shape(distance, *_union_bounds(shapes, max(ks[1:], default=0.0) * 0.25), "blend")
+
+
+def squash(shape: Shape, axis: Vec, factor: float, about: Vec) -> Shape:
+    """`shape` scaled by `factor` along `axis` (any direction) about the point `about`: a palm
+    flattened, a torso deeper than wide, a foot spread. The distance stays a safe underestimate,
+    so meshing finds the surface exactly."""
+    _positive(factor, "squash factor")
+    u = _vec(axis)
+    u = u / math.sqrt(float((u * u).sum()))
+    c = _vec(about)
+    inverse = 1.0 / factor - 1.0
+
+    def distance(p: np.ndarray) -> np.ndarray:
+        q = p - c
+        along = _dot(q, u)
+        return shape(c + q + inverse * along[:, None] * u) * min(1.0, factor)
+
+    corners = np.array(
+        [[x, y, z] for x in (shape.lower[0], shape.upper[0]) for y in (shape.lower[1], shape.upper[1])
+         for z in (shape.lower[2], shape.upper[2])]
+    )  # fmt: skip
+    q = corners - c
+    moved = c + q + (factor - 1.0) * _dot(q, np.tile(u, (len(q), 1)))[:, None] * u
+    return Shape(distance, *_box_bounds(moved.min(axis=0), moved.max(axis=0)), shape.label)
 
 
 def subtract(a: Shape, b: Shape, k: float = 0.0) -> Shape:
@@ -696,6 +947,8 @@ def _refine(
     enough: about 0.7 half-thicknesses, some nine around a round limb."""
     verts = [tuple(v) for v in verts.tolist()]
     tris = [list(f) for f in faces.tolist()]
+    # Vertices do not move here, so an edge's thickness is measured once, when it first appears.
+    known: dict[tuple[int, int], float] = {}
     for _ in range(12):
         room = (budget - len(tris)) // 2
         if room <= 0:
@@ -710,7 +963,12 @@ def _refine(
         pos = np.array(verts)
         mid = (pos[ends[:, 0]] + pos[ends[:, 1]]) / 2
         length = _length(pos[ends[:, 0]] - pos[ends[:, 1]])
-        half = _half_thickness(shape, mid, cell)
+        fresh = [i for i, e in enumerate(edges) if e not in known]
+        if fresh:
+            measured = _half_thickness(shape, mid[fresh], cell)
+            for i, value in zip(fresh, measured.tolist(), strict=True):
+                known[edges[i]] = value
+        half = np.array([known[e] for e in edges])
         ratio = length / (0.7 * half)
         # Thinner than the sampling resolved, the coarse mesh is not the shape there (a thin
         # wall meshes as a slab or a hole): adding vertices to it would only show that.

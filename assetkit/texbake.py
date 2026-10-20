@@ -53,18 +53,25 @@ class Frames:
     signs: np.ndarray
 
 
-def texture_size(vertices: np.ndarray, triangles: np.ndarray, uvs: np.ndarray) -> int:
-    """The power of two nearest to TEXELS_PER_METRE across the surface on this UV layout."""
+def texture_size(
+    vertices: np.ndarray,
+    triangles: np.ndarray,
+    uvs: np.ndarray,
+    texels_per_metre: float = TEXELS_PER_METRE,
+    max_size: int = MAX_SIZE,
+) -> int:
+    """The power of two nearest to `texels_per_metre` across the surface on this UV layout,
+    MIN_SIZE (or `max_size`, if smaller) to `max_size`."""
     v = np.asarray(vertices, dtype=np.float64)
     a, b, c = v[triangles[:, 0]], v[triangles[:, 1]], v[triangles[:, 2]]
     area = 0.5 * np.sqrt((np.cross(b - a, c - a) ** 2).sum(axis=1)).sum()
     u = np.asarray(uvs, dtype=np.float64)
     e1, e2 = u[:, 1] - u[:, 0], u[:, 2] - u[:, 0]
     uv_area = 0.5 * np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum()
-    wanted = TEXELS_PER_METRE * math.sqrt(area / max(uv_area, 1e-9))
+    wanted = texels_per_metre * math.sqrt(area / max(uv_area, 1e-9))
     # The nearest power of two (by ratio): 1100 texels wanted gives 1024, not 2048.
     size = 2 ** round(math.log2(max(wanted, 1.0)))
-    return int(min(max(size, MIN_SIZE), MAX_SIZE))
+    return int(min(max(size, min(MIN_SIZE, max_size)), max_size))
 
 
 def bake(
@@ -77,6 +84,8 @@ def bake(
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
     frames: Frames | None = None,
     shape: Callable[[np.ndarray], np.ndarray] | None = None,
+    texels_per_metre: float = TEXELS_PER_METRE,
+    max_size: int = MAX_SIZE,
 ) -> Maps:
     """Maps for a mesh: `triangles` (T, 3) into `vertices`, `uvs` (T, 3, 2) per corner,
     `tri_slot` (T,) into `looks`; patterns are written with their origin at `origin`. With the
@@ -87,7 +96,7 @@ def bake(
     uv = np.asarray(uvs, dtype=np.float64).reshape(-1, 3, 2)
     slots = np.asarray(tri_slot, dtype=np.int64)
     if size is None:
-        size = texture_size(v, t, uv)
+        size = texture_size(v, t, uv, texels_per_metre, max_size)
     tri, bary = _rasterize(uv, size)
     surface = Surface(v, t)
     color = np.zeros((size * size, 3))
