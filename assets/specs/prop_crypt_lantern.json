@@ -321,7 +321,8 @@
               "scale": 22,
               "coverage": 0.3,
               "contrast": 3,
-              "roughness": 0.95
+              "roughness": 0.95,
+              "relief": 0.0006
             }
           },
           {
@@ -336,7 +337,8 @@
               "contrast": 3,
               "seed": 3,
               "amount": 0.7,
-              "roughness": 0.9
+              "roughness": 0.9,
+              "relief": -0.0004
             }
           },
           {

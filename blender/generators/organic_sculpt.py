@@ -109,7 +109,7 @@ def build(spec: AssetSpec) -> Asset:
     # mesh, so it moves them too.
     offset = tuple(a - b for a, b in zip(mesh.vertices[0], unsettled.vertices[0], strict=True))
     if "rig" not in raw:
-        return Asset((Part(spec.asset_id, mesh, spec.materials, finish, pattern_origin=offset),))
+        return Asset((Part(spec.asset_id, mesh, spec.materials, finish, pattern_origin=offset, shape=shape),))
 
     try:
         rig = build_rig(
@@ -131,7 +131,7 @@ def build(spec: AssetSpec) -> Asset:
         )
     except (RigError, SculptError, ValueError) as exc:
         raise SpecError(str(exc)) from exc
-    part = Part(spec.asset_id, mesh, spec.materials, finish, skin=skin, pattern_origin=offset)
+    part = Part(spec.asset_id, mesh, spec.materials, finish, skin=skin, pattern_origin=offset, shape=shape)
     return Asset((part,), skeleton=rig.skeleton, clips=rig.clips)
 
 

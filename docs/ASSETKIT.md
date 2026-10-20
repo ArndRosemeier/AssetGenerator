@@ -369,7 +369,7 @@ How it is built:
   starts) and evaluates it (numpy). `Surface` holds the mesh's curvature and creases.
 - `assetkit/texbake.py` fills every texel inside a UV triangle with the pattern at the 3D point
   it maps to, grows each island 8 texels outward so filtering never reaches the empty gap, and
-  picks the size: about 512 texels per metre, the nearest power of two, 256 to 2048.
+  picks the size: about 512 texels per metre, the nearest power of two, 256 to 1024.
 - The backend (`_paint` in `blender/backend/__init__.py`) only reads the final mesh and UVs and
   wires two packed images. The kit does the baking, so the maps do not depend on the Blender
   version beyond the UV layout it unwraps.

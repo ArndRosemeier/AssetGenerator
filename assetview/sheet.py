@@ -205,6 +205,9 @@ def smooth_light(model: ViewModel, pas: Pass, normals: np.ndarray, at: ViewModel
         corner = np.where(keep[..., None], corner, own[:, None, :])
     n = (corner * bary[:, :, None]).sum(axis=1)
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    paint = source.paint
+    if at is None and paint is not None and hasattr(paint, "detailed") and paint.detailed():
+        n = paint.normals(tri, bary, n)  # what the normal map will show
     n = np.where(pas.front[tri][:, None], n, -n)
     return 0.32 + 0.68 * np.clip(n @ _light(pas.frame), 0.0, 1.0)
 

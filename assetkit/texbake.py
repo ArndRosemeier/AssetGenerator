@@ -9,15 +9,15 @@ around it. Nothing here is Blender's: the same maps on every Blender version.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
-from assetkit.material import Color, Pattern, Surface, evaluate
+from assetkit.material import Color, Pattern, Surface, detail_normals, evaluate
 
 TEXELS_PER_METRE = 512.0
-MIN_SIZE, MAX_SIZE = 256, 2048
+MIN_SIZE, MAX_SIZE = 256, 1024  # a game prop's maps; 2048 quadruples file and bake for little
 GROW = 8  # texels each island is grown outward
 
 
@@ -37,6 +37,20 @@ class Maps:
     color: np.ndarray  # (H, W, 3) linear RGB
     roughness: np.ndarray  # (H, W)
     covered: float  # share of texels inside some UV triangle
+    #: (H, W, 3) tangent-space normals encoded 0..1 (OpenGL, as glTF), or None when nothing
+    #: (no exact shape, no relief) differs from the mesh's own normals.
+    normal: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class Frames:
+    """The mesh's shading frame per triangle corner, as the renderer builds it: normals (T, 3,
+    3), MikkTSpace tangents (T, 3, 3) and bitangent signs (T, 3). The backend reads them from
+    Blender, so a normal map baked against them is read back exactly by any glTF viewer."""
+
+    normals: np.ndarray
+    tangents: np.ndarray
+    signs: np.ndarray
 
 
 def texture_size(vertices: np.ndarray, triangles: np.ndarray, uvs: np.ndarray) -> int:
@@ -61,9 +75,13 @@ def bake(
     looks: Sequence[SlotLook],
     size: int | None = None,
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    frames: Frames | None = None,
+    shape: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> Maps:
     """Maps for a mesh: `triangles` (T, 3) into `vertices`, `uvs` (T, 3, 2) per corner,
-    `tri_slot` (T,) into `looks`; patterns are written with their origin at `origin`."""
+    `tri_slot` (T,) into `looks`; patterns are written with their origin at `origin`. With the
+    mesh's shading `frames`, also a normal map of what the mesh cannot hold: the exact `shape`
+    (a distance function in pattern coordinates) and the patterns' relief."""
     v = np.asarray(vertices, dtype=np.float64)
     t = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
     uv = np.asarray(uvs, dtype=np.float64).reshape(-1, 3, 2)
@@ -88,8 +106,41 @@ def bake(
             )
             color[pick], rough[pick] = c, r
     covered = tri >= 0
-    color, rough = _grow(color.reshape(size, size, 3), rough.reshape(size, size), covered.reshape(size, size))
-    return Maps(color=color, roughness=rough, covered=float(covered.mean()))
+    normal = None
+    reliefs = any(look.pattern is not None and any(x.relief for x in look.pattern.layers) for look in looks)
+    if frames is not None and (shape is not None or reliefs):
+        normal = np.zeros((size * size, 3))
+        normal[:] = (0.5, 0.5, 1.0)
+        step = 0.5 / max(TEXELS_PER_METRE, 1.0)  # half a texel, at the usual density
+        for s, look in enumerate(looks):
+            pick = hit[slots[tri[hit]] == s]
+            if not len(pick):
+                continue
+            tp, bp = tri[pick], bary[pick]
+            n = (frames.normals[tp] * bp[:, :, None]).sum(axis=1)
+            n /= np.maximum(np.sqrt((n * n).sum(axis=1)), 1e-30)[:, None]
+            t_ = (frames.tangents[tp] * bp[:, :, None]).sum(axis=1)
+            t_ -= (t_ * n).sum(axis=1)[:, None] * n
+            t_ /= np.maximum(np.sqrt((t_ * t_).sum(axis=1)), 1e-30)[:, None]
+            sign = np.where((frames.signs[tp] * bp).sum(axis=1) < 0, -1.0, 1.0)
+            b_ = np.cross(n, t_) * sign[:, None]
+            d = detail_normals(look.pattern, surface, tp, bp, n, origin, shape, step)
+            local = np.stack([(d * t_).sum(axis=1), (d * b_).sum(axis=1), (d * n).sum(axis=1)], axis=1)
+            normal[pick] = np.clip(local * 0.5 + 0.5, 0.0, 1.0)
+    grown = _grow(
+        [
+            color.reshape(size, size, 3),
+            rough.reshape(size, size),
+            *([] if normal is None else [normal.reshape(size, size, 3)]),
+        ],
+        covered.reshape(size, size),
+    )
+    return Maps(
+        color=grown[0],
+        roughness=grown[1],
+        covered=float(covered.mean()),
+        normal=grown[2] if normal is not None else None,
+    )
 
 
 def _rasterize(uv: np.ndarray, size: int) -> tuple[np.ndarray, np.ndarray]:
@@ -134,9 +185,9 @@ def _rasterize(uv: np.ndarray, size: int) -> tuple[np.ndarray, np.ndarray]:
     return tri, bary
 
 
-def _grow(color: np.ndarray, rough: np.ndarray, covered: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _grow(maps: list[np.ndarray], covered: np.ndarray) -> list[np.ndarray]:
     """Spread each island's border texels GROW texels outward into the empty space: every empty
-    texel near an island copies a nearby border texel."""
+    texel near an island copies a nearby border texel (in every map alike)."""
     h, w = covered.shape
     source = np.where(covered.ravel(), np.arange(h * w), -1).reshape(h, w)
     for _ in range(GROW):
@@ -151,14 +202,16 @@ def _grow(color: np.ndarray, rough: np.ndarray, covered: np.ndarray) -> tuple[np
         if (source == before).all():
             break
     flat = source.ravel()
-    color = color.reshape(-1, 3)[np.maximum(flat, 0)].reshape(h, w, 3)
-    rough = rough.ravel()[np.maximum(flat, 0)].reshape(h, w)
     empty = (flat < 0).reshape(h, w)
-    # Whatever is still empty takes the mean, so no texel is black.
-    if empty.any() and covered.any():
-        color[empty] = color[~empty].mean(axis=0)
-        rough[empty] = rough[~empty].mean()
-    return color, rough
+    out = []
+    for m in maps:
+        channels = m.shape[2:] if m.ndim == 3 else ()
+        grown = m.reshape(h * w, *channels)[np.maximum(flat, 0)].reshape(h, w, *channels)
+        # Whatever is still empty takes the mean, so no texel is black.
+        if empty.any() and covered.any():
+            grown[empty] = grown[~empty].mean(axis=0)
+        out.append(grown)
+    return out
 
 
 def to_srgb(linear: np.ndarray) -> np.ndarray:
