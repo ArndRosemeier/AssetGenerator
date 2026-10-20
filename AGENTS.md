@@ -26,7 +26,7 @@ animation, materials, the inspection sheet).
 | Rocks, stumps, creatures, any organic form | an `organic.sculpt` spec: a JSON tree of shapes | "Sculpting organic forms" in ASSETKIT.md, `assets/specs/sculpt_*.json`, `creature_*.json` |
 | It moves | a `rig` in that spec: bones, skin, clips (gait, limps, turns, keys) | "Rigging and animating a sculpt", `creature_gloom_crawler.json` (six legs), `creature_crypt_husk.json` (biped, limp) |
 | Lanterns, chests, tools, furniture: turned, cut and bent parts | a `prop.assembly` spec: exact pieces, repeated and mirrored | "Hard-surface props in JSON", `prop_crypt_lantern.json` |
-| Bark, rust, moss, chitin, worn edges, dirt, glass | a `pattern` (or `alpha`) on the spec's material | "Materials", `sculpt_tree_stump.json`, `prop_crypt_lantern.json` |
+| Bark, rust, moss, chitin, worn edges, dirt, glass, grooves and bumps | a `pattern` (or `alpha`; `relief` for a normal map) on the spec's material | "Materials", `sculpt_tree_stump.json`, `prop_crypt_lantern.json` |
 
 ## Rules
 

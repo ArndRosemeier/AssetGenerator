@@ -18,6 +18,16 @@ from blender.lib.report import CheckResult, MeshStats, check
 from blender.lib.scene import activate, reset_scene
 
 
+def _has_normal_map(objects: Sequence[bpy.types.Object]) -> bool:
+    for obj in objects:
+        for slot in getattr(obj, "material_slots", []):
+            material = slot.material
+            if material is not None and material.node_tree is not None:
+                if any(node.type == "NORMAL_MAP" for node in material.node_tree.nodes):
+                    return True
+    return False
+
+
 def export_glb(objects: Sequence[bpy.types.Object], destination: Path, image_format: str = "AUTO") -> Path:
     """`image_format`: how textures are stored (AUTO keeps PNG; WEBP is far smaller for baked maps)."""
     if not objects:
@@ -49,6 +59,9 @@ def export_glb(objects: Sequence[bpy.types.Object], destination: Path, image_for
         export_apply=False,
         export_yup=True,
         export_normals=True,
+        # Tangents along with a normal map, so every viewer reads it against the frame it was
+        # baked against (MikkTSpace either way; stored, nothing is left to a viewer's maths).
+        export_tangents=_has_normal_map(objects),
         export_texcoords=True,
         export_materials="EXPORT",
         export_image_format=image_format,

@@ -321,7 +321,6 @@ without feedback.
 
 Out of scope for the current pipeline:
 
-- Normal maps (kit patterns bake colour and roughness; relief is the mesh's)
 - AI mesh APIs (Meshy, Tripo, etc.)
 - Engine-specific packaging (Godot `.tres`, Unity prefabs, …)
 - Blender MCP / live GUI bridge

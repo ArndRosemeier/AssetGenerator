@@ -8,9 +8,9 @@ learns how.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from assetkit.mesh import Mesh
 from assetkit.rig import Clip, Skeleton, Skin
@@ -84,6 +84,10 @@ class Part:
     #: Where the origin of the coordinates material patterns are written in lies, in the mesh's
     #: coordinates (a settled sculpt keeps its patterns where its shapes were written).
     pattern_origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    #: The exact surface the mesh approximates, as a distance function of points (N, 3) in the
+    #: patterns' coordinates (a sculpt's shape), or None. With it the backend bakes a normal map
+    #: of the detail the triangles cannot hold (the part then needs an `Unwrap` step).
+    shape: Callable[[Any], Any] | None = None
 
     def __post_init__(self) -> None:
         missing = [slot for slot in self.mesh.slots if slot not in self.materials]
@@ -96,6 +100,8 @@ class Part:
             if not isinstance(step, Bevel | ShadeFlat | ShadeSmooth | Unwrap):
                 raise TypeError(f"Part '{self.name}': unknown finishing step {step!r}")
         patterned = [s for s in self.mesh.slots if pattern_of(self.materials[s]) is not None]
+        if self.shape is not None and not patterned:
+            patterned = ["(its exact shape)"]
         if patterned and not any(isinstance(step, Unwrap) for step in self.finish):
             raise ValueError(
                 f"Part '{self.name}': slot(s) {patterned} have a pattern, which needs an Unwrap step"

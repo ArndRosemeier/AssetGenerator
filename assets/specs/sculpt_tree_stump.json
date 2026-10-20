@@ -174,7 +174,8 @@
               ],
               "coverage": 0.45,
               "contrast": 4,
-              "roughness": 1.0
+              "roughness": 1.0,
+              "relief": -0.006
             }
           },
           {
@@ -258,7 +259,8 @@
               "axis": "radial",
               "spacing": 0.022,
               "warp": 0.6,
-              "sharpness": 3
+              "sharpness": 3,
+              "relief": -0.0015
             }
           },
           {

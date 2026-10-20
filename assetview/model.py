@@ -88,6 +88,7 @@ def from_asset(asset: Asset) -> ViewModel:
     looks: list[SlotLook] = []
     origins: list[tuple[float, float, float]] = []
     alphas: list[float] = []
+    shapes: list[object] = []
     crease: list[float] = []
     for part in asset.parts:
         mesh = part.mesh
@@ -102,6 +103,7 @@ def from_asset(asset: Asset) -> ViewModel:
             looks.append(SlotLook(pattern_of(material), colors[-1], material.roughness))  # type: ignore[arg-type]
             origins.append(part.pattern_origin)
             alphas.append(float(getattr(material, "alpha", 1.0)))
+            shapes.append(part.shape)
         for face, slot in zip(mesh.faces, mesh.face_slots, strict=True):
             n = len(face)
             for k in range(1, n - 1):
@@ -113,8 +115,8 @@ def from_asset(asset: Asset) -> ViewModel:
     triangles = remap[np.asarray(tris, dtype=np.int64)]
     slot_of = np.asarray(tri_slot, dtype=np.int64)
     paint = None
-    if any(look.pattern is not None for look in looks):
-        paint = PatternPaint(welded, triangles, slot_of, looks, origins)
+    if any(look.pattern is not None for look in looks) or any(s is not None for s in shapes):
+        paint = PatternPaint(welded, triangles, slot_of, looks, origins, shapes)
     return ViewModel(
         positions=welded,
         triangles=triangles,

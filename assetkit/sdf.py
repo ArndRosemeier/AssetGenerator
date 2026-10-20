@@ -642,15 +642,14 @@ def mesh(shape: Shape, max_triangles: int = 4000, detail: float = 4.0) -> Shell:
     verts, faces = _march(shape, lower, upper, cell)
     if len(faces) == 0:
         raise ValueError("mesh: the shape is empty (nothing has a negative distance)")
-    depth = _half_thickness(shape, verts, cell)
     # Thin parts (legs, fingers, horns) thinner than a cell across their radius: sample again,
     # finer (up to half the step), so they are resolved at all. Shapes without them pay nothing.
-    thin = float(np.percentile(depth, 10))
+    thin = float(np.percentile(_half_thickness(shape, verts[::8], cell), 10))
     if thin < cell * 0.9:
         cell = max(thin, cell * FINEST)
         verts, faces = _march(shape, lower, upper, cell)
-        depth = _half_thickness(shape, verts, cell)
-    verts, faces, depth = _drop_crumbs(verts, faces, cell, depth)
+    verts, faces, _ = _drop_crumbs(verts, faces, cell)
+    depth = _half_thickness(shape, verts, cell)
     from assetkit.simplify import simplify
 
     # Simplify to most of the budget, weighing each vertex by how thin the shape is there; then
@@ -679,9 +678,12 @@ def _half_thickness(shape: Shape, points: np.ndarray, cell: float) -> np.ndarray
     lower, upper = _vec(shape.lower), _vec(shape.upper)
     reach = float((upper - lower).max())
     depth = np.zeros(len(points))
+    live = np.arange(len(points))
     t = cell * 0.5
-    while t < reach:
-        depth = np.maximum(depth, -shape(points - normal * t))
+    while t < reach and len(live):
+        depth[live] = np.maximum(depth[live], -shape(points[live] - normal[live] * t))
+        # Past the far side (more than twice the depth so far, and out again): done there.
+        live = live[t < 2.5 * depth[live] + cell]
         t *= 1.5
     return np.maximum(depth, cell * 0.5)
 
@@ -857,6 +859,38 @@ def _cell_size(shape: Shape, lower: np.ndarray, upper: np.ndarray, triangles: fl
     return float(np.clip(math.sqrt(area_cells * 7.0 / triangles), coarse / 16, coarse))
 
 
+BAND_STRIDE = 4  # samples between coarse samples when sampling near the surface only
+
+
+def _sample(shape: Shape, axes: list[np.ndarray]) -> np.ndarray:
+    """The distance at every grid point, flattened (x slowest). Exact near the surface; far
+    from it only the sign matters (no triangle comes from there), so every fourth sample is
+    taken first, and a sample whose nearest coarse one lies further from the surface than a
+    generous bound (twice the gap between them) takes that value instead of its own."""
+    counts = [len(a) for a in axes]
+    pick = [np.unique(np.concatenate([np.arange(0, n, BAND_STRIDE), [n - 1]])) for n in counts]
+    coarse = _grid_values(shape, [axes[k][pick[k]] for k in range(3)])
+    nearest = []
+    for k in range(3):
+        i = np.arange(counts[k])
+        j = np.clip(np.searchsorted(pick[k], i), 1, len(pick[k]) - 1)
+        left, right = pick[k][j - 1], pick[k][j]
+        nearest.append(np.where(i - left <= right - i, j - 1, j))
+    approx = coarse[np.ix_(*nearest)]
+    cell = float(axes[0][1] - axes[0][0]) if counts[0] > 1 else 1.0
+    bound = 2.0 * (BAND_STRIDE / 2 + 1) * cell * math.sqrt(3.0)
+    near = np.abs(approx) <= bound
+    values = approx.copy()
+    ix, iy, iz = np.nonzero(near)
+    values[ix, iy, iz] = shape(np.stack([axes[0][ix], axes[1][iy], axes[2][iz]], axis=1))
+    return values.reshape(-1)
+
+
+def _grid_values(shape: Shape, axes: list[np.ndarray]) -> np.ndarray:
+    gx, gy, gz = np.meshgrid(*axes, indexing="ij")
+    return shape(np.stack([gx.ravel(), gy.ravel(), gz.ravel()], axis=1)).reshape(gx.shape)
+
+
 def _march(shape: Shape, lower: np.ndarray, upper: np.ndarray, cell: float) -> tuple[np.ndarray, np.ndarray]:
     # Shifted by an odd fraction of a cell, so flat faces at round coordinates (a box's sides)
     # never lie exactly on samples: that would stack many vertices on one point.
@@ -865,9 +899,7 @@ def _march(shape: Shape, lower: np.ndarray, upper: np.ndarray, cell: float) -> t
     if np.prod(counts) > 60_000_000:
         raise ValueError(f"mesh: a grid of {counts.tolist()} samples is too fine; lower the budget")
     axes = [lo[i] + cell * np.arange(counts[i]) for i in range(3)]
-    gx, gy, gz = np.meshgrid(*axes, indexing="ij")
-    points = np.stack([gx.ravel(), gy.ravel(), gz.ravel()], axis=1)
-    values = shape(points)
+    values = _sample(shape, axes)
     values[values == 0.0] = 1e-12  # a sample exactly on the surface would make a zero-area triangle
     nx, ny, nz = counts
     inside = (values < 0).reshape(nx, ny, nz)
@@ -883,6 +915,12 @@ def _march(shape: Shape, lower: np.ndarray, upper: np.ndarray, cell: float) -> t
 
     def index(ijk: np.ndarray) -> np.ndarray:
         return (ijk[..., 0] * ny + ijk[..., 1]) * nz + ijk[..., 2]
+
+    def points(flat: np.ndarray) -> np.ndarray:
+        """Grid coordinates of flat sample indices (any shape) as (..., 3)."""
+        i, rest = np.divmod(flat, ny * nz)
+        j, k = np.divmod(rest, nz)
+        return np.stack([axes[0][i], axes[1][j], axes[2][k]], axis=-1)
 
     corners = np.stack([index(active + np.array(off)) for off in corner_offsets], axis=1)  # (A, 8)
     tets = corners[:, _TETS].reshape(-1, 4)  # (6A, 4) grid sample indices
@@ -909,11 +947,12 @@ def _march(shape: Shape, lower: np.ndarray, upper: np.ndarray, cell: float) -> t
     ea, eb = unique // len(values), unique % len(values)
     va, vb = values[ea], values[eb]
     t = va / (va - vb)
-    verts = points[ea] + t[:, None] * (points[eb] - points[ea])
+    pa, pb = points(ea), points(eb)
+    verts = pa + t[:, None] * (pb - pa)
     faces = inverse.reshape(-1, 3)
 
     # Wind every triangle to face out of its tetrahedron's inside corners.
-    tet_points = points[tets[owner]]  # (F, 4, 3)
+    tet_points = points(tets[owner])  # (F, 4, 3)
     weights = tet_inside[owner]
     inner = (tet_points * weights[..., None]).sum(axis=1) / weights.sum(axis=1, keepdims=True)
     outer = (tet_points * ~weights[..., None]).sum(axis=1) / (~weights).sum(axis=1, keepdims=True)

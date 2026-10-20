@@ -33,7 +33,7 @@ from collections.abc import Mapping
 import bpy  # first: in the bpy module, bmesh only exists once bpy is loaded
 import bmesh
 
-from blender.backend import build_objects
+from blender.backend import build
 from blender.lib.registry import resolve_generator_module
 from blender.lib.report import Report
 from blender.lib.runner import execute
@@ -97,6 +97,60 @@ def _islands(mesh: bpy.types.Mesh) -> list[int]:
     return [find(i) for i in range(len(mesh.vertices))]
 
 
+def _pattern_colors(mesh: bpy.types.Mesh, asset: object) -> list[tuple[float, float, float]] | None:
+    """Per loop-triangle corner, the colour a kit material's pattern has there (the same
+    evaluation the textures are baked from), or None when no material has a pattern: so a
+    pack shows the bark, rust and moss a .glb carries in its textures."""
+    if asset is None:
+        return None
+    import numpy as np
+
+    from assetkit.asset import pattern_of
+    from assetkit.material import Surface, evaluate
+
+    by_slot: dict[str, tuple[object, tuple[float, float, float]]] = {}
+    for part in asset.parts:  # type: ignore[attr-defined]
+        for slot, material in part.materials.items():
+            by_slot.setdefault(slot, (material, part.pattern_origin))
+    looks = []
+    for material in mesh.materials:
+        found = by_slot.get(material.name.split(".")[0])
+        looks.append(found if found is not None and pattern_of(found[0]) is not None else None)
+    if not any(looks):
+        return None
+    count = len(mesh.loop_triangles)
+    verts = np.empty(len(mesh.vertices) * 3)
+    mesh.vertices.foreach_get("co", verts)
+    tris = np.empty(count * 3, dtype=np.int64)
+    mesh.loop_triangles.foreach_get("vertices", tris)
+    slots = np.empty(count, dtype=np.int64)
+    mesh.loop_triangles.foreach_get("material_index", slots)
+    surface = Surface(verts.reshape(-1, 3), tris.reshape(-1, 3))
+    out = np.zeros((count * 3, 3))
+    corner_tri = np.repeat(np.arange(count), 3)
+    corner_bary = np.tile(np.eye(3), (count, 1))
+    for s, found in enumerate(looks):
+        pick = np.nonzero(slots[corner_tri] == s)[0]
+        if not len(pick):
+            continue
+        if found is None:
+            node = mesh.materials[s].node_tree.nodes["Principled BSDF"]
+            out[pick] = tuple(node.inputs["Base Color"].default_value)[:3]
+            continue
+        material, origin = found
+        color, _ = evaluate(
+            pattern_of(material),
+            surface,
+            corner_tri[pick],
+            corner_bary[pick],  # type: ignore[arg-type]
+            tuple(material.base_color[:3]),
+            material.roughness,
+            origin,  # type: ignore[attr-defined]
+        )
+        out[pick] = color
+    return [tuple(c) for c in out.tolist()]
+
+
 def _shade(island: int, seed: int) -> float:
     h = (island * 2654435761 + seed * 40503) & 0xFFFFFFFF
     h ^= h >> 15
@@ -109,7 +163,8 @@ def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]
     spec = load_spec(spec_path)
     module = importlib.import_module(resolve_generator_module(spec.generator))
     reset_scene()
-    obj = _joined(build_objects(module, spec))
+    objects, asset = build(module, spec)
+    obj = _joined(objects)
     ao = _bake_ao(obj, samples)
     mesh = obj.data
     mesh.calc_loop_triangles()
@@ -117,6 +172,7 @@ def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]
         tuple(m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value)[:3]
         for m in mesh.materials
     ]
+    patterned = _pattern_colors(mesh, asset)
     island = _islands(mesh)
     # A recipe's own shading (tool marks, grime) per vertex, when it has one.
     shade = mesh.attributes.get("shade")
@@ -129,9 +185,11 @@ def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]
     nor: list[tuple[int, int, int]] = []
     col: list[tuple[int, int, int]] = []
     idx: list[int] = []
-    for tri in mesh.loop_triangles:
+    for t, tri in enumerate(mesh.loop_triangles):
         color = base[tri.material_index]
-        for loop in tri.loops:
+        for corner, loop in enumerate(tri.loops):
+            if patterned is not None:
+                color = patterned[3 * t + corner]
             v = mesh.loops[loop].vertex_index
             x, y, z = mesh.vertices[v].co
             nx, ny, nz = normals[loop].vector

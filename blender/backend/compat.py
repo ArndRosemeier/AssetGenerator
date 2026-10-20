@@ -78,3 +78,20 @@ def set_edge_bevel_weights(mesh: bpy.types.Mesh, weights: list[float]) -> str:
     attribute = mesh.attributes.get(name) or mesh.attributes.new(name, "FLOAT", "EDGE")
     attribute.data.foreach_set("value", weights)
     return name
+
+
+def corner_frames(mesh: bpy.types.Mesh) -> tuple[list[float], list[float], list[float]]:
+    """Per face corner (loop), flattened: the shading normal, the MikkTSpace tangent of the
+    active UV map and the bitangent sign, as glTF viewers rebuild them.
+
+    `calc_tangents` fills `MeshLoop.tangent`, `.bitangent_sign` and `.normal` on every
+    supported version (4.1 moved custom normals to `corner_normals`; the loop's normal stays).
+    """
+    mesh.calc_tangents(uvmap=mesh.uv_layers.active.name)
+    count = len(mesh.loops)
+    normals, tangents, signs = [0.0] * (3 * count), [0.0] * (3 * count), [0.0] * count
+    mesh.loops.foreach_get("normal", normals)
+    mesh.loops.foreach_get("tangent", tangents)
+    mesh.loops.foreach_get("bitangent_sign", signs)
+    mesh.free_tangents()
+    return normals, tangents, signs

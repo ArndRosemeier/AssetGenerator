@@ -173,7 +173,8 @@ How it is meshed, and what that guarantees:
    closed and manifold (marching cubes is not), wound outward. Where a tenth of the surface is
    thinner than a cell across its radius (legs, fingers), it samples again up to twice as
    finely, so thin parts are resolved at all.
-2. **Quadric edge collapse** (`assetkit/simplify.py`) down to 85% of `max_triangles`:
+2. **Quadric edge collapse** (`assetkit/simplify.py`) down to 85% of `max_triangles`, most
+   of the way in batches of independent collapses in numpy, the last stretch one at a time:
    triangles gather where the form bends and thin out where it is flat. Each vertex's error is
    weighed by how thin the shape is there, so a 2 cm leg keeps its roundness next to a 30 cm
    body. A collapse that would pinch the surface, turn a face over or line three corners up is
@@ -186,8 +187,8 @@ How it is meshed, and what that guarantees:
    (`@`, `einsum`, `norm`), whose rounding differs between builds. A test holds a golden hash.
 
 `assetkit.sdf` and `organic.sculpt` need numpy (Blender's Python has it; the rest of the kit
-is standard library only). A sculpt builds in five to twenty seconds (thin parts and many
-scattered copies cost the most), so `ag.py look` takes that long for one.
+is standard library only). A sculpt builds in two to fifteen seconds (thin parts, noise over
+everything and many scattered copies cost the most), so `ag.py look` takes about that long.
 
 Examples: `sculpt_boulder_mossy`, `sculpt_tree_stump`, `sculpt_barnacle_rock` (scatter),
 `sculpt_cave_toad`, `creature_gloom_crawler` (an insect of distinct segments),
@@ -337,7 +338,8 @@ every patterned slot. glTF carries the result; any engine shows it.
 ```
 
 Layers paint in order. Each has a `color` (linear 0..1, like `base_color`), an `amount`
-(default 1) and optionally a `roughness` it blends in too. Distances are metres.
+(default 1), optionally a `roughness` it blends in too and a `relief` (metres, raised or sunk
+where it paints; see "Normal maps" below). Distances are metres.
 
 | Layer | Paints | Keys (defaults) |
 | --- | --- | --- |
@@ -369,7 +371,7 @@ How it is built:
   starts) and evaluates it (numpy). `Surface` holds the mesh's curvature and creases.
 - `assetkit/texbake.py` fills every texel inside a UV triangle with the pattern at the 3D point
   it maps to, grows each island 8 texels outward so filtering never reaches the empty gap, and
-  picks the size: about 512 texels per metre, the nearest power of two, 256 to 2048.
+  picks the size: about 512 texels per metre, the nearest power of two, 256 to 1024.
 - The backend (`_paint` in `blender/backend/__init__.py`) only reads the final mesh and UVs and
   wires two packed images. The kit does the baking, so the maps do not depend on the Blender
   version beyond the UV layout it unwraps.
@@ -384,13 +386,26 @@ What `look` shows:
   show (`spots` too small or sparse, `radius` too small for the mesh); over 90% hides every
   layer beneath it. Both are flagged.
 
+### Normal maps: detail the triangles cannot hold
+
+A sculpt ships its exact shape along with its mesh (`Part.shape`, the distance function it was
+meshed from), and any pattern layer can take a `relief` in metres (`+` raised, `-` sunk:
+`{"cells": {..., "relief": -0.003}}` cuts grooves between plates). Where either applies, the
+kit bakes a tangent-space normal map: per texel, the point moves onto the exact surface and
+takes its normal there, tilted by the relief's slope. It is baked against the shading frames
+Blender computes (MikkTSpace tangents, `compat.corner_frames`) and the .glb stores the tangents,
+so a viewer reads it back as baked: on `sculpt_barnacle_rock`, normals read back from the
+shipped file lie 0.5 degrees (median) from the exact shape's, against 6.6 from the mesh alone.
+So displacement noise, cup rims and small bumps show without more triangles. `ag.py look` lights
+the kit sheet with the same normals.
+
 Limits:
-- No normal maps yet: the relief is the mesh's. Patterns are colour and roughness.
 - Patterns are solid textures (they fill space, the surface cuts them), so a pattern has no
   idea which way a plank runs. Pick the `axis`/`stretch` that suits most faces.
 - Detail finer than a texel (a 2 mm grain line at 512 texels per metre) aliases. Keep
   `spacing` above about 5 mm.
-- `ag.py pack` (vertex colours, no textures) still colours by each material's base colour.
+- `ag.py pack` (vertex colours, no textures) colours each vertex by its material's pattern
+  there, so detail finer than the triangles is lost in a pack (no normal maps either).
 
 Examples: `sculpt_tree_stump` (bark, moss, rings), `sculpt_boulder_mossy` (strata, lichen),
 `sculpt_barnacle_rock` (moss creeping down by `facing`), `sculpt_cave_toad` (warts),
@@ -445,7 +460,7 @@ When a generator needs something the kit lacks (a boolean, a modifier, a new kin
 - Adding is not breaking. Renaming or changing what an export means bumps `API_VERSION` and
   moves every kit generator along in the same change.
 
-Not in the kit yet: normal maps and Blender node-tree materials. The generators built on those
+Not in the kit: Blender node-tree materials. The generators built on those
 (`nature.rock`, `hard_surface.kit_cell`) and the older creature generators (`creature.*`, with
 their own rigs) stay on `bpy`. Sculpted creatures are rigged and animated by the kit, and kit
 materials are recipes baked to textures.

@@ -256,6 +256,21 @@ class SculptTests(unittest.TestCase):
         self.assertEqual(len(clusters), 6)
         self.assertTrue(any(np.hypot(*c) < 0.03 for c in clusters))  # the one set `at` the centre
 
+    def test_batched_simplification_keeps_a_closed_outward_mesh(self) -> None:
+        from assetkit import sdf
+        from assetkit.simplify import simplify
+
+        ball = sdf.sphere((0, 0, 0), 0.3)
+        lower, upper = np.array(ball.lower), np.array(ball.upper)
+        verts, faces = sdf._march(ball, lower, upper, 0.01)  # some 25 000 triangles: batches run
+        self.assertGreater(len(faces), 20000)
+        v, f = simplify(verts, faces, 800)
+        self.assertLessEqual(len(f), 800)
+        volume = _closed_outward(self, (v.tolist(), f.tolist()))
+        self.assertAlmostEqual(volume / (4 / 3 * math.pi * 0.3**3), 1.0, delta=0.05)
+        a, b, c = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
+        self.assertGreater(float(np.linalg.norm(np.cross(b - a, c - a), axis=1).min()), 1e-9)
+
     def test_thin_limbs_keep_their_roundness(self) -> None:
         """A 1.2 cm rod on a 16 cm ball: with meshing weighed by thickness and refined, the
         rod has enough sides that its section is near round."""

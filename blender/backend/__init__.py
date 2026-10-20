@@ -201,18 +201,20 @@ def _realize_part(part: Part) -> bpy.types.Object:
         _vertex_groups(obj, part.skin)
     for step in part.finish:
         _finish(obj, step)
-    if any(pattern_of(part.materials[slot]) is not None for slot in source.slots):
+    if part.shape is not None or any(pattern_of(part.materials[slot]) is not None for slot in source.slots):
         _paint(obj, part)
     return obj
 
 
 def _paint(obj: bpy.types.Object, part: Part) -> None:
     """Bake the part's material patterns on its final mesh and UVs (assetkit/texbake.py), into
-    one colour and one roughness texture, wired into every patterned slot's material. Plain
-    slots keep their values. The kit does the baking, so the maps match on every version."""
+    one colour and one roughness texture, wired into every patterned slot's material (plain
+    slots keep their values), and, where the part has an exact shape or a pattern has relief,
+    a normal map against Blender's own tangents, wired into every slot. The kit does the
+    baking, so the maps match on every version."""
     import numpy as np
 
-    from assetkit.texbake import SlotLook, bake, to_srgb
+    from assetkit.texbake import Frames, SlotLook, bake, to_srgb
 
     mesh = obj.data
     if mesh.uv_layers.active is None:
@@ -229,6 +231,12 @@ def _paint(obj: bpy.types.Object, part: Part) -> None:
     mesh.loop_triangles.foreach_get("material_index", slots)
     uv = np.empty(len(mesh.loops) * 2)
     mesh.uv_layers.active.data.foreach_get("uv", uv)
+    normals, tangents, signs = (np.asarray(a, dtype=np.float64) for a in compat.corner_frames(mesh))
+    frames = Frames(
+        normals=normals.reshape(-1, 3)[loops].reshape(-1, 3, 3),
+        tangents=tangents.reshape(-1, 3)[loops].reshape(-1, 3, 3),
+        signs=signs[loops].reshape(-1, 3),
+    )
     materials = [part.materials[slot] for slot in part.mesh.slots]
     looks = [SlotLook(pattern_of(m), tuple(m.base_color[:3]), m.roughness) for m in materials]  # type: ignore[arg-type]
     maps = bake(
@@ -238,19 +246,31 @@ def _paint(obj: bpy.types.Object, part: Part) -> None:
         slots,
         looks,
         origin=part.pattern_origin,
+        frames=frames,
+        shape=part.shape,
     )
     color = _image(f"{part.name}_color", to_srgb(maps.color), "sRGB")
     rough = _image(f"{part.name}_roughness", np.repeat(maps.roughness[..., None], 3, axis=2), "Non-Color")
+    normal = None if maps.normal is None else _image(f"{part.name}_normal", maps.normal, "Non-Color")
     for material, look in zip(mesh.materials, looks, strict=True):
-        if look.pattern is None:
-            continue
         nodes, links = material.node_tree.nodes, material.node_tree.links
         principled = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
-        for image, socket, y in ((color, "Base Color", 300), (rough, "Roughness", 0)):
-            node = nodes.new(type="ShaderNodeTexImage")
-            node.image = image
-            node.location = (principled.location.x - 400, principled.location.y + y)
-            links.new(node.outputs["Color"], principled.inputs[socket])
+        if look.pattern is not None:
+            for image, socket, y in ((color, "Base Color", 300), (rough, "Roughness", 0)):
+                node = nodes.new(type="ShaderNodeTexImage")
+                node.image = image
+                node.location = (principled.location.x - 400, principled.location.y + y)
+                links.new(node.outputs["Color"], principled.inputs[socket])
+        if normal is not None:
+            texture = nodes.new(type="ShaderNodeTexImage")
+            texture.image = normal
+            texture.location = (principled.location.x - 600, principled.location.y - 300)
+            mapping = nodes.new(type="ShaderNodeNormalMap")
+            mapping.space = "TANGENT"
+            mapping.uv_map = mesh.uv_layers.active.name
+            mapping.location = (principled.location.x - 250, principled.location.y - 300)
+            links.new(texture.outputs["Color"], mapping.inputs["Color"])
+            links.new(mapping.outputs["Normal"], principled.inputs["Normal"])
 
 
 def _image(name: str, rgb: object, colorspace: str) -> bpy.types.Image:

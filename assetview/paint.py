@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from assetkit.material import Surface, coverage, evaluate
+from assetkit.material import Surface, coverage, detail_normals, evaluate
 from assetkit.texbake import SlotLook, from_srgb
 
 
@@ -29,11 +29,37 @@ class PatternPaint:
         tri_slot: np.ndarray,
         looks: Sequence[SlotLook],
         origins: Sequence[tuple[float, float, float]],
+        shapes: Sequence[object] | None = None,
     ) -> None:
         self.surface = Surface(positions, triangles)
         self.tri_slot = tri_slot
         self.looks = looks
         self.origins = origins  # per slot
+        self.shapes = shapes or [None] * len(looks)  # per slot: its part's exact shape, or None
+
+    def detailed(self) -> bool:
+        """Whether some slot has detail beyond the mesh (an exact shape, or relief)."""
+        return any(s is not None for s in self.shapes) or any(
+            look.pattern is not None and any(x.relief for x in look.pattern.layers) for look in self.looks
+        )
+
+    def normals(self, tri: np.ndarray, bary: np.ndarray, base: np.ndarray) -> np.ndarray:
+        """The finished surface's normals (exact shape, relief) where the mesh's are `base`."""
+        out = base.copy()
+        slot = self.tri_slot[tri]
+        for s, look in enumerate(self.looks):
+            pick = np.nonzero(slot == s)[0]
+            if len(pick) and (self.shapes[s] is not None or look.pattern is not None):
+                out[pick] = detail_normals(
+                    look.pattern,
+                    self.surface,
+                    tri[pick],
+                    bary[pick],
+                    base[pick],
+                    self.origins[s],
+                    self.shapes[s],  # type: ignore[arg-type]
+                )
+        return out
 
     def colors(self, tri: np.ndarray, bary: np.ndarray) -> np.ndarray:
         out = np.zeros((len(tri), 3))

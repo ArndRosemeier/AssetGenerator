@@ -885,7 +885,8 @@
               "size": 0.05,
               "width": 0.003,
               "amount": 0.5,
-              "seed": 2
+              "seed": 2,
+              "relief": -0.0015
             }
           },
           {

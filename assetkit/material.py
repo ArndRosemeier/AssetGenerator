@@ -12,8 +12,9 @@ on any UV layout, and previewed without one:
              ]}}
 
 Layers paint over the material's own colour in order, each through a mask (0..1) times its
-`amount` (default 1); a layer with `roughness` blends that too. Colours are linear RGB 0..1,
-as `base_color`. Masks:
+`amount` (default 1); a layer with `roughness` blends that too, and one with `relief` (metres,
++ raised, - sunk) shapes the surface in the normal map: bark grooves, raised plates, cracks.
+Colours are linear RGB 0..1, as `base_color`. Masks:
 
     mottle    patches of noise: `scale` (features per metre), `coverage` (0..1, share of the
               surface), `contrast` (edge sharpness), `octaves`, `seed`, `stretch` ([x, y, z]:
@@ -56,6 +57,9 @@ class Layer:
     amount: float
     roughness: float | None
     params: Mapping[str, object] = field(default_factory=dict)
+    #: Metres the layer raises (+) or sinks (-) the surface where it paints, baked into the
+    #: normal map: grooves in bark, raised plates, cracks.
+    relief: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -74,7 +78,7 @@ _KINDS: dict[str, dict[str, object]] = {
     "edges": {"radius": 0.05, "breakup": 0.0, "seed": 0},
     "cavities": {"radius": 0.05, "breakup": 0.0, "seed": 0},
 }
-_COMMON = ("color", "amount", "roughness")
+_COMMON = ("color", "amount", "roughness", "relief")
 
 
 def parse_pattern(raw: object, path: str) -> Pattern:
@@ -111,6 +115,7 @@ def _layer(raw: object, path: str) -> Layer:
         raise PatternError(f"{here}.color: values must be 0..1")
     amount = _number(body, "amount", here, 1.0, 0.0, 1.0)
     roughness = _number(body, "roughness", here, None, 0.0, 1.0) if "roughness" in body else None
+    relief = _number(body, "relief", here, 0.0, -0.05, 0.05)
     params: dict[str, object] = {}
     for key, default in defaults.items():
         if key == "direction":
@@ -158,7 +163,7 @@ def _layer(raw: object, path: str) -> Layer:
     if kind == "gradient" and params["from"] == params["to"]:
         raise PatternError(f"{here}: `from` and `to` must differ")
     color = (float(color_raw[0]), float(color_raw[1]), float(color_raw[2]))
-    return Layer(kind, color, amount, roughness, params)
+    return Layer(kind, color, amount, roughness, params, relief)
 
 
 def _is_number(v: object) -> bool:
@@ -210,6 +215,80 @@ def evaluate(
         if layer.roughness is not None:
             rough += (layer.roughness - rough) * m
     return np.clip(color, 0.0, 1.0), np.clip(rough, 0.0, 1.0)
+
+
+def detail_normals(
+    pattern: Pattern | None,
+    surface: Surface,
+    tri: object,
+    bary: object,
+    base: object,
+    origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    shape: Callable[[object], object] | None = None,
+    step: float = 0.001,
+) -> object:
+    """Unit normals (N, 3) of the finished surface at N points of `surface` whose shipped
+    normals are `base` (N, 3): moved onto the exact `shape` (a distance function in pattern
+    coordinates, a sculpt's own) where given, and tilted by the pattern's `relief`. What the
+    low mesh cannot hold, a normal map can: the bake stores these against `base`."""
+    import numpy as np
+
+    q, bend, _ = surface.at(tri, bary)
+    o = np.asarray(origin, dtype=np.float64)
+    n = np.asarray(base, dtype=np.float64)
+    n = n / np.maximum(np.sqrt((n * n).sum(axis=1)), 1e-30)[:, None]
+    if shape is not None:
+        p = q - o
+        h = step * 0.5
+        d = shape(p)
+        for _ in range(2):  # Newton steps onto the exact surface
+            g = _gradient(shape, p, h, d)
+            p = p - (d / np.maximum((g * g).sum(axis=1), 1e-12))[:, None] * g
+            d = shape(p)
+        exact = _gradient(shape, p, h, d)
+        exact /= np.maximum(np.sqrt((exact * exact).sum(axis=1)), 1e-30)[:, None]
+        # Where the projection went astray (to another part of the shape), keep the base normal.
+        moved = np.sqrt(((p - (q - o)) ** 2).sum(axis=1))
+        good = (np.abs(d) < step) & (moved < 0.05) & ((exact * n).sum(axis=1) > 0.2)
+        n = np.where(good[:, None], exact, n)
+    if pattern is not None and any(layer.relief != 0.0 for layer in pattern.layers):
+        helper = np.where(np.abs(n[:, 2:3]) < 0.9, [[0.0, 0.0, 1.0]], [[1.0, 0.0, 0.0]])
+        t1 = np.cross(n, helper)
+        t1 /= np.maximum(np.sqrt((t1 * t1).sum(axis=1)), 1e-30)[:, None]
+        t2 = np.cross(n, t1)
+        p0 = q - o
+
+        def height(offset: object) -> object:
+            pp = p0 + offset
+            return _relief(pattern, pp, bend, n, _creases_at(surface, pp + o))
+
+        e = step
+        flat = height(t1 * 0.0)
+        slope1 = (height(t1 * e) - flat) / e
+        slope2 = (height(t2 * e) - flat) / e
+        n = n - slope1[:, None] * t1 - slope2[:, None] * t2
+        n /= np.maximum(np.sqrt((n * n).sum(axis=1)), 1e-30)[:, None]
+    return n
+
+
+def _gradient(shape: Callable[[object], object], p: object, h: float, here: object) -> object:
+    """Forward differences from `here` (the distance at `p`): three evaluations, not six."""
+    import numpy as np
+
+    return np.stack([(shape(p + o) - here) / h for o in np.eye(3) * h], axis=1)
+
+
+def _relief(
+    pattern: Pattern, p: object, bend: object, normal: object, creases: Callable[[float, bool], object]
+) -> object:
+    """The surface's height (metres) the layers' relief adds at pattern-space points `p`."""
+    import numpy as np
+
+    total = np.zeros(len(p))  # type: ignore[arg-type]
+    for layer in pattern.layers:
+        if layer.relief != 0.0:
+            total += layer.relief * layer.amount * _mask(layer, p, bend, normal, creases)
+    return total
 
 
 def coverage(
