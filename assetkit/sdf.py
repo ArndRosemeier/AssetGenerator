@@ -213,24 +213,86 @@ def sweep(points: Sequence[Vec], radius: float | Sequence[float]) -> Shape:
         span = float(math.sqrt(float(((p2 - p1) ** 2).sum())))
         if span < 1e-9:
             continue
-        n = int(min(48, max(2, math.ceil(span / (0.35 * min(rad[i], rad[i + 1]))))))
+        # Pieces short enough that the curve bends a few degrees per piece and the radius
+        # flows: by the span's mean radius, 6 to 16 of them.
+        n = int(min(16, max(6, math.ceil(span / (0.35 * 0.5 * (rad[i] + rad[i + 1]))))))
         for k in range(1, n + 1):
             t = k / n
             samples.append(_catmull_rom(p0, p1, p2, p3, t))
             r = _catmull_rom_scalar(rad[i - 1], rad[i], rad[i + 1], rad[i + 2], t)
             sample_r.append(max(r, 0.25 * min(rad[i], rad[i + 1])))
-    pieces = []
+    heads, tails, r_heads, r_tails = [], [], [], []
     for a, b, ra, rb in zip(samples[:-1], samples[1:], sample_r[:-1], sample_r[1:], strict=True):
         length = float(math.sqrt(float(((b - a) ** 2).sum())))
         if length < 1e-9:
             continue
         if abs(ra - rb) >= 0.98 * length:  # a step steeper than the span: keep it just inside
             rb = ra + math.copysign(0.98 * length, rb - ra)
-        pieces.append(capsule(tuple(a), tuple(b), ra, rb))
-    # Each piece is a round cone ending in the spheres it shares with its neighbours, so their
-    # union is the exact distance to one continuous tube.
-    shape = union(*pieces)
-    return Shape(shape.distance, shape.lower, shape.upper, "sweep")
+        heads.append(a)
+        tails.append(b)
+        r_heads.append(ra)
+        r_tails.append(rb)
+    pa, pb = np.array(heads), np.array(tails)
+    ra_, rb_ = np.array(r_heads), np.array(r_tails)
+    ba = pb - pa
+    length = np.sqrt(ba[:, 0] * ba[:, 0] + ba[:, 1] * ba[:, 1] + ba[:, 2] * ba[:, 2])
+    axis = ba / length[:, None]
+    sin_a = (ra_ - rb_) / length
+    cos_a = np.sqrt(1.0 - sin_a * sin_a)
+
+    def cones(p: np.ndarray, sel: np.ndarray) -> np.ndarray:
+        """Least distance from points `p` to the pieces `sel`, all at once, element by element."""
+        q = p[:, None, :] - pa[None, sel, :]
+        ax = axis[sel]
+        y = q[..., 0] * ax[:, 0] + q[..., 1] * ax[:, 1] + q[..., 2] * ax[:, 2]
+        rx = q - y[..., None] * ax[None, :, :]
+        x = np.sqrt(rx[..., 0] * rx[..., 0] + rx[..., 1] * rx[..., 1] + rx[..., 2] * rx[..., 2])
+        s_, c_, r0, r1, ln = sin_a[sel], cos_a[sel], ra_[sel], rb_[sel], length[sel]
+        k = -x * s_ + y * c_
+        d = x * c_ + y * s_ - r0
+        d = np.where(k < 0.0, np.sqrt(x * x + y * y) - r0, d)
+        d = np.where(k > ln * c_, np.sqrt(x * x + (y - ln) * (y - ln)) - r1, d)
+        return d.min(axis=1)
+
+    # Consecutive pieces in groups, each inside a bounding sphere: a group no nearer than the
+    # best distance so far cannot lower it, and along a curve the spheres are tight.
+    groups = [np.arange(i, min(i + 6, len(pa))) for i in range(0, len(pa), 6)]
+    g_centre = np.array([(pa[g].sum(axis=0) + pb[g].sum(axis=0)) / (2 * len(g)) for g in groups])
+    g_radius = np.array(
+        [
+            float(np.max(np.sqrt(((np.concatenate([pa[g], pb[g]]) - g_centre[i]) ** 2).sum(axis=1))))
+            + float(max(ra_[g].max(), rb_[g].max()))
+            for i, g in enumerate(groups)
+        ]
+    )
+
+    def distance(p: np.ndarray) -> np.ndarray:
+        # Each piece is a round cone ending in the spheres it shares with its neighbours, so the
+        # least distance to any of them is the exact distance to one continuous tube.
+        out = np.empty(len(p))
+        step = 50_000
+        for start in range(0, len(p), step):
+            q = p[start : start + step]
+            gap = q[:, None, :] - g_centre[None, :, :]
+            floor = np.sqrt(gap[..., 0] * gap[..., 0] + gap[..., 1] * gap[..., 1] + gap[..., 2] * gap[..., 2])
+            floor = floor - g_radius[None, :]
+            best = np.full(len(q), np.inf)
+            first = np.argmin(floor, axis=1)
+            for g in range(len(groups)):  # the most promising group first, exactly
+                pick = np.nonzero(first == g)[0]
+                if len(pick):
+                    best[pick] = cones(q[pick], groups[g])
+            for g in range(len(groups)):  # then any other group that could still be nearer
+                pick = np.nonzero((first != g) & (floor[:, g] < best))[0]
+                if len(pick):
+                    best[pick] = np.minimum(best[pick], cones(q[pick], groups[g]))
+            out[start : start + step] = best
+        return out
+
+    big = np.maximum(ra_, rb_)[:, None]
+    lo = np.minimum(pa, pb) - big
+    hi = np.maximum(pa, pb) + big
+    return Shape(distance, *_box_bounds(lo.min(axis=0), hi.max(axis=0)), "sweep")
 
 
 def loft(sections: Sequence[Sequence[float]], rounding: float | None = None) -> Shape:
@@ -885,6 +947,8 @@ def _refine(
     enough: about 0.7 half-thicknesses, some nine around a round limb."""
     verts = [tuple(v) for v in verts.tolist()]
     tris = [list(f) for f in faces.tolist()]
+    # Vertices do not move here, so an edge's thickness is measured once, when it first appears.
+    known: dict[tuple[int, int], float] = {}
     for _ in range(12):
         room = (budget - len(tris)) // 2
         if room <= 0:
@@ -899,7 +963,12 @@ def _refine(
         pos = np.array(verts)
         mid = (pos[ends[:, 0]] + pos[ends[:, 1]]) / 2
         length = _length(pos[ends[:, 0]] - pos[ends[:, 1]])
-        half = _half_thickness(shape, mid, cell)
+        fresh = [i for i, e in enumerate(edges) if e not in known]
+        if fresh:
+            measured = _half_thickness(shape, mid[fresh], cell)
+            for i, value in zip(fresh, measured.tolist(), strict=True):
+                known[edges[i]] = value
+        half = np.array([known[e] for e in edges])
         ratio = length / (0.7 * half)
         # Thinner than the sampling resolved, the coarse mesh is not the shape there (a thin
         # wall meshes as a slab or a hole): adding vertices to it would only show that.

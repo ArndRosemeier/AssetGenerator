@@ -488,8 +488,8 @@ Build the asset for the closest view it will get, and let `lods` make the distan
 ```
 
 - `max_triangles` (in the spec's `params` for a sculpt) is the asset's budget: spend it where a
-  close-up must read (a hero prop, a creature the camera meets). Sculpting at 40 000 triangles
-  takes about a minute and a half.
+  close-up must read (a hero prop, a creature the camera meets). A 40 000-triangle sculpt meshes in
+  about a minute.
 - `textures` sets how finely patterns are baked: `texels_per_metre` (512) and the largest map,
   `max_size` (1024; up to 4096).
 - Each entry of `lods` is a lighter level, `<id>_lod1`, `<id>_lod2`, ...: its `max_triangles`
