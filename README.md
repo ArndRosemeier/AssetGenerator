@@ -298,7 +298,8 @@ Create `blender/generators/<family>_<name>.py` exposing `MATERIAL_SLOTS` and
 
 ## For agents
 
-Read [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md) — especially **Process (must follow)**.
+Start at [`AGENTS.md`](AGENTS.md) (also loaded by Claude Code through `CLAUDE.md`), then
+[`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md) — especially **Process (must follow)**.
 Always-on Cursor rules live in [`.cursor/rules/asset-lab.mdc`](.cursor/rules/asset-lab.mdc).
 
 Pattern in one line: commit specs under `assets/specs/`; regenerate products into
