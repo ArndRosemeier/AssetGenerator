@@ -67,8 +67,6 @@ class SculptError(ValueError):
 
 
 def build_shape(node: Node, parts: Mapping[str, Node], path: str, _seen: tuple[str, ...] = ()) -> sdf.Shape:
-    if isinstance(node, sdf.Shape):  # a part built in code (a figure's pieces)
-        return node
     if not isinstance(node, dict) or len(node) != 1:
         raise SculptError(f"{path}: a shape is an object with exactly one key (its kind), got {node!r:.80}")
     ((kind, body),) = node.items()
@@ -156,7 +154,11 @@ Builder = Callable[[dict, Mapping[str, Node], str, tuple[str, ...]], sdf.Shape]
 
 def _smooth_union(f: dict, parts: Mapping[str, Node], path: str, seen: tuple[str, ...]) -> sdf.Shape:
     shapes = _shapes(f["shapes"], parts, f"{path}.shapes", seen)
-    return sdf.blend(shapes, _num(f, "k", path)) if len(shapes) > 1 else shapes[0]
+    k = _num(f, "k", path)
+    result = shapes[0]
+    for shape in shapes[1:]:
+        result = sdf.smooth_union(result, shape, k)
+    return result
 
 
 def _subtract(f: dict, parts: Mapping[str, Node], path: str, seen: tuple[str, ...]) -> sdf.Shape:

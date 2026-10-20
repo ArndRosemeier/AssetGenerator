@@ -186,10 +186,17 @@ def clip_report(
     lowest = math.inf
     stretch_max, stretch_min, moved, strained = 1.0, 1.0, 0.0, 0
     worst_edges: dict[int, float] = {}  # edge index -> how far past the limits it went
+    # Stretch is judged per vertex, over the edges round it: a tear opens a patch of skin, while
+    # one short edge in a crease can spike on a dense mesh and show nothing. So the verdict is
+    # the same at 5 000 triangles as at 50 000.
+    ends = np.concatenate([edges[:, 0], edges[:, 1]])
+    count = np.maximum(np.bincount(ends, minlength=len(points)), 1)
     for frame in clip.frames:
         p = deform(points, skin, frame)
         lowest = min(lowest, float(p[:, 2].min()))
-        ratio = np.linalg.norm(p[edges[:, 0]] - p[edges[:, 1]], axis=1) / rest_len
+        raw = np.linalg.norm(p[edges[:, 0]] - p[edges[:, 1]], axis=1) / rest_len
+        around = np.bincount(ends, weights=np.concatenate([raw, raw]), minlength=len(points)) / count
+        ratio = 0.5 * (around[edges[:, 0]] + around[edges[:, 1]])
         stretch_max = max(stretch_max, float(ratio.max()))
         stretch_min = min(stretch_min, float(ratio.min()))
         bad = (ratio > 2.0) | (ratio < 0.25)

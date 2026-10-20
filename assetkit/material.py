@@ -301,7 +301,7 @@ def detail_normals(
         p = q - o
         h = step * 0.5
         d = shape(p)
-        for _ in range(2):  # Newton steps onto the exact surface
+        for _ in range(4):  # Newton steps onto the exact surface
             g = _gradient(shape, p, h, d)
             p = p - (d / np.maximum((g * g).sum(axis=1), 1e-12))[:, None] * g
             d = shape(p)
@@ -309,7 +309,7 @@ def detail_normals(
         exact /= np.maximum(np.sqrt((exact * exact).sum(axis=1)), 1e-30)[:, None]
         # Where the projection went astray (to another part of the shape), keep the base normal.
         moved = np.sqrt(((p - (q - o)) ** 2).sum(axis=1))
-        good = (np.abs(d) < step) & (moved < 0.02) & ((exact * n).sum(axis=1) > 0.5)
+        good = (np.abs(d) < 3 * step) & (moved < 0.02) & ((exact * n).sum(axis=1) > 0.5)
         n = np.where(good[:, None], exact, n)
     if pattern is not None and any(layer.relief != 0.0 for layer in pattern.layers):
         helper = np.where(np.abs(n[:, 2:3]) < 0.9, [[0.0, 0.0, 1.0]], [[1.0, 0.0, 0.0]])
@@ -480,7 +480,7 @@ def _built(node: object) -> Callable[[object], object]:
 
 def resolve_shapes(pattern: Pattern, build: Callable[[object, str], object]) -> Pattern:
     """`pattern` with each `inside` layer's shape node built by `build(node, path)`: a generator
-    resolves refs to its own parts (a figure's eyes) this way."""
+    resolves refs to its own parts (an eye, a cut) this way."""
     layers = []
     for i, layer in enumerate(pattern.layers):
         if layer.kind == "inside" and not callable(layer.params["shape"]):

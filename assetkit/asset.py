@@ -115,9 +115,6 @@ class Asset:
     skeleton: Skeleton | None = None
     #: Animations of the skeleton; each becomes a glTF animation of its name.
     clips: tuple[Clip, ...] = ()
-    #: Lines for whoever inspects the asset (`ag.py look` prints them): where a figure's eyes,
-    #: hands and waist are, so clothing and gear can be placed.
-    notes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.parts:

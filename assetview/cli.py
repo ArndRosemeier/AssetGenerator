@@ -43,8 +43,6 @@ def look_target(target: str, out_dir: Path, from_shipped: bool) -> dict[str, obj
         model = from_glb(glb)
     report = look(model, spec.asset_id, out_dir / "look" / f"{spec.asset_id}.png")
     report["asset_id"] = spec.asset_id
-    if asset is not None and getattr(asset, "notes", ()):
-        report["summary"] = [*report["summary"], *asset.notes]  # type: ignore[misc]
     if asset is not None and asset.skeleton is not None:
         report.update(look_rig(asset, spec.asset_id, out_dir))
     return report

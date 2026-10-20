@@ -29,7 +29,6 @@ from dataclasses import replace
 import numpy as np
 
 from assetkit import Asset, MeshBuilder, Part, ShadeFlat, ShadeSmooth, Unwrap, sdf
-from assetkit.figure import Figure, FigureError, build_figure, parse_figure
 from assetkit.material import resolve_shapes
 from assetkit.rigspec import RigError, build_rig
 from assetkit.sculpt import SculptError, build_shape
@@ -61,7 +60,6 @@ _KEYS = (
     "settle",
     "rig",
     "detail",
-    "figure",
 )
 
 
@@ -83,27 +81,12 @@ def build(spec: AssetSpec) -> Asset:
     slots = (base_slot, *paint_raw)
     require_materials(spec.materials, slots, spec.generator)
 
-    figure = None
-    if "figure" in raw:
-        try:
-            figure = build_figure(parse_figure(raw["figure"], "params.figure"))
-        except FigureError as exc:
-            raise SpecError(str(exc)) from exc
-        taken = sorted(n for n in parts if n == "figure" or n.startswith("figure."))
-        if taken:
-            raise SpecError(f"params.parts: {taken} are the figure's own names; rename them")
-        parts["figure"] = figure.shape
-        for name, piece in figure.pieces.items():
-            parts[f"figure.{name}"] = piece
-    elif "shape" not in raw:
-        raise SpecError("params: missing 'shape' (or a 'figure')")
     try:
-        shape = build_shape(raw.get("shape", {"ref": "figure"}), parts, "params.shape")
+        shape = build_shape(require_key(raw, "shape", "params"), parts, "params.shape")
         regions = {name: build_shape(node, parts, f"params.paint.{name}") for name, node in paint_raw.items()}
         size = max(u - lo for lo, u in zip(shape.lower, shape.upper, strict=True))
         reach = as_float(raw.get("paint_reach", 0.01 * size), "params.paint_reach")
-        # A figure's fingers, lids and lips are a few centimetres across: sample it finer.
-        detail = as_float(raw.get("detail", 16.0 if figure is not None else 4.0), "params.detail")
+        detail = as_float(raw.get("detail", 4.0), "params.detail")
         if not 2.0 <= detail <= 16.0:
             raise SpecError("params.detail: expected 2..16")
         shell, face_slots = _meshed(shape, regions, base_slot, reach, budget, detail)
@@ -129,10 +112,8 @@ def build(spec: AssetSpec) -> Asset:
     # The rig and the material patterns are written in spec coordinates; settling moved the
     # mesh, so it moves them too.
     offset = tuple(a - b for a, b in zip(mesh.vertices[0], unsettled.vertices[0], strict=True))
-    notes = _landmark_notes(figure) if figure is not None else ()
     if "rig" not in raw:
-        part = Part(spec.asset_id, mesh, materials, finish, pattern_origin=offset, shape=shape)
-        return Asset((part,), notes=notes)
+        return Asset((Part(spec.asset_id, mesh, materials, finish, pattern_origin=offset, shape=shape),))
 
     try:
         rig = build_rig(
@@ -142,7 +123,6 @@ def build(spec: AssetSpec) -> Asset:
             size,
             offset,
             "params.rig",
-            figure,
         )
         triangles = np.asarray([(f[0], f[k], f[k + 1]) for f in mesh.faces for k in range(1, len(f) - 1)])
         skin = bind(
@@ -156,44 +136,7 @@ def build(spec: AssetSpec) -> Asset:
     except (RigError, SculptError, ValueError) as exc:
         raise SpecError(str(exc)) from exc
     part = Part(spec.asset_id, mesh, materials, finish, skin=skin, pattern_origin=offset, shape=shape)
-    return Asset((part,), skeleton=rig.skeleton, clips=rig.clips, notes=notes)
-
-
-def _resolved(materials: dict, parts: dict) -> dict:
-    """The materials with each `inside` layer's shape built here, so it can name the spec's parts
-    (a figure's eyes and irises)."""
-    out = {}
-    for name, material in materials.items():
-        pattern = getattr(material, "pattern", None)
-        if pattern is not None and any(layer.kind == "inside" for layer in pattern.layers):
-            try:
-                pattern = resolve_shapes(
-                    pattern, lambda node, path, n=name: build_shape(node, parts, f"materials.{n}.{path}")
-                )
-            except SculptError as exc:
-                raise SpecError(str(exc)) from exc
-            material = replace(material, pattern=pattern)
-        out[name] = material
-    return out
-
-
-def _landmark_notes(figure: Figure) -> tuple[str, ...]:
-    """Where the figure's parts are, in spec coordinates (before settling), for placing gear."""
-    marks = figure.landmarks
-    fmt = lambda p: f"({p[0]:.3f}, {p[1]:.3f}, {p[2]:.3f})"  # noqa: E731
-    width = marks["widths"]
-    lines = [f"figure: shoulders {width[0]:.2f} m, hips {width[1]:.2f} m, waist {width[2]:.2f} m wide"]
-    order = [k for k in marks if k != "widths" and not k.startswith("palm_normal")]
-    line = ""
-    for name in order:
-        item = f"{name} {fmt(marks[name])}"
-        if len(line) + len(item) > 100:
-            lines.append("figure: " + line.rstrip("; "))
-            line = ""
-        line += item + "; "
-    if line:
-        lines.append("figure: " + line.rstrip("; "))
-    return tuple(lines)
+    return Asset((part,), skeleton=rig.skeleton, clips=rig.clips)
 
 
 def _meshed(
@@ -220,3 +163,21 @@ def _meshed(
             break
         shell = sdf.reduce(shape, shell, target)
     raise ValueError(f"painting needs {len(painted[1])} triangles, over the budget of {budget}")
+
+
+def _resolved(materials: dict, parts: dict) -> dict:
+    """The materials with each `inside` layer's shape built here, so it can name the spec's
+    parts (`{"ref": "eye"}`)."""
+    out = {}
+    for name, material in materials.items():
+        pattern = getattr(material, "pattern", None)
+        if pattern is not None and any(layer.kind == "inside" for layer in pattern.layers):
+            try:
+                pattern = resolve_shapes(
+                    pattern, lambda node, path, n=name: build_shape(node, parts, f"materials.{n}.{path}")
+                )
+            except SculptError as exc:
+                raise SpecError(str(exc)) from exc
+            material = replace(material, pattern=pattern)
+        out[name] = material
+    return out
