@@ -352,6 +352,22 @@ def mirror_x(shape: Shape) -> Shape:
     )
 
 
+def flip_x(shape: Shape) -> Shape:
+    """The shape's mirror image across x = 0 alone (`mirror_x` keeps both)."""
+
+    def distance(p: np.ndarray) -> np.ndarray:
+        q = p.copy()
+        q[:, 0] = -q[:, 0]
+        return shape(q)
+
+    return Shape(
+        distance,
+        (-shape.upper[0], shape.lower[1], shape.lower[2]),
+        (-shape.lower[0], shape.upper[1], shape.upper[2]),
+        shape.label,
+    )
+
+
 def displace(shape: Shape, amount: float, scale: float, seed: int = 0, octaves: int = 1) -> Shape:
     """Push the surface in and out by up to about `amount` metres of noise with features
     `1 / scale` metres across; more octaves add finer detail at half the amount each."""
@@ -479,9 +495,56 @@ def mesh(shape: Shape, max_triangles: int = 4000, detail: float = 4.0) -> Shell:
     verts, faces = _march(shape, lower, upper, cell)
     if len(faces) == 0:
         raise ValueError("mesh: the shape is empty (nothing has a negative distance)")
+    verts, faces = _drop_crumbs(verts, faces, cell)
     from assetkit.simplify import simplify
 
     verts, faces = simplify(verts, faces, max_triangles)
+    verts = _project(shape, verts, faces, cell)
+    return [tuple(map(float, v)) for v in verts], [list(map(int, f)) for f in faces]
+
+
+def _drop_crumbs(verts: np.ndarray, faces: np.ndarray, cell: float) -> tuple[np.ndarray, np.ndarray]:
+    """Drop loose bits smaller than the sampling can resolve: under two cells across. They are
+    what is left of a feature thinner than a cell (the tip of a thin horn or ear), not a part of
+    the shape; a real separate piece is bigger. Thicken the feature to keep it."""
+    parent = np.arange(len(verts))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b, c in faces:
+        ra, rb, rc = find(a), find(b), find(c)
+        parent[rb] = ra
+        parent[find(rc)] = ra
+    roots = np.array([find(f[0]) for f in faces])
+    keep = np.ones(len(faces), dtype=bool)
+    for root in np.unique(roots):
+        mine = roots == root
+        pts = verts[np.unique(faces[mine])]
+        if (pts.max(axis=0) - pts.min(axis=0)).max() < 2 * cell:
+            keep[mine] = False
+    if keep.all():
+        return verts, faces
+    faces = faces[keep]
+    used = np.unique(faces)
+    remap = np.full(len(verts), -1, dtype=np.int64)
+    remap[used] = np.arange(len(used))
+    return verts[used], remap[faces]
+
+
+def reduce(shape: Shape, shell_mesh: Shell, max_triangles: int) -> Shell:
+    """A shell from `mesh` simplified further to `max_triangles` (and put back on the surface):
+    cheaper than meshing again when a budget turns out a little too high."""
+    from assetkit.simplify import simplify
+
+    verts = np.asarray(shell_mesh[0], dtype=np.float64)
+    faces = np.asarray(shell_mesh[1], dtype=np.int64)
+    verts, faces = simplify(verts, faces, max_triangles)
+    edges = verts[faces[:, [1, 2, 0]]].reshape(-1, 3) - verts[faces].reshape(-1, 3)
+    cell = float(np.median(_length(edges))) * 0.5
     verts = _project(shape, verts, faces, cell)
     return [tuple(map(float, v)) for v in verts], [list(map(int, f)) for f in faces]
 

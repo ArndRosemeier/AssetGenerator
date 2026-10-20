@@ -1,0 +1,623 @@
+{
+  "spec_version": 1,
+  "id": "sculpt_cave_imp",
+  "generator": "organic.sculpt",
+  "params": {
+    "parts": {
+      "pelvis": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.01,
+            0.45
+          ],
+          "radii": [
+            0.12,
+            0.1,
+            0.09
+          ]
+        }
+      },
+      "belly": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.03,
+            0.52
+          ],
+          "radii": [
+            0.12,
+            0.11,
+            0.1
+          ]
+        }
+      },
+      "chest": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.0,
+            0.64
+          ],
+          "radii": [
+            0.14,
+            0.1,
+            0.11
+          ]
+        }
+      },
+      "head": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.02,
+            0.83
+          ],
+          "radii": [
+            0.1,
+            0.11,
+            0.11
+          ]
+        }
+      },
+      "snout": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.12,
+            0.8
+          ],
+          "radii": [
+            0.05,
+            0.06,
+            0.04
+          ]
+        }
+      },
+      "ear": {
+        "capsule": {
+          "a": [
+            0.08,
+            0.0,
+            0.87
+          ],
+          "b": [
+            0.22,
+            0.05,
+            0.95
+          ],
+          "radius": 0.03,
+          "radius_b": 0.014
+        }
+      },
+      "upper_arm": {
+        "capsule": {
+          "a": [
+            0.13,
+            0.0,
+            0.67
+          ],
+          "b": [
+            0.25,
+            0.0,
+            0.5
+          ],
+          "radius": 0.04,
+          "radius_b": 0.032
+        }
+      },
+      "forearm": {
+        "capsule": {
+          "a": [
+            0.25,
+            0.0,
+            0.5
+          ],
+          "b": [
+            0.31,
+            -0.05,
+            0.35
+          ],
+          "radius": 0.032,
+          "radius_b": 0.025
+        }
+      },
+      "hand": {
+        "ellipsoid": {
+          "centre": [
+            0.325,
+            -0.06,
+            0.3
+          ],
+          "radii": [
+            0.03,
+            0.035,
+            0.045
+          ]
+        }
+      },
+      "thigh": {
+        "capsule": {
+          "a": [
+            0.075,
+            0.01,
+            0.42
+          ],
+          "b": [
+            0.1,
+            -0.03,
+            0.23
+          ],
+          "radius": 0.055,
+          "radius_b": 0.045
+        }
+      },
+      "shin": {
+        "capsule": {
+          "a": [
+            0.1,
+            -0.03,
+            0.23
+          ],
+          "b": [
+            0.1,
+            0.02,
+            0.06
+          ],
+          "radius": 0.045,
+          "radius_b": 0.03
+        }
+      },
+      "foot": {
+        "ellipsoid": {
+          "centre": [
+            0.1,
+            -0.03,
+            0.025
+          ],
+          "radii": [
+            0.04,
+            0.085,
+            0.025
+          ]
+        }
+      }
+    },
+    "shape": {
+      "above": {
+        "height": 0.0,
+        "shape": {
+          "displace": {
+            "amount": 0.004,
+            "scale": 25.0,
+            "seed": 5,
+            "octaves": 2,
+            "shape": {
+              "smooth_union": {
+                "k": 0.04,
+                "shapes": [
+                  {
+                    "ref": "pelvis"
+                  },
+                  {
+                    "ref": "belly"
+                  },
+                  {
+                    "ref": "chest"
+                  },
+                  {
+                    "ref": "head"
+                  },
+                  {
+                    "ref": "snout"
+                  },
+                  {
+                    "mirror_x": {
+                      "ref": "ear"
+                    }
+                  },
+                  {
+                    "mirror_x": {
+                      "union": [
+                        {
+                          "ref": "upper_arm"
+                        },
+                        {
+                          "ref": "forearm"
+                        },
+                        {
+                          "ref": "hand"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "mirror_x": {
+                      "union": [
+                        {
+                          "ref": "thigh"
+                        },
+                        {
+                          "ref": "shin"
+                        },
+                        {
+                          "ref": "foot"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "base_slot": "skin",
+    "paint": {
+      "eye": {
+        "mirror_x": {
+          "sphere": {
+            "centre": [
+              0.045,
+              -0.115,
+              0.86
+            ],
+            "radius": 0.024
+          }
+        }
+      },
+      "cloth": {
+        "cylinder": {
+          "a": [
+            0,
+            0,
+            0.36
+          ],
+          "b": [
+            0,
+            0,
+            0.47
+          ],
+          "radius": 0.2
+        }
+      }
+    },
+    "paint_reach": 0.002,
+    "max_triangles": 5000,
+    "rig": {
+      "bones": {
+        "hips": {
+          "head": [
+            0,
+            0.02,
+            0.4
+          ],
+          "tail": [
+            0,
+            0.01,
+            0.55
+          ]
+        },
+        "chest": {
+          "parent": "hips",
+          "head": [
+            0,
+            0.01,
+            0.55
+          ],
+          "tail": [
+            0,
+            0.0,
+            0.72
+          ]
+        },
+        "head": {
+          "parent": "chest",
+          "head": [
+            0,
+            0.0,
+            0.72
+          ],
+          "tail": [
+            0,
+            -0.02,
+            0.95
+          ]
+        },
+        "ear.L": {
+          "parent": "head",
+          "from": "ear"
+        },
+        "upper_arm.L": {
+          "parent": "chest",
+          "from": "upper_arm"
+        },
+        "forearm.L": {
+          "parent": "upper_arm.L",
+          "from": "forearm"
+        },
+        "hand.L": {
+          "parent": "forearm.L",
+          "head": [
+            0.31,
+            -0.05,
+            0.35
+          ],
+          "tail": [
+            0.33,
+            -0.07,
+            0.26
+          ]
+        },
+        "thigh.L": {
+          "parent": "hips",
+          "from": "thigh"
+        },
+        "shin.L": {
+          "parent": "thigh.L",
+          "from": "shin"
+        },
+        "foot.L": {
+          "parent": "shin.L",
+          "head": [
+            0.1,
+            0.02,
+            0.06
+          ],
+          "tail": [
+            0.1,
+            -0.1,
+            0.02
+          ]
+        }
+      },
+      "carry": {
+        "hips": [
+          "pelvis",
+          "belly"
+        ],
+        "chest": [
+          "chest"
+        ],
+        "head": [
+          "head",
+          "snout"
+        ],
+        "hand.L": [
+          "hand"
+        ],
+        "foot.L": [
+          "foot"
+        ]
+      },
+      "legs": {
+        "leg.L": {
+          "upper": "thigh.L",
+          "lower": "shin.L",
+          "foot": "foot.L"
+        }
+      },
+      "softness": {
+        "default": 0.014,
+        "ear.L": 0.008
+      },
+      "clips": {
+        "Idle": {
+          "seconds": 2.4,
+          "loop": true,
+          "motions": [
+            {
+              "turn": {
+                "bone": "chest",
+                "pitch": 2,
+                "cycles": 2
+              }
+            },
+            {
+              "turn": {
+                "bone": "head",
+                "yaw": 15,
+                "cycles": 1
+              }
+            },
+            {
+              "turn": {
+                "bone": "ear.*",
+                "roll": 10,
+                "cycles": 3
+              }
+            },
+            {
+              "turn": {
+                "bone": "upper_arm.*",
+                "roll": 4,
+                "cycles": 2
+              }
+            },
+            {
+              "gait": {
+                "legs": {
+                  "leg.L": 0,
+                  "leg.R": 0
+                },
+                "stride": 0.0,
+                "lift": 0.0,
+                "duty": 0.95
+              }
+            }
+          ]
+        },
+        "Walk": {
+          "seconds": 1.0,
+          "loop": true,
+          "motions": [
+            {
+              "gait": {
+                "legs": {
+                  "leg.L": 0.0
+                },
+                "stride": 0.22,
+                "lift": 0.06,
+                "duty": 0.6
+              }
+            },
+            {
+              "move": {
+                "z": 0.012,
+                "wave": "bounce",
+                "cycles": 2
+              }
+            },
+            {
+              "turn": {
+                "bone": "hips",
+                "yaw": 6,
+                "cycles": 1
+              }
+            },
+            {
+              "turn": {
+                "bone": "chest",
+                "yaw": -9,
+                "cycles": 1
+              }
+            },
+            {
+              "turn": {
+                "bone": "upper_arm.L",
+                "pitch": 25,
+                "cycles": 1,
+                "phase": 0.75
+              }
+            },
+            {
+              "turn": {
+                "bone": "upper_arm.R",
+                "pitch": 25,
+                "cycles": 1,
+                "phase": 0.25
+              }
+            },
+            {
+              "turn": {
+                "bone": "forearm.*",
+                "pitch": 15,
+                "wave": "constant"
+              }
+            },
+            {
+              "turn": {
+                "bone": "ear.*",
+                "roll": 6,
+                "wave": "bounce",
+                "cycles": 2
+              }
+            }
+          ]
+        },
+        "Attack": {
+          "seconds": 0.9,
+          "loop": false,
+          "motions": [
+            {
+              "keys": {
+                "at": [
+                  {
+                    "t": 0.0
+                  },
+                  {
+                    "t": 0.4,
+                    "turns": {
+                      "upper_arm.R": {
+                        "pitch": 75
+                      },
+                      "forearm.R": {
+                        "pitch": 50
+                      },
+                      "chest": {
+                        "yaw": -20,
+                        "pitch": -8
+                      }
+                    }
+                  },
+                  {
+                    "t": 0.6,
+                    "turns": {
+                      "upper_arm.R": {
+                        "pitch": 10
+                      },
+                      "forearm.R": {
+                        "pitch": 5
+                      },
+                      "chest": {
+                        "yaw": 15,
+                        "pitch": 12
+                      },
+                      "head": {
+                        "pitch": -10
+                      }
+                    }
+                  },
+                  {
+                    "t": 1.0
+                  }
+                ]
+              }
+            },
+            {
+              "gait": {
+                "legs": {
+                  "leg.L": 0,
+                  "leg.R": 0
+                },
+                "stride": 0.0,
+                "lift": 0.0,
+                "duty": 0.95
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "materials": {
+    "skin": {
+      "base_color": [
+        0.32,
+        0.27,
+        0.18,
+        1
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0
+    },
+    "eye": {
+      "base_color": [
+        0.9,
+        0.25,
+        0.05,
+        1
+      ],
+      "roughness": 0.2,
+      "metallic": 0.0
+    },
+    "cloth": {
+      "base_color": [
+        0.25,
+        0.12,
+        0.08,
+        1
+      ],
+      "roughness": 0.95,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.5
+  }
+}

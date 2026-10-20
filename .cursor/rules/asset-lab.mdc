@@ -56,7 +56,9 @@ Exit codes: `0` pass, `1` QA/build failed, `2` bad spec or missing toolchain.
 Rocks, roots, stumps, bodies, horns, fungus: write an `organic.sculpt` spec (the shape as a
 JSON tree of distance-function primitives, smooth unions, cuts and noise; regions painted with
 their own materials) before writing a generator. Reference: "Sculpting organic forms" in
-`docs/ASSETKIT.md`; examples `assets/specs/sculpt_*.json`.
+`docs/ASSETKIT.md`; examples `assets/specs/sculpt_*.json`. To animate one, add a `rig`
+("Rigging and animating a sculpt" in `docs/ASSETKIT.md`): model limbs apart from the body
+(A-pose), then read the rig sheet `assets/out/look/<id>_rig.png` and its flags.
 
 ## Adding a generator
 

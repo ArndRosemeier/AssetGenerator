@@ -270,6 +270,17 @@ outward mesh that passes QA, the same bit for bit on every machine. A rock, a st
 or a toad is a JSON file: see `assets/specs/sculpt_*.json` and
 [`docs/ASSETKIT.md`](docs/ASSETKIT.md).
 
+## Rigged and animated, still in JSON
+
+A sculpt's `rig` turns it into a creature: bones taken from its capsule parts (the right side
+mirrored from the left), skin weights from the distance to the parts each bone carries (no
+painting; limbs never share skin with unrelated bones), and clips described as a few motions:
+a turn, a bob, keyed poses, and a gait whose feet stay planted by inverse kinematics. Blender
+builds the armature and one glTF animation per clip, matching the kit's own skinning to 5e-7 m.
+`ag.py look` adds a rig sheet: bones, weights and six frames of every clip, with flags for fused
+limbs, tearing skin and feet through the floor. See `assets/specs/sculpt_cave_toad.json` and
+`sculpt_cave_imp.json`.
+
 ## Adding a generator
 
 Create `blender/generators/<family>_<name>.py` exposing `MATERIAL_SLOTS` and

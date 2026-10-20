@@ -103,6 +103,13 @@ out in order by the backend:
 
 A step says *what*, never *how*: how Blender 4.5 or 5.2 does it is the backend's business.
 
+A moving asset adds `Asset(parts, skeleton=Skeleton(...), clips=(Clip(...), ...))` and a
+`Part(..., skin=Skin(...))` (`assetkit/rig.py`): bones with heads, tails and parents; per vertex
+up to four bone weights; per clip, per frame, each bone's rigid motion of the rest skeleton
+(rotation and translation, asset space). The backend turns the motions into Blender's local
+bone transforms from Blender's own rest matrices, so bone roll never reaches a generator.
+`assetkit.skinning.deform` moves a mesh exactly as Blender's armature does.
+
 ## Sculpting organic forms
 
 Boxes, lathes and sweeps model furniture and tools well and bodies, roots and rocks badly.
@@ -167,6 +174,80 @@ shading the asset ships with.
 
 Examples: `sculpt_boulder_mossy`, `sculpt_tree_stump`, `sculpt_cave_toad` in `assets/specs/`.
 
+## Rigging and animating a sculpt
+
+A sculpt rigs itself from what it already knows: which part every point of its surface lies
+on. Add a `rig` to an `organic.sculpt` spec and the kit builds the skeleton, the skin weights
+and the clips; the backend makes them a Blender armature and glTF animations.
+`assets/specs/sculpt_cave_toad.json` (four legs) and `sculpt_cave_imp.json` (two legs, arms)
+are complete examples.
+
+### The recipe
+
+1. **Model limbs as capsule parts, one per bone, on the left (+X) side**, and put them in
+   the shape with `mirror_x`. Model the body in an A-pose: arms out from the flanks, legs
+   apart, every limb further from the body than the smooth-union `k`. A limb within `k` is
+   glued to the body, and that skin tears when the limb moves.
+2. **Bones**: one per moving piece. Take limb bones `from` their capsule part (head at `a`,
+   tail at `b`); place the others (body, head, feet) by `head` and `tail`. Name left bones
+   `*.L`: the `*.R` twin is made for you.
+3. **Carry**: say which parts each bone carries (`"head": ["head", "snout"]`). A bone taken
+   `from` a part carries it already. The skin weights follow from the distance to those parts.
+4. **Legs**: name each two-bone limb that walks (`"hind.L": {"upper", "lower", "foot"}`).
+5. **Clips**: a few motions each (below).
+6. **Look**: `python tools/ag.py look <id>` writes `assets/out/look/<id>_rig.png` and prints a
+   line per clip. Fix what it flags, then `generate`.
+
+### Conventions
+
+| Word | Means |
+| --- | --- |
+| front, up, left | -Y, +Z, +X (the creature's left; `*.L` bones) |
+| `pitch` | turn about X: a nose, or a limb's far end, up and forward (+) |
+| `yaw` | turn about Z: towards the creature's left (+) |
+| `roll` | turn about Y: its right side down (+) |
+
+Turns are in degrees, in the rest pose's axes, about the bone's head, after its parent has
+moved. `"bone": "ear.*"` turns both ears, the right one mirrored. Times `t` run 0..1 over a clip.
+
+### Motions
+
+| Motion | Does |
+| --- | --- |
+| `turn` | a bone swings: `pitch`/`yaw`/`roll` degrees times a wave (`sine`, `bounce`, `constant`) at `cycles` per clip, `phase` 0..1 |
+| `move` | the whole body moves `x`/`y`/`z` metres: bob (`bounce`), sway, hop |
+| `keys` | poses at times (`at: [{t, turns, move}]`), eased `smooth` or `linear`; a key leaves out what is at rest |
+| `gait` | legs step in place: `legs: {name: phase}`, `stride`, `lift`, `duty` (share of a cycle on the ground). Feet are planted by inverse kinematics; knees bend the way they were modelled. A `.L` leg's twin steps half a cycle later unless listed |
+
+Recipes that work: a **walk** staggers four feet (`hind.L 0, fore.L 0.25, hind.R 0.5,
+fore.R 0.75`) or alternates two (`leg.L 0`), with a `bounce` bob at two cycles. **Arms** swing
+against the legs: `upper_arm.L` and `upper_arm.R` as two `turn`s half a cycle apart (`.*`
+would swing them together). **Feet stay put** in a clip that is not a walk (idle, attack):
+add a `gait` with `stride: 0`. A **loop** must hold whole cycles; the clip ends where it began.
+
+### What the checks mean
+
+The rig sheet shows the bones, the weights (each bone's colour, mixed by weight: a joint is a
+gradient) and six frames of every clip. Its frames are the skinning sum Blender runs:
+`generate` holds Blender to it (`rig_matches_kit`, measured at 5e-7 m on 4.5 and 5.2).
+
+| Flag | Cause | Fix |
+| --- | --- | --- |
+| `X shares skin with Y: model them apart` | a limb fused to the body or another limb | move the limb out of the smooth-union `k` (A-pose, legs apart) |
+| `skin tears` (over 2x) / `skin folds` (under 0.25x) | a joint turned too far for its blend, or fused geometry | turn less, soften that bone (`softness`), model apart |
+| `sinks into the ground` | the body moves down while feet are not planted | add a `gait` with `stride: 0`, or move less |
+| `nothing moves` | every motion is zero or cancels | check bones and amplitudes |
+
+Limits worth knowing:
+- glTF engines skin by linear blending, and a thick joint (a shoulder against a chest)
+  turned much past 80 to 90 degrees tears there. The flag catches it; keep such turns smaller.
+- A feature thinner than the meshing step (a 1 cm ear tip on a 1 m body) is dropped as a
+  crumb. Thicken it, or raise `max_triangles`.
+- Weights blend over `softness` metres (default 2% of the size): smaller is a crisper joint.
+  Then they are joined and smoothed. A vertex never belongs to two bones that do not touch;
+  where they meet, the bone between them takes over. Then each joint's blend is spread over
+  a few vertices.
+
 ## Looking at an asset
 
 `assetview/` draws a nine-view inspection sheet and measures what pictures show badly. It uses
@@ -211,7 +292,6 @@ When a generator needs something the kit lacks (a boolean, a modifier, a baked t
 - Adding is not breaking. Renaming or changing what an export means bumps `API_VERSION` and
   moves every kit generator along in the same change.
 
-Not in the kit yet: rigs, animation clips, baked textures and procedural materials. The
-generators that need them (`creature.*`, `nature.rock`, `hard_surface.kit_cell`) stay on
-`bpy` until those steps exist. Organic *shapes* are in (`organic.sculpt`); a sculpted
-creature is a statue until rigs are.
+Not in the kit yet: baked textures and procedural materials. The generators that need them
+(`nature.rock`, `hard_surface.kit_cell`) and the older creature generators (`creature.*`, with
+their own rigs) stay on `bpy`. Sculpted creatures are rigged and animated by the kit.

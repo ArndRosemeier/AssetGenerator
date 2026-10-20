@@ -348,6 +348,11 @@ unions, cuts and noise, and paints regions with their own materials. Write a spe
 `python tools/ag.py look <id>`, adjust, repeat. See "Sculpting organic forms" in
 [`ASSETKIT.md`](ASSETKIT.md).
 
+To make it move, add a `rig` to the same spec: bones taken from its capsule parts, what each
+bone carries, legs, and clips described as a few motions (turn, move, keys, gait). The kit
+derives the skin weights and plants the feet; `look` writes a rig sheet with every clip's frames
+and flags fused limbs, tearing skin and sinking feet. See "Rigging and animating a sculpt".
+
 1. Create `blender/generators/<family>_<name>.py` with:
    - `MATERIAL_SLOTS: tuple[str, ...]`
    - `build(spec: AssetSpec) -> assetkit.Asset`

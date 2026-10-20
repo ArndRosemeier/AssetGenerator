@@ -21,8 +21,12 @@ true), `sharp_angle` (degrees; smooth shading keeps edges sharper than this hard
 
 from __future__ import annotations
 
+import numpy as np
+
 from assetkit import Asset, MeshBuilder, Part, ShadeFlat, ShadeSmooth, Unwrap, sdf
+from assetkit.rigspec import RigError, build_rig
 from assetkit.sculpt import SculptError, build_shape
+from assetkit.skinning import bind
 from blender.lib.spec import (
     AssetSpec,
     SpecError,
@@ -48,6 +52,7 @@ _KEYS = (
     "smooth",
     "sharp_angle",
     "settle",
+    "rig",
 )
 
 
@@ -81,6 +86,7 @@ def build(spec: AssetSpec) -> Asset:
     builder = MeshBuilder(slots)
     builder.add_painted(shell[0], shell[1], face_slots)
     mesh = builder.build()
+    unsettled = mesh
     if as_bool(raw.get("settle", True), "params.settle"):
         mesh = mesh.settled()
 
@@ -91,7 +97,34 @@ def build(spec: AssetSpec) -> Asset:
         )
     else:
         shading = ShadeFlat()
-    return Asset((Part(spec.asset_id, mesh, spec.materials, (shading, Unwrap())),))
+    finish = (shading, Unwrap())
+    if "rig" not in raw:
+        return Asset((Part(spec.asset_id, mesh, spec.materials, finish),))
+
+    # The rig is written in spec coordinates; settling moved the mesh, so it moves the rig too.
+    offset = tuple(a - b for a, b in zip(mesh.vertices[0], unsettled.vertices[0], strict=True))
+    try:
+        rig = build_rig(
+            raw["rig"],
+            parts,
+            lambda name: build_shape({"ref": name}, parts, f"params.rig (part '{name}')"),
+            size,
+            offset,
+            "params.rig",
+        )
+        triangles = np.asarray([(f[0], f[k], f[k + 1]) for f in mesh.faces for k in range(1, len(f) - 1)])
+        skin = bind(
+            np.asarray(mesh.vertices),
+            rig.carriers,
+            rig.softness,
+            rig.default_softness,
+            parents={b.name: b.parent for b in rig.skeleton.bones},
+            faces=triangles,
+        )
+    except (RigError, SculptError, ValueError) as exc:
+        raise SpecError(str(exc)) from exc
+    part = Part(spec.asset_id, mesh, spec.materials, finish, skin=skin)
+    return Asset((part,), skeleton=rig.skeleton, clips=rig.clips)
 
 
 def _meshed(
@@ -99,11 +132,11 @@ def _meshed(
 ) -> tuple[sdf.Shell, list[str]]:
     """Mesh and paint within `budget` triangles. Cutting along paint borders adds triangles,
     so while it overshoots, mesh again leaving room for what the borders took."""
+    shell = sdf.mesh(shape, max_triangles=budget)
+    if not regions:
+        return shell, [base_slot] * len(shell[1])
     target = budget
     for _ in range(4):
-        shell = sdf.mesh(shape, max_triangles=target)
-        if not regions:
-            return shell, [base_slot] * len(shell[1])
         painted, face_slots = sdf.paint(shell, regions, base_slot, reach, shape=shape)
         if len(painted[1]) <= budget:
             return painted, face_slots
@@ -111,4 +144,5 @@ def _meshed(
         target = min(target - 1, budget - border - budget // 50)
         if target < 8:
             break
+        shell = sdf.reduce(shape, shell, target)
     raise ValueError(f"painting needs {len(painted[1])} triangles, over the budget of {budget}")
