@@ -33,3 +33,23 @@ class Glb:
         stride = view.get("byteStride", size * n)
         at = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
         return [struct.unpack_from(f"<{n}{fmt}", self.binary, at + stride * k) for k in range(acc["count"])]
+
+    def clips(self) -> list[dict[str, object]]:
+        """Each animation as the file holds it: name, length in seconds (its last key time),
+        whether anything moves, and whether every channel ends where it starts (a closed loop;
+        a rotation and its negative are the same turn)."""
+        out = []
+        for anim in self.doc.get("animations", []):
+            end, moves, closed = 0.0, False, True
+            for sampler in anim["samplers"]:
+                times = self.values(sampler["input"])
+                end = max(end, times[-1][0])
+                values = self.values(sampler["output"])
+                first, last = values[0], values[-1]
+                moves |= any(abs(v[d] - first[d]) > 1e-5 for v in values for d in range(len(v)))
+                same = max(abs(a - b) for a, b in zip(first, last, strict=True))
+                if len(first) == 4:  # a quaternion
+                    same = min(same, max(abs(a + b) for a, b in zip(first, last, strict=True)))
+                closed &= same < 1e-4
+            out.append({"name": anim.get("name", "?"), "seconds": end, "moves": moves, "closed": closed})
+        return out

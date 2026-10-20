@@ -39,6 +39,7 @@ GENERATORS: Final[dict[str, str]] = {
     "creature.quadruped": "blender.generators.quadruped_generator",
     "creature.mushroom": "blender.generators.mushroom_creature",
     "organic.sculpt": "blender.generators.organic_sculpt",
+    "prop.assembly": "blender.generators.prop_assembly",
 }
 
 
@@ -46,7 +47,9 @@ GENERATORS: Final[dict[str, str]] = {
 # import no Blender module, so they run without Blender and do not change when Blender does.
 # tests/test_assetkit.py holds every one of them to that; tools/backend_matrix.py builds their specs
 # on each supported Blender version and requires the same result.
-KIT_GENERATORS: Final[frozenset[str]] = frozenset({"hard_surface.crate", "prop.kit", "organic.sculpt"})
+KIT_GENERATORS: Final[frozenset[str]] = frozenset(
+    {"hard_surface.crate", "prop.kit", "organic.sculpt", "prop.assembly"}
+)
 
 
 class UnknownGeneratorError(KeyError):
@@ -56,7 +59,5 @@ class UnknownGeneratorError(KeyError):
 def resolve_generator_module(name: str) -> str:
     module = GENERATORS.get(name)
     if module is None:
-        raise UnknownGeneratorError(
-            f"Unknown generator '{name}'. Available: {sorted(GENERATORS)}"
-        )
+        raise UnknownGeneratorError(f"Unknown generator '{name}'. Available: {sorted(GENERATORS)}")
     return module

@@ -23,7 +23,12 @@ as `base_color`. Masks:
               `sharpness` (thin lines when high), `seed`
     spots     round spots: `size` (diameter, metres), `spacing` (default twice the size),
               `density` (share of places with a spot), `softness` (0 crisp .. 1 blurred), `seed`
-    gradient  along `axis` x | y | z: full at `from`, none at `to` (metres): grime at a base
+    gradient  along `axis` x | y | z: full at `from`, none at `to` (metres): grime at a base;
+              `breakup` 0..1 makes the line ragged
+    facing    where the surface faces `direction` ([0, 0, 1]: up) within `angle` degrees (45),
+              fading over `soft` more (20): moss and snow on tops; `breakup`, `scale`, `seed`
+    cells     cells `size` across: lines `width` wide where they meet (plates, scales, cracks,
+              cobbles); `fill` 0..1 paints each cell's inside by a random share
     edges     where the surface bends outward tighter than `radius` metres: worn, lighter edges
     cavities  where it bends inward tighter than `radius`: dirt in creases
     (edges and cavities take `breakup` 0..1 to break the mask up with noise)
@@ -63,7 +68,9 @@ _KINDS: dict[str, dict[str, object]] = {
     "mottle": {"scale": 6.0, "coverage": 0.5, "contrast": 2.0, "octaves": 3, "seed": 0, "stretch": None},
     "grain": {"axis": "z", "spacing": None, "warp": 1.0, "sharpness": 2.0, "seed": 0},
     "spots": {"size": None, "spacing": None, "density": 0.7, "softness": 0.3, "seed": 0},
-    "gradient": {"axis": "z", "from": None, "to": None},
+    "gradient": {"axis": "z", "from": None, "to": None, "breakup": 0.0, "seed": 0},
+    "facing": {"direction": None, "angle": 45.0, "soft": 20.0, "breakup": 0.0, "scale": 8.0, "seed": 0},
+    "cells": {"size": None, "width": None, "fill": 0.0, "seed": 0},
     "edges": {"radius": 0.05, "breakup": 0.0, "seed": 0},
     "cavities": {"radius": 0.05, "breakup": 0.0, "seed": 0},
 }
@@ -106,7 +113,15 @@ def _layer(raw: object, path: str) -> Layer:
     roughness = _number(body, "roughness", here, None, 0.0, 1.0) if "roughness" in body else None
     params: dict[str, object] = {}
     for key, default in defaults.items():
-        if key == "stretch":
+        if key == "direction":
+            value = body.get(key, [0.0, 0.0, 1.0])
+            if not (isinstance(value, list) and len(value) == 3 and all(_is_number(x) for x in value)):
+                raise PatternError(f"{here}.direction: expected [x, y, z]")
+            length = sum(float(x) * float(x) for x in value) ** 0.5
+            if length < 1e-9:
+                raise PatternError(f"{here}.direction: must not be zero")
+            params[key] = tuple(float(x) / length for x in value)
+        elif key == "stretch":
             value = body.get(key, [1.0, 1.0, 1.0])
             if not (
                 isinstance(value, list) and len(value) == 3 and all(_is_number(x) and x > 0 for x in value)
@@ -126,14 +141,16 @@ def _layer(raw: object, path: str) -> Layer:
             params[key] = value
         else:
             if default is None and key not in body:
-                if kind == "spots" and key == "spacing":
+                if (kind, key) in (("spots", "spacing"), ("cells", "width")):
                     continue
                 raise PatternError(f"{here}: missing '{key}'")
             params[key] = _number(body, key, here, default, None, None)  # type: ignore[arg-type]
     for key in ("scale", "spacing", "size", "radius", "contrast", "sharpness"):
         if key in params and params[key] <= 0:  # type: ignore[operator]
             raise PatternError(f"{here}.{key}: must be positive")
-    for key in ("coverage", "density", "softness", "breakup"):
+    if kind == "facing" and not (0.0 <= params["angle"] <= 180.0 and params["soft"] >= 0.0):  # type: ignore[operator]
+        raise PatternError(f"{here}: `angle` is 0..180 degrees and `soft` 0 or more")
+    for key in ("coverage", "density", "softness", "breakup", "fill"):
         if key in params and not 0.0 <= params[key] <= 1.0:  # type: ignore[operator]
             raise PatternError(f"{here}.{key}: expected 0..1")
     if kind == "spots" and "spacing" in params and params["spacing"] < params["size"]:  # type: ignore[operator]
@@ -183,12 +200,12 @@ def evaluate(
     have their origin at `origin` (in the surface's)."""
     import numpy as np
 
-    q, bend = surface.at(tri, bary)
+    q, bend, normal = surface.at(tri, bary)
     p = q - np.asarray(origin, dtype=np.float64)
     color = np.tile(np.asarray(base_color, dtype=np.float64), (len(p), 1))
     rough = np.full(len(p), float(base_roughness))
     for layer in pattern.layers:
-        m = _mask(layer, p, bend, lambda r, outward: surface.near_creases(q, r, outward)) * layer.amount
+        m = _mask(layer, p, bend, normal, _creases_at(surface, q)) * layer.amount
         color += (np.asarray(layer.color) - color) * m[:, None]
         if layer.roughness is not None:
             rough += (layer.roughness - rough) * m
@@ -208,17 +225,23 @@ def coverage(
     beneath it."""
     import numpy as np
 
-    q, bend = surface.at(tri, bary)
+    q, bend, normal = surface.at(tri, bary)
     p = q - np.asarray(origin, dtype=np.float64)
     w = np.ones(len(q)) if weights is None else np.asarray(weights, dtype=np.float64)
     out = []
     for layer in pattern.layers:
-        m = _mask(layer, p, bend, lambda r, outward: surface.near_creases(q, r, outward)) * layer.amount
+        m = _mask(layer, p, bend, normal, _creases_at(surface, q)) * layer.amount
         out.append(float((m * w).sum() / max(w.sum(), 1e-30)))
     return out
 
 
-def _mask(layer: Layer, p: object, c: object, creases: Callable[[float, bool], object]) -> object:
+def _creases_at(surface: Surface, points: object) -> Callable[[float, bool], object]:
+    return lambda radius, outward: surface.near_creases(points, radius, outward)
+
+
+def _mask(
+    layer: Layer, p: object, c: object, normal: object, creases: Callable[[float, bool], object]
+) -> object:
     import numpy as np
 
     k = layer.params
@@ -245,8 +268,33 @@ def _mask(layer: Layer, p: object, c: object, creases: Callable[[float, bool], o
         inner = r * (1.0 - float(k["softness"]))  # type: ignore[arg-type]
         return 1.0 - _smoothstep(inner, r + 1e-9, d)
     if layer.kind == "gradient":
+        lo, hi = float(k["from"]), float(k["to"])  # type: ignore[arg-type]
         u = _axis(p, str(k["axis"]))
-        return 1.0 - _smoothstep(float(k["from"]), float(k["to"]), u)  # type: ignore[arg-type]
+        if float(k["breakup"]) > 0:  # type: ignore[arg-type]
+            # A ragged line: the fade moves by up to half its length with noise its own size.
+            span = abs(hi - lo)
+            u = u + float(k["breakup"]) * span * 1.4 * _fbm(p, 1.0 / span, 3, int(k["seed"]))  # type: ignore[arg-type, operator]
+        return 1.0 - _smoothstep(lo, hi, u)
+    if layer.kind == "facing":
+        # Where the surface faces `direction` within `angle` (full), fading over `soft` more
+        # degrees: moss and snow on tops, dust on ledges, rust streaks under overhangs.
+        d = np.asarray(k["direction"])
+        cos = (normal * d).sum(axis=1)  # type: ignore[operator]
+        angle, soft = float(k["angle"]), float(k["soft"])  # type: ignore[arg-type]
+        if float(k["breakup"]) > 0:  # type: ignore[arg-type]
+            cos = cos + float(k["breakup"]) * 1.2 * _fbm(p, float(k["scale"]), 3, int(k["seed"]))  # type: ignore[arg-type]
+        full = np.cos(np.radians(angle))
+        none = np.cos(np.radians(min(angle + max(soft, 1e-3), 180.0)))
+        return _smoothstep(none, full, cos)
+    if layer.kind == "cells":
+        # Voronoi cells `size` across: lines `width` wide where cells meet (plates, scales,
+        # cracks, cobbles), and with `fill` each cell's inside painted by a random share.
+        size = float(k["size"])  # type: ignore[arg-type]
+        width = float(k.get("width", 0.08 * size))  # type: ignore[arg-type]
+        f1, f2, cell = _cells(p, size, int(k["seed"]))  # type: ignore[arg-type]
+        lines = 1.0 - _smoothstep(0.0, width, f2 - f1)
+        fill = float(k["fill"])  # type: ignore[arg-type]
+        return np.maximum(lines, fill * cell) if fill > 0 else lines
     if layer.kind in ("edges", "cavities"):
         outward = layer.kind == "edges"
         bend = c if outward else -c  # type: ignore[operator]
@@ -309,6 +357,31 @@ def _hash(ix: object, iy: object, iz: object, seed: int, salt: int) -> object:
         h *= np.uint64(0xBF58476D1CE4E5B9)
         h ^= h >> np.uint64(29)
     return (h >> np.uint64(11)).astype(np.float64) / float(1 << 53)
+
+
+def _cells(p: object, size: float, seed: int) -> tuple[object, object, object]:
+    """Cellular noise: distances to the nearest and second nearest cell centre (one jittered
+    centre per `size` cube) and a random number in [0, 1) for the nearest one's cell."""
+    import numpy as np
+
+    q = p / size  # type: ignore[operator]
+    base = np.floor(q).astype(np.int64)
+    f1 = np.full(len(q), np.inf)
+    f2 = np.full(len(q), np.inf)
+    tag = np.zeros(len(q))
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                cx, cy, cz = base[:, 0] + dx, base[:, 1] + dy, base[:, 2] + dz
+                jx = cx + _hash(cx, cy, cz, seed, 11)
+                jy = cy + _hash(cx, cy, cz, seed, 12)
+                jz = cz + _hash(cx, cy, cz, seed, 13)
+                d = np.sqrt((q[:, 0] - jx) ** 2 + (q[:, 1] - jy) ** 2 + (q[:, 2] - jz) ** 2)
+                nearer = d < f1
+                f2 = np.where(nearer, f1, np.minimum(f2, d))
+                tag = np.where(nearer, _hash(cx, cy, cz, seed, 14), tag)
+                f1 = np.where(nearer, d, f1)
+    return f1 * size, f2 * size, tag
 
 
 def _nearest_spot(p: object, spacing: float, density: float, seed: int) -> object:
@@ -390,6 +463,10 @@ class Surface:
             np.add.at(near, both[:, 0], bend[both[:, 1]])
             bend = 0.5 * bend + 0.5 * near / count
         self.bend = bend
+        vertex_normal = np.zeros_like(v)
+        for k in range(3):
+            np.add.at(vertex_normal, f[:, k], cross)  # area-weighted
+        self.normals = vertex_normal / np.maximum(np.sqrt((vertex_normal**2).sum(axis=1)), 1e-30)[:, None]
 
         self.crease_a = v[ends[sharp, 0]]
         self.crease_b = v[ends[sharp, 1]]
@@ -397,16 +474,18 @@ class Surface:
         full = np.radians(FULL_DEG) - np.radians(SHARP_DEG)
         self.crease_strength = np.clip((angle[sharp] - np.radians(SHARP_DEG)) / full, 0.0, 1.0)
 
-    def at(self, tri: object, bary: object) -> tuple[object, object]:
-        """Points (N, 3) and their bend (N,: 1/metres, outward positive) for triangle indices
-        (N,) and barycentric weights (N, 3)."""
+    def at(self, tri: object, bary: object) -> tuple[object, object, object]:
+        """Points (N, 3), their bend (N,: 1/metres, outward positive) and unit normals (N, 3)
+        for triangle indices (N,) and barycentric weights (N, 3)."""
         import numpy as np
 
         corners = self.triangles[np.asarray(tri, dtype=np.int64)]
         w = np.asarray(bary, dtype=np.float64)
         points = (self.vertices[corners] * w[:, :, None]).sum(axis=1)
         bend = (self.bend[corners] * w).sum(axis=1)
-        return points, bend
+        normal = (self.normals[corners] * w[:, :, None]).sum(axis=1)
+        normal /= np.maximum(np.sqrt((normal * normal).sum(axis=1)), 1e-30)[:, None]
+        return points, bend, normal
 
     def near_creases(self, points: object, radius: float, outward: bool) -> object:
         """Per point, 1 on an outward (or inward) crease falling to 0 at `radius` from it,

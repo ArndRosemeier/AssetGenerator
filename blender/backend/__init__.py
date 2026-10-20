@@ -269,7 +269,7 @@ def _image(name: str, rgb: object, colorspace: str) -> bpy.types.Image:
 
 def _finish(obj: bpy.types.Object, step: object) -> None:
     if isinstance(step, Bevel):
-        apply_bevel(obj, width=step.width, segments=step.segments, angle_deg=step.angle_deg)
+        apply_bevel(obj, width=step.width, segments=step.segments, angle_deg=step.angle_deg, only=step.only)
     elif isinstance(step, ShadeFlat):
         shade_flat(obj)
     elif isinstance(step, ShadeSmooth):

@@ -33,7 +33,7 @@ A loop must contain whole cycles (it ends where it began); `cycles` defaults to 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 
 from assetkit.rig import Clip, Leg, Pose, Skeleton, Vec, add, solve, turn, twin_name
 
@@ -69,7 +69,15 @@ def build_clip(
     if not isinstance(motions_raw, list) or not motions_raw:
         raise MotionError(f"{path}.motions: expected a non-empty list")
     motions = [_motion(m, skeleton, legs, loop, f"{path}.motions[{i}]") for i, m in enumerate(motions_raw)]
-    count = max(2, round(seconds * fps))
+    # A loop of n frames lasts n / fps (the backend closes it with frame 0 again); a clip played
+    # once spans its first to its last frame, so it needs one frame more.
+    steps = round(seconds * fps)
+    if abs(steps - seconds * fps) > 1e-6:
+        raise MotionError(
+            f"{path}.seconds: {seconds} s is not a whole number of frames at {fps} fps; "
+            f"give the rig an `fps` that fits ({_fitting_rates([seconds])}) or round the length"
+        )
+    count = max(2, steps if loop else steps + 1)
     by_upper = {leg.upper: leg for leg in legs.values()}
     frames = []
     for f in range(count):
@@ -79,6 +87,23 @@ def build_clip(
             apply(pose, t)
         frames.append(solve(skeleton, pose, by_upper))
     return Clip(name=name, fps=fps, loop=loop, frames=tuple(frames))
+
+
+RATES = (24, 30, 25, 60, 48, 50, 120)
+
+
+def _fitting_rates(lengths: Sequence[float]) -> str:
+    rates = [r for r in RATES if all(abs(round(s * r) - s * r) < 1e-6 for s in lengths)]
+    return ", ".join(str(r) for r in rates) if rates else "none of " + ", ".join(map(str, RATES))
+
+
+def pick_fps(lengths: Sequence[float]) -> int | None:
+    """The first common frame rate (24, 30, 25, 60, ...) at which every length in seconds is a
+    whole number of frames, so every clip lasts exactly what the spec says; None if none does."""
+    for rate in RATES:
+        if all(abs(round(s * rate) - s * rate) < 1e-6 for s in lengths):
+            return rate
+    return None
 
 
 Apply = Callable[[Pose, float], None]

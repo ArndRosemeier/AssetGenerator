@@ -39,6 +39,14 @@ class ViewModel:
     source: str
     #: Colour per surface point (assetview/paint.py) where materials vary over the surface, or None.
     paint: Paint | None = None
+    #: Per slot, 1 opaque, below 1 see-through (glass); None: all opaque.
+    slot_alpha: np.ndarray | None = None
+
+    def see_through(self) -> np.ndarray:
+        """Per triangle, whether its material is see-through."""
+        if self.slot_alpha is None:
+            return np.zeros(len(self.triangles), dtype=bool)
+        return self.slot_alpha[self.tri_slot] < 0.95
 
     def islands(self) -> np.ndarray:
         """Connected part per triangle (shared welded vertices)."""
@@ -74,6 +82,7 @@ def from_asset(asset: Asset) -> ViewModel:
     colors: list[tuple[float, float, float]] = []
     looks: list[SlotLook] = []
     origins: list[tuple[float, float, float]] = []
+    alphas: list[float] = []
     for part in asset.parts:
         mesh = part.mesh
         offset = len(points)
@@ -85,6 +94,7 @@ def from_asset(asset: Asset) -> ViewModel:
             colors.append(tuple(material.base_color[:3]))
             looks.append(SlotLook(pattern_of(material), colors[-1], material.roughness))  # type: ignore[arg-type]
             origins.append(part.pattern_origin)
+            alphas.append(float(getattr(material, "alpha", 1.0)))
         for face, slot in zip(mesh.faces, mesh.face_slots, strict=True):
             n = len(face)
             for k in range(1, n - 1):
@@ -106,6 +116,7 @@ def from_asset(asset: Asset) -> ViewModel:
         real_edges=np.asarray(real, dtype=bool),
         source="kit asset (before bevel and unwrap)" + (", patterns evaluated" if paint else ""),
         paint=paint,
+        slot_alpha=np.asarray(alphas, dtype=np.float64),
     )
 
 
@@ -115,11 +126,14 @@ def from_glb(path: Path) -> ViewModel:
     materials = doc.get("materials", [])
     slots = [m.get("name", f"material_{i}") for i, m in enumerate(materials)] or ["default"]
     colors = []
+    alphas: list[float] = []
     textured = False
     for m in materials or [{}]:
         pbr = m.get("pbrMetallicRoughness", {})
         textured |= "baseColorTexture" in pbr
         colors.append(tuple(pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0])[:3]))
+        blended = m.get("alphaMode") == "BLEND"
+        alphas.append(float(pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0])[3]) if blended else 1.0)
     points: list[np.ndarray] = []
     tris: list[np.ndarray] = []
     tri_slot: list[np.ndarray] = []
@@ -169,6 +183,7 @@ def from_glb(path: Path) -> ViewModel:
         real_edges=np.ones(triangles.shape, dtype=bool),
         source=f"shipped file {path.name}" + (", textures sampled" if textured else ""),
         paint=paint,
+        slot_alpha=np.asarray(alphas, dtype=np.float64) if alphas else None,
     )
 
 
