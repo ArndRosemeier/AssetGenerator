@@ -7,8 +7,12 @@ where the form bends and thin out where it is flat.
 
 Every collapse keeps the mesh a closed 2-manifold (the link condition: the edge's two ends
 share exactly the two vertices opposite it) and never flips a face over. A mesh that is
-closed, manifold and outward-facing before stays so after: QA's gates hold. Plain Python
-floats in the loop (numpy for the set-up), so it runs without Blender.
+closed, manifold and outward-facing before stays so after: QA's gates hold.
+
+Most of the way, collapses go in batches (`_batched`): every edge is priced at once in numpy
+and the cheapest whose neighbourhoods do not touch collapse together, each tested as above.
+Untouched neighbourhoods keep each test true when all happen at once. The last stretch (from
+BATCH_STOP times the budget) goes one collapse at a time, cheapest first, in plain Python.
 """
 
 from __future__ import annotations
@@ -33,11 +37,17 @@ def simplify(
     faces = np.asarray(faces, dtype=np.int64)
     if len(faces) <= max_triangles:
         return vertices, faces
+    q = _quadric_array(vertices, faces, weights)
+    # Most of the way in batches (many independent collapses at once, in numpy); the last
+    # stretch one collapse at a time, cheapest first, as Garland and Heckbert do it.
+    vertices, faces, q = _batched(vertices, faces, q, int(max_triangles * BATCH_STOP))
+    if len(faces) <= max_triangles:
+        return _compact(vertices, faces)
 
     pos = [list(map(float, v)) for v in vertices]
     tris = [list(map(int, f)) for f in faces]
     alive = [True] * len(tris)
-    quadric = _quadrics(vertices, faces, weights)
+    quadric = q.tolist()
     vert_faces: list[set[int]] = [set() for _ in pos]
     for index, (a, b, c) in enumerate(tris):
         vert_faces[a].add(index)
@@ -112,7 +122,7 @@ def simplify(
     )
 
 
-def _quadrics(vertices: np.ndarray, faces: np.ndarray, weights: np.ndarray | None = None) -> list[Quadric]:
+def _quadric_array(vertices: np.ndarray, faces: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
     a, b, c = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
     cross = np.cross(b - a, c - a)
     # Written out rather than norm/einsum, so every numpy build rounds alike (see sdf._dot).
@@ -128,7 +138,213 @@ def _quadrics(vertices: np.ndarray, faces: np.ndarray, weights: np.ndarray | Non
         np.add.at(total, faces[:, k], per_face)
     if weights is not None:
         total *= np.asarray(weights, dtype=np.float64)[:, None]
-    return total.tolist()
+    return total
+
+
+BATCH_STOP = 1.25  # batches stop at this many times the budget; single collapses finish
+BATCH_SHARE = 0.12  # at most this share of the vertices collapse in one batch
+
+
+def _compact(vertices: np.ndarray, faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    used = np.unique(faces)
+    remap = np.full(len(vertices), -1, dtype=np.int64)
+    remap[used] = np.arange(len(used))
+    return vertices[used], remap[faces]
+
+
+def _batched(
+    pos: np.ndarray, faces: np.ndarray, q: np.ndarray, stop: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Collapse edges in rounds until `stop` triangles remain: each round prices every edge,
+    keeps those whose collapse keeps the mesh a closed manifold without turned-over or
+    collapsed faces (the same tests as one at a time), and takes the cheapest that touch no
+    other chosen edge's neighbourhood, so their tests stay true when all happen at once."""
+    pos, q = pos.copy(), q.copy()
+    for _ in range(64):
+        if len(faces) <= stop:
+            break
+        n_vert = len(pos)
+        # Edges with their two faces and the two corners opposite.
+        a, b, c = faces[:, 0], faces[:, 1], faces[:, 2]
+        tail = np.concatenate([a, b, c])
+        head = np.concatenate([b, c, a])
+        lo, hi = np.minimum(tail, head), np.maximum(tail, head)
+        key = lo * n_vert + hi
+        order = np.argsort(key, kind="stable")
+        key_sorted = key[order]
+        start = np.concatenate([[True], key_sorted[1:] != key_sorted[:-1]])
+        counts = np.diff(np.concatenate([np.nonzero(start)[0], [len(key_sorted)]]))
+        first = np.nonzero(start)[0]
+        manifold = counts == 2
+        e_first = order[first[manifold]]
+        e_u, e_v = lo[e_first], hi[e_first]
+        e_key = key_sorted[first[manifold]]
+        # Neighbours of each vertex (CSR) for the link condition and the neighbourhoods.
+        nb_from = np.concatenate([e_u, e_v])
+        nb_to = np.concatenate([e_v, e_u])
+        nb_order = np.argsort(nb_from, kind="stable")
+        nb_from, nb_to = nb_from[nb_order], nb_to[nb_order]
+        nb_start = np.searchsorted(nb_from, np.arange(n_vert + 1))
+        degree = np.diff(nb_start)
+        # Link condition: u and v share exactly the two opposite corners, and the merged
+        # neighbourhood keeps more than four vertices (else a tetrahedron closes on itself).
+        reps = degree[e_u]
+        edge_of = np.repeat(np.arange(len(e_u)), reps)
+        w = nb_to[_expand(nb_start[e_u], reps)]
+        probe = np.minimum(e_v[edge_of], w) * n_vert + np.maximum(e_v[edge_of], w)
+        found = np.searchsorted(e_key, probe)
+        found = np.minimum(found, len(e_key) - 1)
+        common = np.bincount(
+            edge_of, weights=(e_key[found] == probe) & (w != e_v[edge_of]), minlength=len(e_u)
+        )
+        link_ok = (common == 2) & (degree[e_u] + degree[e_v] - 2 > 4)
+        # Price and place each collapse (the cheapest of the quadric's minimum, the ends, the middle).
+        target, cost = _place(q[e_u] + q[e_v], pos[e_u], pos[e_v])
+        candidates = np.nonzero(link_ok)[0]
+        if not len(candidates):
+            break
+        candidates = candidates[np.argsort(cost[candidates], kind="stable")]
+        want = min(int(BATCH_SHARE * len(np.unique(faces))), (len(faces) - stop + 1) // 2)
+        # Test the cheapest few times as many as wanted for folds, then take the cheapest of
+        # those that pass whose neighbourhoods do not touch.
+        pool = candidates[: max(4 * want, 64)]
+        pool = pool[~_folds_batch(e_u[pool], e_v[pool], target[pool], pos, faces)]
+        locked = np.zeros(n_vert, dtype=bool)
+        chosen = []
+        for i in pool.tolist():
+            u, v = int(e_u[i]), int(e_v[i])
+            if locked[u] or locked[v]:
+                continue
+            chosen.append(i)
+            locked[nb_to[nb_start[u] : nb_start[u + 1]]] = True
+            locked[nb_to[nb_start[v] : nb_start[v + 1]]] = True
+            locked[u] = locked[v] = True
+            if len(chosen) >= want:
+                break
+        if not chosen:
+            break
+        chosen_arr = np.array(chosen, dtype=np.int64)
+        keep, gone = e_u[chosen_arr], e_v[chosen_arr]
+        pos[keep] = target[chosen_arr]
+        q[keep] = q[keep] + q[gone]
+        remap = np.arange(n_vert)
+        remap[gone] = keep
+        faces = remap[faces]
+        faces = faces[
+            (faces[:, 0] != faces[:, 1]) & (faces[:, 1] != faces[:, 2]) & (faces[:, 2] != faces[:, 0])
+        ]
+    return pos, faces, q
+
+
+def _expand(starts: np.ndarray, counts: np.ndarray) -> np.ndarray:
+    """The indices start..start+count of every (start, count), one after another."""
+    total = int(counts.sum())
+    offsets = np.repeat(np.cumsum(counts) - counts, counts)
+    return np.repeat(starts, counts) + np.arange(total) - offsets
+
+
+def _place(qs: np.ndarray, pu: np.ndarray, pv: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per edge: where the merged vertex goes and what it costs (as `_candidates`, cheapest)."""
+    a11, a12, a13, a14, a22, a23, a24, a33, a34 = (qs[:, k] for k in range(9))
+    det = a11 * (a22 * a33 - a23 * a23) - a12 * (a12 * a33 - a23 * a13) + a13 * (a12 * a23 - a22 * a13)
+    big = np.maximum(np.maximum(np.abs(a11), np.abs(a22)), np.maximum(np.abs(a33), 1e-30))
+    scale = big * big * big
+    middle = (pu + pv) / 2
+    solvable = np.abs(det) > 1e-9 * scale
+    safe = np.where(solvable, det, 1.0)
+    bx, by, bz = -a14, -a24, -a34
+    x = (bx * (a22 * a33 - a23 * a23) - a12 * (by * a33 - a23 * bz) + a13 * (by * a23 - a22 * bz)) / safe
+    y = (a11 * (by * a33 - a23 * bz) - bx * (a12 * a33 - a23 * a13) + a13 * (a12 * bz - by * a13)) / safe
+    z = (a11 * (a22 * bz - by * a23) - a12 * (a12 * bz - by * a13) + bx * (a12 * a23 - a22 * a13)) / safe
+    best = np.stack([x, y, z], axis=1)
+    d = best - middle
+    e = pu - pv
+    near = (d[:, 0] * d[:, 0] + d[:, 1] * d[:, 1] + d[:, 2] * d[:, 2]) <= (
+        e[:, 0] * e[:, 0] + e[:, 1] * e[:, 1] + e[:, 2] * e[:, 2]
+    )
+    options = [pu, pv, middle, np.where((solvable & near)[:, None], best, middle)]
+    costs = np.stack([np.maximum(_error_batch(qs, p), 0.0) for p in options], axis=1)
+    pick = np.argmin(costs, axis=1)
+    stacked = np.stack(options, axis=1)
+    return stacked[np.arange(len(pick)), pick], costs[np.arange(len(pick)), pick]
+
+
+def _error_batch(q: np.ndarray, p: np.ndarray) -> np.ndarray:
+    x, y, z = p[:, 0], p[:, 1], p[:, 2]
+    return (
+        q[:, 0] * x * x + 2 * q[:, 1] * x * y + 2 * q[:, 2] * x * z + 2 * q[:, 3] * x
+        + q[:, 4] * y * y + 2 * q[:, 5] * y * z + 2 * q[:, 6] * y
+        + q[:, 7] * z * z + 2 * q[:, 8] * z + q[:, 9]
+    )  # fmt: skip
+
+
+def _folds_batch(
+    e_u: np.ndarray, e_v: np.ndarray, target: np.ndarray, pos: np.ndarray, faces: np.ndarray
+) -> np.ndarray:
+    """Per edge: would moving both ends to `target` turn a surrounding face over, flatten it
+    to nothing or line its corners up (the batch form of `_folds`)."""
+    n_vert = len(pos)
+    # Faces round each vertex (CSR).
+    corner_v = faces.reshape(-1)
+    corner_f = np.repeat(np.arange(len(faces)), 3)
+    order = np.argsort(corner_v, kind="stable")
+    corner_v, corner_f = corner_v[order], corner_f[order]
+    start = np.searchsorted(corner_v, np.arange(n_vert + 1))
+    counts_u = start[e_u + 1] - start[e_u]
+    counts_v = start[e_v + 1] - start[e_v]
+    edge_of = np.concatenate(
+        [np.repeat(np.arange(len(e_u)), counts_u), np.repeat(np.arange(len(e_v)), counts_v)]
+    )
+    idx = np.concatenate([_expand(start[e_u], counts_u), _expand(start[e_v], counts_v)])
+    face = corner_f[idx]
+    tri = faces[face]
+    u, v = e_u[edge_of], e_v[edge_of]
+    has_u = (tri == u[:, None]).any(axis=1)
+    has_v = (tri == v[:, None]).any(axis=1)
+    shared = has_u & has_v
+    corners = pos[tri]
+    moved = np.where(
+        ((tri == u[:, None]) | (tri == v[:, None]))[:, :, None], target[edge_of][:, None, :], corners
+    )
+    before, longest = _face_batch(corners)
+    after, longest_after = _face_batch(moved)
+    len_b = np.sqrt(before[:, 0] ** 2 + before[:, 1] ** 2 + before[:, 2] ** 2)
+    len_a = np.sqrt(after[:, 0] ** 2 + after[:, 1] ** 2 + after[:, 2] ** 2)
+    sliver_before = len_b < SLIVER * longest
+    # The surface's normal round the edge: every face round u or v, summed (for slivers).
+    surface = np.zeros((len(e_u), 3))
+    once = ~(shared & (np.arange(len(edge_of)) >= counts_u.sum()))  # a face on the edge: count it once
+    for k in range(3):
+        surface[:, k] = np.bincount(edge_of[once], weights=before[once, k], minlength=len(e_u))
+    len_s = np.sqrt(surface[:, 0] ** 2 + surface[:, 1] ** 2 + surface[:, 2] ** 2)
+    ref = np.where(sliver_before[:, None], surface[edge_of], before)
+    ref_len = np.where(sliver_before, len_s[edge_of], len_b)
+    limit = np.where(sliver_before, 0.0, FOLD_LIMIT)
+    dot = ref[:, 0] * after[:, 0] + ref[:, 1] * after[:, 1] + ref[:, 2] * after[:, 2]
+    bad = (
+        (len_a < 1e-18)
+        | ((len_a < SLIVER * longest_after) & ~sliver_before)
+        | (dot < limit * ref_len * len_a)
+    )
+    bad &= ~shared  # the two faces on the edge itself disappear
+    return np.bincount(edge_of, weights=bad, minlength=len(e_u)) > 0
+
+
+def _face_batch(corners: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(N, 3, 3) triangles: area-weighted normals and longest edges squared (as `_face`)."""
+    a, b, c = corners[:, 0], corners[:, 1], corners[:, 2]
+    u, v = b - a, c - a
+    w = v - u
+    normal = np.stack(
+        [
+            u[:, 1] * v[:, 2] - u[:, 2] * v[:, 1],
+            u[:, 2] * v[:, 0] - u[:, 0] * v[:, 2],
+            u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0],
+        ],
+        axis=1,
+    )
+    sq = lambda x: x[:, 0] * x[:, 0] + x[:, 1] * x[:, 1] + x[:, 2] * x[:, 2]  # noqa: E731
+    return normal, np.maximum(np.maximum(sq(u), sq(v)), sq(w))
 
 
 def _error(q: Quadric, p: list[float]) -> float:
