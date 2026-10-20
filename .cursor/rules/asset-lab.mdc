@@ -65,11 +65,14 @@ their own materials) before writing a generator. Reference: "Sculpting organic f
 Lanterns, chests, tools, furniture: write a `prop.assembly` spec (exact pieces: box, cylinder,
 sphere, torus, lathe, tube, extrude; placed, repeated, mirrored, grouped). Reference:
 "Hard-surface props in JSON" in `docs/ASSETKIT.md`; example `assets/specs/prop_crypt_lantern.json`.
+Moving parts (wheels, lids, cloth) take a `rig` there ("Moving parts"); tiles that fit
+together take `settle: false`, a pattern `period`, and a kit checked by `ag.py look kit:<name>`.
 
 ## Surfaces
 
 Bark, wood grain, moss, warts, worn edges, dirt in creases: give the spec's material a
-`pattern` (layers of mottle, grain, spots, gradient, edges, cavities; "Materials" in
+`pattern` (layers of mottle, grain, spots, gradient, facing, cells, edges, cavities, bricks;
+"Materials" in
 `docs/ASSETKIT.md`). Iterate with `python tools/ag.py look <id>` (no Blender) and read its
 `pattern` lines: each layer's coverage, flagged when it does not show or hides the rest.
 

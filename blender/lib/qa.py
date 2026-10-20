@@ -192,13 +192,16 @@ def run_checks(
         lower, upper = world_bounds(mesh_objects)
         centred = abs(lower.x + upper.x) < 1e-3 and abs(lower.y + upper.y) < 1e-3
         on_ground = abs(lower.z) < 1e-3
-        checks.append(
-            check(
-                "origin_at_base",
-                centred and on_ground,
-                f"footprint centre ({(lower.x + upper.x) / 2:.4f}, {(lower.y + upper.y) / 2:.4f}), "
-                f"base z {lower.z:.4f}",
-            )
+        detail = (
+            f"footprint centre ({(lower.x + upper.x) / 2:.4f}, {(lower.y + upper.y) / 2:.4f}), "
+            f"base z {lower.z:.4f}"
         )
+        if 1e-3 <= lower.z < 0.05:
+            # The kit set the lowest point on the ground; something after it (a bevel) lifted it.
+            detail += (
+                ": the lowest point was a sharp corner that the bevel rounded off; a tilted piece"
+                " pokes below the rest, so let it end on (or in) the piece it stands on"
+            )
+        checks.append(check("origin_at_base", centred and on_ground, detail))
 
     return checks

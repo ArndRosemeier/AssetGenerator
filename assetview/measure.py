@@ -84,7 +84,141 @@ def measure(model: ViewModel) -> dict[str, object]:
         "open_edges": holes,
         "inverted_parts": inverted,
         "balance": _balance(parts, p, float(lower[2]), footing),
+        "coplanar_overlap": _coplanar_overlap(p, t, islands),
     }
+
+
+COPLANAR = 0.0005  # metres: faces this close in one plane, facing the same way, flicker (z-fight)
+COPLANAR_MIN_AREA = 1e-5  # m², 10 mm²: less does not show
+
+
+def _coplanar_overlap(p: np.ndarray, t: np.ndarray, islands: np.ndarray) -> dict[str, object] | None:
+    """Faces of different parts that lie in one plane, face the same way and overlap: the
+    renderer cannot tell which is in front, so the overlap flickers (z-fighting). A plank laid
+    flush in a frame, a trim plate on a wall at the wall's own depth. The total overlap, where
+    the largest is, and the triangles involved (the sheet marks them)."""
+    if len(t) < 2:
+        return None
+    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
+    cross = np.cross(b - a, c - a)
+    twice = np.linalg.norm(cross, axis=1)
+    n = cross / np.maximum(twice, 1e-30)[:, None]
+    # Faces lying on the ground, facing down, are never seen: they cannot flicker.
+    on_ground = (n[:, 2] < -0.99) & (
+        np.maximum(np.maximum(a[:, 2], b[:, 2]), c[:, 2]) <= p[:, 2].min() + COPLANAR
+    )
+    keep = np.nonzero((twice > 1e-10) & ~on_ground)[0]
+    d = (n * a).sum(axis=1)
+    lo, hi = np.minimum(np.minimum(a, b), c), np.maximum(np.maximum(a, b), c)
+    # Group by direction (coarse bins), then sweep each group along the plane offset.
+    direction = np.round(n[keep] * 20.0).astype(np.int64)
+    _, group = np.unique(direction, axis=0, return_inverse=True)
+    group = group.reshape(-1)
+    order = keep[np.lexsort((d[keep], group))]
+    g_of = np.empty(len(t), dtype=np.int64)
+    g_of[keep] = group
+    pairs: list[tuple[int, int]] = []
+    for k in range(len(order)):
+        i = order[k]
+        for m in range(k + 1, len(order)):
+            j = order[m]
+            if g_of[j] != g_of[i] or d[j] - d[i] > COPLANAR:
+                break
+            if islands[i] == islands[j] or (n[i] * n[j]).sum() < 0.9998:
+                continue
+            if (lo[i] > hi[j] + COPLANAR).any() or (lo[j] > hi[i] + COPLANAR).any():
+                continue
+            pairs.append((int(i), int(j)))
+        if len(pairs) > 50_000:
+            break
+    # Faces turned the other way in the same plane, per direction bin, sorted by offset: a third
+    # part pressed flat against the overlap hides it (a post sunk flush behind a plank).
+    facing: dict[tuple[int, ...], tuple[np.ndarray, np.ndarray]] = {}
+    for key in np.unique(direction, axis=0):
+        members = keep[(direction == key).all(axis=1)]
+        members = members[np.argsort(d[members])]
+        facing[tuple(int(x) for x in key)] = (d[members], members)
+    total, best, best_at, tris = 0.0, 0.0, None, set()
+    for i, j in pairs:
+        u, v = _basis(n[i])
+        shared = _clip(_flat(p[t[i]], u, v), _flat(p[t[j]], u, v))
+        area = _polygon_area(shared)
+        if area <= 0.0:
+            continue
+        offsets, members = facing.get(
+            tuple(int(x) for x in np.round(-n[i] * 20.0)), (np.zeros(0), np.zeros(0, int))
+        )
+        lo_k, hi_k = (
+            np.searchsorted(offsets, -d[i] - COPLANAR),
+            np.searchsorted(offsets, -d[i] + COPLANAR, side="right"),
+        )
+        hidden = 0.0
+        for k in members[lo_k:hi_k]:
+            if (n[k] @ n[i]) > -0.9998:
+                continue
+            hidden += _polygon_area(_clip(shared, _flat(p[t[k]], u, v)))
+        area -= min(hidden, area)
+        if area <= 1e-9:
+            continue
+        total += area
+        tris.update((i, j))
+        if area > best:
+            best, best_at = area, (p[t[i]].mean(axis=0) + p[t[j]].mean(axis=0)) / 2.0
+    if total < COPLANAR_MIN_AREA:
+        return None
+    return {"area_m2": round(total, 6), "at": _round(best_at), "triangles": sorted(tris)}
+
+
+Polygon = list[tuple[float, float]]
+
+
+def _basis(normal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Two unit axes spanning the plane with this normal."""
+    helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(normal, helper)
+    u /= np.linalg.norm(u)
+    return u, np.cross(normal, u)
+
+
+def _flat(points: np.ndarray, u: np.ndarray, v: np.ndarray) -> Polygon:
+    return [(float(q @ u), float(q @ v)) for q in points]
+
+
+def _signed_area(poly: Polygon) -> float:
+    return 0.5 * sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1], strict=True))
+
+
+def _polygon_area(poly: Polygon) -> float:
+    return abs(_signed_area(poly)) if len(poly) >= 3 else 0.0
+
+
+def _clip(poly: Polygon, convex: Polygon) -> Polygon:
+    """The part of `poly` inside the convex polygon `convex` (Sutherland-Hodgman)."""
+    if _signed_area(convex) < 0:
+        convex = convex[::-1]
+    out = poly
+    for (x0, y0), (x1, y1) in zip(convex, convex[1:] + convex[:1], strict=True):
+        if not out:
+            break
+
+        def side(
+            q: tuple[float, float], x0: float = x0, y0: float = y0, x1: float = x1, y1: float = y1
+        ) -> float:
+            return (x1 - x0) * (q[1] - y0) - (y1 - y0) * (q[0] - x0)
+
+        clipped: Polygon = []
+        for s, e in zip(out, out[1:] + out[:1], strict=True):
+            ss, se = side(s), side(e)
+            if se >= 0:
+                if ss < 0:
+                    f = ss / (ss - se)
+                    clipped.append((s[0] + f * (e[0] - s[0]), s[1] + f * (e[1] - s[1])))
+                clipped.append(e)
+            elif ss >= 0:
+                f = ss / (ss - se)
+                clipped.append((s[0] + f * (e[0] - s[0]), s[1] + f * (e[1] - s[1])))
+        out = clipped
+    return out
 
 
 def _floating(parts: list[dict], ground: float, tolerance: float) -> list[int]:
@@ -207,5 +341,10 @@ def summary(report: dict[str, object]) -> list[str]:
         )
     else:
         flags.append(str(verdict))
+    overlap = report.get("coplanar_overlap")
+    if overlap:
+        x, y, z = overlap["at"]  # type: ignore[index]
+        # Faces of two parts in one plane, facing the same way: they flicker where they overlap.
+        flags.append(f"z-fighting {overlap['area_m2'] * 1e4:.1f} cm2 at ({x:.2f}, {y:.2f}, {z:.2f})")  # type: ignore[index]
     lines.append(", ".join(flags))
     return lines

@@ -88,18 +88,14 @@ class PatternPaint:
         out: list[dict[str, object]] = []
         v, t = self.surface.vertices, self.surface.triangles
         area = 0.5 * np.sqrt((np.cross(v[t[:, 1]] - v[t[:, 0]], v[t[:, 2]] - v[t[:, 0]]) ** 2).sum(axis=1))
-        # Four points per triangle (its centre and three towards its corners), weighted by area.
-        points = np.array([[1, 1, 1], [4, 1, 1], [1, 4, 1], [1, 1, 4]], dtype=np.float64) / np.array(
-            [[3.0], [6], [6], [6]]
-        )
+        tri_all, bary_all, weight_all = _even_samples(area)
         for s, look in enumerate(self.looks):
             pick = np.nonzero(self.tri_slot == s)[0]
             if look.pattern is None or not len(pick):
                 continue
-            tri = np.repeat(pick, 4)
-            bary = np.tile(points, (len(pick), 1))
+            take = np.nonzero(self.tri_slot[tri_all] == s)[0]
             shares = coverage(
-                look.pattern, self.surface, tri, bary, self.origins[s], np.repeat(area[pick], 4)
+                look.pattern, self.surface, tri_all[take], bary_all[take], self.origins[s], weight_all[take]
             )
             layers = [
                 {"layer": layer.kind, "covers": round(c, 3)}
@@ -236,3 +232,23 @@ def glb_textures(glb: object) -> list[np.ndarray | None]:
             decoded[source] = from_srgb(decode_png(blob)) if png else None
         out.append(decoded[source])
     return out
+
+
+SAMPLES = 200_000  # points the coverage report measures, spread evenly over the surface
+
+
+def _even_samples(area: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Points spread evenly by area over all triangles (at least one each, a low-discrepancy
+    set within each), as triangle indices, barycentric weights and the area each stands for:
+    a worn edge a few millimetres wide registers on a large flat face too."""
+    total = max(float(area.sum()), 1e-30)
+    count = np.clip(np.ceil(area / total * SAMPLES), 1, 4096).astype(np.int64)
+    tri = np.repeat(np.arange(len(area)), count)
+    k = np.arange(len(tri)) - np.repeat(np.cumsum(count) - count, count)
+    # The R2 sequence, folded into the triangle.
+    u = (0.5 + k * 0.7548776662466927) % 1.0
+    v = (0.5 + k * 0.5698402909980532) % 1.0
+    flip = u + v > 1.0
+    u, v = np.where(flip, 1.0 - u, u), np.where(flip, 1.0 - v, v)
+    bary = np.stack([1.0 - u - v, u, v], axis=1)
+    return tri, bary, area[tri] / count[tri]

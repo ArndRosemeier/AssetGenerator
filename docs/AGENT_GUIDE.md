@@ -252,6 +252,11 @@ in every renderer (including our previews).
 **Rule:** let structural pieces **interpenetrate** slightly, or sink posts into lids/floors,
 instead of perfectly flush contact on visible surfaces.
 
+**Measured:** `ag.py look` reports it for every asset (`z-fighting 64.8 cm2 at (x, y, z)`:
+faces of two parts in one plane, facing the same way, overlapping) and marks them yellow in
+the FACING view. Two crossed beams of the same width do it too. Several assets that must fit
+together (wall tiles): look at them as a kit (`look kit:<name>`, docs/ASSETKIT.md "Kits").
+
 **Kit cells:** a wall that extends past `cell_y` occupies the next storey and z-fights
 whatever sits there (floor, jetty, roof). A wall that sits on `z=0` shares a plane
 with the plinth below. `hard_surface.kit_cell` fails the build if either happens.

@@ -191,7 +191,7 @@ class ClipTests(unittest.TestCase):
                 {"seconds": 1, "motions": [{"turn": {"bone": "head", "yaw": 5, "cycles": 1.5}}]},
                 "whole cycles",
             ),
-            ({"seconds": 1, "motions": [{"spin": {}}]}, "unknown motion 'spin'"),
+            ({"seconds": 1, "motions": [{"twirl": {}}]}, "unknown motion 'twirl'"),
             (
                 {"seconds": 1, "motions": [{"gait": {"legs": {"fore.L": 0}, "stride": 0.1}}]},
                 "no leg 'fore.L'",

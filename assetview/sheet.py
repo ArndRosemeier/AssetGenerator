@@ -81,7 +81,10 @@ def render_sheet(model: ViewModel, title: str) -> tuple[np.ndarray, dict[str, ob
     tiles.append(("back", _shaded(model, passes["back"], normals, _material_colors(model), painted=True)))
     tiles.append(_scale_tile(model, normals))
     tiles.append(("parts", _parts(model, passes["hero"], normals)))
-    tiles.append(("facing  red=inside out", _facing(model, passes["hero"], normals)))
+    overlap = report.get("coplanar_overlap") or {}
+    fighting = np.asarray(overlap.get("triangles", []), dtype=np.int64)  # type: ignore[union-attr]
+    label = "facing  red=inside out" + ("  yellow=z-fighting" if len(fighting) else "")
+    tiles.append((label, _facing(model, passes["hero"], normals, fighting)))
     wire = _shaded(model, passes["hero"], normals, np.full((len(model.slots), 3), 0.72))
     wire[passes["hero"].wire] *= 0.35  # dense meshes read as darker, not as solid black
     tiles.append(("wire", wire))
@@ -98,7 +101,9 @@ def render_sheet(model: ViewModel, title: str) -> tuple[np.ndarray, dict[str, ob
     draw_text(sheet, title, 6, 6, LABEL, scale=2)
     first, second = summary(report)
     draw_text(sheet, first, 6 + text_width(title, 2) + 12, 6, DIM)
-    alarming = any(word in second for word in ("floating", "open edge", "inside-out", "tips over"))
+    alarming = any(
+        word in second for word in ("floating", "open edge", "inside-out", "tips over", "z-fighting")
+    )
     draw_text(sheet, second, 6 + text_width(title, 2) + 12, 18, FLAG if alarming else DIM)
     draw_text(sheet, model.source, 6 + text_width(title, 2) + 12, 30, DIM)
     return sheet, report
@@ -235,12 +240,20 @@ def _parts(model: ViewModel, pas: Pass, normals: np.ndarray) -> np.ndarray:
     return tile
 
 
-def _facing(model: ViewModel, pas: Pass, normals: np.ndarray) -> np.ndarray:
+def _facing(
+    model: ViewModel, pas: Pass, normals: np.ndarray, fighting: np.ndarray | None = None
+) -> np.ndarray:
     tile = _shaded(model, pas, normals, np.full((len(model.slots), 3), 0.7))
     hit = pas.tri >= 0
     back = np.zeros_like(hit)
     back[hit] = ~pas.front[pas.tri[hit]]
     tile[back] = np.array([0.9, 0.15, 0.12]) * (0.6 + 0.4 * tile[back][:, :1])
+    if fighting is not None and len(fighting):
+        flag = np.zeros(len(model.triangles), dtype=bool)
+        flag[fighting] = True
+        marked = np.zeros_like(hit)
+        marked[hit] = flag[pas.tri[hit]]
+        tile[marked] = np.array([0.95, 0.8, 0.1]) * (0.6 + 0.4 * tile[marked][:, :1])
     _draw_open_edges(tile, model, pas)
     return tile
 

@@ -1,0 +1,431 @@
+{
+  "spec_version": 1,
+  "id": "prop_mill_waterwheel",
+  "generator": "prop.assembly",
+  "params": {
+    "pieces": [
+      {
+        "group": [
+          {
+            "box": {
+              "size": [
+                0.09,
+                0.09,
+                1.24
+              ]
+            },
+            "rotate": [
+              -16,
+              0,
+              0
+            ],
+            "at": [
+              0.6,
+              -0.2,
+              0.666
+            ]
+          },
+          {
+            "box": {
+              "size": [
+                0.08,
+                0.09,
+                1.24
+              ]
+            },
+            "rotate": [
+              16,
+              0,
+              0
+            ],
+            "at": [
+              0.6,
+              0.2,
+              0.666
+            ]
+          },
+          {
+            "box": {
+              "size": [
+                0.1,
+                0.9,
+                0.09
+              ]
+            },
+            "at": [
+              0.6,
+              0,
+              0.045
+            ]
+          },
+          {
+            "box": {
+              "size": [
+                0.12,
+                0.18,
+                0.12
+              ]
+            },
+            "at": [
+              0.6,
+              0,
+              1.2
+            ],
+            "slot": "iron"
+          }
+        ],
+        "slot": "wood",
+        "mirror": "x"
+      },
+      {
+        "group": [
+          {
+            "group": [
+              {
+                "torus": {
+                  "centre": [
+                    0,
+                    0,
+                    0.17
+                  ],
+                  "radius": 0.8,
+                  "thickness": 0.07,
+                  "axis": "z"
+                },
+                "slot": "wood"
+              },
+              {
+                "torus": {
+                  "centre": [
+                    0,
+                    0,
+                    -0.17
+                  ],
+                  "radius": 0.8,
+                  "thickness": 0.07,
+                  "axis": "z"
+                },
+                "slot": "wood"
+              },
+              {
+                "cylinder": {
+                  "a": [
+                    0,
+                    0,
+                    -0.24
+                  ],
+                  "b": [
+                    0,
+                    0,
+                    0.24
+                  ],
+                  "radius": 0.13
+                },
+                "slot": "wood"
+              },
+              {
+                "cylinder": {
+                  "a": [
+                    0,
+                    0,
+                    -0.62
+                  ],
+                  "b": [
+                    0,
+                    0,
+                    0.62
+                  ],
+                  "radius": 0.04
+                },
+                "slot": "iron"
+              },
+              {
+                "group": [
+                  {
+                    "box": {
+                      "size": [
+                        0.7,
+                        0.05,
+                        0.05
+                      ]
+                    },
+                    "at": [
+                      0.47,
+                      0,
+                      0.17
+                    ]
+                  },
+                  {
+                    "box": {
+                      "size": [
+                        0.7,
+                        0.05,
+                        0.05
+                      ]
+                    },
+                    "at": [
+                      0.47,
+                      0,
+                      -0.17
+                    ]
+                  }
+                ],
+                "slot": "wood",
+                "repeat": {
+                  "around": 8,
+                  "start": 11.25
+                }
+              },
+              {
+                "box": {
+                  "size": [
+                    0.26,
+                    0.035,
+                    0.42
+                  ]
+                },
+                "at": [
+                  0.86,
+                  0,
+                  0
+                ],
+                "slot": "wood",
+                "repeat": {
+                  "around": 16
+                }
+              },
+              {
+                "cylinder": {
+                  "a": [
+                    0,
+                    0,
+                    0.24
+                  ],
+                  "b": [
+                    0,
+                    0,
+                    0.27
+                  ],
+                  "radius": 0.16
+                },
+                "slot": "iron"
+              },
+              {
+                "cylinder": {
+                  "a": [
+                    0,
+                    0,
+                    -0.27
+                  ],
+                  "b": [
+                    0,
+                    0,
+                    -0.24
+                  ],
+                  "radius": 0.16
+                },
+                "slot": "iron"
+              }
+            ]
+          }
+        ],
+        "rotate": [
+          0,
+          90,
+          0
+        ],
+        "at": [
+          0,
+          0,
+          1.2
+        ],
+        "bone": "wheel"
+      }
+    ],
+    "bevel": 0.006,
+    "rig": {
+      "bones": {
+        "frame": {
+          "head": [
+            0,
+            0,
+            0
+          ],
+          "tail": [
+            0,
+            0,
+            0.4
+          ]
+        },
+        "wheel": {
+          "parent": "frame",
+          "head": [
+            -0.62,
+            0,
+            1.2
+          ],
+          "tail": [
+            0.62,
+            0,
+            1.2
+          ]
+        }
+      },
+      "clips": {
+        "Turn": {
+          "seconds": 6,
+          "motions": [
+            {
+              "spin": {
+                "bone": "wheel",
+                "turns": 1
+              }
+            }
+          ]
+        },
+        "Flood": {
+          "seconds": 2,
+          "motions": [
+            {
+              "spin": {
+                "bone": "wheel",
+                "turns": 1
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "materials": {
+    "wood": {
+      "base_color": [
+        0.2,
+        0.13,
+        0.07,
+        1
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "grain": {
+              "color": [
+                0.12,
+                0.08,
+                0.045
+              ],
+              "axis": "radial",
+              "spacing": 0.012,
+              "warp": 2.0,
+              "sharpness": 3,
+              "amount": 0.6,
+              "relief": -0.0006
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.3,
+                0.21,
+                0.12
+              ],
+              "scale": 12,
+              "coverage": 0.35,
+              "contrast": 2,
+              "amount": 0.5
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.08,
+                0.09,
+                0.05
+              ],
+              "axis": "z",
+              "from": 0.1,
+              "to": 0.6,
+              "breakup": 0.5,
+              "amount": 0.7,
+              "roughness": 0.5
+            }
+          },
+          {
+            "facing": {
+              "color": [
+                0.16,
+                0.24,
+                0.07
+              ],
+              "angle": 40,
+              "soft": 25,
+              "breakup": 0.7,
+              "scale": 14,
+              "amount": 0.5
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.36,
+                0.27,
+                0.17
+              ],
+              "radius": 0.006,
+              "amount": 0.6,
+              "breakup": 0.5
+            }
+          }
+        ]
+      }
+    },
+    "iron": {
+      "base_color": [
+        0.07,
+        0.065,
+        0.06,
+        1
+      ],
+      "roughness": 0.55,
+      "metallic": 0.6,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.22,
+                0.1,
+                0.04
+              ],
+              "scale": 25,
+              "coverage": 0.4,
+              "contrast": 3,
+              "roughness": 0.95,
+              "relief": 0.0004
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.3,
+                0.29,
+                0.27
+              ],
+              "radius": 0.004,
+              "amount": 0.7
+            }
+          }
+        ]
+      }
+    }
+  },
+  "qa": {
+    "max_triangles": 9000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.2
+  }
+}

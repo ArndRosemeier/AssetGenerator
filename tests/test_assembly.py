@@ -96,7 +96,7 @@ class AssemblyTests(unittest.TestCase):
         ]
         for node, volume, tolerance in cases:
             with self.subTest(shape=next(iter(node))):
-                ((shell, slot, _),) = build_pieces([{**node, "slot": "iron"}], {}, "p")
+                ((shell, slot, _, _),) = build_pieces([{**node, "slot": "iron"}], {}, "p")
                 self.assertEqual(slot, "iron")
                 got = _closed_outward(self, shell)
                 self.assertGreater(got, 0)
@@ -109,7 +109,7 @@ class AssemblyTests(unittest.TestCase):
         self.assertEqual(len(around), 4)
         centres = sorted(
             (round(sum(v[0] for v in s[0]) / 8, 4), round(sum(v[1] for v in s[0]) / 8, 4))
-            for s, _, _ in around
+            for s, _, _, _ in around
         )
         r = 0.1 / math.sqrt(2)
         self.assertEqual(
@@ -117,7 +117,7 @@ class AssemblyTests(unittest.TestCase):
         )
         row = build_pieces([{**post, "repeat": {"count": 3, "step": [0, 0.1, 0]}, "mirror": "x"}], {}, "p")
         self.assertEqual(len(row), 6)
-        for shell, _, _ in row:
+        for shell, _, _, _ in row:
             self.assertGreater(_closed_outward(self, shell), 0)  # mirrored copies stay outward
         flipped = build_pieces([{**post, "scale": [-1, 1, 1]}], {}, "p")
         self.assertGreater(_closed_outward(self, flipped[0][0]), 0)
@@ -135,7 +135,7 @@ class AssemblyTests(unittest.TestCase):
             parts,
             "p",
         )
-        self.assertEqual([slot for _, slot, _ in pieces], ["iron", "wood"])
+        self.assertEqual([slot for _, slot, _, _ in pieces], ["iron", "wood"])
         self.assertAlmostEqual(min(v[2] for v in pieces[0][0][0]), 0.995, places=6)
 
     def test_only_pieces_thick_enough_are_bevelled(self) -> None:
@@ -149,7 +149,7 @@ class AssemblyTests(unittest.TestCase):
             "p",
             bevel=0.002,
         )
-        self.assertEqual([b for _, _, b in pieces], [True, False, True])
+        self.assertEqual([b for _, _, b, _ in pieces], [True, False, True])
 
     def test_the_bevel_estimate_counts_strips_and_corners(self) -> None:
         from assetkit import MeshBuilder

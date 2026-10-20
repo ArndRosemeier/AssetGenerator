@@ -225,6 +225,7 @@ with its own material slot, placed, repeated, mirrored and grouped. A new prop i
 | `lathe` | `profile` [[r, z], ...] turned about Z (open ends close to the axis): caps, bases, bottles |
 | `tube` | `path` [[x, y, z], ...], `radius`, `smooth` (default true): bent rods, bails, wires |
 | `extrude` | `outline` [[x, y], ...] raised `height` from z = 0: plates, blades, brackets |
+| `sheet` | `size` [w, h], `thickness` (4 mm), `divisions` [nx, nz] (about 6 cm squares): a thin panel facing -Y, centred on the origin: cloth, banners, sails, paper. Divided so it can bend when rigged |
 
 Every piece takes `slot`, `scale`, `rotate` (degrees, X then Y then Z), `at`, `repeat`
 (`{"count", "step"}` or `{"around", "start"}`), `mirror` (`x` or `y`), `segments` and
@@ -239,6 +240,44 @@ them; `"bevel": true | false` on a piece decides instead. The generator checks t
 count the bevel will produce against `qa.max_triangles` before Blender starts.
 
 Example: `prop_crypt_lantern` (rusted iron, see-through glass, a candle).
+
+### Moving parts: wheels, doors, cranks, cloth
+
+Give the spec a `rig` and tie pieces to bones: `"bone": "wheel"` moves a piece (or a group)
+rigidly with that bone; `"bones": ["cloth1", ..., "cloth6"]` bends it smoothly along a chain
+(each vertex follows the nearest of those bones, blended over `softness` metres, default
+0.05). Pieces tied to nothing follow the first (root) bone. Bones are `head`, `tail` and
+`parent`, in the spec's coordinates; clips use the motions of "Rigging and animating a sculpt"
+below, and two made for mechanisms:
+
+```json
+"rig": {
+  "bones": {"frame": {"head": [0, 0, 0], "tail": [0, 0, 0.4]},
+            "wheel": {"parent": "frame", "head": [-0.62, 0, 1.2], "tail": [0.62, 0, 1.2]}},
+  "clips": {"Turn": {"seconds": 6, "motions": [{"spin": {"bone": "wheel", "turns": 1}}]}}
+}
+```
+
+- **A wheel, a drum, a crank, a fan**: build it in its own group, tie the group to a bone whose
+  head-to-tail line is the axle, and `spin` it. A loop needs whole `turns`.
+- **A door, a lid, a lever**: a bone with its head on the hinge, and a `turn` or `keys`.
+- **Cloth, a banner, a sail, a rope**: a `sheet` piece tied to a chain of bones hanging down
+  it, and a `wave` (`pitch`, `yaw`, `roll` degrees; `cycles`; `lag`, the delay per bone in
+  cycles; `grow`, the swing's growth bone to bone so the free end flaps most).
+
+Examples: `prop_mill_waterwheel` (a wheel on a frame), `prop_hanging_banner` (cloth on six
+bones). `generate` holds Blender's skinning to the kit's (`rig_matches_kit`).
+
+### Tiles that fit together
+
+Modular pieces (wall runs, floors, fences) want their origin on the grid, not centred:
+`"settle": false` keeps the coordinates as written, with `qa.require_origin_at_base: false`.
+Then give their materials a `period` (see "Materials") equal to the grid step, so the patterns
+run on across every joint, and look at them together as a kit (see "Kits").
+A `bevel` rounds a tile's ends too, so each joint shows as a groove that wide (here 4 mm, it
+reads as one more mortar joint); leave it off where the joint must vanish.
+`tile_brick_wall` and `tile_brick_corner` are a 2 m wall and its corner;
+`assets/kits/brick_wall_run.json` lays four of them out.
 
 ## Rigging and animating a sculpt
 
@@ -283,6 +322,8 @@ moved. `"bone": "ear.*"` turns both ears, the right one mirrored. Times `t` run 
 | `turn` | a bone swings: `pitch`/`yaw`/`roll` degrees times a wave (`sine`, `bounce`, `constant`) at `cycles` per clip, `phase` 0..1 |
 | `move` | the whole body moves `x`/`y`/`z` metres: bob (`bounce`), sway, hop |
 | `keys` | poses at times (`at: [{t, turns, move}]`), eased `smooth` or `linear`; a key leaves out what is at rest |
+| `spin` | a bone turns steadily about its own axis (head to tail), `turns` per clip: wheels, drums, propellers |
+| `wave` | a chain of `bones` (root first) swings the same way, each `lag` of a cycle after the one before, `grow` times as far: flags, tails, tentacles, ropes |
 | `gait` | legs step in place: `legs: {name: phase}`, `stride`, `lift`, `duty` (share of a cycle on the ground). Feet are planted by inverse kinematics; knees bend the way they were modelled. A `.L` leg's twin steps half a cycle later unless listed. `per_leg: {"leg.R": {"lift": 0.015, "duty": 0.5}}` gives one leg its own lift and duty: a **limp** (its stride follows from its duty, so no foot skates) |
 
 Recipes that work: a **walk** staggers four feet (`hind.L 0, fore.L 0.25, hind.R 0.5,
@@ -351,11 +392,19 @@ where it paints; see "Normal maps" below). Distances are metres.
 | `cells` | lines where cells `size` across meet, `width` wide (8% of size) | `fill` 0..1 paints each cell's inside by a random share: plates, scales, cracks, cobbles |
 | `edges` | outward bends tighter than `radius` (0.05) | `breakup` 0..1 breaks the line with noise; worn, lighter edges |
 | `cavities` | inward bends tighter than `radius` | the same keys; dirt in creases and joins |
+| `bricks` | the mortar joints of a running bond: courses `size` [length, height] up Z, bricks running along both X and Y, so every wall face and corner shows the bond | `mortar` joint width (0.012; 0 for none), `fill` 0..1 paints each brick by a random share (a second `bricks` layer with `mortar: 0` and `fill` tints brick by brick), `seed`; with a negative `relief` the joints are sunk |
 
 `edges` and `cavities` read the surface two ways, so they work on any mesh: smooth bends by
 curvature (a sculpt's shoulders, where a leg joins the body), sharp ones by distance to the
 crease (a crate's bevelled corners, which no vertex curvature sees). A right-angled edge reads
 the same before and after a one-segment bevel.
+
+**Tiles: `period`.** `"pattern": {"period": 2, "layers": [...]}` makes every layer repeat
+every 2 m (or `[x, y, z]`, 0 for an axis that need not repeat): noise, cells, spots, grain and
+bricks fit a whole number of features into the period (a 0.24 m brick becomes 0.25 m in a 2 m
+period), so a tile 2 m long placed next to another shows one continuous wall. Bricks also line
+up across a 90 degree turn (a corner tile); noise and cells do not, so keep them subtle where
+turned tiles meet. `look kit:<name>` measures it.
 
 A material's `alpha` (0..1, default 1) makes it see-through: glass, a membrane. It ships as
 glTF `alphaMode: BLEND`, and the inspection sheet draws it as a fine checker so what is behind
@@ -382,7 +431,8 @@ What `look` shows:
 - A shipped file's sheet (`--glb`) samples its base colour textures through its UVs. The two
   agree to within 8-bit rounding (median 0.002 on the stump), so the kit sheet is what ships.
 - The report gives each layer's coverage, the share of its material it paints:
-  `pattern bark: mottle 42%, mottle 20%, cavities 21%, edges 8%`. A layer under 1% does not
+  `pattern bark: mottle 42%, mottle 20%, cavities 21%, edges 8%`, measured at points spread
+  evenly over the surface (a 4 mm worn edge registers on a large flat face). A layer under 1% does not
   show (`spots` too small or sparse, `radius` too small for the mesh); over 90% hides every
   layer beneath it. Both are flagged.
 
@@ -432,6 +482,38 @@ its measurements to the report: size, triangles per material, parts, floating pa
 ground and touching nothing that is), open edges, inside-out parts, and balance (centre of mass
 against the hull of the footing). These are measurements, not gates: a chain hangs and a
 bracket sits on a wall on purpose.
+
+`z-fighting 64.8 cm2 at (-0.28, 0.25, 0.49)`: faces of two different parts lie in one plane,
+facing the same way, and overlap; no renderer can tell which is in front, so that area
+flickers. A plank flush with its frame, two crossed beams of the same width, a trim plate at
+the wall's own depth. The FACING view marks them yellow. Move one part a millimetre or more,
+or make one a little narrower. (Faces resting on the ground, or sealed behind a third part
+pressed flat against them, are left out: nobody sees them.)
+
+### Kits: assets that go together
+
+A kit places several assets and looks at them as one: `assets/kits/<name>.json`,
+
+```json
+{"place": [
+  {"asset": "tile_brick_wall", "at": [-2, 0, 0]},
+  {"asset": "tile_brick_wall", "at": [0, 0, 0]},
+  {"asset": "tile_brick_corner", "at": [2, 0, 0]},
+  {"asset": "tile_brick_wall", "at": [2, 2, 0], "turn": 90}
+]}
+```
+
+`python tools/ag.py look kit:brick_wall_run` draws the sheet (`assets/out/look/kit_<name>.png`)
+with every asset painted in its own frame, as the game will show them, and adds a line per
+joint between neighbours:
+
+```
+joint tile_brick_wall#2 | tile_brick_corner#3 at x = 1.00: meets cleanly
+joint loose_tile#1 | loose_tile#2 at x = 1.00: 3.0 mm gap; pattern steps along 9% of it: give the pattern a `period` the tiles fit (the grid step)
+```
+
+A gap shows a crack of light, an overlap z-fights (the header says where); a pattern that
+steps along more than 5% of a joint reads as a seam.
 
 The sheet found an inside-out shovel blade that every QA gate passed (QA checks the whole mesh's
 volume; one inverted shell hid in the positive total). The kit tests now hold every shell.

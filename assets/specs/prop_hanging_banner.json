@@ -1,0 +1,403 @@
+{
+  "spec_version": 1,
+  "id": "prop_hanging_banner",
+  "generator": "prop.assembly",
+  "params": {
+    "pieces": [
+      {
+        "cylinder": {
+          "a": [
+            0,
+            0,
+            0
+          ],
+          "b": [
+            0,
+            0,
+            2.6
+          ],
+          "radius": 0.035,
+          "radius_b": 0.03
+        },
+        "slot": "wood"
+      },
+      {
+        "sphere": {
+          "centre": [
+            0,
+            0,
+            2.63
+          ],
+          "radius": 0.05
+        },
+        "slot": "iron"
+      },
+      {
+        "cylinder": {
+          "a": [
+            -0.02,
+            0,
+            2.3
+          ],
+          "b": [
+            0.92,
+            0,
+            2.3
+          ],
+          "radius": 0.02
+        },
+        "slot": "wood"
+      },
+      {
+        "box": {
+          "size": [
+            1.1,
+            0.5,
+            0.07
+          ]
+        },
+        "at": [
+          0.38,
+          0,
+          0.035
+        ],
+        "slot": "wood"
+      },
+      {
+        "torus": {
+          "centre": [
+            0.12,
+            0,
+            2.3
+          ],
+          "radius": 0.025,
+          "thickness": 0.008,
+          "axis": "x"
+        },
+        "slot": "iron",
+        "repeat": {
+          "count": 5,
+          "step": [
+            0.17,
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "sheet": {
+          "size": [
+            0.8,
+            1.5
+          ],
+          "thickness": 0.006,
+          "divisions": [
+            12,
+            24
+          ]
+        },
+        "at": [
+          0.45,
+          0,
+          1.525
+        ],
+        "slot": "cloth",
+        "bones": [
+          "cloth1",
+          "cloth2",
+          "cloth3",
+          "cloth4",
+          "cloth5",
+          "cloth6"
+        ]
+      }
+    ],
+    "rig": {
+      "bones": {
+        "pole": {
+          "head": [
+            0,
+            0.0,
+            0
+          ],
+          "tail": [
+            0,
+            0,
+            2.6
+          ]
+        },
+        "cloth1": {
+          "parent": "pole",
+          "head": [
+            0.45,
+            0,
+            2.275
+          ],
+          "tail": [
+            0.45,
+            0,
+            2.03
+          ]
+        },
+        "cloth2": {
+          "parent": "cloth1",
+          "head": [
+            0.45,
+            0,
+            2.03
+          ],
+          "tail": [
+            0.45,
+            0,
+            1.785
+          ]
+        },
+        "cloth3": {
+          "parent": "cloth2",
+          "head": [
+            0.45,
+            0,
+            1.785
+          ],
+          "tail": [
+            0.45,
+            0,
+            1.54
+          ]
+        },
+        "cloth4": {
+          "parent": "cloth3",
+          "head": [
+            0.45,
+            0,
+            1.54
+          ],
+          "tail": [
+            0.45,
+            0,
+            1.295
+          ]
+        },
+        "cloth5": {
+          "parent": "cloth4",
+          "head": [
+            0.45,
+            0,
+            1.295
+          ],
+          "tail": [
+            0.45,
+            0,
+            1.05
+          ]
+        },
+        "cloth6": {
+          "parent": "cloth5",
+          "head": [
+            0.45,
+            0,
+            1.05
+          ],
+          "tail": [
+            0.45,
+            0,
+            0.775
+          ]
+        }
+      },
+      "softness": 0.06,
+      "clips": {
+        "Sway": {
+          "seconds": 3,
+          "motions": [
+            {
+              "wave": {
+                "bones": [
+                  "cloth1",
+                  "cloth2",
+                  "cloth3",
+                  "cloth4",
+                  "cloth5",
+                  "cloth6"
+                ],
+                "pitch": 5,
+                "yaw": 2,
+                "cycles": 1,
+                "lag": 0.08,
+                "grow": 1.15
+              }
+            }
+          ]
+        },
+        "Gust": {
+          "seconds": 1.5,
+          "motions": [
+            {
+              "wave": {
+                "bones": [
+                  "cloth1",
+                  "cloth2",
+                  "cloth3",
+                  "cloth4",
+                  "cloth5",
+                  "cloth6"
+                ],
+                "pitch": 14,
+                "yaw": 5,
+                "cycles": 2,
+                "lag": 0.1,
+                "grow": 1.2
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "materials": {
+    "cloth": {
+      "base_color": [
+        0.08,
+        0.12,
+        0.3,
+        1
+      ],
+      "roughness": 0.9,
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "grain": {
+              "color": [
+                0.06,
+                0.09,
+                0.22
+              ],
+              "axis": "z",
+              "spacing": 0.01,
+              "warp": 0.2,
+              "sharpness": 2,
+              "amount": 0.5
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.55,
+                0.45,
+                0.15
+              ],
+              "axis": "x",
+              "from": 0.12,
+              "to": 0.125,
+              "amount": 0.9
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.55,
+                0.45,
+                0.15
+              ],
+              "axis": "x",
+              "from": 0.78,
+              "to": 0.775,
+              "amount": 0.9
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.15,
+                0.17,
+                0.25
+              ],
+              "scale": 10,
+              "coverage": 0.35,
+              "contrast": 2,
+              "amount": 0.6
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.12,
+                0.1,
+                0.07
+              ],
+              "axis": "z",
+              "from": 0.75,
+              "to": 1.1,
+              "breakup": 0.6,
+              "amount": 0.7
+            }
+          }
+        ]
+      }
+    },
+    "wood": {
+      "base_color": [
+        0.22,
+        0.14,
+        0.08,
+        1
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.13,
+                0.08,
+                0.05
+              ],
+              "scale": 30,
+              "stretch": [
+                1,
+                1,
+                8
+              ],
+              "coverage": 0.45,
+              "contrast": 2.5,
+              "relief": -0.0004
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.1,
+                0.08,
+                0.05
+              ],
+              "axis": "z",
+              "from": 0.0,
+              "to": 0.4,
+              "breakup": 0.5,
+              "amount": 0.6
+            }
+          }
+        ]
+      }
+    },
+    "iron": {
+      "base_color": [
+        0.08,
+        0.075,
+        0.07,
+        1
+      ],
+      "roughness": 0.5,
+      "metallic": 0.7
+    }
+  },
+  "qa": {
+    "max_triangles": 6000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 2.8
+  }
+}

@@ -171,6 +171,7 @@ That writes `assets/out/crate_small.glb` and three renders in `assets/out/previe
 | `python tools/ag.py preview <id>` | Re-render previews from the existing `.glb` |
 | `python tools/ag.py validate <id>` | Re-open the shipped `.glb` and re-run the gates on it |
 | `python tools/ag.py look <id>` | Nine-view inspection sheet + measurements, in about a second |
+| `python tools/ag.py look kit:<name>` | Several assets placed together (`assets/kits/<name>.json`), every joint measured |
 | `python tools/ag.py specs` | List available specs |
 | `python tools/ag.py generators` | List registered generators |
 
@@ -286,14 +287,19 @@ limbs, tearing skin and feet through the floor. See `assets/specs/sculpt_cave_to
 `prop.assembly` builds lanterns, chests, tools and fittings from exact pieces written in the
 spec: boxes, rods between two points, spheres, rings, turned profiles, bent tubes and extruded
 outlines, each with its own material, placed, repeated round an axis or in a row, mirrored and
-grouped. A bevel rounds the pieces thick enough for one. See `assets/specs/prop_crypt_lantern.json`
-and "Hard-surface props in JSON" in [`docs/ASSETKIT.md`](docs/ASSETKIT.md).
+grouped. A bevel rounds the pieces thick enough for one. A `rig` ties pieces to bones, rigidly
+(a wheel that `spin`s) or bending along a chain (a cloth `sheet` that `wave`s). Tiles keep their
+origin on the grid (`settle: false`), and a kit (`assets/kits/`) lays them out to check the
+joints. See `assets/specs/prop_crypt_lantern.json`, `prop_mill_waterwheel.json`,
+`prop_hanging_banner.json`, `tile_brick_wall.json` and "Hard-surface props in JSON" in
+[`docs/ASSETKIT.md`](docs/ASSETKIT.md).
 
 ## Materials as recipes
 
 A spec's material can carry a `pattern`: layers of mottling, grain, spots, cells, gradients,
-moss on what faces up, worn edges and dirty creases, written in JSON, with `relief` for a
-normal map; `alpha` makes it glass. The kit evaluates them on the surface and bakes them
+moss on what faces up, worn edges and dirty creases, brick bonds, written in JSON, with
+`relief` for a normal map; `alpha` makes it glass; `period` makes it repeat so tiles continue
+one another. The kit evaluates them on the surface and bakes them
 into colour and roughness textures on the final UVs; the .glb ships them. `ag.py look` shows the
 patterns without Blender and reports how much each layer paints, so an invisible or
 overpowering layer is caught before a build. See "Materials" in
