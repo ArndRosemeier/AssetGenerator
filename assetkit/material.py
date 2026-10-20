@@ -33,6 +33,13 @@ Colours are linear RGB 0..1, as `base_color`. Masks:
     edges     where the surface bends outward tighter than `radius` metres: worn, lighter edges
     cavities  where it bends inward tighter than `radius`: dirt in creases
     (edges and cavities take `breakup` 0..1 to break the mask up with noise)
+    bricks    the mortar joints of a running bond: `size` [length, height] (courses up Z, bricks
+              along X and Y, so every wall face and corner shows the bond), `mortar` (joint
+              width, 0.012), `fill` 0..1 paints each brick by a random share, `seed`
+
+A pattern's `period` (metres, or [x, y, z]; 0: no repeat) makes every layer repeat after it,
+each fitting a whole number of its features in: tiles laid side by side on that grid continue
+one another's pattern.
 
 Parsing is standard library only (so a spec is checked before Blender starts); evaluating
 needs numpy.
@@ -41,7 +48,7 @@ needs numpy.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 Color = tuple[float, float, float]
 
@@ -60,11 +67,14 @@ class Layer:
     #: Metres the layer raises (+) or sinks (-) the surface where it paints, baked into the
     #: normal map: grooves in bark, raised plates, cracks.
     relief: float = 0.0
+    #: Metres after which the layer repeats along x, y, z (0: never), from the pattern's `period`.
+    period: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 @dataclass(frozen=True)
 class Pattern:
     layers: tuple[Layer, ...]
+    period: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 _KINDS: dict[str, dict[str, object]] = {
@@ -77,6 +87,7 @@ _KINDS: dict[str, dict[str, object]] = {
     "cells": {"size": None, "width": None, "fill": 0.0, "seed": 0},
     "edges": {"radius": 0.05, "breakup": 0.0, "seed": 0},
     "cavities": {"radius": 0.05, "breakup": 0.0, "seed": 0},
+    "bricks": {"size": None, "mortar": 0.012, "fill": 0.0, "seed": 0},
 }
 _COMMON = ("color", "amount", "roughness", "relief")
 
@@ -84,13 +95,24 @@ _COMMON = ("color", "amount", "roughness", "relief")
 def parse_pattern(raw: object, path: str) -> Pattern:
     if not isinstance(raw, dict):
         raise PatternError(f"{path}: expected an object with `layers`")
-    unknown = sorted(set(raw) - {"layers"})
+    unknown = sorted(set(raw) - {"layers", "period"})
     if unknown:
-        raise PatternError(f"{path}: unknown key(s) {unknown}; a pattern has `layers`")
+        raise PatternError(f"{path}: unknown key(s) {unknown}; a pattern has `layers` (and `period`)")
     layers_raw = raw.get("layers")
     if not isinstance(layers_raw, list) or not layers_raw:
         raise PatternError(f"{path}.layers: expected a non-empty list")
-    return Pattern(tuple(_layer(v, f"{path}.layers[{i}]") for i, v in enumerate(layers_raw)))
+    period = _period(raw.get("period", 0), f"{path}.period")
+    layers = tuple(_layer(v, f"{path}.layers[{i}]") for i, v in enumerate(layers_raw))
+    return Pattern(tuple(replace(layer, period=period) for layer in layers), period)
+
+
+def _period(raw: object, path: str) -> tuple[float, float, float]:
+    """`period`: metres after which the pattern repeats, one number for every axis or [x, y, z]
+    (0: that axis never repeats)."""
+    values = [raw, raw, raw] if _is_number(raw) else raw
+    if not (isinstance(values, list) and len(values) == 3 and all(_is_number(v) and v >= 0 for v in values)):
+        raise PatternError(f"{path}: expected metres (a number, or [x, y, z]; 0 for no repeat), got {raw!r}")
+    return (float(values[0]), float(values[1]), float(values[2]))
 
 
 def _layer(raw: object, path: str) -> Layer:
@@ -133,6 +155,13 @@ def _layer(raw: object, path: str) -> Layer:
             ):
                 raise PatternError(f"{here}.stretch: expected [x, y, z], positive numbers")
             params[key] = tuple(float(x) for x in value)
+        elif kind == "bricks" and key == "size":
+            value = body.get(key)
+            if not (
+                isinstance(value, list) and len(value) == 2 and all(_is_number(x) and x > 0 for x in value)
+            ):
+                raise PatternError(f"{here}.size: expected [length, height] in metres, both positive")
+            params[key] = (float(value[0]), float(value[1]))
         elif key in ("axis",):
             value = body.get(key, default)
             allowed = ("x", "y", "z", "radial") if kind == "grain" else ("x", "y", "z")
@@ -151,7 +180,7 @@ def _layer(raw: object, path: str) -> Layer:
                 raise PatternError(f"{here}: missing '{key}'")
             params[key] = _number(body, key, here, default, None, None)  # type: ignore[arg-type]
     for key in ("scale", "spacing", "size", "radius", "contrast", "sharpness"):
-        if key in params and params[key] <= 0:  # type: ignore[operator]
+        if key in params and kind != "bricks" and params[key] <= 0:  # type: ignore[operator]
             raise PatternError(f"{here}.{key}: must be positive")
     if kind == "facing" and not (0.0 <= params["angle"] <= 180.0 and params["soft"] >= 0.0):  # type: ignore[operator]
         raise PatternError(f"{here}: `angle` is 0..180 degrees and `soft` 0 or more")
@@ -160,6 +189,8 @@ def _layer(raw: object, path: str) -> Layer:
             raise PatternError(f"{here}.{key}: expected 0..1")
     if kind == "spots" and "spacing" in params and params["spacing"] < params["size"]:  # type: ignore[operator]
         raise PatternError(f"{here}.spacing: at least the spot size ({params['size']})")
+    if kind == "bricks" and params["mortar"] < 0:  # type: ignore[operator]
+        raise PatternError(f"{here}.mortar: 0 or more metres")
     if kind == "gradient" and params["from"] == params["to"]:
         raise PatternError(f"{here}: `from` and `to` must differ")
     color = (float(color_raw[0]), float(color_raw[1]), float(color_raw[2]))
@@ -207,10 +238,28 @@ def evaluate(
 
     q, bend, normal = surface.at(tri, bary)
     p = q - np.asarray(origin, dtype=np.float64)
+    return evaluate_points(pattern, p, bend, normal, _creases_at(surface, q), base_color, base_roughness)
+
+
+def evaluate_points(
+    pattern: Pattern,
+    points: object,
+    bend: object,
+    normals: object,
+    creases: Callable[[float, bool], object],
+    base_color: Color,
+    base_roughness: float,
+) -> tuple[object, object]:
+    """`evaluate` at points given in pattern coordinates, with the surface's bend (N,) and
+    unit normals (N, 3) there, and `creases(radius, outward)` (N,): how near each lies to a
+    crease. A kit evaluates one tile's pattern on its neighbour's surface with it."""
+    import numpy as np
+
+    p = np.asarray(points, dtype=np.float64)
     color = np.tile(np.asarray(base_color, dtype=np.float64), (len(p), 1))
     rough = np.full(len(p), float(base_roughness))
     for layer in pattern.layers:
-        m = _mask(layer, p, bend, normal, _creases_at(surface, q)) * layer.amount
+        m = _mask(layer, p, bend, normals, creases) * layer.amount
         color += (np.asarray(layer.color) - color) * m[:, None]
         if layer.roughness is not None:
             rough += (layer.roughness - rough) * m
@@ -324,15 +373,20 @@ def _mask(
     import numpy as np
 
     k = layer.params
+    per = layer.period
     if layer.kind == "mottle":
         # Stretch lengthens features along an axis: [1, 1, 4] gives streaks four times as tall.
-        n = _fbm(p / np.asarray(k["stretch"]), float(k["scale"]), int(k["octaves"]), int(k["seed"]))  # type: ignore[arg-type, operator]
+        stretch = np.asarray(k["stretch"])
+        n = _fbm(p / stretch, float(k["scale"]), int(k["octaves"]), int(k["seed"]), np.asarray(per) / stretch)  # type: ignore[arg-type, operator]
         threshold = (0.5 - float(k["coverage"])) * 0.6  # type: ignore[arg-type]
         return np.clip(0.5 + (n - threshold) * float(k["contrast"]) * 2.0, 0.0, 1.0)  # type: ignore[arg-type]
     if layer.kind == "grain":
         spacing = float(k["spacing"])  # type: ignore[arg-type]
-        u = _axis(p, str(k["axis"]))
-        warp = float(k["warp"]) * spacing * _fbm(p, 1.0 / (4.0 * spacing), 2, int(k["seed"]))  # type: ignore[arg-type]
+        axis = str(k["axis"])
+        if axis != "radial":
+            spacing = _fit(spacing, per["xyz".index(axis)])
+        u = _axis(p, axis)
+        warp = float(k["warp"]) * spacing * _fbm(p, 1.0 / (4.0 * spacing), 2, int(k["seed"]), per)  # type: ignore[arg-type]
         stripes = 0.5 + 0.5 * np.cos(2.0 * np.pi * (u + warp) / spacing)
         return stripes ** float(k["sharpness"])  # type: ignore[arg-type]
     if layer.kind == "spots":
@@ -343,7 +397,7 @@ def _mask(
         # centre within reach of each spacing x spacing patch of surface, so `spacing` and
         # `density` mean what they say on the surface (a ball's slice is a disc there).
         cell = (4.0 / 3.0 * r * spacing * spacing) ** (1.0 / 3.0)
-        d = _nearest_spot(p, cell, float(k["density"]), int(k["seed"]))  # type: ignore[arg-type]
+        d = _nearest_spot(p, cell, float(k["density"]), int(k["seed"]), per)  # type: ignore[arg-type]
         inner = r * (1.0 - float(k["softness"]))  # type: ignore[arg-type]
         return 1.0 - _smoothstep(inner, r + 1e-9, d)
     if layer.kind == "gradient":
@@ -352,7 +406,7 @@ def _mask(
         if float(k["breakup"]) > 0:  # type: ignore[arg-type]
             # A ragged line: the fade moves by up to half its length with noise its own size.
             span = abs(hi - lo)
-            u = u + float(k["breakup"]) * span * 1.4 * _fbm(p, 1.0 / span, 3, int(k["seed"]))  # type: ignore[arg-type, operator]
+            u = u + float(k["breakup"]) * span * 1.4 * _fbm(p, 1.0 / span, 3, int(k["seed"]), per)  # type: ignore[arg-type, operator]
         return 1.0 - _smoothstep(lo, hi, u)
     if layer.kind == "facing":
         # Where the surface faces `direction` within `angle` (full), fading over `soft` more
@@ -361,7 +415,7 @@ def _mask(
         cos = (normal * d).sum(axis=1)  # type: ignore[operator]
         angle, soft = float(k["angle"]), float(k["soft"])  # type: ignore[arg-type]
         if float(k["breakup"]) > 0:  # type: ignore[arg-type]
-            cos = cos + float(k["breakup"]) * 1.2 * _fbm(p, float(k["scale"]), 3, int(k["seed"]))  # type: ignore[arg-type]
+            cos = cos + float(k["breakup"]) * 1.2 * _fbm(p, float(k["scale"]), 3, int(k["seed"]), per)  # type: ignore[arg-type]
         full = np.cos(np.radians(angle))
         none = np.cos(np.radians(min(angle + max(soft, 1e-3), 180.0)))
         return _smoothstep(none, full, cos)
@@ -370,7 +424,7 @@ def _mask(
         # cracks, cobbles), and with `fill` each cell's inside painted by a random share.
         size = float(k["size"])  # type: ignore[arg-type]
         width = float(k.get("width", 0.08 * size))  # type: ignore[arg-type]
-        f1, f2, cell = _cells(p, size, int(k["seed"]))  # type: ignore[arg-type]
+        f1, f2, cell = _cells(p, size, int(k["seed"]), per)  # type: ignore[arg-type]
         lines = 1.0 - _smoothstep(0.0, width, f2 - f1)
         fill = float(k["fill"])  # type: ignore[arg-type]
         return np.maximum(lines, fill * cell) if fill > 0 else lines
@@ -383,10 +437,79 @@ def _mask(
         m = np.maximum(_smoothstep(0.5 / r, 1.5 / r, bend), creases(r, outward))
         breakup = float(k["breakup"])  # type: ignore[arg-type]
         if breakup > 0:
-            n = _fbm(p, 0.6 / r, 2, int(k["seed"]))  # type: ignore[arg-type]
+            n = _fbm(p, 0.6 / r, 2, int(k["seed"]), per)  # type: ignore[arg-type]
             m *= np.clip(1.0 - breakup * (0.5 - 2.0 * n), 0.0, 1.0)
         return m
+    if layer.kind == "bricks":
+        return _bricks(p, normal, k, per)
     raise AssertionError(layer.kind)
+
+
+def _fit(length: float, period: float) -> float:
+    """`length` nudged so a whole number of it fills `period` (unchanged when 0: no repeat)."""
+    if period <= 0:
+        return length
+    return period / max(1, round(period / length))
+
+
+def _sizes(size: float, period: object) -> object:
+    """A feature size per axis, each fitted to that axis's period."""
+    import numpy as np
+
+    return np.array([_fit(size, float(q)) for q in period])  # type: ignore[attr-defined]
+
+
+def _counts(sizes: object, period: object) -> object:
+    """Whole features per period per axis (0: no repeat), for wrapping lattice indices."""
+    import numpy as np
+
+    per = np.asarray(period, dtype=np.float64)
+    return np.where(per > 0, np.round(per / np.asarray(sizes)), 0).astype(np.int64)
+
+
+def _wrap(index: object, count: object) -> object:
+    import numpy as np
+
+    return np.where(count > 0, index % np.maximum(count, 1), index)
+
+
+def _bricks(p: object, normal: object, k: Mapping[str, object], period: tuple[float, float, float]) -> object:
+    """Running bond: courses `height` tall up z, bricks `length` long along both x and y, each
+    course shifted half a brick, so any wall face (and its corners) shows the bond. Mortar
+    joints `mortar` wide; with `fill`, each brick painted by a random share of it."""
+    import numpy as np
+
+    length, height = k["size"]  # type: ignore[misc]
+    length_x, length_y = _fit(float(length), period[0]), _fit(float(length), period[1])
+    height = _fit(float(height), period[2])
+    if period[2] > 0 and round(period[2] / height) % 2:  # an even number of courses repeats
+        height = period[2] / (round(period[2] / height) + 1)
+    sizes = np.array([length_x, length_y, height])
+    counts = _counts(sizes, period)
+    course = np.floor(p[:, 2] / height)  # type: ignore[index]
+    shift = np.where(course % 2 == 1, 0.5, 0.0)
+    gx = p[:, 0] / length_x + shift  # type: ignore[index]
+    gy = p[:, 1] / length_y + shift  # type: ignore[index]
+    gz = p[:, 2] / height  # type: ignore[index]
+    # Distance (metres) to the nearest joint along each axis that runs across the surface (a
+    # face turned to an axis would lie in that axis's joint plane), the nearest of them all.
+    n = np.abs(np.asarray(normal))
+    joint = np.minimum.reduce(
+        [
+            np.where(n[:, a] < 0.7, np.abs(g - np.round(g)) * s, np.inf)
+            for a, (g, s) in enumerate(((gx, length_x), (gy, length_y), (gz, height)))
+        ]
+    )
+    mortar = float(k["mortar"])  # type: ignore[arg-type]
+    half = 0.5 * mortar
+    lines = 1.0 - _smoothstep(0.8 * half, 1.2 * half + 1e-9, joint) if mortar > 0 else np.zeros(len(joint))
+    fill = float(k["fill"])  # type: ignore[arg-type]
+    if fill <= 0:
+        return lines
+    ix = _wrap(np.floor(gx).astype(np.int64), counts[0])
+    iy = _wrap(np.floor(gy).astype(np.int64), counts[1])
+    iz = _wrap(course.astype(np.int64), counts[2])
+    return np.maximum(lines, fill * _hash(ix, iy, iz, int(k["seed"]), 21))  # type: ignore[arg-type]
 
 
 def _smoothstep(lo: float, hi: float, x: object) -> object:
@@ -404,18 +527,22 @@ def _axis(p: object, axis: str) -> object:
     return p[:, "xyz".index(axis)]  # type: ignore[index]
 
 
-def _fbm(p: object, scale: float, octaves: int, seed: int) -> object:
-    """Fractal noise in about [-0.7, 0.7], features 1/scale metres across."""
+def _fbm(p: object, scale: float, octaves: int, seed: int, period: object = (0.0, 0.0, 0.0)) -> object:
+    """Fractal noise in about [-0.7, 0.7], features 1/scale metres across; repeating every
+    `period` metres along each axis where that is above 0 (the scale nudged to fit)."""
     import numpy as np
 
     from assetkit.noise import noise_array
 
     offset = np.array([seed * 31.7 + 5.3, seed * 17.3 + 11.1, seed * 47.1 + 2.9])
     total = np.zeros(len(p))  # type: ignore[arg-type]
-    weight, freq, norm = 1.0, scale, 0.0
+    per = np.asarray(period, dtype=np.float64)
+    freq = 1.0 / _sizes(1.0 / scale, per) if (per > 0).any() else scale
+    weight, norm = 1.0, 0.0
     for _ in range(max(1, octaves)):
         q = p * freq + offset  # type: ignore[operator]
-        total += weight * noise_array(q[:, 0], q[:, 1], q[:, 2])
+        cells = tuple(int(c) for c in np.where(per > 0, np.round(per * freq), 0))
+        total += weight * noise_array(q[:, 0], q[:, 1], q[:, 2], cells)  # type: ignore[arg-type]
         norm += weight
         weight, freq = weight * 0.5, freq * 2.0
     return total / norm
@@ -438,12 +565,17 @@ def _hash(ix: object, iy: object, iz: object, seed: int, salt: int) -> object:
     return (h >> np.uint64(11)).astype(np.float64) / float(1 << 53)
 
 
-def _cells(p: object, size: float, seed: int) -> tuple[object, object, object]:
+def _cells(
+    p: object, size: float, seed: int, period: object = (0.0, 0.0, 0.0)
+) -> tuple[object, object, object]:
     """Cellular noise: distances to the nearest and second nearest cell centre (one jittered
-    centre per `size` cube) and a random number in [0, 1) for the nearest one's cell."""
+    centre per `size` cube) and a random number in [0, 1) for the nearest one's cell; repeating
+    every `period` metres along each axis where that is above 0."""
     import numpy as np
 
-    q = p / size  # type: ignore[operator]
+    sizes = _sizes(size, period)
+    counts = _counts(sizes, period)
+    q = p / sizes  # type: ignore[operator]
     base = np.floor(q).astype(np.int64)
     f1 = np.full(len(q), np.inf)
     f2 = np.full(len(q), np.inf)
@@ -452,36 +584,50 @@ def _cells(p: object, size: float, seed: int) -> tuple[object, object, object]:
         for dy in (-1, 0, 1):
             for dz in (-1, 0, 1):
                 cx, cy, cz = base[:, 0] + dx, base[:, 1] + dy, base[:, 2] + dz
-                jx = cx + _hash(cx, cy, cz, seed, 11)
-                jy = cy + _hash(cx, cy, cz, seed, 12)
-                jz = cz + _hash(cx, cy, cz, seed, 13)
-                d = np.sqrt((q[:, 0] - jx) ** 2 + (q[:, 1] - jy) ** 2 + (q[:, 2] - jz) ** 2)
+                hx, hy, hz = _wrap(cx, counts[0]), _wrap(cy, counts[1]), _wrap(cz, counts[2])
+                jx = cx + _hash(hx, hy, hz, seed, 11)
+                jy = cy + _hash(hx, hy, hz, seed, 12)
+                jz = cz + _hash(hx, hy, hz, seed, 13)
+                d = np.sqrt(
+                    ((q[:, 0] - jx) * sizes[0]) ** 2
+                    + ((q[:, 1] - jy) * sizes[1]) ** 2
+                    + ((q[:, 2] - jz) * sizes[2]) ** 2
+                )
                 nearer = d < f1
                 f2 = np.where(nearer, f1, np.minimum(f2, d))
-                tag = np.where(nearer, _hash(cx, cy, cz, seed, 14), tag)
+                tag = np.where(nearer, _hash(hx, hy, hz, seed, 14), tag)
                 f1 = np.where(nearer, d, f1)
-    return f1 * size, f2 * size, tag
+    return f1, f2, tag
 
 
-def _nearest_spot(p: object, spacing: float, density: float, seed: int) -> object:
+def _nearest_spot(
+    p: object, spacing: float, density: float, seed: int, period: object = (0.0, 0.0, 0.0)
+) -> object:
     """Distance to the nearest spot centre: one jittered candidate per `spacing` cube, present
-    with probability `density` (cellular noise)."""
+    with probability `density` (cellular noise); repeating every `period` where above 0."""
     import numpy as np
 
-    q = p / spacing  # type: ignore[operator]
+    sizes = _sizes(spacing, period)
+    counts = _counts(sizes, period)
+    q = p / sizes  # type: ignore[operator]
     base = np.floor(q).astype(np.int64)
     best = np.full(len(q), np.inf)
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             for dz in (-1, 0, 1):
                 cx, cy, cz = base[:, 0] + dx, base[:, 1] + dy, base[:, 2] + dz
-                present = _hash(cx, cy, cz, seed, 7) < density
-                jx = cx + _hash(cx, cy, cz, seed, 1)
-                jy = cy + _hash(cx, cy, cz, seed, 2)
-                jz = cz + _hash(cx, cy, cz, seed, 3)
-                d = np.sqrt((q[:, 0] - jx) ** 2 + (q[:, 1] - jy) ** 2 + (q[:, 2] - jz) ** 2)
+                hx, hy, hz = _wrap(cx, counts[0]), _wrap(cy, counts[1]), _wrap(cz, counts[2])
+                present = _hash(hx, hy, hz, seed, 7) < density
+                jx = cx + _hash(hx, hy, hz, seed, 1)
+                jy = cy + _hash(hx, hy, hz, seed, 2)
+                jz = cz + _hash(hx, hy, hz, seed, 3)
+                d = np.sqrt(
+                    ((q[:, 0] - jx) * sizes[0]) ** 2
+                    + ((q[:, 1] - jy) * sizes[1]) ** 2
+                    + ((q[:, 2] - jz) * sizes[2]) ** 2
+                )
                 best = np.where(present, np.minimum(best, d), best)
-    return best * spacing
+    return best
 
 
 SHARP_DEG = 20.0  # an edge whose faces turn by more is a crease, not part of a smooth bend
@@ -577,31 +723,53 @@ class Surface:
         a, b, strength = self.crease_a[pick], self.crease_b[pick], self.crease_strength[pick]
         if not len(a) or not len(p):
             return out
-        # A grid of radius-sized cells: each crease is listed in every cell within `radius` of it.
-        lo = np.floor((np.minimum(a, b) - radius) / radius).astype(np.int64)
-        hi = np.floor((np.maximum(a, b) + radius) / radius).astype(np.int64)
-        cells: dict[tuple[int, int, int], list[int]] = {}
-        for i in range(len(a)):
-            for x in range(lo[i, 0], hi[i, 0] + 1):
-                for y in range(lo[i, 1], hi[i, 1] + 1):
-                    for z in range(lo[i, 2], hi[i, 2] + 1):
-                        cells.setdefault((x, y, z), []).append(i)
-        cell = np.floor(p / radius).astype(np.int64)
-        keys, inverse = np.unique(cell, axis=0, return_inverse=True)
-        inverse = inverse.reshape(-1)
-        order = np.argsort(inverse, kind="stable")
-        starts = np.searchsorted(inverse[order], np.arange(len(keys) + 1))
-        for k, key in enumerate(keys):
-            near = cells.get((int(key[0]), int(key[1]), int(key[2])))
-            if not near:
-                continue
-            idx = order[starts[k] : starts[k + 1]]
-            q = p[idx][:, None, :]
-            sa, sb = a[near][None], b[near][None]
-            d = sb - sa
-            t = np.clip(((q - sa) * d).sum(axis=2) / np.maximum((d * d).sum(axis=2), 1e-30), 0.0, 1.0)
-            gap = q - (sa + t[..., None] * d)
-            dist = np.sqrt((gap * gap).sum(axis=2))
-            falloff = 1.0 - _smoothstep(0.0, radius, dist)
-            out[idx] = (falloff * strength[near][None]).max(axis=1)
+        # A grid of cells (at least `radius` across, coarser when the creases are long next
+        # to it): each crease is listed in every cell within `radius` of it, all in numpy.
+        size = radius
+        while True:
+            lo = np.floor((np.minimum(a, b) - radius) / size).astype(np.int64)
+            hi = np.floor((np.maximum(a, b) + radius) / size).astype(np.int64)
+            span = hi - lo + 1
+            if int(span.prod(axis=1).sum()) <= 400_000 or size > 1e3:
+                break
+            size *= 2.0
+        count = span.prod(axis=1)
+        owner = np.repeat(np.arange(len(a)), count)
+        local = np.arange(int(count.sum())) - np.repeat(np.cumsum(count) - count, count)
+        sy, sz = span[owner, 1], span[owner, 2]
+        cell_of = lo[owner] + np.stack([local // (sy * sz), (local // sz) % sy, local % sz], axis=1)
+        base = cell_of.min(axis=0)
+        dims = cell_of.max(axis=0) - base + 1
+
+        def encode(c: object) -> object:
+            c = c - base  # type: ignore[operator]
+            inside = ((c >= 0) & (c < dims)).all(axis=1)
+            return np.where(inside, (c[:, 0] * dims[1] + c[:, 1]) * dims[2] + c[:, 2], -1)
+
+        keys = encode(cell_of)
+        order = np.argsort(keys, kind="stable")
+        keys, owner = keys[order], owner[order]
+        point_key = encode(np.floor(p / size).astype(np.int64))
+        first = np.searchsorted(keys, point_key, side="left")
+        last = np.searchsorted(keys, point_key, side="right")
+        first = np.where(point_key < 0, last, first)
+        hits = last - first
+        total = np.cumsum(hits)
+        start = 0
+        while start < len(p):  # in chunks of about two million (point, crease) pairs
+            done = int(total[start - 1]) if start else 0
+            end = max(int(np.searchsorted(total, done + 2_000_000, side="right")), start + 1)
+            h = hits[start:end]
+            if h.sum():
+                idx = np.repeat(np.arange(start, end), h)
+                near = owner[np.repeat(first[start:end] - (np.cumsum(h) - h), h) + np.arange(len(idx))]
+                q, sa = p[idx], a[near]
+                d = b[near] - sa
+                t = np.clip(((q - sa) * d).sum(axis=1) / np.maximum((d * d).sum(axis=1), 1e-30), 0.0, 1.0)
+                gap = q - (sa + t[:, None] * d)
+                dist = np.sqrt((gap * gap).sum(axis=1))
+                value = (1.0 - _smoothstep(0.0, radius, dist)) * strength[near]
+                some = np.nonzero(h)[0]  # pairs come grouped by point: the max per group
+                out[start + some] = np.maximum.reduceat(value, (np.cumsum(h) - h)[some])
+            start = end
         return out

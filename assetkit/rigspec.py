@@ -36,7 +36,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from assetkit import sdf
-from assetkit.motion import RATES, MotionError, build_clip, pick_fps
+from assetkit.motion import MotionError, build_clips
 from assetkit.rig import Bone, Clip, Leg, Skeleton, Vec, add, mirror, twin_name
 
 
@@ -160,31 +160,10 @@ def build_rig(
         if value <= 0:
             raise RigError(f"{path}.softness.{name}: must be positive")
 
-    clips_raw = _object(spec.get("clips", {}), f"{path}.clips")
-    fps = spec.get("fps")
-    if fps is None:
-        # Without an fps, the first common rate at which every clip lasts exactly its seconds.
-        lengths = [
-            float(c["seconds"])
-            for c in clips_raw.values()
-            if isinstance(c, dict) and isinstance(c.get("seconds"), int | float) and c["seconds"] > 0
-        ]
-        fps = pick_fps(lengths) if lengths else 24
-        if fps is None:
-            raise RigError(
-                f"{path}.clips: no common frame rate ({', '.join(map(str, RATES))}) makes every clip "
-                f"length {sorted(set(lengths))} s a whole number of frames; set `fps` or round the lengths"
-            )
-    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 120:
-        raise RigError(f"{path}.fps: expected a whole number 1..120")
-    clips = []
-    for name, value in clips_raw.items():
-        try:
-            clips.append(build_clip(name, value, skeleton, legs, fps, f"{path}.clips.{name}"))
-        except MotionError as exc:
-            raise RigError(str(exc)) from exc
-        except ValueError as exc:
-            raise RigError(f"{path}.clips.{name}: {exc}") from exc
+    try:
+        clips = build_clips(spec, skeleton, legs, path)
+    except MotionError as exc:
+        raise RigError(str(exc)) from exc
     return Rig(skeleton, legs, carriers, softness, default_softness, tuple(clips))
 
 

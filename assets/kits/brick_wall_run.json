@@ -1,0 +1,38 @@
+{
+  "description": "A brick wall run: two straight tiles, a corner, and a straight tile turned to carry the wall on along +y. Tiles are 2 m on a 2 m grid; the patterns repeat every 2 m, so they continue across every joint.",
+  "place": [
+    {
+      "asset": "tile_brick_wall",
+      "at": [
+        -2,
+        0,
+        0
+      ]
+    },
+    {
+      "asset": "tile_brick_wall",
+      "at": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "asset": "tile_brick_corner",
+      "at": [
+        2,
+        0,
+        0
+      ]
+    },
+    {
+      "asset": "tile_brick_wall",
+      "at": [
+        2,
+        2,
+        0
+      ],
+      "turn": 90
+    }
+  ]
+}

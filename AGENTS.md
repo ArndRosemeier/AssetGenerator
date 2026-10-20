@@ -13,8 +13,9 @@ animation, materials, the inspection sheet).
    generator only when no parameter can express what you need.
 2. `python tools/ag.py look <id>`: the inspection sheet `assets/out/look/<id>.png` in seconds,
    without Blender (kit generators). **Open the PNG and look at it**, and read the report lines:
-   floating parts, holes, inside-out faces, balance, and for rigs and materials their own
-   flags (`<id>_rig.png`; `pattern ...` coverage per layer).
+   floating parts, holes, inside-out faces, balance, z-fighting, and for rigs and materials
+   their own flags (`<id>_rig.png`; `pattern ...` coverage per layer). Assets that fit
+   together (tiles): `look kit:<name>` measures every joint.
 3. `python tools/ag.py generate <id>`: build in Blender, QA gates, export, previews. Exit 0 is
    green. Blender as a Python module: set `BLENDER_PYTHON` (see README).
 4. `python -m unittest discover tests` must pass. Commit specs and code, never `assets/out/`.
@@ -27,6 +28,8 @@ animation, materials, the inspection sheet).
 | It moves | a `rig` in that spec: bones, skin, clips (gait, limps, turns, keys) | "Rigging and animating a sculpt", `creature_gloom_crawler.json` (six legs), `creature_crypt_husk.json` (biped, limp) |
 | Lanterns, chests, tools, furniture: turned, cut and bent parts | a `prop.assembly` spec: exact pieces, repeated and mirrored | "Hard-surface props in JSON", `prop_crypt_lantern.json` |
 | Bark, rust, moss, chitin, worn edges, dirt, glass, grooves and bumps | a `pattern` (or `alpha`; `relief` for a normal map) on the spec's material | "Materials", `sculpt_tree_stump.json`, `prop_crypt_lantern.json` |
+| Wheels, doors, cranks; cloth, banners, sails | a `rig` in a `prop.assembly` spec: pieces tied to a `bone` (rigid) or `bones` (bending); `spin`, `wave` | "Moving parts", `prop_mill_waterwheel.json`, `prop_hanging_banner.json` |
+| Walls, floors, fences: tiles that fit together | `prop.assembly` with `settle: false`, patterns with a `period` (`bricks`), and a kit `assets/kits/<name>.json` | "Tiles that fit together", "Kits", `tile_brick_wall.json`, `brick_wall_run.json` |
 
 ## Rules
 

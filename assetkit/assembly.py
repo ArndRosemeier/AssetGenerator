@@ -20,6 +20,8 @@ Shapes (metres; Z up; front is -Y):
     tube      {"path": [[x, y, z], ...], "radius": r, "smooth": true?}  a bent rod along a path
     extrude   {"outline": [[x, y], ...], "height": h}  a flat outline raised from z = 0: plates,
               blades, brackets
+    sheet     {"size": [w, h], "thickness": t?, "divisions": [nx, nz]?}  a thin panel facing -Y,
+              divided so it can bend: cloth, banners, sails
 
 Every piece also takes:
 
@@ -33,6 +35,8 @@ Every piece also takes:
                on rods, tubes and rings so they shade round)
     "bevel"    true | false: bevel this piece (or group) or not; by default a piece is bevelled
                when 8 bevel widths thick or more (posts, caps), not when thinner (rivets, wires)
+    "bone"     with a rig: the bone it moves with, rigidly (a drum, a crank, a lid)
+    "bones"    with a rig: a chain of bones it bends along, blended by distance (cloth, rope)
 
 A `group` is a list of pieces moved, repeated and mirrored together; `{"ref": "name"}` uses
 a piece from the spec's `parts`. Standard library only.
@@ -53,7 +57,8 @@ class AssemblyError(ValueError):
     """An assembly that does not parse; the message names the path to the problem."""
 
 
-Piece = tuple[Shell, str, bool]  # a closed shell, its slot, whether to bevel it
+Binding = str | tuple[str, ...] | None  # one bone (rigid), a chain (blended), or none
+Piece = tuple[Shell, str, bool, Binding]  # a closed shell, its slot, whether to bevel it, its bones
 
 
 def build_pieces(
@@ -72,8 +77,8 @@ def build_pieces(
     return out
 
 
-_SHAPES = ("box", "cylinder", "sphere", "torus", "lathe", "tube", "extrude", "group", "ref")
-_COMMON = ("slot", "scale", "rotate", "at", "repeat", "mirror", "segments", "bevel")
+_SHAPES = ("box", "cylinder", "sphere", "torus", "lathe", "tube", "extrude", "sheet", "group", "ref")
+_COMMON = ("slot", "scale", "rotate", "at", "repeat", "mirror", "segments", "bevel", "bone", "bones")
 
 
 def _piece(
@@ -84,6 +89,7 @@ def _piece(
     opts: tuple[float, float],
     depth: int,
     bevel: bool | None = None,
+    binding: Binding = None,
 ) -> list[Piece]:
     if depth > 16:
         raise AssemblyError(f"{path}: groups and refs nest too deep (a ref to itself?)")
@@ -107,18 +113,29 @@ def _piece(
         if not isinstance(node["bevel"], bool):
             raise AssemblyError(f"{path}.bevel: expected true or false")
         bevel = node["bevel"]
+    if "bone" in node and "bones" in node:
+        raise AssemblyError(f"{path}: give `bone` (moves rigidly with it) or `bones` (bends along them)")
+    if "bone" in node:
+        if not isinstance(node["bone"], str) or not node["bone"]:
+            raise AssemblyError(f"{path}.bone: expected a bone name")
+        binding = node["bone"]
+    if "bones" in node:
+        chain = node["bones"]
+        if not isinstance(chain, list) or not chain or not all(isinstance(b, str) for b in chain):
+            raise AssemblyError(f"{path}.bones: expected a list of bone names")
+        binding = tuple(chain)
 
     if kind == "group":
         if not isinstance(node["group"], list) or not node["group"]:
             raise AssemblyError(f"{here}: expected a non-empty list of pieces")
         shells: list[Piece] = []
         for i, child in enumerate(node["group"]):
-            shells += _piece(child, parts, f"{here}[{i}]", slot, opts, depth + 1, bevel)
+            shells += _piece(child, parts, f"{here}[{i}]", slot, opts, depth + 1, bevel, binding)
     elif kind == "ref":
         name = node["ref"]
         if not isinstance(name, str) or name not in parts:
             raise AssemblyError(f"{here}: no part named {name!r} in params.parts ({sorted(parts)})")
-        shells = _piece(parts[name], parts, f"params.parts.{name}", slot, opts, depth + 1, bevel)
+        shells = _piece(parts[name], parts, f"params.parts.{name}", slot, opts, depth + 1, bevel, binding)
     else:
         if slot is None:
             raise AssemblyError(f"{path}: missing 'slot' (the piece's material)")
@@ -135,9 +152,9 @@ def _piece(
             lower = [min(v[k] for v in shape[0]) for k in range(3)]
             upper = [max(v[k] for v in shape[0]) for k in range(3)]
             bevel = min(u - lo for lo, u in zip(lower, upper, strict=True)) >= BEVEL_ROOM * opts[1]
-        return _arrange([(shape, slot, bevel)], node, path)
+        return _arrange([(shape, slot, bevel, binding)], node, path)
 
-    shells = [(_transform(shell, node, path), s, b) for shell, s, b in shells]
+    shells = [(_transform(shell, node, path), s, b, w) for shell, s, b, w in shells]
     return _arrange(shells, node, path)
 
 
@@ -150,7 +167,7 @@ def _arrange(shells: list[Piece], node: dict, path: str) -> list[Piece]:
         if axis not in ("x", "y"):
             raise AssemblyError(f"{path}.mirror: expected 'x' or 'y'")
         k = "xyz".index(axis)
-        shells = shells + [(_mirrored(shell, k), s, b) for shell, s, b in shells]
+        shells = shells + [(_mirrored(shell, k), s, b, w) for shell, s, b, w in shells]
     return shells
 
 
@@ -252,6 +269,23 @@ def _shape(kind: str, f: dict, path: str, segments: int | None, opts: tuple[floa
         if smooth and len(points) > 2:
             points = _catmull_rom(points, max(2, round(8 * detail)))
         return _tube(points, r, sides(r, low=12, high=16))
+    if kind == "sheet":
+        _only(f, ("size", "thickness", "divisions"), path)
+        size = f.get("size")
+        if not (isinstance(size, list) and len(size) == 2 and all(_is_number(v) and v > 0 for v in size)):
+            raise AssemblyError(f"{path}.size: expected [width, height], positive")
+        t = _num(f, "thickness", path, positive=True) if "thickness" in f else 0.004
+        if "divisions" in f:
+            div = f["divisions"]
+            if not (
+                isinstance(div, list) and len(div) == 2 and all(isinstance(v, int) and v >= 1 for v in div)
+            ):
+                raise AssemblyError(f"{path}.divisions: expected [across, down], whole numbers 1 or more")
+            nx, nz = div
+        else:  # about 6 cm squares, so it can bend smoothly
+            nx = max(2, min(64, round(size[0] / 0.06 * detail)))
+            nz = max(2, min(64, round(size[1] / 0.06 * detail)))
+        return _sheet(float(size[0]), float(size[1]), t, nx, nz)
     if kind == "extrude":
         _only(f, ("outline", "height"), path)
         raw = f.get("outline")
@@ -318,6 +352,32 @@ def _tube(points: list[Vec], r: float, n: int) -> Shell:
             faces.append([j * n + k, j * n + k1, (j + 1) * n + k1, (j + 1) * n + k])
     faces.append(list(reversed(range(n))))
     faces.append([(m - 1) * n + k for k in range(n)])
+    return _outward(verts, faces)
+
+
+def _sheet(w: float, h: float, t: float, nx: int, nz: int) -> Shell:
+    """A thin panel, `w` across X and `h` down Z round the origin, `t` thick along Y, its faces
+    divided nx by nz so it can bend: cloth, banners, sails, paper, leather."""
+    verts: list[Vec] = []
+    faces: list[list[int]] = []
+    for y in (-t / 2, t / 2):
+        for j in range(nz + 1):
+            for i in range(nx + 1):
+                verts.append((-w / 2 + w * i / nx, y, h / 2 - h * j / nz))
+    stride = (nx + 1) * (nz + 1)
+
+    def at(side: int, i: int, j: int) -> int:
+        return side * stride + j * (nx + 1) + i
+
+    for j in range(nz):
+        for i in range(nx):
+            faces.append([at(0, i, j), at(0, i, j + 1), at(0, i + 1, j + 1), at(0, i + 1, j)])
+            faces.append([at(1, i, j), at(1, i + 1, j), at(1, i + 1, j + 1), at(1, i, j + 1)])
+    rim = [(i, 0) for i in range(nx)] + [(nx, j) for j in range(nz)]
+    rim += [(i, nz) for i in range(nx, 0, -1)] + [(0, j) for j in range(nz, 0, -1)]
+    for k in range(len(rim)):
+        (i0, j0), (i1, j1) = rim[k], rim[(k + 1) % len(rim)]
+        faces.append([at(0, i0, j0), at(0, i1, j1), at(1, i1, j1), at(1, i0, j0)])
     return _outward(verts, faces)
 
 
@@ -424,8 +484,8 @@ def _repeat(shells: list[Piece], raw: object, path: str) -> list[Piece]:
         start = math.radians(_num(raw, "start", path, positive=False)) if "start" in raw else 0.0
         for k in range(n):
             a = start + math.tau * k / n
-            for (verts, faces), slot, bevel in shells:
-                out.append((([_rot(v, 0.0, 0.0, a) for v in verts], faces), slot, bevel))
+            for (verts, faces), slot, bevel, binding in shells:
+                out.append((([_rot(v, 0.0, 0.0, a) for v in verts], faces), slot, bevel, binding))
         return out
     _only(raw, ("count", "step"), path)
     n = raw.get("count")
@@ -433,8 +493,10 @@ def _repeat(shells: list[Piece], raw: object, path: str) -> list[Piece]:
         raise AssemblyError(f"{path}.count: expected a whole number 1 or more")
     dx, dy, dz = _vec(raw, "step", path)
     for k in range(n):
-        for (verts, faces), slot, bevel in shells:
-            out.append((([(x + k * dx, y + k * dy, z + k * dz) for x, y, z in verts], faces), slot, bevel))
+        for (verts, faces), slot, bevel, binding in shells:
+            out.append(
+                (([(x + k * dx, y + k * dy, z + k * dz) for x, y, z in verts], faces), slot, bevel, binding)
+            )
     return out
 
 

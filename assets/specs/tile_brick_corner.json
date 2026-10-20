@@ -1,0 +1,230 @@
+{
+  "spec_version": 1,
+  "id": "tile_brick_corner",
+  "generator": "prop.assembly",
+  "params": {
+    "settle": false,
+    "bevel": 0.004,
+    "pieces": [
+      {
+        "box": {
+          "size": [
+            1.15,
+            0.3,
+            0.2
+          ]
+        },
+        "at": [
+          -0.425,
+          0,
+          0.1
+        ],
+        "slot": "stone"
+      },
+      {
+        "box": {
+          "size": [
+            0.3,
+            0.85,
+            0.2
+          ]
+        },
+        "at": [
+          0,
+          0.575,
+          0.1
+        ],
+        "slot": "stone"
+      },
+      {
+        "box": {
+          "size": [
+            1.12,
+            0.24,
+            2.2
+          ]
+        },
+        "at": [
+          -0.44,
+          0,
+          1.3
+        ],
+        "slot": "brick"
+      },
+      {
+        "box": {
+          "size": [
+            0.24,
+            0.88,
+            2.2
+          ]
+        },
+        "at": [
+          0,
+          0.56,
+          1.3
+        ],
+        "slot": "brick"
+      },
+      {
+        "box": {
+          "size": [
+            1.15,
+            0.3,
+            0.07
+          ]
+        },
+        "at": [
+          -0.425,
+          0,
+          2.435
+        ],
+        "slot": "stone"
+      },
+      {
+        "box": {
+          "size": [
+            0.3,
+            0.85,
+            0.07
+          ]
+        },
+        "at": [
+          0,
+          0.575,
+          2.435
+        ],
+        "slot": "stone"
+      }
+    ]
+  },
+  "materials": {
+    "brick": {
+      "base_color": [
+        0.36,
+        0.13,
+        0.08,
+        1
+      ],
+      "roughness": 0.85,
+      "metallic": 0.0,
+      "pattern": {
+        "period": [
+          2,
+          2,
+          0
+        ],
+        "layers": [
+          {
+            "bricks": {
+              "color": [
+                0.22,
+                0.07,
+                0.05
+              ],
+              "size": [
+                0.24,
+                0.075
+              ],
+              "mortar": 0,
+              "fill": 0.7,
+              "seed": 3
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.45,
+                0.24,
+                0.16
+              ],
+              "scale": 9,
+              "coverage": 0.3,
+              "contrast": 1.5,
+              "amount": 0.5
+            }
+          },
+          {
+            "bricks": {
+              "color": [
+                0.42,
+                0.39,
+                0.34
+              ],
+              "size": [
+                0.24,
+                0.075
+              ],
+              "mortar": 0.012,
+              "roughness": 0.95,
+              "relief": -0.004
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.12,
+                0.1,
+                0.08
+              ],
+              "axis": "z",
+              "from": 0.2,
+              "to": 0.9,
+              "breakup": 0.6,
+              "amount": 0.55
+            }
+          }
+        ]
+      }
+    },
+    "stone": {
+      "base_color": [
+        0.4,
+        0.38,
+        0.35,
+        1
+      ],
+      "roughness": 0.8,
+      "metallic": 0.0,
+      "pattern": {
+        "period": [
+          2,
+          2,
+          0
+        ],
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.3,
+                0.29,
+                0.27
+              ],
+              "scale": 6,
+              "coverage": 0.45,
+              "amount": 0.6
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.55,
+                0.53,
+                0.5
+              ],
+              "radius": 0.02,
+              "breakup": 0.5
+            }
+          }
+        ]
+      }
+    }
+  },
+  "qa": {
+    "max_triangles": 800,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": false,
+    "max_dimension_m": 2.6
+  }
+}

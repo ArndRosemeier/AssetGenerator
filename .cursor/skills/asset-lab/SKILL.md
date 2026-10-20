@@ -98,8 +98,8 @@ sheet alone (a kit asset in about a second, without Blender).
 }
 ```
 
-A kit material may add `"pattern": {"layers": [...]}` (mottle, grain, spots, gradient, edges,
-cavities), baked to textures; `ag.py look <id>` shows it without Blender and prints each
+A kit material may add `"pattern": {"layers": [...]}` (mottle, grain, spots, gradient, facing,
+cells, edges, cavities, bricks; `period` for tiles), baked to textures; `ag.py look <id>` shows it without Blender and prints each
 layer's coverage. Reference: "Materials" in `docs/ASSETKIT.md`.
 
 Parsing is strict: unknown keys, missing keys, wrong types fail before Blender starts.

@@ -30,6 +30,16 @@ A clip is a list of motions, applied in order and added up:
         duty (a limp: the bad leg drags and bears weight briefly); its stride follows from its
         duty so its planted foot keeps pace with the body and nothing skates.
 
+    {"spin": {"bone": "drum", "turns": 2}}
+        a bone turns steadily about its own axis (head to tail), `turns` times over the clip:
+        wheels, drums, cranks, propellers. A loop needs whole turns.
+
+    {"wave": {"bones": ["flag1", "flag2", "flag3"], "yaw": 12, "cycles": 2, "lag": 0.12,
+              "grow": 1.3}}
+        a chain of bones (root first) swinging alike, each `lag` of a cycle after the one
+        before: a ripple running along a flag, a tail, a rope; `grow` scales the swing from
+        bone to bone (the free end swings most).
+
 A loop must contain whole cycles (it ends where it began); `cycles` defaults to 1.
 """
 
@@ -38,7 +48,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 
-from assetkit.rig import Clip, Leg, Pose, Skeleton, Vec, add, solve, turn, twin_name
+from assetkit.rig import Clip, Leg, Pose, Skeleton, Vec, add, q_axis, solve, sub, turn, twin_name, unit
 
 
 class MotionError(ValueError):
@@ -92,6 +102,39 @@ def build_clip(
     return Clip(name=name, fps=fps, loop=loop, frames=tuple(frames))
 
 
+def build_clips(
+    spec: Mapping[str, object], skeleton: Skeleton, legs: Mapping[str, Leg], path: str
+) -> list[Clip]:
+    """A rig's `clips` (and `fps`): every clip lasting exactly its seconds. Without an `fps`,
+    the first common rate (24, 30, 25, 60, ...) at which every clip is whole frames."""
+    clips_raw = _object(spec.get("clips", {}), f"{path}.clips")
+    fps = spec.get("fps")
+    if fps is None:
+        # Without an fps, the first common rate at which every clip lasts exactly its seconds.
+        lengths = [
+            float(c["seconds"])
+            for c in clips_raw.values()
+            if isinstance(c, dict) and isinstance(c.get("seconds"), int | float) and c["seconds"] > 0
+        ]
+        fps = pick_fps(lengths) if lengths else 24
+        if fps is None:
+            raise MotionError(
+                f"{path}.clips: no common frame rate ({', '.join(map(str, RATES))}) makes every clip "
+                f"length {sorted(set(lengths))} s a whole number of frames; set `fps` or round the lengths"
+            )
+    if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 120:
+        raise MotionError(f"{path}.fps: expected a whole number 1..120")
+    clips = []
+    for name, value in clips_raw.items():
+        try:
+            clips.append(build_clip(name, value, skeleton, legs, fps, f"{path}.clips.{name}"))
+        except MotionError:
+            raise
+        except ValueError as exc:
+            raise MotionError(f"{path}.clips.{name}: {exc}") from exc
+    return clips
+
+
 RATES = (24, 30, 25, 60, 48, 50, 120)
 
 
@@ -115,7 +158,7 @@ Apply = Callable[[Pose, float], None]
 def _motion(raw: object, skeleton: Skeleton, legs: Mapping[str, Leg], loop: bool, path: str) -> Apply:
     node = _object(raw, path)
     if len(node) != 1:
-        raise MotionError(f"{path}: a motion is an object with one key: turn, move, keys or gait")
+        raise MotionError(f"{path}: a motion is an object with one key: turn, move, keys, gait, spin or wave")
     ((kind, body),) = node.items()
     here = f"{path}.{kind}"
     fields = _object(body, here)
@@ -127,7 +170,53 @@ def _motion(raw: object, skeleton: Skeleton, legs: Mapping[str, Leg], loop: bool
         return _keys(fields, skeleton, loop, here)
     if kind == "gait":
         return _gait(fields, skeleton, legs, loop, here)
-    raise MotionError(f"{path}: unknown motion '{kind}'; motions are turn, move, keys, gait")
+    if kind == "spin":
+        return _spin(fields, skeleton, loop, here)
+    if kind == "wave":
+        return _wave_chain(fields, skeleton, loop, here)
+    raise MotionError(f"{path}: unknown motion '{kind}'; motions are turn, move, keys, gait, spin, wave")
+
+
+def _spin(fields: dict, skeleton: Skeleton, loop: bool, path: str) -> Apply:
+    """A bone turning steadily about its own axis (head to tail): a wheel, a drum, a crank, a
+    propeller. `turns` whole turns over the clip (negative: the other way)."""
+    _only(fields, ("bone", "turns"), path)
+    bones = _bones(fields.get("bone"), skeleton, path)
+    turns = _number(fields, "turns", path)
+    if loop and abs(turns - round(turns)) > 1e-9:
+        raise MotionError(f"{path}.turns: a loop needs whole turns, got {turns}")
+    axes = {bone: unit(sub(skeleton[bone].tail, skeleton[bone].head)) for bone, _ in bones}
+
+    def apply(pose: Pose, t: float) -> None:
+        for bone, side in bones:
+            pose.add_turn(bone, q_axis(axes[bone], math.tau * turns * t * side))
+
+    return apply
+
+
+def _wave_chain(fields: dict, skeleton: Skeleton, loop: bool, path: str) -> Apply:
+    """A chain of bones turning the same way, each a little later than the one before: a ripple
+    running along a flag, a tail, a tentacle, a rope. `lag` is the delay per bone (share of a
+    cycle), `grow` multiplies the swing from bone to bone (a flag's free end swings most)."""
+    _only(fields, ("bones", "pitch", "yaw", "roll", "cycles", "lag", "grow"), path)
+    names = fields.get("bones")
+    if not isinstance(names, list) or not names:
+        raise MotionError(f"{path}.bones: expected a list of bone names, root first")
+    for name in names:
+        _bones(name, skeleton, f"{path}.bones")
+    pitch, yaw, roll = (_number(fields, k, path, 0.0) for k in ("pitch", "yaw", "roll"))
+    cycles = _number(fields, "cycles", path, 1.0)
+    if loop and abs(cycles - round(cycles)) > 1e-9:
+        raise MotionError(f"{path}.cycles: a loop needs whole cycles, got {cycles}")
+    lag = _number(fields, "lag", path, 0.12)
+    grow = _number(fields, "grow", path, 1.0)
+
+    def apply(pose: Pose, t: float) -> None:
+        for i, name in enumerate(names):
+            s = math.sin(2 * math.pi * (cycles * t - i * lag)) * grow**i
+            pose.add_turn(name, turn(pitch * s, yaw * s, roll * s))
+
+    return apply
 
 
 def _wave(fields: dict, loop: bool, path: str) -> Callable[[float], float]:

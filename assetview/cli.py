@@ -1,5 +1,6 @@
 """Resolve what to look at: a spec id (kit generators drawn straight from the generator,
-others from their shipped .glb) or a path to any .glb."""
+others from their shipped .glb), a path to any .glb, or `kit:<name>` (assets/kits/<name>.json:
+several assets placed together, their joints measured)."""
 
 from __future__ import annotations
 
@@ -13,10 +14,13 @@ from blender.lib.spec import SpecError, load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPEC_DIR = REPO_ROOT / "assets" / "specs"
+KIT_DIR = REPO_ROOT / "assets" / "kits"
 
 
 def look_target(target: str, out_dir: Path, from_shipped: bool) -> dict[str, object]:
     path = Path(target)
+    if target.startswith("kit:") or (path.suffix == ".json" and path.parent.name == "kits"):
+        return look_kit(target, out_dir, from_shipped)
     if path.suffix == ".glb":
         if not path.is_file():
             raise SpecError(f"No such .glb: {path}")
@@ -41,6 +45,24 @@ def look_target(target: str, out_dir: Path, from_shipped: bool) -> dict[str, obj
     report["asset_id"] = spec.asset_id
     if asset is not None and asset.skeleton is not None:
         report.update(look_rig(asset, spec.asset_id, out_dir))
+    return report
+
+
+def look_kit(target: str, out_dir: Path, from_shipped: bool) -> dict[str, object]:
+    from assetview.kit import compose, joint_lines, joints, load_kit
+
+    name = target.removeprefix("kit:").removesuffix(".json")
+    path = Path(target) if not target.startswith("kit:") else KIT_DIR / f"{name}.json"
+    name = path.stem
+    if not path.is_file():
+        known = sorted(p.stem for p in KIT_DIR.glob("*.json"))
+        raise SpecError(f"No kit {path}; kits are {known}")
+    placed = load_kit(path, SPEC_DIR, out_dir, from_shipped)
+    report = look(compose(placed, name), f"kit {name}", out_dir / "look" / f"kit_{name}.png")
+    found = joints(placed)
+    report["asset_id"] = f"kit:{name}"
+    report["joints"] = found
+    report["summary"] = [*report["summary"], *joint_lines(found)]  # type: ignore[misc]
     return report
 
 
