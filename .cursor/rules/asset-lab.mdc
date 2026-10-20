@@ -60,6 +60,13 @@ their own materials) before writing a generator. Reference: "Sculpting organic f
 ("Rigging and animating a sculpt" in `docs/ASSETKIT.md`): model limbs apart from the body
 (A-pose), then read the rig sheet `assets/out/look/<id>_rig.png` and its flags.
 
+## Surfaces
+
+Bark, wood grain, moss, warts, worn edges, dirt in creases: give the spec's material a
+`pattern` (layers of mottle, grain, spots, gradient, edges, cavities; "Materials" in
+`docs/ASSETKIT.md`). Iterate with `python tools/ag.py look <id>` (no Blender) and read its
+`pattern` lines: each layer's coverage, flagged when it does not show or hides the rest.
+
 ## Adding a generator
 
 1. Create `blender/generators/<family>_<name>.py` with `MATERIAL_SLOTS` and

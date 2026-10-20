@@ -590,7 +590,73 @@
         1
       ],
       "roughness": 0.75,
-      "metallic": 0.0
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "gradient": {
+              "color": [
+                0.42,
+                0.37,
+                0.26
+              ],
+              "axis": "z",
+              "from": 0.75,
+              "to": 0.45,
+              "amount": 0.5
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.2,
+                0.16,
+                0.1
+              ],
+              "scale": 14,
+              "coverage": 0.45,
+              "contrast": 2.5
+            }
+          },
+          {
+            "spots": {
+              "color": [
+                0.13,
+                0.1,
+                0.06
+              ],
+              "size": 0.018,
+              "spacing": 0.04,
+              "density": 0.6,
+              "softness": 0.5,
+              "amount": 0.8,
+              "seed": 3
+            }
+          },
+          {
+            "cavities": {
+              "color": [
+                0.08,
+                0.06,
+                0.04
+              ],
+              "radius": 0.03,
+              "amount": 0.9
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.5,
+                0.42,
+                0.3
+              ],
+              "radius": 0.02,
+              "amount": 0.5
+            }
+          }
+        ]
+      }
     },
     "eye": {
       "base_color": [
@@ -610,7 +676,52 @@
         1
       ],
       "roughness": 0.95,
-      "metallic": 0.0
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "grain": {
+              "color": [
+                0.18,
+                0.08,
+                0.05
+              ],
+              "axis": "z",
+              "spacing": 0.006,
+              "warp": 0.2,
+              "sharpness": 2,
+              "amount": 0.5
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.13,
+                0.07,
+                0.05
+              ],
+              "scale": 18,
+              "coverage": 0.4,
+              "contrast": 2,
+              "amount": 0.8,
+              "roughness": 1.0
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.1,
+                0.07,
+                0.05
+              ],
+              "axis": "z",
+              "from": 0.3,
+              "to": 0.45,
+              "amount": 0.6
+            }
+          }
+        ]
+      }
     }
   },
   "qa": {

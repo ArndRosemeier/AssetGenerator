@@ -6,9 +6,11 @@ using only this package and the standard library. It never imports `bpy`,
 Blender version changes the backend (blender/backend/), not the generators.
 
 `assetkit.sdf` (distance-function shapes and their meshing), `assetkit.simplify`,
-`assetkit.sculpt` (shape trees as JSON), `assetkit.skinning` and `assetkit.rigspec`
-(rigs as JSON) also need numpy; import them by name. `assetkit.rig` (skeletons,
-poses, clips) and `assetkit.motion` (clips as JSON) are standard library only.
+`assetkit.sculpt` (shape trees as JSON), `assetkit.skinning`, `assetkit.rigspec`
+(rigs as JSON) and `assetkit.texbake` (patterns baked to textures) also need numpy;
+import them by name. `assetkit.rig` (skeletons, poses, clips) and `assetkit.motion`
+(clips as JSON) are standard library only; `assetkit.material` parses material
+patterns with the standard library and evaluates them with numpy.
 
 API_VERSION counts breaking changes to what is exported here. Adding is not
 breaking; renaming or changing a meaning is, and needs every kit generator moved

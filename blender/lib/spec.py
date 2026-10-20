@@ -4,7 +4,8 @@ Specs are the source of truth for every asset. Parsing is deliberately
 unforgiving: missing keys, unknown keys and wrong types all raise, so a
 malformed spec fails before Blender is ever launched.
 
-Stdlib-only: imported by both `tools/ag.py` and code running inside Blender.
+Stdlib-only (assetkit.material parses patterns without numpy): imported by both `tools/ag.py`
+and code running inside Blender.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+
+from assetkit.material import Pattern, PatternError, parse_pattern
 
 SPEC_VERSION: Final[int] = 1
 
@@ -86,15 +89,19 @@ class MaterialSpec:
     base_color: tuple[float, float, float, float]
     roughness: float
     metallic: float
+    #: Layers painted over the base values and baked to textures (assetkit/material.py), or None.
+    pattern: Pattern | None = None
 
     @staticmethod
     def parse(raw: object, path: str) -> MaterialSpec:
         mapping = _as_mapping(raw, path)
-        _reject_unknown(mapping, ("base_color", "roughness", "metallic"), path)
+        _reject_unknown(mapping, ("base_color", "roughness", "metallic", "pattern"), path)
         color_raw = _require(mapping, "base_color", path)
         if not isinstance(color_raw, list) or len(color_raw) != 4:
             raise SpecError(f"{path}.base_color: expected a list of 4 numbers (RGBA)")
-        channels = tuple(as_float(component, f"{path}.base_color[{i}]") for i, component in enumerate(color_raw))
+        channels = tuple(
+            as_float(component, f"{path}.base_color[{i}]") for i, component in enumerate(color_raw)
+        )
         for index, channel in enumerate(channels):
             if not 0.0 <= channel <= 1.0:
                 raise SpecError(f"{path}.base_color[{index}]: expected 0..1, got {channel}")
@@ -104,10 +111,17 @@ class MaterialSpec:
             raise SpecError(f"{path}.roughness: expected 0..1, got {roughness}")
         if not 0.0 <= metallic <= 1.0:
             raise SpecError(f"{path}.metallic: expected 0..1, got {metallic}")
+        pattern = None
+        if "pattern" in mapping:
+            try:
+                pattern = parse_pattern(mapping["pattern"], f"{path}.pattern")
+            except PatternError as error:
+                raise SpecError(str(error)) from None
         return MaterialSpec(
             base_color=(channels[0], channels[1], channels[2], channels[3]),
             roughness=roughness,
             metallic=metallic,
+            pattern=pattern,
         )
 
 
@@ -179,8 +193,7 @@ def parse_spec(raw: object, source_path: Path) -> AssetSpec:
     if not materials_raw:
         raise SpecError(f"{path}.materials: at least one material slot is required")
     materials = {
-        name: MaterialSpec.parse(value, f"{path}.materials.{name}")
-        for name, value in materials_raw.items()
+        name: MaterialSpec.parse(value, f"{path}.materials.{name}") for name, value in materials_raw.items()
     }
 
     qa = QaSpec.parse(_require(mapping, "qa", path), f"{path}.qa")

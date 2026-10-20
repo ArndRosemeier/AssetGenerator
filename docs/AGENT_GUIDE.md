@@ -202,8 +202,12 @@ Conventions:
 - Dungeon `storey_role` (`cell` / `floor` / `rise` / `vault`) only changes the mesh. Vertical openness is a catalog profile (`storey_void`), not this flag.
 - Origin is footprint centre, base on Z=0.
 - Materials are Principled BSDF values (`base_color` RGBA 0–1, `roughness`, `metallic`).
-  Procedural detail that must survive glTF is baked to albedo / roughness / normal
-  (`nature.rock`, `hard_surface.kit_cell` when `texture_resolution` is set).
+  On a kit generator a material can add a `pattern` (mottle, grain, spots, gradient, edges,
+  cavities), baked to colour and roughness textures: "Materials" in
+  [`ASSETKIT.md`](ASSETKIT.md). Iterate on it with `ag.py look <id>` (no Blender), and read the
+  `pattern` lines: a layer under 1% does not show, one over 90% hides the rest.
+  Older generators bake their own (`nature.rock`, `hard_surface.kit_cell` with
+  `texture_resolution`).
 
 Reference sample: [`assets/specs/crate_small.json`](../assets/specs/crate_small.json).
 
@@ -317,11 +321,13 @@ without feedback.
 
 Out of scope for the current pipeline:
 
-- Texture / PBR map generation
+- Normal maps (kit patterns bake colour and roughness; relief is the mesh's)
 - AI mesh APIs (Meshy, Tripo, etc.)
 - Engine-specific packaging (Godot `.tres`, Unity prefabs, …)
-- Rigging / animation
 - Blender MCP / live GUI bridge
+
+Rigging and animation exist for sculpts (`organic.sculpt` `rig`), and textures for any kit
+asset (material `pattern`): see [`ASSETKIT.md`](ASSETKIT.md).
 
 If asked for those, say they are deferred and either stay inside the current loop or
 propose a concrete extension that still ends in QA + previews + `.glb`.

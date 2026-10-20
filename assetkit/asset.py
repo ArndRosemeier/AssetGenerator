@@ -28,6 +28,14 @@ class Material(Protocol):
     @property
     def metallic(self) -> float: ...
 
+    #: Optional: an `assetkit.material.Pattern` baked over the base values into textures (the
+    #: part then needs an `Unwrap` step). A material without the attribute is plain.
+
+
+def pattern_of(material: Material) -> object | None:
+    """The material's pattern (an `assetkit.material.Pattern`), or None for a plain one."""
+    return getattr(material, "pattern", None)
+
 
 @dataclass(frozen=True)
 class Bevel:
@@ -69,6 +77,9 @@ class Part:
     finish: tuple[Step, ...] = ()
     #: Skin weights binding the mesh to the asset's skeleton (one entry per vertex), or None.
     skin: Skin | None = None
+    #: Where the origin of the coordinates material patterns are written in lies, in the mesh's
+    #: coordinates (a settled sculpt keeps its patterns where its shapes were written).
+    pattern_origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def __post_init__(self) -> None:
         missing = [slot for slot in self.mesh.slots if slot not in self.materials]
@@ -80,6 +91,11 @@ class Part:
         for step in self.finish:
             if not isinstance(step, Bevel | ShadeFlat | ShadeSmooth | Unwrap):
                 raise TypeError(f"Part '{self.name}': unknown finishing step {step!r}")
+        patterned = [s for s in self.mesh.slots if pattern_of(self.materials[s]) is not None]
+        if patterned and not any(isinstance(step, Unwrap) for step in self.finish):
+            raise ValueError(
+                f"Part '{self.name}': slot(s) {patterned} have a pattern, which needs an Unwrap step"
+            )
 
 
 @dataclass(frozen=True)

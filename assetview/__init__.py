@@ -24,5 +24,18 @@ def look(model: ViewModel, title: str, out: Path) -> dict[str, object]:
     image, report = render_sheet(model, title)
     write_png(out, image)
     report["sheet"] = str(out)
-    report["summary"] = summary(report)
+    report["summary"] = [*summary(report), *_pattern_lines(model, report)]
     return report
+
+
+def _pattern_lines(model: ViewModel, report: dict[str, object]) -> list[str]:
+    """For a kit asset with material patterns: how much each layer paints, per material."""
+    if not hasattr(model.paint, "report"):
+        return []
+    patterns = model.paint.report(model.slots)  # type: ignore[union-attr]
+    report["patterns"] = patterns
+    lines = []
+    for p in patterns:
+        layers = ", ".join(f"{d['layer']} {d['covers']:.0%}" for d in p["layers"])
+        lines.append(f"pattern {p['slot']}: {layers}" + ("; " + "; ".join(p["flags"]) if p["flags"] else ""))
+    return lines

@@ -248,6 +248,76 @@ Limits worth knowing:
   where they meet, the bone between them takes over. Then each joint's blend is spread over
   a few vertices.
 
+## Materials: recipes baked to textures
+
+A material in a spec can carry a `pattern`: layers painted over its base colour and roughness,
+each through a mask the kit computes from the surface. The backend bakes them into one colour
+and one roughness texture per part, on the part's final mesh and UVs, and wires them into
+every patterned slot. glTF carries the result; any engine shows it.
+
+```json
+"bark": {"base_color": [0.17, 0.11, 0.07, 1], "roughness": 0.92, "metallic": 0.0,
+         "pattern": {"layers": [
+           {"mottle":   {"color": [0.07, 0.045, 0.03], "scale": 7, "stretch": [1, 1, 6], "coverage": 0.45}},
+           {"mottle":   {"color": [0.13, 0.19, 0.05], "scale": 4, "coverage": 0.22, "seed": 7}},
+           {"cavities": {"color": [0.03, 0.02, 0.012], "radius": 0.05}},
+           {"edges":    {"color": [0.3, 0.23, 0.15], "radius": 0.03, "amount": 0.45, "breakup": 0.6}}
+         ]}}
+```
+
+Layers paint in order. Each has a `color` (linear 0..1, like `base_color`), an `amount`
+(default 1) and optionally a `roughness` it blends in too. Distances are metres.
+
+| Layer | Paints | Keys (defaults) |
+| --- | --- | --- |
+| `mottle` | patches of noise | `scale` features per metre (6), `coverage` 0..1 (0.5), `contrast` (2), `octaves` (3), `seed`, `stretch` [x, y, z] ([1, 1, 1]; [1, 1, 6] makes streaks six times taller) |
+| `grain` | stripes | `spacing` (required), `axis` x, y, z (layers across that axis) or `radial` (rings round Z: a cut log), `warp` in spacings (1), `sharpness` (2: higher is thinner lines), `seed` |
+| `spots` | round spots | `size` diameter (required), `spacing` on the surface (2 x size), `density` share of places with a spot (0.7), `softness` 0 crisp to 1 blurred (0.3), `seed` |
+| `gradient` | a fade | `axis` (z), full at `from`, none at `to`: grime at the base, sun-bleached tops |
+| `edges` | outward bends tighter than `radius` (0.05) | `breakup` 0..1 breaks the line with noise; worn, lighter edges |
+| `cavities` | inward bends tighter than `radius` | the same keys; dirt in creases and joins |
+
+`edges` and `cavities` read the surface two ways, so they work on any mesh: smooth bends by
+curvature (a sculpt's shoulders, where a leg joins the body), sharp ones by distance to the
+crease (a crate's bevelled corners, which no vertex curvature sees). A right-angled edge reads
+the same before and after a one-segment bevel.
+
+Patterns are written in the coordinates the asset was written in: a sculpt's patterns in its
+shape's coordinates, before it is settled on the ground (the same as its rig). A kit generator
+says where that origin went with `Part(..., pattern_origin=...)`. A part with a patterned slot
+needs an `Unwrap` step.
+
+How it is built:
+- `assetkit/material.py` parses the pattern (standard library, so a spec fails before Blender
+  starts) and evaluates it (numpy). `Surface` holds the mesh's curvature and creases.
+- `assetkit/texbake.py` fills every texel inside a UV triangle with the pattern at the 3D point
+  it maps to, grows each island 8 texels outward so filtering never reaches the empty gap, and
+  picks the size: about 512 texels per metre, the nearest power of two, 256 to 2048.
+- The backend (`_paint` in `blender/backend/__init__.py`) only reads the final mesh and UVs and
+  wires two packed images. The kit does the baking, so the maps do not depend on the Blender
+  version beyond the UV layout it unwraps.
+
+What `look` shows:
+- A kit asset's sheet evaluates the patterns at each pixel (no Blender, no UVs). The rig sheet
+  does it at rest, so the patterns move with the skin.
+- A shipped file's sheet (`--glb`) samples its base colour textures through its UVs. The two
+  agree to within 8-bit rounding (median 0.002 on the stump), so the kit sheet is what ships.
+- The report gives each layer's coverage, the share of its material it paints:
+  `pattern bark: mottle 42%, mottle 20%, cavities 21%, edges 8%`. A layer under 1% does not
+  show (`spots` too small or sparse, `radius` too small for the mesh); over 90% hides every
+  layer beneath it. Both are flagged.
+
+Limits:
+- No normal maps yet: the relief is the mesh's. Patterns are colour and roughness.
+- Patterns are solid textures (they fill space, the surface cuts them), so a pattern has no
+  idea which way a plank runs. Pick the `axis`/`stretch` that suits most faces.
+- Detail finer than a texel (a 2 mm grain line at 512 texels per metre) aliases. Keep
+  `spacing` above about 5 mm.
+- `ag.py pack` (vertex colours, no textures) still colours by each material's base colour.
+
+Examples: `sculpt_tree_stump` (bark, moss, rings), `sculpt_boulder_mossy` (strata, lichen),
+`sculpt_cave_toad` (warts, mottle), `sculpt_cave_imp`, `crate_small` (grain, worn edges).
+
 ## Looking at an asset
 
 `assetview/` draws a nine-view inspection sheet and measures what pictures show badly. It uses
@@ -284,7 +354,7 @@ Reference: `blender/generators/hard_surface_crate.py` (boxes and a bevel) and
 
 ## Growing the kit
 
-When a generator needs something the kit lacks (a boolean, a modifier, a baked texture):
+When a generator needs something the kit lacks (a boolean, a modifier, a new kind of map):
 
 - If it is geometry, prefer plain Python in `assetkit` (testable, version-proof).
 - If it needs Blender, add a step (a frozen dataclass in `assetkit/asset.py`) and carry it
@@ -292,6 +362,7 @@ When a generator needs something the kit lacks (a boolean, a modifier, a baked t
 - Adding is not breaking. Renaming or changing what an export means bumps `API_VERSION` and
   moves every kit generator along in the same change.
 
-Not in the kit yet: baked textures and procedural materials. The generators that need them
+Not in the kit yet: normal maps and Blender node-tree materials. The generators built on those
 (`nature.rock`, `hard_surface.kit_cell`) and the older creature generators (`creature.*`, with
-their own rigs) stay on `bpy`. Sculpted creatures are rigged and animated by the kit.
+their own rigs) stay on `bpy`. Sculpted creatures are rigged and animated by the kit, and kit
+materials are recipes baked to textures.

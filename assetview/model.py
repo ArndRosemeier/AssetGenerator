@@ -8,11 +8,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 
 from assetkit import Asset
+from assetkit.asset import pattern_of
+from assetkit.texbake import SlotLook
+from assetview.paint import PatternPaint, TexturePaint, glb_textures
 from blender.lib.glb import Glb
+
+
+class Paint(Protocol):
+    def colors(self, tri: np.ndarray, bary: np.ndarray) -> np.ndarray:
+        """Linear colour (N, 3) at N surface points: triangle ids and barycentric weights."""
+        ...
+
 
 WELD = 1e-5  # metres: vertices closer than this are one (glTF splits them per normal and UV)
 
@@ -26,6 +37,8 @@ class ViewModel:
     slot_colors: np.ndarray  # (S, 3) float64, linear 0..1
     real_edges: np.ndarray  # (T, 3) bool: edge k (corner k to k+1) is a polygon edge, not a fan diagonal
     source: str
+    #: Colour per surface point (assetview/paint.py) where materials vary over the surface, or None.
+    paint: Paint | None = None
 
     def islands(self) -> np.ndarray:
         """Connected part per triangle (shared welded vertices)."""
@@ -59,6 +72,8 @@ def from_asset(asset: Asset) -> ViewModel:
     tri_slot: list[int] = []
     slots: list[str] = []
     colors: list[tuple[float, float, float]] = []
+    looks: list[SlotLook] = []
+    origins: list[tuple[float, float, float]] = []
     for part in asset.parts:
         mesh = part.mesh
         offset = len(points)
@@ -66,7 +81,10 @@ def from_asset(asset: Asset) -> ViewModel:
         slot_base = len(slots)
         for slot in mesh.slots:
             slots.append(slot if len(asset.parts) == 1 else f"{part.name}.{slot}")
-            colors.append(tuple(part.materials[slot].base_color[:3]))
+            material = part.materials[slot]
+            colors.append(tuple(material.base_color[:3]))
+            looks.append(SlotLook(pattern_of(material), colors[-1], material.roughness))  # type: ignore[arg-type]
+            origins.append(part.pattern_origin)
         for face, slot in zip(mesh.faces, mesh.face_slots, strict=True):
             n = len(face)
             for k in range(1, n - 1):
@@ -74,14 +92,20 @@ def from_asset(asset: Asset) -> ViewModel:
                 real.append((k == 1, True, k == n - 2))
                 tri_slot.append(slot_base + slot)
     welded, remap = _weld(np.asarray(points, dtype=np.float64))
+    triangles = remap[np.asarray(tris, dtype=np.int64)]
+    slot_of = np.asarray(tri_slot, dtype=np.int64)
+    paint = None
+    if any(look.pattern is not None for look in looks):
+        paint = PatternPaint(welded, triangles, slot_of, looks, origins)
     return ViewModel(
         positions=welded,
-        triangles=remap[np.asarray(tris, dtype=np.int64)],
-        tri_slot=np.asarray(tri_slot, dtype=np.int64),
+        triangles=triangles,
+        tri_slot=slot_of,
         slots=slots,
         slot_colors=np.asarray(colors, dtype=np.float64),
         real_edges=np.asarray(real, dtype=bool),
-        source="kit asset (before bevel and unwrap)",
+        source="kit asset (before bevel and unwrap)" + (", patterns evaluated" if paint else ""),
+        paint=paint,
     )
 
 
@@ -95,10 +119,11 @@ def from_glb(path: Path) -> ViewModel:
     for m in materials or [{}]:
         pbr = m.get("pbrMetallicRoughness", {})
         textured |= "baseColorTexture" in pbr
-        colors.append(tuple(pbr.get("baseColorFactor", [0.8, 0.8, 0.8, 1.0])[:3]))
+        colors.append(tuple(pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0])[:3]))
     points: list[np.ndarray] = []
     tris: list[np.ndarray] = []
     tri_slot: list[np.ndarray] = []
+    corner_uvs: list[np.ndarray] = []
     offset = 0
     for node in doc.get("nodes", []):
         if "mesh" not in node:
@@ -113,21 +138,49 @@ def from_glb(path: Path) -> ViewModel:
                 -1, 3
             )
             tris.append(index + offset)
+            if "TEXCOORD_0" in primitive["attributes"]:
+                uv = np.asarray(glb.values(primitive["attributes"]["TEXCOORD_0"]), dtype=np.float64)
+                corner_uvs.append(uv[index])
+            else:
+                corner_uvs.append(np.zeros((len(index), 3, 2)))
             tri_slot.append(np.full(len(index), primitive.get("material", 0), dtype=np.int64))
             offset += len(local)
     if not points:
         raise ValueError(f"{path.name} holds no mesh")
     welded, remap = _weld(np.concatenate(points))
     triangles = remap[np.concatenate(tris)]
+    slot_of = np.concatenate(tri_slot)
+    paint = None
+    if textured:
+        textures = glb_textures(glb)
+        paint = TexturePaint(
+            np.concatenate(corner_uvs), slot_of, textures, np.asarray(colors, dtype=np.float64)
+        )
+        # Views that colour by material show a textured one by its texture's average over its faces.
+        for s, texture in enumerate(textures):
+            if texture is not None:
+                colors[s] = tuple(np.asarray(colors[s]) * _mean_on(texture, paint.corner_uvs[slot_of == s]))
     return ViewModel(
         positions=welded,
         triangles=triangles,
-        tri_slot=np.concatenate(tri_slot),
+        tri_slot=slot_of,
         slots=slots,
         slot_colors=np.asarray(colors, dtype=np.float64),
         real_edges=np.ones(triangles.shape, dtype=bool),
-        source=f"shipped file {path.name}" + (" (textures not shown)" if textured else ""),
+        source=f"shipped file {path.name}" + (", textures sampled" if textured else ""),
+        paint=paint,
     )
+
+
+def _mean_on(texture: np.ndarray, corner_uvs: np.ndarray) -> np.ndarray:
+    """The texture's mean colour at the centres of the given UV triangles."""
+    if not len(corner_uvs):
+        return texture.reshape(-1, 3).mean(axis=0)
+    uv = corner_uvs.mean(axis=1) % 1.0
+    h, w = texture.shape[:2]
+    return texture[
+        (uv[:, 1] * h).astype(np.int64).clip(0, h - 1), (uv[:, 0] * w).astype(np.int64).clip(0, w - 1)
+    ].mean(axis=0)
 
 
 def _node_matrix(node: dict) -> np.ndarray:

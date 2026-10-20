@@ -281,6 +281,15 @@ builds the armature and one glTF animation per clip, matching the kit's own skin
 limbs, tearing skin and feet through the floor. See `assets/specs/sculpt_cave_toad.json` and
 `sculpt_cave_imp.json`.
 
+## Materials as recipes
+
+A spec's material can carry a `pattern`: layers of mottling, grain, spots, gradients, worn
+edges and dirty creases, written in JSON. The kit evaluates them on the surface and bakes them
+into colour and roughness textures on the final UVs; the .glb ships them. `ag.py look` shows the
+patterns without Blender and reports how much each layer paints, so an invisible or
+overpowering layer is caught before a build. See "Materials" in
+[`docs/ASSETKIT.md`](docs/ASSETKIT.md) and the materials of `assets/specs/sculpt_tree_stump.json`.
+
 ## Adding a generator
 
 Create `blender/generators/<family>_<name>.py` exposing `MATERIAL_SLOTS` and
@@ -297,6 +306,6 @@ Pattern in one line: commit specs under `assets/specs/`; regenerate products int
 
 ## Scope
 
-Meshes and flat PBR values only. Texture map generation, AI mesh services, rigging and
-engine-specific packaging are deliberately out of scope for now; the spec/QA/preview
-loop is the foundation they would plug into.
+Meshes, rigs and clips, flat PBR values and kit patterns baked to colour and roughness
+textures. Normal maps, AI mesh services and engine-specific packaging are out of scope for
+now; the spec/QA/preview loop is the foundation they would plug into.

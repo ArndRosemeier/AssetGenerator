@@ -98,11 +98,12 @@ def build(spec: AssetSpec) -> Asset:
     else:
         shading = ShadeFlat()
     finish = (shading, Unwrap())
-    if "rig" not in raw:
-        return Asset((Part(spec.asset_id, mesh, spec.materials, finish),))
-
-    # The rig is written in spec coordinates; settling moved the mesh, so it moves the rig too.
+    # The rig and the material patterns are written in spec coordinates; settling moved the
+    # mesh, so it moves them too.
     offset = tuple(a - b for a, b in zip(mesh.vertices[0], unsettled.vertices[0], strict=True))
+    if "rig" not in raw:
+        return Asset((Part(spec.asset_id, mesh, spec.materials, finish, pattern_origin=offset),))
+
     try:
         rig = build_rig(
             raw["rig"],
@@ -123,7 +124,7 @@ def build(spec: AssetSpec) -> Asset:
         )
     except (RigError, SculptError, ValueError) as exc:
         raise SpecError(str(exc)) from exc
-    part = Part(spec.asset_id, mesh, spec.materials, finish, skin=skin)
+    part = Part(spec.asset_id, mesh, spec.materials, finish, skin=skin, pattern_origin=offset)
     return Asset((part,), skeleton=rig.skeleton, clips=rig.clips)
 
 

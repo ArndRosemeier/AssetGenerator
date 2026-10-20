@@ -20,6 +20,7 @@ import numpy as np
 from assetview.font import draw_text, text_width
 from assetview.measure import measure, summary
 from assetview.model import ViewModel
+from assetview.paint import pixel_barycentrics
 from assetview.raster import Camera, Frame, Pass, frame, rasterize
 
 TILE = 320
@@ -73,11 +74,11 @@ def render_sheet(model: ViewModel, title: str) -> tuple[np.ndarray, dict[str, ob
     tiles: list[tuple[str, np.ndarray]] = []
     step = _nice_step(TILE * 0.84 / scale / 6)
     for name in ortho:
-        tile = _shaded(model, passes[name], normals, _material_colors(model))
+        tile = _shaded(model, passes[name], normals, _material_colors(model), painted=True)
         _grid(tile, passes[name], model, step)
         tiles.append((f"{name}  grid {_length(step)}", tile))
-    tiles.append(("hero", _shaded(model, passes["hero"], normals, _material_colors(model))))
-    tiles.append(("back", _shaded(model, passes["back"], normals, _material_colors(model))))
+    tiles.append(("hero", _shaded(model, passes["hero"], normals, _material_colors(model), painted=True)))
+    tiles.append(("back", _shaded(model, passes["back"], normals, _material_colors(model), painted=True)))
     tiles.append(_scale_tile(model, normals))
     tiles.append(("parts", _parts(model, passes["hero"], normals)))
     tiles.append(("facing  red=inside out", _facing(model, passes["hero"], normals)))
@@ -157,13 +158,27 @@ def _lambert(normals: np.ndarray, pas: Pass) -> np.ndarray:
     return 0.32 + 0.68 * np.clip(facing @ _light(pas.frame), 0.0, 1.0)
 
 
-def _shaded(model: ViewModel, pas: Pass, normals: np.ndarray, slot_colors: np.ndarray) -> np.ndarray:
+def _shaded(
+    model: ViewModel, pas: Pass, normals: np.ndarray, slot_colors: np.ndarray, painted: bool = False
+) -> np.ndarray:
+    """Lit by triangle, coloured by material: one colour per slot, or with `painted` (and a
+    model whose materials vary over the surface) the colour at each pixel's surface point."""
     tile = np.empty((TILE, TILE, 3))
     tile[:] = BACKGROUND
     hit = pas.tri >= 0
     tri = pas.tri[hit]
-    tile[hit] = slot_colors[model.tri_slot[tri]] * _lambert(normals, pas)[tri][:, None]
+    color = slot_colors[model.tri_slot[tri]]
+    if painted and model.paint is not None:
+        color = surface_colors(model, pas)
+    tile[hit] = color * _lambert(normals, pas)[tri][:, None]
     return tile
+
+
+def surface_colors(model: ViewModel, pas: Pass, at: ViewModel | None = None) -> np.ndarray:
+    """Display colour per hit pixel of `pas` from the model's paint; with `at`, the pass was
+    drawn from `at` (the same triangles, posed) and the colours come from `model` (at rest)."""
+    _, tri, bary = pixel_barycentrics((at or model).positions, (at or model).triangles, pas)
+    return np.maximum(_to_display(model.paint.colors(tri, bary)), 0.16)  # type: ignore[union-attr]
 
 
 def _parts(model: ViewModel, pas: Pass, normals: np.ndarray) -> np.ndarray:

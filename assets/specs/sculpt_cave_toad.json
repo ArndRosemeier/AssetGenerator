@@ -4,33 +4,214 @@
   "generator": "organic.sculpt",
   "params": {
     "parts": {
-      "body": {"ellipsoid": {"centre": [0, 0.04, 0.2], "radii": [0.2, 0.25, 0.15]}},
-      "head": {"ellipsoid": {"centre": [0, -0.19, 0.24], "radii": [0.17, 0.13, 0.105]}},
-      "eye": {"sphere": {"centre": [0.095, -0.215, 0.33], "radius": 0.045}},
-      "arm": {"capsule": {"a": [0.13, -0.12, 0.17], "b": [0.22, -0.19, 0.06], "radius": 0.045, "radius_b": 0.032}},
-      "forearm": {"capsule": {"a": [0.22, -0.19, 0.06], "b": [0.24, -0.26, 0.025], "radius": 0.032, "radius_b": 0.022}},
-      "fore_foot": {"ellipsoid": {"centre": [0.25, -0.28, 0.018], "radii": [0.055, 0.06, 0.018]}},
-      "thigh": {"capsule": {"a": [0.13, 0.13, 0.17], "b": [0.27, 0.05, 0.08], "radius": 0.075, "radius_b": 0.05}},
-      "shin": {"capsule": {"a": [0.27, 0.05, 0.08], "b": [0.23, 0.25, 0.035], "radius": 0.048, "radius_b": 0.03}},
-      "hind_foot": {"ellipsoid": {"centre": [0.23, 0.3, 0.018], "radii": [0.065, 0.085, 0.018]}},
-      "mouth": {"capsule": {"a": [-0.13, -0.29, 0.215], "b": [0.13, -0.29, 0.215], "radius": 0.013}}
+      "body": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.04,
+            0.2
+          ],
+          "radii": [
+            0.2,
+            0.25,
+            0.15
+          ]
+        }
+      },
+      "head": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.19,
+            0.24
+          ],
+          "radii": [
+            0.17,
+            0.13,
+            0.105
+          ]
+        }
+      },
+      "eye": {
+        "sphere": {
+          "centre": [
+            0.095,
+            -0.215,
+            0.33
+          ],
+          "radius": 0.045
+        }
+      },
+      "arm": {
+        "capsule": {
+          "a": [
+            0.13,
+            -0.12,
+            0.17
+          ],
+          "b": [
+            0.22,
+            -0.19,
+            0.06
+          ],
+          "radius": 0.045,
+          "radius_b": 0.032
+        }
+      },
+      "forearm": {
+        "capsule": {
+          "a": [
+            0.22,
+            -0.19,
+            0.06
+          ],
+          "b": [
+            0.24,
+            -0.26,
+            0.025
+          ],
+          "radius": 0.032,
+          "radius_b": 0.022
+        }
+      },
+      "fore_foot": {
+        "ellipsoid": {
+          "centre": [
+            0.25,
+            -0.28,
+            0.018
+          ],
+          "radii": [
+            0.055,
+            0.06,
+            0.018
+          ]
+        }
+      },
+      "thigh": {
+        "capsule": {
+          "a": [
+            0.13,
+            0.13,
+            0.17
+          ],
+          "b": [
+            0.27,
+            0.05,
+            0.08
+          ],
+          "radius": 0.075,
+          "radius_b": 0.05
+        }
+      },
+      "shin": {
+        "capsule": {
+          "a": [
+            0.27,
+            0.05,
+            0.08
+          ],
+          "b": [
+            0.23,
+            0.25,
+            0.035
+          ],
+          "radius": 0.048,
+          "radius_b": 0.03
+        }
+      },
+      "hind_foot": {
+        "ellipsoid": {
+          "centre": [
+            0.23,
+            0.3,
+            0.018
+          ],
+          "radii": [
+            0.065,
+            0.085,
+            0.018
+          ]
+        }
+      },
+      "mouth": {
+        "capsule": {
+          "a": [
+            -0.13,
+            -0.29,
+            0.215
+          ],
+          "b": [
+            0.13,
+            -0.29,
+            0.215
+          ],
+          "radius": 0.013
+        }
+      }
     },
     "shape": {
       "above": {
         "height": 0.0,
         "shape": {
           "displace": {
-            "amount": 0.006, "scale": 22.0, "seed": 11, "octaves": 2,
+            "amount": 0.006,
+            "scale": 22.0,
+            "seed": 11,
+            "octaves": 2,
             "shape": {
               "subtract": {
-                "from": {"smooth_union": {"k": 0.05, "shapes": [
-                  {"ref": "body"},
-                  {"ref": "head"},
-                  {"mirror_x": {"ref": "eye"}},
-                  {"mirror_x": {"union": [{"ref": "arm"}, {"ref": "forearm"}, {"ref": "fore_foot"}]}},
-                  {"mirror_x": {"union": [{"ref": "thigh"}, {"ref": "shin"}, {"ref": "hind_foot"}]}}
-                ]}},
-                "cut": {"ref": "mouth"},
+                "from": {
+                  "smooth_union": {
+                    "k": 0.05,
+                    "shapes": [
+                      {
+                        "ref": "body"
+                      },
+                      {
+                        "ref": "head"
+                      },
+                      {
+                        "mirror_x": {
+                          "ref": "eye"
+                        }
+                      },
+                      {
+                        "mirror_x": {
+                          "union": [
+                            {
+                              "ref": "arm"
+                            },
+                            {
+                              "ref": "forearm"
+                            },
+                            {
+                              "ref": "fore_foot"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "mirror_x": {
+                          "union": [
+                            {
+                              "ref": "thigh"
+                            },
+                            {
+                              "ref": "shin"
+                            },
+                            {
+                              "ref": "hind_foot"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                "cut": {
+                  "ref": "mouth"
+                },
                 "k": 0.01
               }
             }
@@ -40,57 +221,412 @@
     },
     "base_slot": "skin",
     "paint": {
-      "eye": {"mirror_x": {"sphere": {"centre": [0.1, -0.225, 0.338], "radius": 0.036}}},
-      "belly": {"ellipsoid": {"centre": [0, 0.0, 0.03], "radii": [0.17, 0.26, 0.12]}}
+      "eye": {
+        "mirror_x": {
+          "sphere": {
+            "centre": [
+              0.1,
+              -0.225,
+              0.338
+            ],
+            "radius": 0.036
+          }
+        }
+      },
+      "belly": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.0,
+            0.03
+          ],
+          "radii": [
+            0.17,
+            0.26,
+            0.12
+          ]
+        }
+      }
     },
     "paint_reach": 0.003,
     "max_triangles": 5000,
     "rig": {
       "bones": {
-        "body": {"head": [0, 0.24, 0.2], "tail": [0, -0.08, 0.22]},
-        "head": {"parent": "body", "head": [0, -0.08, 0.23], "tail": [0, -0.3, 0.24]},
-        "arm.L": {"parent": "body", "from": "arm"},
-        "forearm.L": {"parent": "arm.L", "from": "forearm"},
-        "hand.L": {"parent": "forearm.L", "head": [0.24, -0.26, 0.025], "tail": [0.26, -0.32, 0.012]},
-        "thigh.L": {"parent": "body", "from": "thigh"},
-        "shin.L": {"parent": "thigh.L", "from": "shin"},
-        "foot.L": {"parent": "shin.L", "head": [0.23, 0.25, 0.035], "tail": [0.23, 0.34, 0.012]}
+        "body": {
+          "head": [
+            0,
+            0.24,
+            0.2
+          ],
+          "tail": [
+            0,
+            -0.08,
+            0.22
+          ]
+        },
+        "head": {
+          "parent": "body",
+          "head": [
+            0,
+            -0.08,
+            0.23
+          ],
+          "tail": [
+            0,
+            -0.3,
+            0.24
+          ]
+        },
+        "arm.L": {
+          "parent": "body",
+          "from": "arm"
+        },
+        "forearm.L": {
+          "parent": "arm.L",
+          "from": "forearm"
+        },
+        "hand.L": {
+          "parent": "forearm.L",
+          "head": [
+            0.24,
+            -0.26,
+            0.025
+          ],
+          "tail": [
+            0.26,
+            -0.32,
+            0.012
+          ]
+        },
+        "thigh.L": {
+          "parent": "body",
+          "from": "thigh"
+        },
+        "shin.L": {
+          "parent": "thigh.L",
+          "from": "shin"
+        },
+        "foot.L": {
+          "parent": "shin.L",
+          "head": [
+            0.23,
+            0.25,
+            0.035
+          ],
+          "tail": [
+            0.23,
+            0.34,
+            0.012
+          ]
+        }
       },
-      "carry": {"body": ["body"], "head": ["head", "eye"], "hand.L": ["fore_foot"], "foot.L": ["hind_foot"]},
+      "carry": {
+        "body": [
+          "body"
+        ],
+        "head": [
+          "head",
+          "eye"
+        ],
+        "hand.L": [
+          "fore_foot"
+        ],
+        "foot.L": [
+          "hind_foot"
+        ]
+      },
       "legs": {
-        "fore.L": {"upper": "arm.L", "lower": "forearm.L", "foot": "hand.L"},
-        "hind.L": {"upper": "thigh.L", "lower": "shin.L", "foot": "foot.L"}
+        "fore.L": {
+          "upper": "arm.L",
+          "lower": "forearm.L",
+          "foot": "hand.L"
+        },
+        "hind.L": {
+          "upper": "thigh.L",
+          "lower": "shin.L",
+          "foot": "foot.L"
+        }
       },
-      "softness": {"default": 0.012, "head": 0.01},
+      "softness": {
+        "default": 0.012,
+        "head": 0.01
+      },
       "clips": {
-        "Idle": {"seconds": 3.0, "loop": true, "motions": [
-          {"move": {"z": 0.004, "cycles": 3}},
-          {"turn": {"bone": "head", "yaw": 12, "cycles": 1}},
-          {"turn": {"bone": "head", "pitch": 3, "cycles": 3, "phase": 0.25}},
-          {"gait": {"legs": {"fore.L": 0, "fore.R": 0, "hind.L": 0, "hind.R": 0}, "stride": 0.0, "lift": 0.0, "duty": 0.95}}
-        ]},
-        "Walk": {"seconds": 1.2, "loop": true, "motions": [
-          {"gait": {"legs": {"hind.L": 0.0, "fore.L": 0.25, "hind.R": 0.5, "fore.R": 0.75}, "stride": 0.1, "lift": 0.035, "duty": 0.65}},
-          {"move": {"z": 0.006, "wave": "bounce", "cycles": 2}},
-          {"turn": {"bone": "body", "roll": 3, "cycles": 1}},
-          {"turn": {"bone": "head", "yaw": -4, "cycles": 1}}
-        ]},
-        "Croak": {"seconds": 1.0, "loop": false, "motions": [
-          {"keys": {"at": [
-            {"t": 0.0},
-            {"t": 0.35, "turns": {"head": {"pitch": 18}, "body": {"pitch": 6}}, "move": [0, 0, 0.015]},
-            {"t": 0.6, "turns": {"head": {"pitch": 18}, "body": {"pitch": 6}}, "move": [0, 0, 0.015]},
-            {"t": 1.0}
-          ]}},
-          {"gait": {"legs": {"fore.L": 0, "fore.R": 0, "hind.L": 0, "hind.R": 0}, "stride": 0.0, "lift": 0.0, "duty": 0.95}}
-        ]}
+        "Idle": {
+          "seconds": 3.0,
+          "loop": true,
+          "motions": [
+            {
+              "move": {
+                "z": 0.004,
+                "cycles": 3
+              }
+            },
+            {
+              "turn": {
+                "bone": "head",
+                "yaw": 12,
+                "cycles": 1
+              }
+            },
+            {
+              "turn": {
+                "bone": "head",
+                "pitch": 3,
+                "cycles": 3,
+                "phase": 0.25
+              }
+            },
+            {
+              "gait": {
+                "legs": {
+                  "fore.L": 0,
+                  "fore.R": 0,
+                  "hind.L": 0,
+                  "hind.R": 0
+                },
+                "stride": 0.0,
+                "lift": 0.0,
+                "duty": 0.95
+              }
+            }
+          ]
+        },
+        "Walk": {
+          "seconds": 1.2,
+          "loop": true,
+          "motions": [
+            {
+              "gait": {
+                "legs": {
+                  "hind.L": 0.0,
+                  "fore.L": 0.25,
+                  "hind.R": 0.5,
+                  "fore.R": 0.75
+                },
+                "stride": 0.1,
+                "lift": 0.035,
+                "duty": 0.65
+              }
+            },
+            {
+              "move": {
+                "z": 0.006,
+                "wave": "bounce",
+                "cycles": 2
+              }
+            },
+            {
+              "turn": {
+                "bone": "body",
+                "roll": 3,
+                "cycles": 1
+              }
+            },
+            {
+              "turn": {
+                "bone": "head",
+                "yaw": -4,
+                "cycles": 1
+              }
+            }
+          ]
+        },
+        "Croak": {
+          "seconds": 1.0,
+          "loop": false,
+          "motions": [
+            {
+              "keys": {
+                "at": [
+                  {
+                    "t": 0.0
+                  },
+                  {
+                    "t": 0.35,
+                    "turns": {
+                      "head": {
+                        "pitch": 18
+                      },
+                      "body": {
+                        "pitch": 6
+                      }
+                    },
+                    "move": [
+                      0,
+                      0,
+                      0.015
+                    ]
+                  },
+                  {
+                    "t": 0.6,
+                    "turns": {
+                      "head": {
+                        "pitch": 18
+                      },
+                      "body": {
+                        "pitch": 6
+                      }
+                    },
+                    "move": [
+                      0,
+                      0,
+                      0.015
+                    ]
+                  },
+                  {
+                    "t": 1.0
+                  }
+                ]
+              }
+            },
+            {
+              "gait": {
+                "legs": {
+                  "fore.L": 0,
+                  "fore.R": 0,
+                  "hind.L": 0,
+                  "hind.R": 0
+                },
+                "stride": 0.0,
+                "lift": 0.0,
+                "duty": 0.95
+              }
+            }
+          ]
+        }
       }
     }
   },
   "materials": {
-    "skin": {"base_color": [0.2, 0.22, 0.13, 1], "roughness": 0.7, "metallic": 0.0},
-    "belly": {"base_color": [0.55, 0.5, 0.36, 1], "roughness": 0.75, "metallic": 0.0},
-    "eye": {"base_color": [0.85, 0.6, 0.08, 1], "roughness": 0.2, "metallic": 0.0}
+    "skin": {
+      "base_color": [
+        0.2,
+        0.22,
+        0.13,
+        1
+      ],
+      "roughness": 0.7,
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "gradient": {
+              "color": [
+                0.36,
+                0.34,
+                0.17
+              ],
+              "axis": "z",
+              "from": 0.02,
+              "to": 0.16,
+              "amount": 0.6
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.1,
+                0.13,
+                0.06
+              ],
+              "scale": 12,
+              "coverage": 0.45,
+              "contrast": 3
+            }
+          },
+          {
+            "spots": {
+              "color": [
+                0.06,
+                0.07,
+                0.035
+              ],
+              "size": 0.045,
+              "spacing": 0.09,
+              "density": 0.55,
+              "softness": 0.5,
+              "seed": 4,
+              "amount": 0.8
+            }
+          },
+          {
+            "spots": {
+              "color": [
+                0.34,
+                0.31,
+                0.15
+              ],
+              "size": 0.016,
+              "spacing": 0.032,
+              "density": 0.6,
+              "softness": 0.4,
+              "roughness": 0.85,
+              "seed": 1
+            }
+          },
+          {
+            "cavities": {
+              "color": [
+                0.04,
+                0.045,
+                0.025
+              ],
+              "radius": 0.025,
+              "amount": 0.7
+            }
+          }
+        ]
+      }
+    },
+    "belly": {
+      "base_color": [
+        0.55,
+        0.5,
+        0.36,
+        1
+      ],
+      "roughness": 0.75,
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.42,
+                0.37,
+                0.24
+              ],
+              "scale": 22,
+              "coverage": 0.5,
+              "contrast": 1.5,
+              "amount": 0.7
+            }
+          },
+          {
+            "cavities": {
+              "color": [
+                0.25,
+                0.22,
+                0.13
+              ],
+              "radius": 0.025,
+              "amount": 0.6
+            }
+          }
+        ]
+      }
+    },
+    "eye": {
+      "base_color": [
+        0.85,
+        0.6,
+        0.08,
+        1
+      ],
+      "roughness": 0.2,
+      "metallic": 0.0
+    }
   },
   "qa": {
     "max_triangles": 6000,

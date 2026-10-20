@@ -23,6 +23,7 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 from assetkit import Asset, Bevel, Part, ShadeFlat, ShadeSmooth, Unwrap
+from assetkit.asset import pattern_of
 from assetkit.rig import Clip, Motion, Skeleton, Skin
 from blender.backend import compat
 from blender.lib.scene import activate, apply_bevel, make_material, shade_flat, unwrap
@@ -200,7 +201,70 @@ def _realize_part(part: Part) -> bpy.types.Object:
         _vertex_groups(obj, part.skin)
     for step in part.finish:
         _finish(obj, step)
+    if any(pattern_of(part.materials[slot]) is not None for slot in source.slots):
+        _paint(obj, part)
     return obj
+
+
+def _paint(obj: bpy.types.Object, part: Part) -> None:
+    """Bake the part's material patterns on its final mesh and UVs (assetkit/texbake.py), into
+    one colour and one roughness texture, wired into every patterned slot's material. Plain
+    slots keep their values. The kit does the baking, so the maps match on every version."""
+    import numpy as np
+
+    from assetkit.texbake import SlotLook, bake, to_srgb
+
+    mesh = obj.data
+    if mesh.uv_layers.active is None:
+        raise RuntimeError(f"Part '{part.name}': a pattern needs UVs; Unwrap must run first")
+    mesh.calc_loop_triangles()
+    count = len(mesh.loop_triangles)
+    positions = np.empty(len(mesh.vertices) * 3)
+    mesh.vertices.foreach_get("co", positions)
+    corners = np.empty(count * 3, dtype=np.int32)
+    mesh.loop_triangles.foreach_get("vertices", corners)
+    loops = np.empty(count * 3, dtype=np.int32)
+    mesh.loop_triangles.foreach_get("loops", loops)
+    slots = np.empty(count, dtype=np.int32)
+    mesh.loop_triangles.foreach_get("material_index", slots)
+    uv = np.empty(len(mesh.loops) * 2)
+    mesh.uv_layers.active.data.foreach_get("uv", uv)
+    materials = [part.materials[slot] for slot in part.mesh.slots]
+    looks = [SlotLook(pattern_of(m), tuple(m.base_color[:3]), m.roughness) for m in materials]  # type: ignore[arg-type]
+    maps = bake(
+        positions.reshape(-1, 3),
+        corners.reshape(-1, 3),
+        uv.reshape(-1, 2)[loops].reshape(-1, 3, 2),
+        slots,
+        looks,
+        origin=part.pattern_origin,
+    )
+    color = _image(f"{part.name}_color", to_srgb(maps.color), "sRGB")
+    rough = _image(f"{part.name}_roughness", np.repeat(maps.roughness[..., None], 3, axis=2), "Non-Color")
+    for material, look in zip(mesh.materials, looks, strict=True):
+        if look.pattern is None:
+            continue
+        nodes, links = material.node_tree.nodes, material.node_tree.links
+        principled = next(node for node in nodes if node.type == "BSDF_PRINCIPLED")
+        for image, socket, y in ((color, "Base Color", 300), (rough, "Roughness", 0)):
+            node = nodes.new(type="ShaderNodeTexImage")
+            node.image = image
+            node.location = (principled.location.x - 400, principled.location.y + y)
+            links.new(node.outputs["Color"], principled.inputs[socket])
+
+
+def _image(name: str, rgb: object, colorspace: str) -> bpy.types.Image:
+    """A packed 8-bit image from (H, W, 3) values 0..1 stored as given (rows from the bottom)."""
+    import numpy as np
+
+    pixels = np.asarray(rgb, dtype=np.float32)
+    height, width = pixels.shape[:2]
+    image = bpy.data.images.new(name=name, width=width, height=height, alpha=False)
+    image.colorspace_settings.name = colorspace
+    rgba = np.concatenate([pixels, np.ones((height, width, 1), dtype=np.float32)], axis=2)
+    image.pixels.foreach_set(rgba.ravel())
+    image.pack()
+    return image
 
 
 def _finish(obj: bpy.types.Object, step: object) -> None:

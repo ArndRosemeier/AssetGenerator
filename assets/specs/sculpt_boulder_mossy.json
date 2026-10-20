@@ -72,7 +72,89 @@
         1
       ],
       "roughness": 0.9,
-      "metallic": 0.0
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.17,
+                0.165,
+                0.155
+              ],
+              "scale": 4,
+              "coverage": 0.45,
+              "contrast": 2.5
+            }
+          },
+          {
+            "grain": {
+              "color": [
+                0.45,
+                0.43,
+                0.4
+              ],
+              "axis": "z",
+              "spacing": 0.08,
+              "warp": 1.5,
+              "sharpness": 8,
+              "amount": 0.7,
+              "seed": 5
+            }
+          },
+          {
+            "gradient": {
+              "color": [
+                0.16,
+                0.14,
+                0.11
+              ],
+              "axis": "z",
+              "from": -0.1,
+              "to": 0.2,
+              "amount": 0.7
+            }
+          },
+          {
+            "spots": {
+              "color": [
+                0.6,
+                0.6,
+                0.45
+              ],
+              "size": 0.05,
+              "spacing": 0.1,
+              "density": 0.5,
+              "softness": 0.5,
+              "amount": 0.8,
+              "seed": 9
+            }
+          },
+          {
+            "cavities": {
+              "color": [
+                0.08,
+                0.08,
+                0.07
+              ],
+              "radius": 0.08,
+              "amount": 0.9
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.52,
+                0.51,
+                0.48
+              ],
+              "radius": 0.06,
+              "amount": 0.7,
+              "breakup": 0.4
+            }
+          }
+        ]
+      }
     },
     "moss": {
       "base_color": [
@@ -82,7 +164,37 @@
         1
       ],
       "roughness": 0.95,
-      "metallic": 0.0
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.3,
+                0.42,
+                0.1
+              ],
+              "scale": 14,
+              "coverage": 0.4,
+              "contrast": 2.5
+            }
+          },
+          {
+            "mottle": {
+              "color": [
+                0.1,
+                0.18,
+                0.05
+              ],
+              "scale": 30,
+              "coverage": 0.35,
+              "contrast": 3,
+              "seed": 2,
+              "amount": 0.7
+            }
+          }
+        ]
+      }
     }
   },
   "qa": {
