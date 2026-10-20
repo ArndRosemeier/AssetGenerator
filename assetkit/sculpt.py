@@ -7,6 +7,7 @@ A node is an object with exactly one key, its kind:
     {"box":       {"centre": [x, y, z], "size": [sx, sy, sz], "radius": r?}}
     {"capsule":   {"a": [x, y, z], "b": [x, y, z], "radius": r, "radius_b": r?}}
     {"cylinder":  {"a": [x, y, z], "b": [x, y, z], "radius": r, "rounding": r?}}
+    {"cone":      {"a": [x, y, z], "b": [x, y, z], "radius": r, "radius_b": r}}  flat-ended (0: a point)
     {"torus":     {"centre": [x, y, z], "radius": r, "thickness": t, "axis": "x" | "y" | "z"?}}
     {"union":     [node, ...]}
     {"smooth_union": {"k": metres, "shapes": [node, ...]}}
@@ -15,9 +16,21 @@ A node is an object with exactly one key, its kind:
     {"below":     {"height": z, "shape": node}}            the part of shape under z (cut flat on top)
     {"above":     {"height": z, "shape": node}}            the part of shape over z (cut flat below)
     {"move":      {"by": [x, y, z], "shape": node}}
-    {"rotate":    {"degrees": [x, y, z], "shape": node}}   X first, then Y, then Z, about the origin
+    {"rotate":    {"degrees": [x, y, z], "about": [x, y, z]?, "shape": node}}
+                  X first, then Y, then Z, about the point `about` (default the origin): tilt a
+                  chest forward about the waist, a head about the neck
     {"scale":     {"by": factor, "shape": node}}
     {"mirror_x":  node}                                     node and its mirror image across x = 0
+    {"repeat":    {"count": n, "step": [x, y, z], "shape": node}}   n copies, each `step` further on
+    {"repeat":    {"around": n, "start": degrees?, "shape": node}}  n copies turned evenly round Z
+    {"scatter":   {"on": node, "shape": node, "count": n?, "seed": s?, "at": [[x, y], ...]?,
+                   "spacing": m?, "facing": [x, y, z]?, "angle": degrees?, "sink": m?,
+                   "align": bool?, "sizes": [lo, hi]?}}
+                  copies of `shape` (modelled at the origin, pointing up) set on the surface of
+                  `on`: dropped straight down at each `at` (x, y), and `count` more at seeded
+                  places `spacing` apart where it faces within `angle` (90) of `facing` (up);
+                  stood along the surface (`align`, default true), sunk `sink` into it, sized
+                  between `sizes` (1, 1). Only the copies: union them with `on`.
     {"displace":  {"amount": metres, "scale": per_metre, "seed": int?, "octaves": int?, "shape": node}}
     {"round":     {"radius": metres, "shape": node}}
     {"shell":     {"thickness": metres, "shape": node}}
@@ -169,6 +182,11 @@ _BUILDERS: dict[str, Builder] = {
     "cylinder": lambda f, p, path, s: sdf.cylinder(
         _vec(f, "a", path), _vec(f, "b", path), _num(f, "radius", path), _num(f, "rounding", path, 0.0)
     ),
+    "cone": lambda f, p, path, s: sdf.cone(
+        _vec(f, "a", path), _vec(f, "b", path), _num(f, "radius", path), _num(f, "radius_b", path)
+    ),
+    "repeat": lambda f, p, path, s: _repeat(f, p, path, s),
+    "scatter": lambda f, p, path, s: _scatter(f, p, path, s),
     "torus": lambda f, p, path, s: sdf.torus(
         _vec(f, "centre", path), _num(f, "radius", path), _num(f, "thickness", path), _axis(f, path)
     ),
@@ -182,9 +200,7 @@ _BUILDERS: dict[str, Builder] = {
         _inner(f, p, path, s), sdf.half_space(_num(f, "height", path), above=True)
     ),
     "move": lambda f, p, path, s: sdf.move(_inner(f, p, path, s), _vec(f, "by", path)),
-    "rotate": lambda f, p, path, s: sdf.rotate(
-        _inner(f, p, path, s), tuple(math.radians(v) for v in _vec(f, "degrees", path))
-    ),
+    "rotate": lambda f, p, path, s: _rotate(f, p, path, s),
     "scale": lambda f, p, path, s: sdf.scale(_inner(f, p, path, s), _num(f, "by", path)),
     "displace": lambda f, p, path, s: sdf.displace(
         _inner(f, p, path, s),
@@ -204,18 +220,93 @@ _FIELDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "capsule": (("a", "b", "radius", "radius_b"), ("a", "b", "radius")),
     "cylinder": (("a", "b", "radius", "rounding"), ("a", "b", "radius")),
     "torus": (("centre", "radius", "thickness", "axis"), ("centre", "radius", "thickness")),
+    "cone": (("a", "b", "radius", "radius_b"), ("a", "b", "radius", "radius_b")),
+    "repeat": (("count", "step", "around", "start", "shape"), ("shape",)),
+    "scatter": (
+        ("on", "shape", "count", "seed", "at", "spacing", "facing", "angle", "sink", "align", "sizes"),
+        ("on", "shape"),
+    ),
     "smooth_union": (("k", "shapes"), ("k", "shapes")),
     "subtract": (("from", "cut", "k"), ("from", "cut")),
     "intersect": (("shapes", "k"), ("shapes",)),
     "below": (("height", "shape"), ("height", "shape")),
     "above": (("height", "shape"), ("height", "shape")),
     "move": (("by", "shape"), ("by", "shape")),
-    "rotate": (("degrees", "shape"), ("degrees", "shape")),
+    "rotate": (("degrees", "about", "shape"), ("degrees", "shape")),
     "scale": (("by", "shape"), ("by", "shape")),
     "displace": (("amount", "scale", "seed", "octaves", "shape"), ("amount", "scale", "shape")),
     "round": (("radius", "shape"), ("radius", "shape")),
     "shell": (("thickness", "shape"), ("thickness", "shape")),
 }
+
+
+def _rotate(f: dict, parts: Mapping[str, Node], path: str, seen: tuple[str, ...]) -> sdf.Shape:
+    angles = tuple(math.radians(v) for v in _vec(f, "degrees", path))
+    inner = _inner(f, parts, path, seen)
+    if "about" not in f:
+        return sdf.rotate(inner, angles)  # type: ignore[arg-type]
+    pivot = _vec(f, "about", path)
+    back = tuple(-c for c in pivot)
+    return sdf.move(sdf.rotate(sdf.move(inner, back), angles), pivot)  # type: ignore[arg-type]
+
+
+def _repeat(f: dict, parts: Mapping[str, Node], path: str, seen: tuple[str, ...]) -> sdf.Shape:
+    inner = _inner(f, parts, path, seen)
+    if "around" in f:
+        if "count" in f or "step" in f:
+            raise SculptError(f"{path}: either `around` (and `start`) or `count` and `step`")
+        n = _int(f, "around", path, 0)
+        if n < 1:
+            raise SculptError(f"{path}.around: expected a whole number 1 or more")
+        return sdf.repeat(inner, n, around=True, start=math.radians(_num(f, "start", path, 0.0)))
+    if "count" not in f or "step" not in f:
+        raise SculptError(f"{path}: needs `count` and `step`, or `around`")
+    n = _int(f, "count", path, 0)
+    if n < 1:
+        raise SculptError(f"{path}.count: expected a whole number 1 or more")
+    return sdf.repeat(inner, n, step=_vec(f, "step", path))
+
+
+def _scatter(f: dict, parts: Mapping[str, Node], path: str, seen: tuple[str, ...]) -> sdf.Shape:
+    on = build_shape(f["on"], parts, f"{path}.on", seen)
+    inner = _inner(f, parts, path, seen)
+    at_raw = f.get("at", [])
+    if not isinstance(at_raw, list) or not all(
+        isinstance(xy, list)
+        and len(xy) == 2
+        and all(isinstance(c, int | float) and not isinstance(c, bool) for c in xy)
+        for xy in at_raw
+    ):
+        raise SculptError(f"{path}.at: expected [[x, y], ...]")
+    sizes = f.get("sizes", [1.0, 1.0])
+    if not (
+        isinstance(sizes, list)
+        and len(sizes) == 2
+        and all(isinstance(v, int | float) and v > 0 for v in sizes)
+    ):
+        raise SculptError(f"{path}.sizes: expected [smallest, largest] scale factors")
+    align = f.get("align", True)
+    if not isinstance(align, bool):
+        raise SculptError(f"{path}.align: expected true or false")
+    count = _int(f, "count", path, 0)
+    if count < 0 or (count == 0 and not at_raw):
+        raise SculptError(f"{path}: give a `count` of 1 or more, or `at` places")
+    try:
+        return sdf.scatter(
+            on,
+            inner,
+            count=count,
+            seed=_int(f, "seed", path, 0),
+            at=[(float(x), float(y)) for x, y in at_raw],
+            spacing=_num(f, "spacing", path, 0.0),
+            facing=_vec(f, "facing", path) if "facing" in f else (0.0, 0.0, 1.0),
+            angle_deg=_num(f, "angle", path, 90.0),
+            sink=_num(f, "sink", path, 0.0),
+            align=align,
+            sizes=(float(min(sizes)), float(max(sizes))),
+        )
+    except ValueError as exc:
+        raise SculptError(f"{path}: {exc}") from exc
 
 
 def _axis(fields: dict, path: str) -> str:

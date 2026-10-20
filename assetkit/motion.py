@@ -26,6 +26,9 @@ A clip is a list of motions, applied in order and added up:
         a trot pairs diagonals, a hop moves them together. A '.L' leg's '.R' twin steps half a
         cycle later unless it is listed itself. The legs are solved by inverse kinematics: the
         feet stay on the ground, the knees bend the way they were modelled.
+        `"per_leg": {"leg.R": {"lift": 0.01, "duty": 0.45}}` gives one leg its own lift and
+        duty (a limp: the bad leg drags and bears weight briefly); its stride follows from its
+        duty so its planted foot keeps pace with the body and nothing skates.
 
 A loop must contain whole cycles (it ends where it began); `cycles` defaults to 1.
 """
@@ -235,7 +238,7 @@ def _keys(fields: dict, skeleton: Skeleton, loop: bool, path: str) -> Apply:
 
 
 def _gait(fields: dict, skeleton: Skeleton, legs: Mapping[str, Leg], loop: bool, path: str) -> Apply:
-    _only(fields, ("legs", "stride", "lift", "duty", "cycles", "direction"), path)
+    _only(fields, ("legs", "stride", "lift", "duty", "cycles", "direction", "per_leg"), path)
     phases_raw = _object(fields.get("legs"), f"{path}.legs")
     if not phases_raw:
         raise MotionError(f"{path}.legs: name at least one leg")
@@ -271,21 +274,35 @@ def _gait(fields: dict, skeleton: Skeleton, legs: Mapping[str, Leg], loop: bool,
         raise MotionError(f"{path}.direction: must not be [0, 0]")
     dx, dy = direction[0] / norm, direction[1] / norm
     ankles = {name: skeleton[by_name[name].lower].tail for name in phases}
+    # Per leg: its own lift and duty (a limp: the bad leg barely lifts and bears weight briefly).
+    # Its stride follows from its duty, so every planted foot keeps pace with the body: no skating.
+    own = {name: (lift, duty, stride) for name in phases}
+    for leg_name, raw in _object(fields.get("per_leg", {}), f"{path}.per_leg").items():
+        here = f"{path}.per_leg.{leg_name}"
+        if leg_name not in phases:
+            raise MotionError(f"{here}: no leg '{leg_name}' in this gait ({sorted(phases)})")
+        entry = _object(raw, here)
+        _only(entry, ("lift", "duty"), here)
+        d = _number(entry, "duty", here, duty)
+        if not 0.05 <= d <= 0.95:
+            raise MotionError(f"{here}.duty: expected 0.05..0.95, got {d}")
+        own[leg_name] = (_number(entry, "lift", here, lift), d, stride * d / duty)
 
     def apply(pose: Pose, t: float) -> None:
         for leg_name, phase in phases.items():
+            leg_lift, leg_duty, leg_stride = own[leg_name]
             s = (cycles * t + phase) % 1.0
-            if s < duty:  # planted: slides back under the body as it passes over
-                along = 0.5 - s / duty
+            if s < leg_duty:  # planted: slides back under the body as it passes over
+                along = 0.5 - s / leg_duty
                 up = 0.0
             else:  # swinging forward, lifted
-                u = (s - duty) / (1.0 - duty)
+                u = (s - leg_duty) / (1.0 - leg_duty)
                 along = -0.5 + u * u * (3 - 2 * u)
-                up = lift * math.sin(math.pi * u)
+                up = leg_lift * math.sin(math.pi * u)
             ankle = ankles[leg_name]
             pose.reach[by_name[leg_name].upper] = (
-                ankle[0] + dx * stride * along,
-                ankle[1] + dy * stride * along,
+                ankle[0] + dx * leg_stride * along,
+                ankle[1] + dy * leg_stride * along,
                 ankle[2] + up,
             )
 

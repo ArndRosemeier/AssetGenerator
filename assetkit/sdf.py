@@ -213,6 +213,145 @@ def cylinder(a: Vec, b: Vec, radius: float, rounding: float = 0.0) -> Shape:
     return Shape(distance, lo, hi, "cylinder")
 
 
+def cone(a: Vec, b: Vec, radius: float, radius_b: float) -> Shape:
+    """A flat-ended cone from `a` (radius) to `b` (radius_b, 0 for a point): a barnacle, a
+    spike, a lampshade, a stump. Exact distance (after Inigo Quilez's capped cone)."""
+    pa, pb = _vec(a), _vec(b)
+    if radius < 0 or radius_b < 0 or radius + radius_b <= 0:
+        raise ValueError(f"cone radii must be >= 0 and not both 0, got {radius}, {radius_b}")
+    ba = pb - pa
+    baba = float(ba[0] * ba[0] + ba[1] * ba[1] + ba[2] * ba[2])
+    _positive(baba, "cone length")
+    ra, rb = radius, radius_b
+    rba = rb - ra
+    k = rba * rba + baba
+
+    def distance(p: np.ndarray) -> np.ndarray:
+        ap = p - pa
+        papa = _dot(ap, ap)
+        paba = _dot(ap, ba) / baba
+        x = np.sqrt(np.maximum(papa - paba * paba * baba, 0.0))
+        cax = np.maximum(0.0, x - np.where(paba < 0.5, ra, rb))
+        cay = np.abs(paba - 0.5) - 0.5
+        f = np.clip((rba * (x - ra) + paba * baba) / k, 0.0, 1.0)
+        cbx = x - ra - f * rba
+        cby = paba - f
+        sign = np.where((cbx < 0.0) & (cay < 0.0), -1.0, 1.0)
+        return sign * np.sqrt(np.minimum(cax * cax + cay * cay * baba, cbx * cbx + cby * cby * baba))
+
+    r = max(ra, rb)
+    lo, hi = _box_bounds(np.minimum(pa, pb) - r, np.maximum(pa, pb) + r)
+    return Shape(distance, lo, hi, "cone")
+
+
+def repeat(
+    shape: Shape, count: int, step: Vec | None = None, around: bool = False, start: float = 0.0
+) -> Shape:
+    """`count` copies of `shape`: each `step` further on, or (`around`) turned evenly round the
+    Z axis starting `start` radians on (legs, ribs, segments, spikes, barnacles)."""
+    if count < 1:
+        raise ValueError(f"repeat count must be at least 1, got {count}")
+    if around:
+        copies = [rotate(shape, (0.0, 0.0, start + math.tau * k / count)) for k in range(count)]
+    else:
+        if step is None:
+            raise ValueError("repeat needs a step (or around)")
+        copies = [move(shape, tuple(k * c for c in step)) for k in range(count)]  # type: ignore[arg-type]
+    return union(*copies)
+
+
+def scatter(
+    on: Shape,
+    shape: Shape,
+    *,
+    count: int = 0,
+    seed: int = 0,
+    at: Sequence[tuple[float, float]] = (),
+    spacing: float = 0.0,
+    facing: Vec = (0.0, 0.0, 1.0),
+    angle_deg: float = 90.0,
+    sink: float = 0.0,
+    align: bool = True,
+    sizes: tuple[float, float] = (1.0, 1.0),
+) -> Shape:
+    """Copies of `shape` (modelled at the origin, pointing up +Z) set on the surface of `on`:
+    one dropped straight down at each `at` (x, y), and `count` more at seeded places no closer
+    than `spacing` to each other, where the surface faces within `angle_deg` of `facing`. Each
+    copy stands along the surface normal (or upright without `align`), is sunk `sink` metres
+    into it, turned at random about its own axis and scaled between `sizes`. Just the copies:
+    union them with `on` (and paint them with the same node). Barnacles, warts, rivets, spikes."""
+    import random
+
+    rng = random.Random(seed)
+    lower, upper = _vec(on.lower), _vec(on.upper)
+    want = np.asarray(facing, dtype=np.float64)
+    want = want / max(float(np.sqrt(_dot(want[None], want[None])[0])), 1e-12)
+    limit = math.cos(math.radians(angle_deg))
+
+    def drop(xy: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Where rays straight down at `xy` meet the surface: points, normals, and which hit."""
+        p = np.stack([xy[:, 0], xy[:, 1], np.full(len(xy), upper[2] + 0.01)], axis=1)
+        hit = np.zeros(len(xy), dtype=bool)
+        step = float((upper - lower).max()) * 1e-4
+        for _ in range(256):
+            d = on(p)
+            hit |= d < step
+            gone = p[:, 2] < lower[2]  # missed: passed below the shape
+            p[:, 2] -= np.where(hit | gone, 0.0, np.maximum(d, step))
+            if (hit | gone).all():
+                break
+        hit &= p[:, 2] >= lower[2] - step
+        h = step * 4
+        grad = np.stack([on(p + o) - on(p - o) for o in np.eye(3) * h], axis=1)
+        normal = grad / np.maximum(_length(grad), 1e-12)[:, None]
+        return p, normal, hit
+
+    spots: list[tuple[np.ndarray, np.ndarray]] = []
+    if at:
+        p, n, hit = drop(np.asarray(at, dtype=np.float64))
+        for k in range(len(at)):
+            if not hit[k]:
+                raise ValueError(f"scatter: nothing below ({at[k][0]}, {at[k][1]}) to set a copy on")
+            spots.append((p[k], n[k]))
+    if count > 0:
+        tries = count * 40
+        xy = np.array(
+            [(rng.uniform(lower[0], upper[0]), rng.uniform(lower[1], upper[1])) for _ in range(tries)]
+        )
+        p, n, hit = drop(xy)
+        placed = 0
+        for k in range(tries):
+            if placed >= count:
+                break
+            if not hit[k] or float(_dot(n[k : k + 1], want[None])[0]) < limit:
+                continue
+            if any(float(_length((p[k] - q)[None])[0]) < spacing for q, _ in spots):
+                continue
+            spots.append((p[k], n[k]))
+            placed += 1
+        if placed < count:
+            raise ValueError(
+                f"scatter: room for only {placed} of {count} copies {spacing} m apart facing within "
+                f"{angle_deg} degrees of {list(facing)}: fewer, closer, or a wider angle"
+            )
+    copies = []
+    for point, normal in spots:
+        size = rng.uniform(*sizes)
+        spin = rng.uniform(0.0, math.tau)
+        piece = rotate(scale(shape, size), (0.0, 0.0, spin))
+        if align:
+            ax = math.acos(max(-1.0, min(1.0, float(normal[2]))))
+            az = math.atan2(float(normal[0]), -float(normal[1])) if ax > 1e-9 else 0.0
+            piece = rotate(piece, (ax, 0.0, az))
+            base = point - normal * sink
+        else:
+            base = point - np.array([0.0, 0.0, sink])
+        copies.append(move(piece, tuple(float(c) for c in base)))  # type: ignore[arg-type]
+    if not copies:
+        raise ValueError("scatter: no copies (give `count` or `at`)")
+    return union(*copies)
+
+
 def torus(centre: Vec, radius: float, thickness: float, axis: str = "z") -> Shape:
     """A ring of `radius` round `axis` through `centre`, its tube `thickness` across (radius)."""
     c = _vec(centre)
@@ -249,11 +388,19 @@ def half_space(height: float, above: bool = False) -> Shape:
 def union(*shapes: Shape) -> Shape:
     if not shapes:
         raise ValueError("union needs at least one shape")
+    boxes = [(_vec(s.lower), _vec(s.upper)) for s in shapes]
 
     def distance(p: np.ndarray) -> np.ndarray:
         result = shapes[0](p)
-        for s in shapes[1:]:
-            result = np.minimum(result, s(p))
+        for s, (lo, hi) in zip(shapes[1:], boxes[1:], strict=True):
+            # A shape is no nearer than its bounding box: where the box is already further than
+            # the nearest shape so far, the minimum cannot change, so skip the work there.
+            gap = _length(np.maximum(np.maximum(lo - p, p - hi), 0.0))
+            near = gap < result
+            if near.all():
+                result = np.minimum(result, s(p))
+            elif near.any():
+                result[near] = np.minimum(result[near], s(p[near]))
         return result
 
     return Shape(distance, *_union_bounds(shapes, 0.0), "union")
@@ -495,15 +642,135 @@ def mesh(shape: Shape, max_triangles: int = 4000, detail: float = 4.0) -> Shell:
     verts, faces = _march(shape, lower, upper, cell)
     if len(faces) == 0:
         raise ValueError("mesh: the shape is empty (nothing has a negative distance)")
-    verts, faces = _drop_crumbs(verts, faces, cell)
+    depth = _half_thickness(shape, verts, cell)
+    # Thin parts (legs, fingers, horns) thinner than a cell across their radius: sample again,
+    # finer (up to half the step), so they are resolved at all. Shapes without them pay nothing.
+    thin = float(np.percentile(depth, 10))
+    if thin < cell * 0.9:
+        cell = max(thin, cell * FINEST)
+        verts, faces = _march(shape, lower, upper, cell)
+        depth = _half_thickness(shape, verts, cell)
+    verts, faces, depth = _drop_crumbs(verts, faces, cell, depth)
     from assetkit.simplify import simplify
 
-    verts, faces = simplify(verts, faces, max_triangles)
+    # Simplify to most of the budget, weighing each vertex by how thin the shape is there; then
+    # spend the rest splitting edges that are long for the thickness where they lie (thin limbs
+    # sampled by only a cell or two), each new vertex put on the true surface; then even out.
+    weights = np.clip((float(np.median(depth)) / depth) ** 2, 0.25, 64.0)
+    verts, faces = simplify(verts, faces, max(8, int(max_triangles * REFINE_SHARE)), weights)
     verts = _project(shape, verts, faces, cell)
+    verts, faces = _refine(shape, verts, faces, max_triangles, cell)
+    verts = _relax(shape, verts, faces, cell)
     return [tuple(map(float, v)) for v in verts], [list(map(int, f)) for f in faces]
 
 
-def _drop_crumbs(verts: np.ndarray, faces: np.ndarray, cell: float) -> tuple[np.ndarray, np.ndarray]:
+REFINE_SHARE = 0.85  # of the budget left after simplifying; refining thin parts takes the rest
+FINEST = 0.5  # thin parts may halve the sampling step (four times the triangles to simplify)
+
+
+def _half_thickness(shape: Shape, points: np.ndarray, cell: float) -> np.ndarray:
+    """Per surface point, half the shape's thickness there: the deepest it gets straight in
+    (at least half a cell)."""
+    h = cell * 0.5
+    grad = np.stack(
+        [shape(points + np.eye(3)[k] * h) - shape(points - np.eye(3)[k] * h) for k in range(3)], axis=1
+    )
+    normal = grad / np.maximum(_length(grad), 1e-12)[:, None]
+    lower, upper = _vec(shape.lower), _vec(shape.upper)
+    reach = float((upper - lower).max())
+    depth = np.zeros(len(points))
+    t = cell * 0.5
+    while t < reach:
+        depth = np.maximum(depth, -shape(points - normal * t))
+        t *= 1.5
+    return np.maximum(depth, cell * 0.5)
+
+
+def _refine(
+    shape: Shape, verts: np.ndarray, faces: np.ndarray, budget: int, cell: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Split the edges longest for the thickness where they lie (each split adds two
+    triangles), new vertices on the surface, until the budget is spent or every edge is short
+    enough: about 0.7 half-thicknesses, some nine around a round limb."""
+    verts = [tuple(v) for v in verts.tolist()]
+    tris = [list(f) for f in faces.tolist()]
+    for _ in range(12):
+        room = (budget - len(tris)) // 2
+        if room <= 0:
+            break
+        edge_faces: dict[tuple[int, int], list[int]] = {}
+        for index, f in enumerate(tris):
+            for k in range(3):
+                a, b = f[k], f[(k + 1) % 3]
+                edge_faces.setdefault((min(a, b), max(a, b)), []).append(index)
+        edges = [e for e, owners in edge_faces.items() if len(owners) == 2]
+        ends = np.array(edges, dtype=np.int64)
+        pos = np.array(verts)
+        mid = (pos[ends[:, 0]] + pos[ends[:, 1]]) / 2
+        length = _length(pos[ends[:, 0]] - pos[ends[:, 1]])
+        half = _half_thickness(shape, mid, cell)
+        ratio = length / (0.7 * half)
+        # Thinner than the sampling resolved, the coarse mesh is not the shape there (a thin
+        # wall meshes as a slab or a hole): adding vertices to it would only show that.
+        ratio[half < 0.75 * cell] = 0.0
+        order = np.argsort(-ratio, kind="stable")
+        used: set[int] = set()
+        chosen = []
+        for i in order:
+            if ratio[i] <= 1.0 or len(chosen) >= room:
+                break
+            owners = edge_faces[edges[i]]
+            if owners[0] in used or owners[1] in used:
+                continue
+            used.update(owners)
+            chosen.append(i)
+        if not chosen:
+            break
+        new_points = _project_points(shape, mid[chosen], cell)
+        for i, point in zip(chosen, new_points, strict=True):
+            a, b = edges[i]
+            m = len(verts)
+            verts.append(tuple(point))
+            for index in edge_faces[(a, b)]:
+                f = tris[index]
+                k = next(k for k in range(3) if {f[k], f[(k + 1) % 3]} == {a, b})
+                p, q, r = f[k], f[(k + 1) % 3], f[(k + 2) % 3]
+                tris[index] = [p, m, r]
+                tris.append([m, q, r])
+    return np.array(verts, dtype=np.float64), np.array(tris, dtype=np.int64)
+
+
+def _project_points(shape: Shape, points: np.ndarray, cell: float) -> np.ndarray:
+    h = cell * 0.25
+    moved = points.copy()
+    for _ in range(4):
+        d = shape(moved)
+        grad = np.stack([(shape(moved + o) - shape(moved - o)) / (2 * h) for o in np.eye(3) * h], axis=1)
+        moved = moved - (d / np.maximum(_dot(grad, grad), 1e-12))[:, None] * grad
+    return moved
+
+
+def _relax(shape: Shape, verts: np.ndarray, faces: np.ndarray, cell: float, rounds: int = 3) -> np.ndarray:
+    """Even out the triangles: move each vertex half way to its neighbours' centre along the
+    surface, then back onto it (a move that would turn a face over is undone)."""
+    edges = np.concatenate([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    count = np.bincount(edges[:, 0], minlength=len(verts)).astype(np.float64)
+    h = cell * 0.25
+    for _ in range(rounds):
+        centre = np.zeros_like(verts)
+        np.add.at(centre, edges[:, 0], verts[edges[:, 1]])
+        centre /= np.maximum(count, 1.0)[:, None]
+        grad = np.stack([(shape(verts + o) - shape(verts - o)) / (2 * h) for o in np.eye(3) * h], axis=1)
+        normal = grad / np.maximum(_length(grad), 1e-12)[:, None]
+        step = centre - verts
+        step -= _dot(step, normal)[:, None] * normal
+        verts = _project(shape, verts + 0.5 * step, faces, cell, start=verts)
+    return verts
+
+
+def _drop_crumbs(
+    verts: np.ndarray, faces: np.ndarray, cell: float, values: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
     """Drop loose bits smaller than the sampling can resolve: under two cells across. They are
     what is left of a feature thinner than a cell (the tip of a thin horn or ear), not a part of
     the shape; a real separate piece is bigger. Thicken the feature to keep it."""
@@ -527,12 +794,12 @@ def _drop_crumbs(verts: np.ndarray, faces: np.ndarray, cell: float) -> tuple[np.
         if (pts.max(axis=0) - pts.min(axis=0)).max() < 2 * cell:
             keep[mine] = False
     if keep.all():
-        return verts, faces
+        return verts, faces, values
     faces = faces[keep]
     used = np.unique(faces)
     remap = np.full(len(verts), -1, dtype=np.int64)
     remap[used] = np.arange(len(used))
-    return verts[used], remap[faces]
+    return verts[used], remap[faces], (None if values is None else values[used])
 
 
 def reduce(shape: Shape, shell_mesh: Shell, max_triangles: int) -> Shell:
@@ -549,13 +816,17 @@ def reduce(shape: Shape, shell_mesh: Shell, max_triangles: int) -> Shell:
     return [tuple(map(float, v)) for v in verts], [list(map(int, f)) for f in faces]
 
 
-def _project(shape: Shape, verts: np.ndarray, faces: np.ndarray, cell: float) -> np.ndarray:
+def _project(
+    shape: Shape, verts: np.ndarray, faces: np.ndarray, cell: float, start: np.ndarray | None = None
+) -> np.ndarray:
     """Pull each vertex onto the true surface (simplifying leaves curved parts a little inside),
     a few Newton steps along the distance gradient. A vertex whose move would turn a face over
-    stays where it was."""
+    stays where it was (at `start`, when given: where it was before the caller moved it)."""
     h = cell * 0.25
     offsets = np.eye(3) * h
     moved = verts.copy()
+    if start is not None:
+        verts = start
     for _ in range(3):
         d = shape(moved)
         grad = np.stack([(shape(moved + o) - shape(moved - o)) / (2 * h) for o in offsets], axis=1)

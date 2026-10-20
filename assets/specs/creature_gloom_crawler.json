@@ -1,0 +1,699 @@
+{
+  "spec_version": 1,
+  "id": "creature_gloom_crawler",
+  "generator": "organic.sculpt",
+  "params": {
+    "parts": {
+      "head": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.42,
+            0.25
+          ],
+          "radii": [
+            0.1,
+            0.09,
+            0.075
+          ]
+        }
+      },
+      "eye": {
+        "sphere": {
+          "centre": [
+            0.075,
+            -0.47,
+            0.29
+          ],
+          "radius": 0.026
+        }
+      },
+      "mandible": {
+        "capsule": {
+          "a": [
+            0.045,
+            -0.49,
+            0.21
+          ],
+          "b": [
+            0.02,
+            -0.6,
+            0.19
+          ],
+          "radius": 0.02,
+          "radius_b": 0.006
+        }
+      },
+      "thorax1": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.29,
+            0.27
+          ],
+          "radii": [
+            0.11,
+            0.08,
+            0.085
+          ]
+        }
+      },
+      "thorax2": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.16,
+            0.28
+          ],
+          "radii": [
+            0.13,
+            0.085,
+            0.095
+          ]
+        }
+      },
+      "thorax3": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            -0.03,
+            0.28
+          ],
+          "radii": [
+            0.13,
+            0.085,
+            0.095
+          ]
+        }
+      },
+      "abd1": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.1,
+            0.29
+          ],
+          "radii": [
+            0.16,
+            0.1,
+            0.11
+          ]
+        }
+      },
+      "abd2": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.25,
+            0.29
+          ],
+          "radii": [
+            0.165,
+            0.1,
+            0.11
+          ]
+        }
+      },
+      "abd3": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.39,
+            0.27
+          ],
+          "radii": [
+            0.14,
+            0.09,
+            0.095
+          ]
+        }
+      },
+      "abd4": {
+        "ellipsoid": {
+          "centre": [
+            0,
+            0.51,
+            0.24
+          ],
+          "radii": [
+            0.09,
+            0.08,
+            0.07
+          ]
+        }
+      },
+      "femur1": {
+        "capsule": {
+          "a": [
+            0.09,
+            -0.29,
+            0.26
+          ],
+          "b": [
+            0.34,
+            -0.362,
+            0.4
+          ],
+          "radius": 0.03,
+          "radius_b": 0.022
+        }
+      },
+      "tibia1": {
+        "capsule": {
+          "a": [
+            0.34,
+            -0.362,
+            0.4
+          ],
+          "b": [
+            0.5,
+            -0.41,
+            0.02
+          ],
+          "radius": 0.021,
+          "radius_b": 0.011
+        }
+      },
+      "femur2": {
+        "capsule": {
+          "a": [
+            0.09,
+            -0.16,
+            0.26
+          ],
+          "b": [
+            0.34,
+            -0.16,
+            0.4
+          ],
+          "radius": 0.03,
+          "radius_b": 0.022
+        }
+      },
+      "tibia2": {
+        "capsule": {
+          "a": [
+            0.34,
+            -0.16,
+            0.4
+          ],
+          "b": [
+            0.5,
+            -0.16,
+            0.02
+          ],
+          "radius": 0.021,
+          "radius_b": 0.011
+        }
+      },
+      "femur3": {
+        "capsule": {
+          "a": [
+            0.09,
+            -0.03,
+            0.26
+          ],
+          "b": [
+            0.34,
+            0.048,
+            0.4
+          ],
+          "radius": 0.03,
+          "radius_b": 0.022
+        }
+      },
+      "tibia3": {
+        "capsule": {
+          "a": [
+            0.34,
+            0.048,
+            0.4
+          ],
+          "b": [
+            0.5,
+            0.1,
+            0.02
+          ],
+          "radius": 0.021,
+          "radius_b": 0.011
+        }
+      }
+    },
+    "shape": {
+      "above": {
+        "height": 0.0,
+        "shape": {
+          "smooth_union": {
+            "k": 0.015,
+            "shapes": [
+              {
+                "smooth_union": {
+                  "k": 0.012,
+                  "shapes": [
+                    {
+                      "ref": "head"
+                    },
+                    {
+                      "ref": "thorax1"
+                    },
+                    {
+                      "ref": "thorax2"
+                    },
+                    {
+                      "ref": "thorax3"
+                    },
+                    {
+                      "ref": "abd1"
+                    },
+                    {
+                      "ref": "abd2"
+                    },
+                    {
+                      "ref": "abd3"
+                    },
+                    {
+                      "ref": "abd4"
+                    }
+                  ]
+                }
+              },
+              {
+                "mirror_x": {
+                  "union": [
+                    {
+                      "smooth_union": {
+                        "k": 0.012,
+                        "shapes": [
+                          {
+                            "ref": "femur1"
+                          },
+                          {
+                            "ref": "tibia1"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "smooth_union": {
+                        "k": 0.012,
+                        "shapes": [
+                          {
+                            "ref": "femur2"
+                          },
+                          {
+                            "ref": "tibia2"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "smooth_union": {
+                        "k": 0.012,
+                        "shapes": [
+                          {
+                            "ref": "femur3"
+                          },
+                          {
+                            "ref": "tibia3"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "mirror_x": {
+                  "ref": "mandible"
+                }
+              },
+              {
+                "mirror_x": {
+                  "ref": "eye"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "base_slot": "carapace",
+    "paint": {
+      "eye": {
+        "mirror_x": {
+          "sphere": {
+            "centre": [
+              0.075,
+              -0.47,
+              0.29
+            ],
+            "radius": 0.03
+          }
+        }
+      }
+    },
+    "max_triangles": 7000,
+    "rig": {
+      "bones": {
+        "body": {
+          "head": [
+            0,
+            0.0,
+            0.28
+          ],
+          "tail": [
+            0,
+            -0.3,
+            0.27
+          ]
+        },
+        "head": {
+          "parent": "body",
+          "head": [
+            0,
+            -0.34,
+            0.26
+          ],
+          "tail": [
+            0,
+            -0.5,
+            0.24
+          ]
+        },
+        "abdomen": {
+          "parent": "body",
+          "head": [
+            0,
+            0.04,
+            0.29
+          ],
+          "tail": [
+            0,
+            0.56,
+            0.24
+          ]
+        },
+        "femur1.L": {
+          "parent": "body",
+          "from": "femur1"
+        },
+        "tibia1.L": {
+          "parent": "femur1.L",
+          "from": "tibia1"
+        },
+        "femur2.L": {
+          "parent": "body",
+          "from": "femur2"
+        },
+        "tibia2.L": {
+          "parent": "femur2.L",
+          "from": "tibia2"
+        },
+        "femur3.L": {
+          "parent": "body",
+          "from": "femur3"
+        },
+        "tibia3.L": {
+          "parent": "femur3.L",
+          "from": "tibia3"
+        }
+      },
+      "carry": {
+        "body": [
+          "thorax1",
+          "thorax2",
+          "thorax3"
+        ],
+        "head": [
+          "head",
+          "eye",
+          "mandible"
+        ],
+        "abdomen": [
+          "abd1",
+          "abd2",
+          "abd3",
+          "abd4"
+        ]
+      },
+      "legs": {
+        "leg1.L": {
+          "upper": "femur1.L",
+          "lower": "tibia1.L"
+        },
+        "leg2.L": {
+          "upper": "femur2.L",
+          "lower": "tibia2.L"
+        },
+        "leg3.L": {
+          "upper": "femur3.L",
+          "lower": "tibia3.L"
+        }
+      },
+      "softness": {
+        "default": 0.012
+      },
+      "clips": {
+        "Idle": {
+          "seconds": 3.0,
+          "loop": true,
+          "motions": [
+            {
+              "move": {
+                "z": 0.005,
+                "cycles": 2
+              }
+            },
+            {
+              "turn": {
+                "bone": "head",
+                "yaw": 8,
+                "cycles": 1
+              }
+            },
+            {
+              "turn": {
+                "bone": "abdomen",
+                "pitch": 3,
+                "cycles": 2
+              }
+            },
+            {
+              "gait": {
+                "legs": {
+                  "leg1.L": 0,
+                  "leg2.R": 0,
+                  "leg3.L": 0,
+                  "leg1.R": 0,
+                  "leg2.L": 0,
+                  "leg3.R": 0
+                },
+                "stride": 0.0,
+                "lift": 0.0,
+                "duty": 0.95
+              }
+            }
+          ]
+        },
+        "Walk": {
+          "seconds": 1.2,
+          "loop": true,
+          "motions": [
+            {
+              "gait": {
+                "legs": {
+                  "leg1.L": 0,
+                  "leg2.R": 0,
+                  "leg3.L": 0,
+                  "leg1.R": 0.5,
+                  "leg2.L": 0.5,
+                  "leg3.R": 0.5
+                },
+                "stride": 0.16,
+                "lift": 0.05,
+                "duty": 0.55,
+                "cycles": 2
+              }
+            },
+            {
+              "turn": {
+                "bone": "abdomen",
+                "yaw": 4,
+                "cycles": 2
+              }
+            },
+            {
+              "move": {
+                "z": 0.006,
+                "wave": "bounce",
+                "cycles": 4
+              }
+            }
+          ]
+        },
+        "Lunge": {
+          "seconds": 0.9,
+          "loop": false,
+          "motions": [
+            {
+              "keys": {
+                "at": [
+                  {
+                    "t": 0
+                  },
+                  {
+                    "t": 0.35,
+                    "turns": {
+                      "body": {
+                        "pitch": -8
+                      },
+                      "head": {
+                        "pitch": -10
+                      }
+                    },
+                    "move": [
+                      0,
+                      0.06,
+                      0.0
+                    ]
+                  },
+                  {
+                    "t": 0.55,
+                    "turns": {
+                      "body": {
+                        "pitch": 10
+                      },
+                      "head": {
+                        "pitch": 14
+                      }
+                    },
+                    "move": [
+                      0,
+                      -0.12,
+                      0.04
+                    ]
+                  },
+                  {
+                    "t": 1.0
+                  }
+                ]
+              }
+            },
+            {
+              "gait": {
+                "legs": {
+                  "leg1.L": 0,
+                  "leg2.R": 0,
+                  "leg3.L": 0,
+                  "leg1.R": 0,
+                  "leg2.L": 0,
+                  "leg3.R": 0
+                },
+                "stride": 0.0,
+                "lift": 0.0,
+                "duty": 0.95
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "materials": {
+    "carapace": {
+      "base_color": [
+        0.06,
+        0.05,
+        0.035,
+        1
+      ],
+      "roughness": 0.32,
+      "metallic": 0.0,
+      "pattern": {
+        "layers": [
+          {
+            "mottle": {
+              "color": [
+                0.12,
+                0.085,
+                0.045
+              ],
+              "scale": 10,
+              "coverage": 0.4,
+              "contrast": 2
+            }
+          },
+          {
+            "cells": {
+              "color": [
+                0.02,
+                0.018,
+                0.012
+              ],
+              "size": 0.07,
+              "width": 0.004,
+              "amount": 0.7,
+              "seed": 3
+            }
+          },
+          {
+            "facing": {
+              "color": [
+                0.16,
+                0.12,
+                0.06
+              ],
+              "angle": 40,
+              "soft": 30,
+              "breakup": 0.4,
+              "scale": 12,
+              "amount": 0.5,
+              "roughness": 0.22
+            }
+          },
+          {
+            "cavities": {
+              "color": [
+                0.01,
+                0.01,
+                0.008
+              ],
+              "radius": 0.03,
+              "amount": 0.9,
+              "roughness": 0.6
+            }
+          },
+          {
+            "edges": {
+              "color": [
+                0.3,
+                0.2,
+                0.09
+              ],
+              "radius": 0.025,
+              "amount": 0.7,
+              "breakup": 0.3
+            }
+          }
+        ]
+      }
+    },
+    "eye": {
+      "base_color": [
+        0.7,
+        0.85,
+        0.45,
+        1
+      ],
+      "roughness": 0.08,
+      "metallic": 0.0
+    }
+  },
+  "qa": {
+    "max_triangles": 8000,
+    "require_uvs": true,
+    "require_manifold": true,
+    "require_origin_at_base": true,
+    "max_dimension_m": 1.3
+  }
+}

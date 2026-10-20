@@ -185,14 +185,27 @@ def clip_report(
     edges, rest_len = edges[keep], rest_len[keep]
     lowest = math.inf
     stretch_max, stretch_min, moved, strained = 1.0, 1.0, 0.0, 0
+    worst_edges: dict[int, float] = {}  # edge index -> how far past the limits it went
     for frame in clip.frames:
         p = deform(points, skin, frame)
         lowest = min(lowest, float(p[:, 2].min()))
         ratio = np.linalg.norm(p[edges[:, 0]] - p[edges[:, 1]], axis=1) / rest_len
         stretch_max = max(stretch_max, float(ratio.max()))
         stretch_min = min(stretch_min, float(ratio.min()))
+        bad = (ratio > 2.0) | (ratio < 0.25)
         strained = max(strained, int(((ratio > 1.5) | (ratio < 0.5)).sum()))
+        for e in np.nonzero(bad)[0]:
+            excess = float(max(ratio[e] / 2.0, 0.25 / ratio[e]))
+            worst_edges[int(e)] = max(worst_edges.get(int(e), 0.0), excess)
         moved = max(moved, float(np.linalg.norm(p - points, axis=1).max()))
+    # Where it tears or folds: the bones the worst edges' ends belong to, most affected first.
+    top = dominant(skin)
+    at: dict[str, int] = {}
+    for e in worst_edges:
+        for v in edges[e]:
+            name = skin.bones[top[v]]
+            at[name] = at.get(name, 0) + 1
+    where = [name for name, _ in sorted(at.items(), key=lambda kv: -kv[1])[:3]]
     return {
         "clip": clip.name,
         "seconds": round(clip.seconds, 3),
@@ -205,6 +218,7 @@ def clip_report(
         "strained_edges": strained,
         "edges": int(len(edges)),
         "moves_m": round(moved, 4),
+        "where": where,
     }
 
 
@@ -219,10 +233,11 @@ def clip_flags(report: Mapping[str, object]) -> list[str]:
         flags.append("nothing moves")
     if report["sinks_m"] > 0.005:  # type: ignore[operator]
         flags.append(f"sinks {report['sinks_m'] * 100:.1f} cm into the ground")  # type: ignore[operator]
+    at = f" at {'/'.join(report['where'])}" if report.get("where") else ""  # type: ignore[arg-type]
     if report["stretch_max"] > 2.0:  # type: ignore[operator]
-        flags.append(f"skin tears: stretches to {report['stretch_max']:.1f}x")
+        flags.append(f"skin tears: stretches to {report['stretch_max']:.1f}x{at}")
     if report["stretch_min"] < 0.25:  # type: ignore[operator]
-        flags.append(f"skin folds: collapses to {report['stretch_min']:.2f}x")
+        flags.append(f"skin folds: collapses to {report['stretch_min']:.2f}x{at}")
     if report["strained_edges"] > 0.05 * report["edges"]:  # type: ignore[operator]
         flags.append(f"{report['strained_edges']} edges strained (weights too hard?)")
     return flags

@@ -23,10 +23,10 @@ animation, materials, the inspection sheet).
 
 | You want | Write | Reference |
 | --- | --- | --- |
-| Rocks, stumps, creatures, any organic form | an `organic.sculpt` spec: a JSON tree of shapes | "Sculpting organic forms" in ASSETKIT.md, `assets/specs/sculpt_*.json` |
-| It moves | a `rig` in that spec: bones, skin, clips (gait, turns, keys) | "Rigging and animating a sculpt", `sculpt_cave_toad.json`, `sculpt_cave_imp.json` |
-| Bark, grain, moss, worn edges, dirt | a `pattern` on the spec's material | "Materials", `sculpt_tree_stump.json`, `crate_small.json` |
-| Boxy props | `prop.kit` / `hard_surface.crate` specs | "Writing a kit generator" |
+| Rocks, stumps, creatures, any organic form | an `organic.sculpt` spec: a JSON tree of shapes | "Sculpting organic forms" in ASSETKIT.md, `assets/specs/sculpt_*.json`, `creature_*.json` |
+| It moves | a `rig` in that spec: bones, skin, clips (gait, limps, turns, keys) | "Rigging and animating a sculpt", `creature_gloom_crawler.json` (six legs), `creature_crypt_husk.json` (biped, limp) |
+| Lanterns, chests, tools, furniture: turned, cut and bent parts | a `prop.assembly` spec: exact pieces, repeated and mirrored | "Hard-surface props in JSON", `prop_crypt_lantern.json` |
+| Bark, rust, moss, chitin, worn edges, dirt, glass | a `pattern` (or `alpha`) on the spec's material | "Materials", `sculpt_tree_stump.json`, `prop_crypt_lantern.json` |
 
 ## Rules
 
@@ -34,3 +34,5 @@ animation, materials, the inspection sheet).
   Blender-version differences live in `blender/backend/compat.py`, nowhere else.
 - Same spec, same output: vary with `seed`, never with unseeded randomness.
 - Do not weaken a QA gate to get green; fix the spec or the generator.
+- Read the report's flags before you look: they name what to fix and where (`skin tears ...
+  at chest/upper_arm.L`, `cavities (layer 4) does not show`, `1 floating part`, `tips over`).

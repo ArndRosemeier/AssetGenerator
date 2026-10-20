@@ -121,7 +121,7 @@ class DeterminismTests(unittest.TestCase):
         ).displace(0.01, 9.0, seed=3, octaves=2)
         verts, faces = sdf.mesh(shape, max_triangles=600)
         digest = hashlib.sha256(repr((verts, faces)).encode()).hexdigest()
-        self.assertEqual(digest, "2e8621c924911e572606f3b6b797b9f08ecaeba863afb681028437d6ce93d073")
+        self.assertEqual(digest, "a730281ac62c3ad13be1c717c509aa3cc687764043a5b2af9647c3cd37503986")
 
 
 @unittest.skipIf(np is None, "simplify needs numpy")
