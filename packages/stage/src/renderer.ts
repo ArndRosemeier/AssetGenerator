@@ -50,6 +50,12 @@ export interface RendererOptions {
   exposure?: number;
   /** Highest device pixel ratio drawn (default 2). */
   maxPixelRatio?: number;
+  /**
+   * The depth buffer. `'reversed'` keeps precision from a metre to hundreds of kilometres in one view
+   * (Solarpolis); `'logarithmic'` does too where reversed depth is missing, at a cost per fragment.
+   * Part of every shader's cache key: choose it once, before the warm-up. Default `'standard'`.
+   */
+  depth?: 'standard' | 'reversed' | 'logarithmic';
 }
 
 export async function createRenderer(canvas: HTMLCanvasElement, opts: RendererOptions): Promise<RendererInfo> {
@@ -65,7 +71,10 @@ export async function createRenderer(canvas: HTMLCanvasElement, opts: RendererOp
     const support = graphicsSupport();
     if (!support.webgl2 && (!support.webgpu || opts.forceWebGL)) throw new GraphicsUnavailable('this browser offers neither WebGPU nor WebGL 2');
   }
-  const renderer = new WebGPURenderer({ canvas, antialias: true, forceWebGL: opts.forceWebGL ?? false });
+  const renderer = new WebGPURenderer({
+    canvas, antialias: true, forceWebGL: opts.forceWebGL ?? false,
+    reversedDepthBuffer: opts.depth === 'reversed', logarithmicDepthBuffer: opts.depth === 'logarithmic',
+  });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, opts.maxPixelRatio ?? 2));
   // Filmic tone mapping: bright surfaces roll off into warm highlights instead of clipping to flat
   // white (it is applied in the output pass, so no material shader changes with it).
