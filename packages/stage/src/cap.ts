@@ -1,19 +1,33 @@
 /**
- * The shader cap (see the game's docs/SHADERS.md): after the loading screen, new shaders start at most
- * `maxPerSecond` per second and at least `1000 / maxPerSecond` ms apart, one per frame. With each
- * compile under 100 ms, at most half of any stretch of time goes to shaders, so the game never
- * freezes. During warm-up (`active = false`) everything compiles at full speed.
+ * The shader cap (see the game's docs/SHADERS.md): after the loading screen, shader builds take at most a third of
+ * the time (`share`), spread evenly: a build that took t ms is followed by at least 2t ms without one, and there is at
+ * most one per frame. Quick builds (a skinned mesh's shadow shader, 1 to 2 ms) follow each other closely; a slow one
+ * keeps the next one waiting longer. With each build under 100 ms, the game never freezes. During warm-up
+ * (`active = false`) everything builds at full speed.
  *
- * Ported from Scale (src/render/shaderCap.ts) via Dunfinity, with the clock injectable for tests.
+ * Each slot is given back with the function `slot` resolves to, once its build is done: the build's time sets the
+ * wait before the next one. A slot never given back holds the cap for at most `STALE_MS`.
+ *
+ * Ported from Scale (src/render/shaderCap.ts) via Dunfinity, with the clock injectable for tests; the share of time in
+ * place of a count per second (Arnd, 2026-10-22: "shader time can only be 1/3 of the time and needs to be spaced out
+ * evenly").
  */
+const STALE_MS = 1000;
+
+/** Gives the slot back once its build is done (again: nothing). */
+export type Release = () => void;
+
 export class ShaderCap {
-  maxPerSecond = 5;
+  /** The most of any stretch of time that shader builds may take. */
+  share = 1 / 3;
   /** Off during warm-up. */
   active = false;
   /** Builds waiting for room right now. */
   waiting = 0;
-  private spent: number[] = [];
-  private lastAt = -1e9;
+  /** No build starts before this time (the wait after the last one). */
+  private freeAt = -1e9;
+  /** When the slot still out was taken (null: none is out). */
+  private busySince: number | null = null;
   private frameTaken = false;
 
   constructor(private readonly now: () => number = () => performance.now(), private readonly nextFrame: (fn: () => void) => void = (fn) => requestAnimationFrame(fn)) {}
@@ -21,35 +35,37 @@ export class ShaderCap {
   /** Once per frame, before anything starts a build. */
   newFrame(): void { this.frameTaken = false; }
 
-  private lastSecond(t: number): number {
-    while (this.spent.length && this.spent[0] <= t - 1000) this.spent.shift();
-    return this.spent.length;
-  }
-
   room(): boolean {
-    if (!this.active || this.maxPerSecond <= 0) return true;
+    if (!this.active || this.share >= 1) return true;
     const t = this.now();
-    return !this.frameTaken && t - this.lastAt >= 1000 / this.maxPerSecond && this.lastSecond(t) < this.maxPerSecond;
+    if (this.busySince !== null && t - this.busySince < STALE_MS) return false;
+    return !this.frameTaken && t >= this.freeAt;
   }
 
-  /** Book one new shader starting now. */
-  take(): void {
-    const t = this.now();
+  /** Book one build starting now. */
+  take(): Release {
+    const t0 = this.now();
     this.frameTaken = true;
-    this.lastAt = t;
-    this.spent.push(t);
+    this.busySince = t0;
+    let given = false;
+    return () => {
+      if (given) return;
+      given = true;
+      const t = this.now();
+      if (this.busySince === t0) this.busySince = null;
+      if (this.share > 0) this.freeAt = Math.max(this.freeAt, t + (t - t0) * (1 / this.share - 1));
+    };
   }
 
-  /** Resolves on a frame with room, and takes it. */
-  slot(): Promise<void> {
-    if (this.room()) { this.take(); return Promise.resolve(); }
+  /** Resolves on a frame with room, and takes it; give it back once the build is done. */
+  slot(): Promise<Release> {
+    if (this.room()) return Promise.resolve(this.take());
     this.waiting++;
     return new Promise((res) => {
       const again = (): void => {
         if (!this.room()) { this.nextFrame(again); return; }
         this.waiting--;
-        this.take();
-        res();
+        res(this.take());
       };
       this.nextFrame(again);
     });
