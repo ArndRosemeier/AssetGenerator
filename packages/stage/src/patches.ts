@@ -93,7 +93,7 @@ function asyncDrawPipelines(renderer: WebGPURenderer): boolean {
  * then never shows the object's own texture: Actors' eyes and skins came out white. A binding whose texture is about
  * to change forgets its generation, so the switch always rebuilds its group.
  */
-function rebindSwitchedTextures(renderer: WebGPURenderer): boolean {
+export function rebindSwitchedTextures(renderer: WebGPURenderer): boolean {
   const bindings = (renderer as Any)._bindings;
   const update = bindings?._update;
   if (typeof update !== 'function') return false;
