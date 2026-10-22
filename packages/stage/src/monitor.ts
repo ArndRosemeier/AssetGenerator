@@ -1,7 +1,7 @@
 /**
  * Shader monitor (see the game's docs/SHADERS.md): records every shader build and how long it blocked the main
- * thread, and checks the policy: under 100 ms each, and after warm-up at most 5 starts per second,
- * at least 200 ms apart. `window.shaders.report()` in the console; a game shows `stage.hudLine()` in its HUD or debug menu. From Dunfinity src/render/shaders/monitor.ts.
+ * thread, and checks the policy: under 100 ms each, and after warm-up builds take at most a third of the time, spread
+ * evenly: after a build of t ms, the next starts no sooner than 2t ms after it ended (the cap, cap.ts). `window.shaders.report()` in the console; a game shows `stage.hudLine()` in its HUD or debug menu. From Dunfinity src/render/shaders/monitor.ts.
  */
 export type Phase = 'warmup' | 'run';
 export type BuildKind = 'node-sync' | 'node-async' | 'gpu-module' | 'gpu-pipeline-sync' | 'gpu-pipeline-async' | 'gl-link';
@@ -15,7 +15,8 @@ const STARTS: ReadonlySet<BuildKind> = new Set(['node-sync', 'node-async']);
 
 export class ShaderMonitor {
   readonly budgetMs = 100;
-  readonly maxPerSecond = 5;
+  /** The most of any stretch of time that builds may take after warm-up (as the cap's `share`). */
+  readonly share = 1 / 3;
   phase: Phase = 'warmup';
   /** Why the render path builds right now, if on purpose (appended to what synchronous builds record), e.g. the Stage's shadow warm-up. */
   note = '';
@@ -40,12 +41,11 @@ export class ShaderMonitor {
     for (const e of this.events) {
       if (BLOCKING.has(e.kind) && e.ms > this.budgetMs) out.push(`${e.phase}: ${e.kind} "${e.what}" blocked ${e.ms.toFixed(0)} ms (budget ${this.budgetMs} ms)`);
     }
-    const starts = this.events.filter((e) => e.phase === 'run' && STARTS.has(e.kind)).map((e) => e.t).sort((a, b) => a - b);
-    const gap = 1000 / this.maxPerSecond;
-    for (let i = 0; i < starts.length; i++) {
-      if (i > 0 && starts[i] - starts[i - 1] < gap - 1) out.push(`run: two shader builds ${(starts[i] - starts[i - 1]).toFixed(0)} ms apart (minimum ${gap} ms)`);
-      const inSecond = starts.filter((s) => s > starts[i] - 1000 && s <= starts[i]).length;
-      if (inSecond > this.maxPerSecond) out.push(`run: ${inSecond} shader builds within one second (maximum ${this.maxPerSecond})`);
+    const starts = this.events.filter((e) => e.phase === 'run' && STARTS.has(e.kind)).sort((a, b) => a.t - b.t);
+    const rest = 1 / this.share - 1;
+    for (let i = 1; i < starts.length; i++) {
+      const a = starts[i - 1], b = starts[i], earliest = a.t + a.ms + a.ms * rest;
+      if (b.t < earliest - 1) out.push(`run: "${b.what}" started ${(b.t - a.t - a.ms).toFixed(0)} ms after a build of ${a.ms.toFixed(0)} ms ended (minimum ${(a.ms * rest).toFixed(0)} ms)`);
     }
     return out;
   }

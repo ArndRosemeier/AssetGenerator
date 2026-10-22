@@ -176,7 +176,7 @@ export class Stage {
     const masks = meshes.map((m) => m.layers.mask), culled = meshes.map((m) => m.frustumCulled);
     for (const m of meshes) m.layers.disableAll();
     for (const m of fresh) {
-      await this.cap.slot();
+      const release = await this.cap.slot();
       this.monitor.note = 'shadow warm-up';
       // Shown even if hidden or empty now (a pool with nobody in it yet): it will be drawn later.
       const hidden: Object3D[] = [];
@@ -195,6 +195,7 @@ export class Stage {
       if (inst) inst.count = count;
       for (const p of hidden) p.visible = false;
       this.monitor.note = '';
+      release();
     }
     meshes.forEach((m, i) => { m.layers.mask = masks[i]; m.frustumCulled = culled[i]; });
   }
