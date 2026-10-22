@@ -16,6 +16,7 @@ export function installShaderPolicy(renderer: WebGPURenderer, cap: ShaderCap, mo
   const missing: string[] = [];
   if (!queueNodeBuilds(renderer, cap, monitor)) missing.push('node build queue');
   if (!asyncDrawPipelines(renderer)) missing.push('async draw pipelines');
+  if (!rebindSwitchedTextures(renderer)) missing.push('texture rebind');
   noPerFrameUploads();
   timeGpu(monitor);
   return missing;
@@ -80,6 +81,25 @@ function asyncDrawPipelines(renderer: WebGPURenderer): boolean {
   pipelines.updateForRender = function (this: Any, ro: Any) {
     if (inFlight >= MAX_DRAW_PIPES && this.get(ro).pipeline === undefined) return;
     this.getForRender(ro, sink);
+  };
+  return true;
+}
+
+/**
+ * A texture node whose value changes between draws (a shared material's per-object texture: Actors' eyes and skin
+ * photos) must get a bind group with the new texture. three r186 rebuilds it only when the new texture's generation
+ * (its `version`) differs from the binding's, so a switch between two textures of the same version (both uploaded
+ * once: version 1) keeps the old one bound. Compiled ahead (the Stage), a binding starts on the node's fallback and
+ * then never shows the object's own texture: Actors' eyes and skins came out white. A binding whose texture is about
+ * to change forgets its generation, so the switch always rebuilds its group.
+ */
+function rebindSwitchedTextures(renderer: WebGPURenderer): boolean {
+  const bindings = (renderer as Any)._bindings;
+  const update = bindings?._update;
+  if (typeof update !== 'function') return false;
+  bindings._update = function (this: Any, group: Any, all: Any) {
+    for (const b of group?.bindings ?? []) if (b.isSampledTexture && b.textureNode && b.texture !== b.textureNode.value) b.generation = null;
+    return update.call(this, group, all);
   };
   return true;
 }
