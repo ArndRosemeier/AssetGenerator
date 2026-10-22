@@ -4,9 +4,9 @@
  * skipped and `installShaderPolicy` says which, so the monitor still shows what happens.
  * Adapted from Scale (src/render/webgpu/index.ts) via Dunfinity (src/render/shaders/patches.ts).
  */
-import { BufferAttribute, InterleavedBuffer, DynamicDrawUsage, StaticDrawUsage, type WebGPURenderer } from 'three/webgpu';
+import { BufferAttribute, InterleavedBuffer, DynamicDrawUsage, NodeUpdateType, StaticDrawUsage, TextureNode, type WebGPURenderer } from 'three/webgpu';
 import type { ShaderCap } from './cap';
-import type { ShaderMonitor } from './monitor';
+import { codeHash, type ShaderMonitor } from './monitor';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -16,6 +16,8 @@ export function installShaderPolicy(renderer: WebGPURenderer, cap: ShaderCap, mo
   const missing: string[] = [];
   if (!queueNodeBuilds(renderer, cap, monitor)) missing.push('node build queue');
   if (!asyncDrawPipelines(renderer)) missing.push('async draw pipelines');
+  if (!rebindSwitchedTextures(renderer)) missing.push('texture rebind');
+  if (!keepTextureUpdates()) missing.push('texture node updates');
   noPerFrameUploads();
   timeGpu(monitor);
   return missing;
@@ -42,14 +44,15 @@ function queueNodeBuilds(renderer: WebGPURenderer, cap: ShaderCap, monitor: Shad
   let last: Promise<unknown> = Promise.resolve();
   nodes.getForRender = function (this: Any, ro: Any, useAsync = false) {
     if (!needsBuild(ro)) return getForRender.call(this, ro, useAsync);
-    if (!useAsync) return monitor.time('node-sync', label(ro), () => getForRender.call(this, ro, false));
+    if (!useAsync) return monitor.time('node-sync', label(ro), () => getForRender.call(this, ro, false), codeOf);
     const run = last.then(async () => {
       // An identical object queued earlier may have built this shader meanwhile: then it is a cache hit.
       if (!needsBuild(ro)) return getForRender.call(this, ro, true);
       const release = await cap.slot();
       const t0 = performance.now();
-      return Promise.resolve(getForRender.call(this, ro, true)).finally(() => {
-        monitor.record('node-async', performance.now() - t0, label(ro), t0);
+      let made: unknown;
+      return Promise.resolve(getForRender.call(this, ro, true)).then((state) => (made = state)).finally(() => {
+        monitor.record('node-async', performance.now() - t0, label(ro), t0, codeOf(made));
         release();
       });
     });
@@ -58,6 +61,12 @@ function queueNodeBuilds(renderer: WebGPURenderer, cap: ShaderCap, monitor: Shad
   };
   return true;
 }
+
+/** The hash of the code a node build made (a NodeBuilderState), to find the same shader built twice. */
+const codeOf = (state: unknown): number | undefined => {
+  const s = state as { vertexShader?: string; fragmentShader?: string; computeShader?: string } | undefined;
+  return s && (s.vertexShader || s.fragmentShader || s.computeShader) ? codeHash(s.vertexShader, s.fragmentShader, s.computeShader) : undefined;
+};
 
 /**
  * A pipeline nobody compiled ahead is created while drawing, blocking the frame (~0.1 s each).
@@ -73,6 +82,49 @@ function asyncDrawPipelines(renderer: WebGPURenderer): boolean {
   pipelines.updateForRender = function (this: Any, ro: Any) {
     if (inFlight >= MAX_DRAW_PIPES && this.get(ro).pipeline === undefined) return;
     this.getForRender(ro, sink);
+  };
+  return true;
+}
+
+/**
+ * A texture node whose value changes between draws (a shared material's per-object texture: Actors' eyes and skin
+ * photos) must get a bind group with the new texture. three r186 rebuilds it only when the new texture's generation
+ * (its `version`) differs from the binding's, so a switch between two textures of the same version (both uploaded
+ * once: version 1) keeps the old one bound. Compiled ahead (the Stage), a binding starts on the node's fallback and
+ * then never shows the object's own texture: Actors' eyes and skins came out white. A binding whose texture is about
+ * to change forgets its generation, so the switch always rebuilds its group.
+ */
+export function rebindSwitchedTextures(renderer: WebGPURenderer): boolean {
+  const bindings = (renderer as Any)._bindings;
+  const update = bindings?._update;
+  if (typeof update !== 'function') return false;
+  bindings._update = function (this: Any, group: Any, all: Any) {
+    for (const b of group?.bindings ?? []) if (b.isSampledTexture && b.textureNode && b.texture !== b.textureNode.value) b.generation = null;
+    return update.call(this, group, all);
+  };
+  return true;
+}
+
+/**
+ * A texture node given its own update (`onObjectUpdate`, `onFrameUpdate`: a shared material's per-object texture,
+ * Actors' eyes and skin photos) must keep it. three r186's TextureNode sets its update type while building its uv
+ * (from the uv matrix and flipY alone), which switched such an update off: the node kept its fallback texture for
+ * good. From its setup on, such a node's update type can be set, but not taken back to none.
+ */
+let textureUpdatesKept = false;
+export function keepTextureUpdates(): boolean {
+  const proto = (TextureNode as Any)?.prototype;
+  if (typeof proto?.setup !== 'function') return false;
+  if (textureUpdatesKept) return true;
+  textureUpdatesKept = true;
+  const setup = proto.setup;
+  proto.setup = function (this: Any, builder: unknown) {
+    if (Object.prototype.hasOwnProperty.call(this, 'update') && this.updateType !== NodeUpdateType.NONE && !this.keepsUpdate) {
+      let kept = this.updateType;
+      Object.defineProperty(this, 'updateType', { configurable: true, enumerable: true, get: () => kept, set: (t: string) => { if (t !== NodeUpdateType.NONE) kept = t; } });
+      this.keepsUpdate = true;
+    }
+    return setup.call(this, builder);
   };
   return true;
 }

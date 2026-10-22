@@ -233,7 +233,7 @@ export class Stage {
   /** One HUD line on the shader policy (plus any renderer hooks that could not be installed). */
   hudLine(): string {
     const s = this.monitor.summary();
-    return `shaders ${s.warmup} warm-up + ${s.run} later · worst ${s.worstMs.toFixed(0)} ms · ${s.violations ? `${s.violations} POLICY VIOLATIONS (shaders.report())` : 'policy ok'}`
+    return `shaders ${s.warmup} warm-up + ${s.run} later · worst ${s.worstMs.toFixed(0)} ms · ${s.violations ? `${s.violations} POLICY VIOLATIONS (shaders.report())` : 'policy ok'}${s.repeats ? ` · ${s.repeats} built again alike (shaders.repeats())` : ''}`
       + (this.missingHooks.length ? `\nshader hooks missing: ${this.missingHooks.join(', ')}` : '');
   }
 
