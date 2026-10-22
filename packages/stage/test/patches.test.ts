@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { WebGPURenderer } from 'three/webgpu';
-import { rebindSwitchedTextures } from '../src/patches';
+import { NodeUpdateType, Texture } from 'three/webgpu';
+import { texture, uv } from 'three/tsl';
+import { keepTextureUpdates, rebindSwitchedTextures } from '../src/patches';
 
 test('rebind: a texture node switched to another texture forgets its generation, so its bind group is rebuilt', () => {
   const white = { version: 1 }, eye = { version: 1 }, seen: unknown[] = [];
@@ -18,4 +20,19 @@ test('rebind: a texture node switched to another texture forgets its generation,
   assert.equal(seen.pop(), null, 'switched: generation forgotten, so three rebuilds the group');
   assert.equal(other.generation, 7);
   assert.equal(rebindSwitchedTextures({} as WebGPURenderer), false, 'no hook without three internals');
+});
+
+test('texture node: an update of its own (onObjectUpdate) survives the build, a plain texture keeps three\'s choice', () => {
+  assert.ok(keepTextureUpdates());
+  const own = texture(new Texture(), uv()).onObjectUpdate(() => undefined) as unknown as { setup(b: unknown): unknown; updateType: string };
+  const plain = texture(new Texture(), uv()) as unknown as { setup(b: unknown): unknown; updateType: string };
+  const builder = { context: {}, getNodeProperties: () => ({}) } as unknown;
+  for (const n of [own, plain]) {
+    n.setup(builder);
+    n.updateType = NodeUpdateType.NONE; // what three's uv setup does while building
+  }
+  assert.equal(own.updateType, NodeUpdateType.OBJECT);
+  assert.equal(plain.updateType, NodeUpdateType.NONE);
+  own.updateType = NodeUpdateType.FRAME;
+  assert.equal(own.updateType, NodeUpdateType.FRAME, 'another update type can still be set');
 });

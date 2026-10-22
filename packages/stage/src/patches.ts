@@ -4,7 +4,7 @@
  * skipped and `installShaderPolicy` says which, so the monitor still shows what happens.
  * Adapted from Scale (src/render/webgpu/index.ts) via Dunfinity (src/render/shaders/patches.ts).
  */
-import { BufferAttribute, InterleavedBuffer, DynamicDrawUsage, StaticDrawUsage, type WebGPURenderer } from 'three/webgpu';
+import { BufferAttribute, InterleavedBuffer, DynamicDrawUsage, NodeUpdateType, StaticDrawUsage, TextureNode, type WebGPURenderer } from 'three/webgpu';
 import type { ShaderCap } from './cap';
 import { codeHash, type ShaderMonitor } from './monitor';
 
@@ -17,6 +17,7 @@ export function installShaderPolicy(renderer: WebGPURenderer, cap: ShaderCap, mo
   if (!queueNodeBuilds(renderer, cap, monitor)) missing.push('node build queue');
   if (!asyncDrawPipelines(renderer)) missing.push('async draw pipelines');
   if (!rebindSwitchedTextures(renderer)) missing.push('texture rebind');
+  if (!keepTextureUpdates()) missing.push('texture node updates');
   noPerFrameUploads();
   timeGpu(monitor);
   return missing;
@@ -100,6 +101,30 @@ export function rebindSwitchedTextures(renderer: WebGPURenderer): boolean {
   bindings._update = function (this: Any, group: Any, all: Any) {
     for (const b of group?.bindings ?? []) if (b.isSampledTexture && b.textureNode && b.texture !== b.textureNode.value) b.generation = null;
     return update.call(this, group, all);
+  };
+  return true;
+}
+
+/**
+ * A texture node given its own update (`onObjectUpdate`, `onFrameUpdate`: a shared material's per-object texture,
+ * Actors' eyes and skin photos) must keep it. three r186's TextureNode sets its update type while building its uv
+ * (from the uv matrix and flipY alone), which switched such an update off: the node kept its fallback texture for
+ * good. From its setup on, such a node's update type can be set, but not taken back to none.
+ */
+let textureUpdatesKept = false;
+export function keepTextureUpdates(): boolean {
+  const proto = (TextureNode as Any)?.prototype;
+  if (typeof proto?.setup !== 'function') return false;
+  if (textureUpdatesKept) return true;
+  textureUpdatesKept = true;
+  const setup = proto.setup;
+  proto.setup = function (this: Any, builder: unknown) {
+    if (Object.prototype.hasOwnProperty.call(this, 'update') && this.updateType !== NodeUpdateType.NONE && !this.keepsUpdate) {
+      let kept = this.updateType;
+      Object.defineProperty(this, 'updateType', { configurable: true, enumerable: true, get: () => kept, set: (t: string) => { if (t !== NodeUpdateType.NONE) kept = t; } });
+      this.keepsUpdate = true;
+    }
+    return setup.call(this, builder);
   };
   return true;
 }
