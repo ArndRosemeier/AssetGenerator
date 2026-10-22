@@ -6,7 +6,7 @@
  */
 import { BufferAttribute, InterleavedBuffer, DynamicDrawUsage, StaticDrawUsage, type WebGPURenderer } from 'three/webgpu';
 import type { ShaderCap } from './cap';
-import type { ShaderMonitor } from './monitor';
+import { codeHash, type ShaderMonitor } from './monitor';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Any = any;
@@ -42,14 +42,15 @@ function queueNodeBuilds(renderer: WebGPURenderer, cap: ShaderCap, monitor: Shad
   let last: Promise<unknown> = Promise.resolve();
   nodes.getForRender = function (this: Any, ro: Any, useAsync = false) {
     if (!needsBuild(ro)) return getForRender.call(this, ro, useAsync);
-    if (!useAsync) return monitor.time('node-sync', label(ro), () => getForRender.call(this, ro, false));
+    if (!useAsync) return monitor.time('node-sync', label(ro), () => getForRender.call(this, ro, false), codeOf);
     const run = last.then(async () => {
       // An identical object queued earlier may have built this shader meanwhile: then it is a cache hit.
       if (!needsBuild(ro)) return getForRender.call(this, ro, true);
       const release = await cap.slot();
       const t0 = performance.now();
-      return Promise.resolve(getForRender.call(this, ro, true)).finally(() => {
-        monitor.record('node-async', performance.now() - t0, label(ro), t0);
+      let made: unknown;
+      return Promise.resolve(getForRender.call(this, ro, true)).then((state) => (made = state)).finally(() => {
+        monitor.record('node-async', performance.now() - t0, label(ro), t0, codeOf(made));
         release();
       });
     });
@@ -58,6 +59,12 @@ function queueNodeBuilds(renderer: WebGPURenderer, cap: ShaderCap, monitor: Shad
   };
   return true;
 }
+
+/** The hash of the code a node build made (a NodeBuilderState), to find the same shader built twice. */
+const codeOf = (state: unknown): number | undefined => {
+  const s = state as { vertexShader?: string; fragmentShader?: string; computeShader?: string } | undefined;
+  return s && (s.vertexShader || s.fragmentShader || s.computeShader) ? codeHash(s.vertexShader, s.fragmentShader, s.computeShader) : undefined;
+};
 
 /**
  * A pipeline nobody compiled ahead is created while drawing, blocking the frame (~0.1 s each).
