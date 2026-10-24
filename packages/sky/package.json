@@ -1,0 +1,15 @@
+{
+  "name": "@futuremagic/sky",
+  "version": "0.1.0",
+  "description": "A physical sky for three.js WebGPURenderer games: Rayleigh/Mie sky with sun disc, phased moon, clouds, weather and horizon fog (TSL), stars, and the sun/moon path and light rig as pure numbers. From Scale.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "peerDependencies": {
+    "three": ">=0.186.0"
+  },
+  "license": "MIT"
+}
