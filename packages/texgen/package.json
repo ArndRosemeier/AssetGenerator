@@ -1,0 +1,12 @@
+{
+  "name": "@futuremagic/texgen",
+  "version": "0.1.0",
+  "description": "Procedural, tileable PBR texture layers (albedo + roughness, normal + height + AO) for facades, roofs, streets and natural ground. Pure TypeScript, runs in workers and Node. From Scale.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "license": "MIT"
+}
