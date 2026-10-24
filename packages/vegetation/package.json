@@ -1,0 +1,18 @@
+{
+  "name": "@futuremagic/vegetation",
+  "version": "0.1.0",
+  "description": "Procedural trees and shrubs for three.js games: species-shaped branching wood, leaf-card crowns with baked occlusion, far canopy hulls, procedural bark and leaf atlases, and wind-swayed node materials (TSL). From Scale.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "dependencies": {
+    "@futuremagic/core": "*"
+  },
+  "peerDependencies": {
+    "three": ">=0.186.0"
+  },
+  "license": "MIT"
+}
