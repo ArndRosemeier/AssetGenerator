@@ -3,8 +3,8 @@
  */
 import { Rng } from '@futuremagic/core';
 import { Noise } from '@futuremagic/core';
-import { RGB, TNoise, Tex, clamp01, mix, newCell, rgb, rnd, smooth, worley, wrap, wrapd } from './core';
-import { flemishBond, randomCourses, runningBond, Hit } from './layout';
+import { RGB, TNoise, Tex, mix, newCell, rgb, rnd, smooth, worley, wrap, wrapd } from './core';
+import { flemishBond, randomCourses, runningBond } from './layout';
 import { brickWall, stoneBlocks } from './masonry';
 
 type Gen = (t: Tex) => void;

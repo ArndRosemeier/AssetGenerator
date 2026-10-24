@@ -4,7 +4,7 @@
  * tile is W metres square, wraps seamlessly, row 0 = v = 0, +v is "up" (on a cliff: up the face).
  */
 import { Rng } from '@futuremagic/core';
-import { RGB, TNoise, Tex, clamp01, mix, newCell, rgb, rnd, smooth, worley } from './core';
+import { RGB, TNoise, Tex, mix, newCell, rgb, rnd, smooth, worley } from './core';
 import { pebbles, splat, stroke } from './paint';
 
 type Gen = (t: Tex) => void;
