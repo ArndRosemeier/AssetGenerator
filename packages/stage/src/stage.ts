@@ -113,9 +113,11 @@ export class Stage {
   private async warmShadows(group: Group, extra: readonly Object3D[]): Promise<void> {
     for (const o of [group, ...extra]) o.traverse((c) => { if ((c as Mesh).isMesh && (c as Mesh).castShadow) this.casters.add(casterKey(c as Mesh)); });
     const parents = extra.map((o) => o.parent);
+    // Each object's own culling flag, restored after (some never cull: things placed on the GPU).
+    const culled = new Map<Object3D, boolean>();
     for (const o of extra) {
       group.add(o);
-      o.traverse((c) => { c.frustumCulled = false; });
+      o.traverse((c) => { culled.set(c, c.frustumCulled); c.frustumCulled = false; });
     }
     this.scene.add(group);
     // A moment first for the work the compiles just started to settle (measured, not fully understood):
@@ -130,7 +132,7 @@ export class Stage {
     extra.forEach((o, i) => {
       o.removeFromParent();
       parents[i]?.add(o);
-      o.traverse((c) => { c.frustumCulled = true; });
+      o.traverse((c) => { c.frustumCulled = culled.get(c) ?? true; });
     });
   }
 
