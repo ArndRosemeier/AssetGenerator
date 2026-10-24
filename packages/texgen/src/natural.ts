@@ -14,16 +14,26 @@ const wildGrass: Gen = (t) => {
   const W = t.W;
   const nD = new TNoise(5101, W), nC = new TNoise(5102, W), nS = new TNoise(5103, W);
   t.each((u, v, _x, _y, idx) => {
-    const k = 0.75 + nS.fbm(u, v, 0.08, 3) * 0.3 + (rnd(5104, idx) - 0.5) * 0.25;
-    t.set(idx, 0.17 * k, 0.14 * k, 0.08 * k, 0.95, nS.fbm(u, v, 0.15, 3) * 0.004);
+    // Thatch: old, flattened grass under the living blades, so gaps read as grass, not as bare soil.
+    const k = 0.8 + nS.fbm(u, v, 0.08, 3) * 0.25 + (rnd(5104, idx) - 0.5) * 0.3;
+    t.set(idx, 0.25 * k, 0.26 * k, 0.12 * k, 0.95, nS.fbm(u, v, 0.15, 3) * 0.004);
   });
   const rng = new Rng(5105);
+  for (let k = 0; k < Math.round((W * W) / 0.0004); k++) {
+    const x = rng.float() * W, y = rng.float() * W, a = rng.float() * Math.PI * 2, len = rng.range(0.015, 0.04), vk = rng.range(0.6, 1.1);
+    const dry = rng.float();
+    stroke(t, x, y, a, len, (_s, idx) => {
+      const z = 0.004 + rng.float() * 0.002;
+      if (z <= t.h[idx]) return;
+      t.set(idx, mix(0.20, 0.40, dry) * vk, mix(0.27, 0.36, dry) * vk, mix(0.09, 0.18, dry) * vk, 0.9, z);
+    });
+  }
   // Tufts: blades fanning out from a root, so the grass reads as clumps, not as fur.
   const tufts = Math.round((W * W) / 0.0012);
   for (let k = 0; k < tufts; k++) {
     const x = rng.float() * W, y = rng.float() * W, u = x / W, v = y / W;
     if (rng.float() > 0.8 + 0.4 * nC.fbm(u, v, 0.4, 3)) continue;
-    const dry = smooth(0.1, 0.6, nD.fbm(u, v, 1.5, 4) + nD.fbm(u, v, 0.2, 2) * 0.3);
+    const dry = smooth(0.15, 0.7, nD.fbm(u, v, 1.5, 4) + nD.fbm(u, v, 0.2, 2) * 0.3) * 0.7;
     const blades = rng.int(5, 11), lean = rng.float() * Math.PI * 2;
     for (let b = 0; b < blades; b++) {
       const a = lean + rng.range(-1.1, 1.1), len = rng.range(0.03, 0.09), hue = rng.float(), vk = rng.range(0.65, 1.25);
