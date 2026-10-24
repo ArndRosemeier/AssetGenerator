@@ -14,7 +14,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, float, int, vec2, vec3, vec4, mix, normalize, max, abs, fract, floor, length, smoothstep, sub, add, mul, dot, sin, clamp, pow,
-  log2, cross, inverseSqrt, select, If, Discard, attribute, texture, uniformArray, uv, buffer, instanceIndex, instancedBufferAttribute,
+  log2, cross, inverseSqrt, select, If, Discard, attribute, texture, uniformArray, uv, instancedBufferAttribute,
   instancedDynamicBufferAttribute, OnBeforeFrameUpdate, modelWorldMatrix, positionGeometry, normalGeometry, positionView,
   positionViewDirection, normalView, normalViewGeometry, diffuseColor, varying, dFdx, dFdy,
 } from 'three/tsl';
@@ -62,28 +62,26 @@ const _cols = new WeakMap<THREE.InstancedBufferAttribute, Cols>();
 const _ibufs = new WeakMap<THREE.InstancedBufferAttribute, THREE.InstancedInterleavedBuffer>();
 
 /**
- * The columns of the instance matrix of the object being built (null when not instanced), read
- * the same way as three's instancing (accessors/Instance.js): a uniform buffer when it fits, else
- * instanced vertex attributes (our own interleaved copy, kept in step with the matrix's version).
- * Call inside a Fn (it registers the per-frame sync).
+ * The columns of the instance matrix of the object being built (null when not instanced), read as
+ * instanced vertex attributes (our own interleaved copy, kept in step with the matrix's version). Never a
+ * uniform buffer (three's choice for small batches): its size and name are part of the shader's code, so
+ * every batch of another size or object would build its own shaders. Call inside a Fn (it registers the
+ * per-frame sync).
  */
 function instanceCols(builder): Cols | null {
+  // Instances as geometry attributes (`instancedGeometry`): fixed names, so every batch shares its shaders.
+  if (builder.geometry?.getAttribute?.('iM0')) {
+    return { c0: attribute('iM0', 'vec4'), c1: attribute('iM1', 'vec4'), c2: attribute('iM2', 'vec4'), c3: attribute('iM3', 'vec4') };
+  }
   const object = builder.object;
   if (!object || object.isInstancedMesh !== true || !object.instanceMatrix || object.instanceMatrix.isInstancedBufferAttribute !== true) return null;
   const im = object.instanceMatrix as THREE.InstancedBufferAttribute;
-  const count = Math.max(im.count, 1);
-  const inUniforms = count * 16 * 4 <= builder.getUniformBufferLimit();
   let cols = _cols.get(im);
   if (!cols) {
-    if (inUniforms) {
-      const m = buffer(im.array, 'mat4', count).element(instanceIndex);
-      cols = { c0: m.element(int(0)), c1: m.element(int(1)), c2: m.element(int(2)), c3: m.element(int(3)) };
-    } else {
-      const ib = new THREE.InstancedInterleavedBuffer(im.array, 16, 1);
-      _ibufs.set(im, ib);
-      const fn = im.usage === THREE.DynamicDrawUsage ? instancedDynamicBufferAttribute : instancedBufferAttribute;
-      cols = { c0: fn(ib, 'vec4', 16, 0), c1: fn(ib, 'vec4', 16, 4), c2: fn(ib, 'vec4', 16, 8), c3: fn(ib, 'vec4', 16, 12) };
-    }
+    const ib = new THREE.InstancedInterleavedBuffer(im.array, 16, 1);
+    _ibufs.set(im, ib);
+    const fn = im.usage === THREE.DynamicDrawUsage ? instancedDynamicBufferAttribute : instancedBufferAttribute;
+    cols = { c0: fn(ib, 'vec4', 16, 0), c1: fn(ib, 'vec4', 16, 4), c2: fn(ib, 'vec4', 16, 8), c3: fn(ib, 'vec4', 16, 12) };
     _cols.set(im, cols);
   }
   const ib = _ibufs.get(im);
@@ -131,6 +129,36 @@ function vegWind(U: VegUniforms, I: Cols | null, p, n, w, flutter: number, seed)
   // off.y -= dot(off.xz, off.xz) * 0.12
   const o = vec3(off.x, off.y.sub(dot(off.xz, off.xz).mul(0.12)), off.z);
   return p.add(o);
+}
+
+/**
+ * A batch of `capacity` instances of `source` (its attributes and index shared) as an instanced geometry:
+ * the instance matrices are the attributes iM0..iM3 of one interleaved buffer (`matrices`, 16 floats per
+ * instance, column-major like Matrix4.elements). Draw it with a plain Mesh (not frustum-culled) and set
+ * `instanceCount`. Unlike an InstancedMesh, batches of any size and number share their shaders.
+ */
+export function instancedGeometry(source: THREE.BufferGeometry, capacity: number): { geometry: THREE.InstancedBufferGeometry; matrices: Float32Array; buffer: THREE.InstancedInterleavedBuffer } {
+  const g = new THREE.InstancedBufferGeometry();
+  for (const [name, a] of Object.entries(source.attributes)) g.setAttribute(name, a);
+  g.setIndex(source.index);
+  const matrices = new Float32Array(capacity * 16);
+  const buffer = new THREE.InstancedInterleavedBuffer(matrices, 16, 1);
+  buffer.setUsage(THREE.DynamicDrawUsage);
+  for (let c = 0; c < 4; c++) g.setAttribute(`iM${c}`, new THREE.InterleavedBufferAttribute(buffer, 4, c * 4));
+  g.instanceCount = 0;
+  return { geometry: g, matrices, buffer };
+}
+
+/** Normals turned by the instance matrix when the instances are geometry attributes (iM0..iM3). */
+function instanceNormals(mat: THREE.NodeMaterial): void {
+  const pos = mat.setupPosition;
+  mat.setupPosition = function (builder) {
+    if (builder.geometry?.getAttribute?.('iM0')) {
+      const M = mat4(attribute('iM0', 'vec4'), attribute('iM1', 'vec4'), attribute('iM2', 'vec4'), attribute('iM3', 'vec4'));
+      normalLocal.assign(transformNormal(normalLocal, M));
+    }
+    return pos.call(this, builder);
+  };
 }
 
 /** positionNode: the swaying vertex (transformed = vegWind(...)) followed by the instance matrix. */
@@ -200,6 +228,7 @@ const tangentFrameNormal = Fn(([eyePos, N, st, mapN]) => {
 export function createBarkNodeMaterial(map: THREE.Texture, normalMap: THREE.Texture, strips: number, U: VegUniforms): THREE.MeshStandardNodeMaterial {
   const mat = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0 });
   mat.positionNode = windPosition(U, 0.0, null);
+  instanceNormals(mat);
   const vMapUv = uv();
   const vOcc = attribute('aOcc', 'float');
   const S = float(strips);
@@ -242,6 +271,7 @@ export function createLeafNodeMaterial(atlas: THREE.Texture, autumn: THREE.Vecto
   const vTint = attribute('aLeafTint', 'float');
   const vOcc = attribute('aOcc', 'float');
   mat.positionNode = windPosition(U, 1.0, () => vTint);
+  instanceNormals(mat);
   const uSeason = shared(U.uSeason);
   const uAutumn = uniformArray(autumn, 'vec4').setName('uAutumn');
   const vMapUv = uv();
@@ -302,6 +332,7 @@ const vnoise3 = Fn(([x]) => {
 export function createFarTreeNodeMaterial(U: VegUniforms): THREE.MeshStandardNodeMaterial {
   const mat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
   mat.positionNode = windPosition(U, 0.0, null);
+  instanceNormals(mat);
   const uSeason = shared(U.uSeason);
   const vAutumn = attribute('aAutumn', 'vec3');
   const vKind = uv();
