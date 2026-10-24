@@ -337,10 +337,22 @@ export function createFarTreeNodeMaterial(U: VegUniforms): THREE.MeshStandardNod
   const vAutumn = attribute('aAutumn', 'vec3');
   const vKind = uv();
 
+  // Foliage clumps: the hull's normal bent by noise (two octaves, about 1 m and 0.4 m lumps), so a crown
+  // catches the light in lumps instead of shading as one smooth ball.
+  mat.setupNormal = function (builder) {
+    const I = instanceCols(builder);
+    const p = varying(I ? positionGeometry.add(I.c3.xyz.mul(0.37)) : positionGeometry, 'vHullPos');
+    const lump = (q, f) => vec3(vnoise3(q.mul(f)), vnoise3(q.mul(f).add(17.3)), vnoise3(q.mul(f).add(41.7))).sub(0.5);
+    const bend = lump(p, 0.9).mul(1.5).add(lump(p, 2.4).mul(0.7));
+    return normalize(normalViewGeometry.add(bend.mul(vKind.x.greaterThan(0.25).select(1.0, 0.0))));
+  };
+
   afterDiffuse(mat, (builder) => {
     // vObjPos = position (+ instance origin * 0.37)
     const I = instanceCols(builder);
     const vObjPos = varying(I ? positionGeometry.add(I.c3.xyz.mul(0.37)) : positionGeometry, 'vObjPos');
+    // Each tree a little lighter or darker, greener or yellower (from its position).
+    const tint = I ? vhash(floor(I.c3.xyz.mul(0.5))) : float(0.5);
     const nV = normalViewGeometry.toVar();
     const nz = vnoise3(vObjPos.mul(2.2)).mul(0.6).add(vnoise3(vObjPos.mul(5.1)).mul(0.4)).toVar();
     If(vKind.x.greaterThan(0.75), () => {
@@ -348,7 +360,7 @@ export function createFarTreeNodeMaterial(U: VegUniforms): THREE.MeshStandardNod
       If(edge.mul(edge).mul(1.25).greaterThan(nz.add(0.12)), () => { Discard(); });
     });
     If(vKind.x.greaterThan(0.25), () => {
-      const c = diffuseColor.rgb.mul(add(0.78, nz.mul(0.45))).toVar();
+      const c = diffuseColor.rgb.mul(add(0.62, nz.mul(0.5))).mul(vec3(add(0.84, tint.mul(0.3)), add(0.9, tint.mul(0.18)), 0.92)).toVar();
       c.assign(mix(c, vAutumn.mul(add(0.78, nz.mul(0.45))), clamp(uSeason.mul(1.4).sub(nz.mul(0.4)), 0.0, 1.0).mul(vKind.y)));
       diffuseColor.assign(vec4(c, diffuseColor.a));
     });
