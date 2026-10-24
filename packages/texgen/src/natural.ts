@@ -68,14 +68,14 @@ const forestFloor: Gen = (t) => {
   const nS = new TNoise(5201, W), nM = new TNoise(5202, W);
   t.each((u, v, _x, _y, idx) => {
     const k = 0.8 + nS.fbm(u, v, 0.1, 3) * 0.25 + (rnd(5203, idx) - 0.5) * 0.2;
-    t.set(idx, 0.16 * k, 0.11 * k, 0.07 * k, 0.9, nS.fbm(u, v, 0.4, 3) * 0.01);
+    t.set(idx, 0.27 * k, 0.20 * k, 0.13 * k, 0.9, nS.fbm(u, v, 0.4, 3) * 0.01);
   });
   const rng = new Rng(5204);
   const leafColours: RGB[] = [rgb(120, 70, 30), rgb(150, 95, 40), rgb(95, 60, 32), rgb(170, 120, 55), rgb(80, 55, 35)];
-  const leaves = Math.round((W * W) / 0.0016);
+  const leaves = Math.round((W * W) / 0.0012);
   for (let k = 0; k < leaves; k++) {
     const cx = rng.float() * W, cy = rng.float() * W;
-    const a = rng.range(0.012, 0.028), b = a * rng.range(0.4, 0.6), th = rng.float() * Math.PI;
+    const a = rng.range(0.025, 0.055), b = a * rng.range(0.4, 0.6), th = rng.float() * Math.PI;
     const ct = Math.cos(th), st = Math.sin(th), z0 = rng.range(0, 0.012), col = leafColours[rng.int(0, leafColours.length - 1)], vk = rng.range(0.7, 1.15);
     splat(t, cx, cy, a, (dx, dy, idx) => {
       const px = dx * ct + dy * st, py = -dx * st + dy * ct;
@@ -97,10 +97,10 @@ const forestFloor: Gen = (t) => {
   }
   // Moss cushions on top.
   t.each((u, v, _x, _y, idx) => {
-    const m = smooth(0.25, 0.45, nM.fbm(u, v, 0.6, 4));
+    const m = smooth(0.1, 0.35, nM.fbm(u, v, 0.6, 4));
     if (m <= 0) return;
     const k = 0.8 + nM.fbm(u, v, 0.01, 2) * 0.3;
-    t.r[idx] = mix(t.r[idx], 0.16 * k, m); t.g[idx] = mix(t.g[idx], 0.27 * k, m); t.b[idx] = mix(t.b[idx], 0.07 * k, m);
+    t.r[idx] = mix(t.r[idx], 0.24 * k, m); t.g[idx] = mix(t.g[idx], 0.36 * k, m); t.b[idx] = mix(t.b[idx], 0.10 * k, m);
     t.rough[idx] = mix(t.rough[idx], 0.95, m);
     t.h[idx] = Math.max(t.h[idx], 0.012 + m * 0.01 + nM.fbm(u, v, 0.008, 2) * 0.002);
   });
