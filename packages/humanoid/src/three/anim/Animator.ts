@@ -25,7 +25,7 @@ import { Pose, makeBoneMap, kf, clamp, smooth, approach, wrapPi, type BoneMap, t
 import { ACTIONS, sitPose, type ActionCtx, type GripClass, type ActionDef } from './actions';
 import { hash32 } from '@futuremagic/core';
 import { ClipRig, clipLibrary, clipSettings } from './clips';
-import { RIDE, SEAT_HEIGHT, SEAT_REACH, crankAfter, pedalAt } from '../../seating';
+import { HORSE_RIDE, RIDE, SEAT_HEIGHT, SEAT_REACH, crankAfter, pedalAt } from '../../seating';
 
 export type GroundFn = (x: number, y: number, z: number) => number | null;
 
@@ -268,6 +268,8 @@ export class Animator {
   private flyCurl = { L: 0.35, R: 0.35 };
   /** Riding: the crank angle (RIDE, pedalAt; 0 the left pedal down), and the hands and feet onto the bicycle. */
   private crank = 0;
+  /** Riding a horse (AnimState.mount), not a bicycle. */
+  private horse = false;
   /** Seated or lying: where the hands rest (restHands), and this character's way of resting them (a seeded variant). */
   private restGoals: LimbGoals = { L: { p: new THREE.Vector3(), w: 0, flat: new THREE.Vector3() }, R: { p: new THREE.Vector3(), w: 0, flat: new THREE.Vector3() } };
   private restW = 0;
@@ -376,7 +378,8 @@ export class Animator {
     } else if (this.prevFam === 'sit' && fam !== 'sleep' && !this.fresh) this.upT = 0;
     else this.upT += dt;
     const held: Family = this.upT < this.upDur() ? 'sit' : fam;
-    this.seatH = a.seat ?? (fam === 'sleep' ? 0 : fam === 'ride' ? RIDE.saddle : SEAT_H);
+    if (fam === 'ride') this.horse = a.mount === 'horse';
+    this.seatH = a.seat ?? (fam === 'sleep' ? 0 : fam === 'ride' ? (this.horse ? HORSE_RIDE.saddle : RIDE.saddle) : SEAT_H);
     // Lying down and getting up from lying take a while (every family fades at that pace while
     // it goes on); falling dead is quick.
     const lying = held === 'sleep' || this.famW.get('sleep')! > 0.002;
@@ -399,7 +402,7 @@ export class Animator {
     this.landT += dt;
     this.prevFam = fam;
     // The cranks turn with the distance ridden; stopped, they come round to the nearest pedal down.
-    if (fam === 'ride') {
+    if (fam === 'ride' && !this.horse) {
       const hs = Math.hypot(inp.vel[0], inp.vel[2]);
       if (hs > 0.25) this.crank = crankAfter(this.crank, hs * dt);
       else {
@@ -507,7 +510,7 @@ export class Animator {
     this.apply(out);
     this.fingerPose(inp, action?.def, dt);
     if (action?.def.reach && actionCtx && this.actionW > 0.02) this.reachIK(action.def, actionCtx, this.actionW);
-    if (this.famW.get('ride')! > 0.002) this.limbIK(this.onBicycle(this.famW.get('ride')!));
+    if (this.famW.get('ride')! > 0.002) this.limbIK(this.horse ? this.onHorse(this.famW.get('ride')!) : this.onBicycle(this.famW.get('ride')!));
     if (this.restW > 0.002) this.limbIK(this.restHands(this.restW));
     if (this.limbs) this.limbIK(this.limbs);
     // ---- IK & face (near only)
@@ -794,6 +797,18 @@ export class Animator {
     const rest = ch.rest[0];
     p.root.y = this.seatH / sc + 0.07 * k - this.hipH;
     p.root.z = RIDE_BACK / sc - rest.z; // (root z points backward)
+    if (this.horse) {
+      // Upright, a little give in the back; thighs forward and out round the barrel, knees bent,
+      // lower legs hanging back under the hips, heels down. The hands go onto the reins (onHorse).
+      p.spine(-0.1 + 0.03 * Math.sin(this.time * 1.4));
+      p.neck(0.08);
+      p.arm('L', 0.45, 0.1, 0, 1.0);
+      p.arm('R', 0.45, 0.1, 0, 1.0);
+      // (Turned in at the hip so the shins hang straight down from the knees, not out with the thighs.)
+      p.leg('L', 0.8, 0.45, 0.3, 1.2, -0.75);
+      p.leg('R', 0.8, 0.45, 0.3, 1.2, -0.75);
+      return;
+    }
     p.spine(-0.55 + 0.02 * Math.sin(this.time * 1.6));
     p.neck(0.35);
     p.arm('L', 1.1, 0.2, 0, 0.35);
@@ -823,6 +838,22 @@ export class Animator {
       put((s === 'L' ? g.footL : g.footR)!.p, (s === 'L' ? -1 : 1) * RIDE.pedalHalf, RIDE.crankUp + up + 0.08, RIDE.crankAhead + ahead - 0.06);
     }
     g.L!.w = g.R!.w = g.footL!.w = g.footR!.w = w;
+    return g;
+  }
+
+  /** The hands onto the reins, low in front of the saddle (LimbGoals for limbIK, blended in by `w`). The legs keep their pose. */
+  private onHorse(w: number): LimbGoals {
+    const g = this.rideGoals, o = this.ch.object;
+    o.updateMatrixWorld(true);
+    o.getWorldPosition(_v5);
+    o.getWorldQuaternion(_qr);
+    const put = (v: THREE.Vector3, x: number, y: number, ahead: number) => v.set(x, y, -ahead).applyQuaternion(_qr).add(_v5);
+    const k = this.hipH / 0.9;
+    const reins = this.seatH + HORSE_RIDE.reinsUp * k;
+    put(g.L!.p, -HORSE_RIDE.reinsHalf, reins, HORSE_RIDE.reinsAhead * k);
+    put(g.R!.p, HORSE_RIDE.reinsHalf, reins, HORSE_RIDE.reinsAhead * k);
+    g.L!.w = g.R!.w = w;
+    g.footL!.w = g.footR!.w = 0;
     return g;
   }
 

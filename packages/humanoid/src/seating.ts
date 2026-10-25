@@ -33,6 +33,22 @@ export const RIDE = {
 } as const;
 
 /**
+ * Riding a horse (AnimState move 'ride' with `mount: 'horse'`, `seat` the saddle's lowest point
+ * above the feet's ground): pos is the point under the saddle, facing the way the horse goes. The
+ * rider sits upright with the thighs round the barrel, the knees bent and the heels down, and the
+ * hands low in front on the reins. Whoever places the rider moves pos and seat with the saddle
+ * every frame (the horse's back rises and falls with its gait).
+ */
+export const HORSE_RIDE = {
+  /** Saddle height when not given (a horse of about 1.6 m at the withers). */
+  saddle: 1.3,
+  /** The hands on the reins: this far ahead of the saddle, this far above it, either side of the middle. */
+  reinsAhead: 0.4, reinsUp: 0.24, reinsHalf: 0.08,
+  /** Half the barrel's width under the rider's thighs: the knees stay outside it. */
+  barrel: 0.22,
+} as const;
+
+/**
  * The crank angle (rad) after riding `dist` m from angle `from`: 0 is the left pedal straight down,
  * a quarter turn later at the back, then up, then at the front (the cranks turn as the wheels do).
  */

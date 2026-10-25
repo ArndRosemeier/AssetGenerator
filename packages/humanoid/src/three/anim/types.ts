@@ -38,6 +38,8 @@ export interface AnimState {
    * Riding ('ride'): the saddle's height (default RIDE.saddle); pos is the point under the saddle.
    */
   seat?: number;
+  /** Riding ('ride'): on a bicycle (the default, RIDE) or a horse (HORSE_RIDE). */
+  mount?: 'bicycle' | 'horse';
 }
 
 /** Superpower poses layered over locomotion (see Animator.powerLayer). */
