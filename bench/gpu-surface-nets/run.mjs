@@ -1,0 +1,46 @@
+// Builds the browser benchmark, serves it on localhost and runs it in Chromium via Playwright.
+// Usage (repo root, after `npm install`):
+//   node bench/gpu-surface-nets/run.mjs            headless Chromium (Playwright's, else installed Chrome)
+//   node bench/gpu-surface-nets/run.mjs --headed   a visible window (most reliable for the real GPU)
+//   node bench/gpu-surface-nets/run.mjs --serve    only serve; open the printed URL in Chrome yourself
+import { execSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..'), out = join(here, 'out');
+const args = process.argv.slice(2);
+const esb = join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'esbuild.cmd' : 'esbuild');
+mkdirSync(out, { recursive: true });
+execSync(`"${esb}" page.ts --bundle --format=esm --target=es2022 --outfile=out/page.js --log-level=warning`, { cwd: here, stdio: 'inherit' });
+writeFileSync(join(out, 'index.html'), '<!doctype html><meta charset="utf-8"><title>GPU surface nets</title><pre id="out"></pre><script type="module" src="page.js"></script>');
+
+const server = createServer((req, res) => {
+  const f = new URL(req.url, 'http://x').pathname === '/' ? 'index.html' : 'page.js';
+  res.writeHead(200, { 'content-type': f.endsWith('.js') ? 'text/javascript' : 'text/html' });
+  res.end(readFileSync(join(out, f)));
+}).listen(0, '127.0.0.1');
+await new Promise((r) => server.on('listening', r));
+const url = `http://127.0.0.1:${server.address().port}/`;
+if (args.includes('--serve')) { console.log(`open ${url} in Chrome (Ctrl+C to stop)`); }
+else {
+  let pw;
+  try { pw = await import('playwright'); } catch { try { pw = createRequire(import.meta.url)('playwright'); } catch {} }
+  if (!pw) { console.log(`playwright not installed (npm i --no-save playwright). Open ${url} in Chrome instead.`); }
+  if (pw) {
+    const flags = ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist'];
+    if (process.platform === 'linux') flags.push('--enable-features=Vulkan');
+    const opts = { headless: !args.includes('--headed'), args: flags };
+    let browser;
+    try { browser = await pw.chromium.launch(opts); } catch { browser = await pw.chromium.launch({ ...opts, channel: 'chrome' }); }
+    const page = await browser.newPage();
+    page.on('console', (m) => { if (!m.text().startsWith('{')) console.log('[page] ' + m.text()); });
+    await page.goto(url + (args.find((a) => a.startsWith('?')) ?? ''));
+    const res = await page.waitForFunction(() => window.__result, null, { timeout: 0, polling: 500 }).then((h) => h.jsonValue());
+    console.log(JSON.stringify(res, null, 2));
+    await browser.close(); server.close();
+    process.exit(res.error || !res.match ? 1 : 0);
+  }
+}
