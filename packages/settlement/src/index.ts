@@ -3,5 +3,7 @@ export * from './clip';
 export * from './lots';
 export * from './streets';
 export * from './town';
+export * from './farmland';
+export * from './props';
 export * from './building';
 export * from './interior';

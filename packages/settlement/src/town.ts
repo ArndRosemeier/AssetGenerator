@@ -12,6 +12,7 @@ import { difference, intersection, shapeArea, shapesToPolys, strokePolylines, un
 import { chaikin, distSqPointSeg, ensureCCW, minAreaRect, pointInPoly, polyArea, polyBounds, polyCentroid, type Poly } from './geom2';
 import { perimeterLots, type Lot, type LotRules } from './lots';
 import { organicCuts } from './streets';
+import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
 /** Where a town goes and what the land there is like. */
 export interface TownSite {
@@ -27,9 +28,12 @@ export interface TownSite {
   water?: (x: number, z: number) => number;
   /** Directions (radians, atan2(z, x)) the roads leave in, e.g. towards the neighbours. Default: 3-4 by seed. */
   roads?: number[];
+  /** Plan the fields, farmsteads and paddocks round the town (farmland.ts). Default true. */
+  farmland?: boolean;
 }
 
-export type StreetKind = 'road' | 'lane' | 'track';
+/** 'track': the town's edge; 'path': a farm track out in the fields. */
+export type StreetKind = 'road' | 'lane' | 'track' | 'path';
 
 export interface TownStreet {
   kind: StreetKind;
@@ -41,7 +45,7 @@ export interface TownStreet {
   closed?: boolean;
 }
 
-export type BuildingKind = 'house' | 'cottage' | 'inn' | 'smithy' | 'bakery' | 'workshop' | 'temple' | 'hall' | 'stable' | 'mill';
+export type BuildingKind = 'house' | 'cottage' | 'inn' | 'smithy' | 'bakery' | 'workshop' | 'temple' | 'hall' | 'stable' | 'mill' | 'farmhouse' | 'barn';
 export type WallKind = 'timber' | 'stone' | 'plaster';
 export type RoofCover = 'thatch' | 'tile' | 'shingle' | 'slate';
 
@@ -96,7 +100,9 @@ export type FixtureKind =
   | 'well' | 'stall' | 'bench' | 'table' | 'barrel'
   | 'forge' | 'anvil' | 'quench' | 'oven' | 'workbench' | 'trough'
   | 'woodpile' | 'chopblock' | 'garden' | 'washline' | 'chickens'
-  | 'grave' | 'offering';
+  | 'grave' | 'offering'
+  /** Farm work: a place in a field to plough, sow, hoe or reap; a paddock's gate; hay for the stable. */
+  | 'field' | 'paddock' | 'hayrack';
 
 export interface Fixture {
   id: number;
@@ -126,6 +132,15 @@ export interface TownPlan {
   templeGrounds: Shape | null;
   buildings: TownBuilding[];
   fixtures: Fixture[];
+  /** The farmland's outer edge (farmland.ts; the outline itself when there is none). */
+  farmEdge: Poly;
+  /** The blocks of open farm ground between the tracks (no trees grow there). */
+  furlongs: Poly[];
+  fields: Field[];
+  paddocks: Paddock[];
+  farms: Farm[];
+  /** Fences and haystacks. */
+  props: TownProp[];
 }
 
 const ROAD_W = 6;
@@ -145,7 +160,10 @@ export function planTown(site: TownSite): TownPlan {
 
   // 2. The roads out, following the land.
   const dirs = site.roads ?? roadDirections(rng.fork('roads'));
-  const roads = dirs.map((d, i) => traceRoad(site, rng.fork('road', i), cx, cz, d, R * 1.5));
+  // Out through the town and on through the fields.
+  const farmland = site.farmland ?? true;
+  const roadLength = R * 1.5 + (farmland ? farmlandReach(R) * 1.25 + 20 : 0);
+  const roads = dirs.map((d, i) => traceRoad(site, rng.fork('road', i), cx, cz, d, roadLength));
 
   // 3. The outline: round, but grown along the roads, and stopping short of water.
   const outline = townOutline(new Noise(deriveSeed(seed, 'outline')), cx, cz, R, dirs, wet);
@@ -309,7 +327,16 @@ export function planTown(site: TownSite): TownPlan {
     fix('offering', ch.door[0] + Math.cos(ch.door[2]) * 3, ch.door[1] + Math.sin(ch.door[2]) * 3, ch.door[2] + Math.PI, ch.id);
   }
 
-  return { seed, centre: [cx, cz], radius: R, market, outline, streets, blocks, lots, yards, templeGrounds, buildings, fixtures };
+  // 9. The fields, farmsteads and paddocks round it.
+  const people = buildings.reduce((n, b) => n + b.household, 0);
+  const land = farmland
+    ? planFarmland({ site, rng: rng.fork('farmland'), cx, cz, outline, roads, radius: R, people, buildings, streets, fix: (k, x, z, yaw, b) => fix(k, x, z, yaw, b), wet, roadWidth: ROAD_W })
+    : { edge: outline, furlongs: [], fields: [], paddocks: [], farms: [], props: [] };
+
+  return {
+    seed, centre: [cx, cz], radius: R, market, outline, streets, blocks, lots, yards, templeGrounds, buildings, fixtures,
+    farmEdge: land.edge, furlongs: land.furlongs, fields: land.fields, paddocks: land.paddocks, farms: land.farms, props: land.props,
+  };
 }
 
 // ---------------------------------------------------------------- the layout
@@ -421,7 +448,8 @@ function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) 
   return null;
 }
 
-function makeBuilding(id: number, kind: BuildingKind, cx: number, cz: number, ux: number, uz: number, vx: number, vz: number, hu: number, hv: number, attached: boolean, core: boolean, edge: boolean, li: number, site: TownSite, r: Rng): TownBuilding {
+/** A building on a rectangle (u along its front, v away from the door), its look rolled from `r`. */
+export function makeBuilding(id: number, kind: BuildingKind, cx: number, cz: number, ux: number, uz: number, vx: number, vz: number, hu: number, hv: number, attached: boolean, core: boolean, edge: boolean, li: number, site: TownSite, r: Rng): TownBuilding {
   const poly = ensureCCW(rect(cx - ux * hu - vx * hv, cz - uz * hu - vz * hv, ux, uz, vx, vz, hu * 2, hv * 2));
   const { lo, hi } = groundUnder(poly, site.height);
   const wall: WallKind = edge ? r.weighted(['plaster', 'stone', 'timber'] as const, (k) => ({ plaster: 3, stone: 1.5, timber: 1 })[k]) : r.weighted(['timber', 'plaster', 'stone'] as const, (k) => ({ timber: core ? 4 : 2.5, plaster: 1.5, stone: core ? 1 : 0.6 })[k]);
@@ -496,7 +524,8 @@ function templeOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding 
 
 // ---------------------------------------------------------------- helpers
 
-function rect(ax: number, az: number, ux: number, uz: number, vx: number, vz: number, w: number, d: number): Poly {
+/** A rectangle from corner (ax, az), `w` along u and `d` along v. */
+export function rect(ax: number, az: number, ux: number, uz: number, vx: number, vz: number, w: number, d: number): Poly {
   return [ax, az, ax + ux * w, az + uz * w, ax + ux * w + vx * d, az + uz * w + vz * d, ax + vx * d, az + vz * d];
 }
 

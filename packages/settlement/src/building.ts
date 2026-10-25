@@ -278,8 +278,14 @@ function openings(len: number, h: number, bay: number, door: number | null, grou
   const out: Opening[] = [];
   const shop = ground && (kind === 'workshop' || kind === 'bakery' || kind === 'smithy' || kind === 'inn');
   if (door !== null) {
-    const w = kind === 'stable' || kind === 'smithy' || kind === 'mill' ? 1.9 : kind === 'inn' ? 1.3 : 1.05;
-    out.push({ s0: door - w / 2, s1: door + w / 2, t0: 0, t1: Math.min(h - 0.35, kind === 'stable' ? 2.5 : 2.05), door: true });
+    // A barn's doors take a loaded wagon.
+    const w = kind === 'barn' ? 3.4 : kind === 'stable' || kind === 'smithy' || kind === 'mill' ? 1.9 : kind === 'inn' ? 1.3 : 1.05;
+    out.push({ s0: door - w / 2, s1: door + w / 2, t0: 0, t1: Math.min(h - 0.35, kind === 'barn' ? 3.4 : kind === 'stable' ? 2.5 : 2.05), door: true });
+  }
+  // Barns are dark inside: a few small vents high up, no windows.
+  if (kind === 'barn') {
+    for (const c of [len * 0.2, len * 0.8]) if (door === null || Math.abs(c - door) > 2.6) out.push({ s0: c - 0.3, s1: c + 0.3, t0: h - 1.2, t1: h - 0.7 });
+    return out;
   }
   const n = Math.max(1, Math.round(len / bay));
   for (let i = 0; i < n; i++) {
@@ -514,7 +520,7 @@ function roof(o: Out, b: TownBuilding, a0: number, a1: number, b0: number, b1: n
     }
   }
   // A chimney through the roof, off the ridge.
-  if (b.kind !== 'stable' && r.chance(0.85)) {
+  if (b.kind !== 'stable' && b.kind !== 'barn' && r.chance(0.85)) {
     const cp = (r.chance(0.5) ? -1 : 1) * Math.max(0, P - 1.2) * r.range(0.4, 0.9), cq = r.range(-0.5, 0.5) * Q * 0.5;
     const [la, , lb] = toLocal(cp, 0, cq);
     const top = y + rise + r.range(0.7, 1.2);
