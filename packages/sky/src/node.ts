@@ -9,7 +9,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, float, floor, fract, vec2, vec3, vec4, acos, add, mul, clamp, cos, dot, exp, max, min, mix, modelViewProjection,
   normalize, positionWorld, pow, smoothstep, sub, varyingProperty, uniform, cameraPosition, If, Loop, cross, sqrt, log, select,
-  instancedBufferAttribute,
+  instancedBufferAttribute, pmremTexture,
 } from 'three/tsl';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,6 +25,79 @@ export interface SkyOptions {
   moonRadius?: number;
 }
 
+const gradient = Fn(([i]: N[]) => {
+  const p = fract(i.xyx.mul(vec3(0.1031, 0.1030, 0.0973))).toVar();
+  p.addAssign(dot(p, p.yzx.add(33.33)));
+  return fract(p.xx.add(p.yz).mul(p.zy)).mul(2.0).sub(1.0);
+});
+const noise = Fn(([p]: N[]) => {
+  const i = floor(p);
+  const f = fract(p);
+  const u = f.mul(f).mul(f).mul(f.mul(f.mul(6.0).sub(15.0)).add(10.0));
+  const a = dot(gradient(i), f);
+  const b = dot(gradient(i.add(vec2(1.0, 0.0))), f.sub(vec2(1.0, 0.0)));
+  const c = dot(gradient(i.add(vec2(0.0, 1.0))), f.sub(vec2(0.0, 1.0)));
+  const d = dot(gradient(i.add(vec2(1.0, 1.0))), f.sub(vec2(1.0, 1.0)));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y).mul(1.6);
+});
+const fbmN = (octaves: number) => Fn(([position, drift]: N[]) => {
+  const p = vec2(position).toVar();
+  const result = float(0.0).toVar();
+  const amplitude = float(1.0).toVar();
+  Loop(octaves, () => {
+    result.addAssign(amplitude.mul(noise(p)));
+    amplitude.mulAssign(0.5);
+    p.mulAssign(2.0).addAssign(drift);
+  });
+  return result;
+});
+const fbm = fbmN(4);
+const fbmShadow = fbmN(3);
+
+/** The cloud layer at sky coordinates `uv`: the noise, its threshold (1 - local cover) and the mask. */
+function cloudField(U: N, uv: N, f: N) {
+  const evolve = U.time.mul(U.cloudSpeed).mul(300.0);
+  const cloudNoise = f(uv.mul(1000.0), evolve).mul(0.7).add(0.5).clamp(0.0, 1.0);
+  const region = noise(uv.mul(300.0)).mul(0.37).add(0.5);
+  const cov = clamp(U.cloudCoverage.add(region.sub(0.5).mul(0.6)), 0.0, 1.0);
+  const threshold = sub(1.0, cov);
+  return { cloudNoise, threshold };
+}
+
+/** Sky coordinates of the cloud seen in `direction` from `origin` (world, m): the layer lies `cloudHeight` m up. */
+function cloudUv(U: N, direction: N, origin: N) {
+  const elevation = mix(1.0, 0.1, U.cloudElevation);
+  const flat = direction.xz.div(direction.y.max(0.02)).add(origin.xz.div(U.cloudHeight.max(1.0)));
+  return flat.div(elevation).mul(U.cloudScale).add(U.time.mul(U.cloudSpeed));
+}
+
+/**
+ * The clouds' shadow on the land, for a light's `colorNode` (a three Light's colour times this lights every
+ * lit material): 1 in the open, down to `1 - strength` under a thick cloud. `U` is the sky's uniforms (the
+ * shadows fall where the drawn clouds are once `cloudHeight` is set), `sunDir` the light's unit direction.
+ * Three octaves of the sky's four: the finest is lost in a soft shadow anyway.
+ */
+export function cloudShadow(U: N, position: N, sunDir: N, strength = 0.7): N {
+  return Fn(() => {
+    const s = normalize(sunDir);
+    const { cloudNoise, threshold } = cloudField(U, cloudUv(U, s, position), fbmShadow);
+    const depth = max(0.0, cloudNoise.sub(threshold));
+    const alpha = sub(1.0, exp(depth.mul(U.cloudDensity).mul(-12.0))).mul(smoothstep(0.02, 0.15, s.y));
+    return sub(1.0, alpha.mul(strength).mul(sub(1.0, U.overcast)));
+  })();
+}
+
+/**
+ * Aerial perspective: the colour of the sky toward `direction`, from the sky's environment map (a PMREM
+ * of the env copy of the sky), blurred by `blur` (roughness 0..1) so clouds and the sun disc smear into
+ * a glow. For a fog colour: distant land then fades into the sky behind it, warm towards the sun, blue
+ * away from it. Directions below the horizon look at the horizon.
+ */
+export function skyToward(envMap: THREE.Texture, direction: N, blur = 0.55): N {
+  const d = normalize(vec3(direction.x, max(direction.y, 0.02), direction.z));
+  return pmremTexture(envMap, d, float(blur)).rgb;
+}
+
 /** A unit box drawn behind everything; scale it large and keep it on the camera. */
 export function makeSkyNode(o: SkyOptions): THREE.Mesh {
   const reversed = o.reversed, env = !!o.env, sunR = o.sunRadius ?? SUN_RADIUS, moonR = o.moonRadius ?? MOON_RADIUS;
@@ -34,6 +107,10 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     turbidity: uniform(4), rayleigh: uniform(1.4), mieCoefficient: uniform(0.004), mieDirectionalG: uniform(0.8),
     sunPosition: uniform(new THREE.Vector3()),
     cloudScale: uniform(0.0002), cloudSpeed: uniform(0.00002), cloudCoverage: uniform(0.35), cloudDensity: uniform(0.45), cloudElevation: uniform(0.5),
+    // Metres up to the cloud layer: the clouds pass overhead as the camera moves (and cloudShadow matches them); 0 keeps them fixed to the view.
+    cloudHeight: uniform(0),
+    // The env copy only: its colour's saturation. Preetham's clear sky is a very saturated blue; as the light in the shade it reads too blue.
+    envSaturation: uniform(1),
     showSunDisc: uniform(1), time: uniform(0),
     cloudDark: uniform(0), overcast: uniform(0), flash: uniform(0), flashDir: uniform(new THREE.Vector3(0, 0.5, 1)),
     skyFog: uniform(0), fogCol: uniform(new THREE.Color()),
@@ -112,33 +189,6 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     texColor.addAssign(min(vSunE.mul(Fex), 80.0).mul(float(0.05).mul(pow(cz, 6000.0)).add(float(0.003).mul(pow(cz, 400.0))))
       .mul(U.showSunDisc).mul(sub(1.0, U.overcast)).mul(smoothstep(-0.05, 0.02, direction.y)));
 
-    const gradient = Fn(([i]: N[]) => {
-      const p = fract(i.xyx.mul(vec3(0.1031, 0.1030, 0.0973))).toVar();
-      p.addAssign(dot(p, p.yzx.add(33.33)));
-      return fract(p.xx.add(p.yz).mul(p.zy)).mul(2.0).sub(1.0);
-    });
-    const noise = Fn(([p]: N[]) => {
-      const i = floor(p);
-      const f = fract(p);
-      const u = f.mul(f).mul(f).mul(f.mul(f.mul(6.0).sub(15.0)).add(10.0));
-      const a = dot(gradient(i), f);
-      const b = dot(gradient(i.add(vec2(1.0, 0.0))), f.sub(vec2(1.0, 0.0)));
-      const c = dot(gradient(i.add(vec2(0.0, 1.0))), f.sub(vec2(0.0, 1.0)));
-      const d = dot(gradient(i.add(vec2(1.0, 1.0))), f.sub(vec2(1.0, 1.0)));
-      return mix(mix(a, b, u.x), mix(c, d, u.x), u.y).mul(1.6);
-    });
-    const fbm = Fn(([position, drift]: N[]) => {
-      const p = vec2(position).toVar();
-      const result = float(0.0).toVar();
-      const amplitude = float(1.0).toVar();
-      Loop(4, () => {
-        result.addAssign(amplitude.mul(noise(p)));
-        amplitude.mulAssign(0.5);
-        p.mulAssign(2.0).addAssign(drift);
-      });
-      return result;
-    });
-
     // The moon: a sphere lit from the sun's side (its phase), maria, craters, reddened low down.
     if (!env) {
       const cosM = dot(direction, U.moonDir);
@@ -160,15 +210,11 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     }
 
     If(direction.y.greaterThan(0.0).and(U.cloudCoverage.greaterThan(0.0)), () => {
-      const elevation = mix(1.0, 0.1, U.cloudElevation);
-      const cloudUV = direction.xz.div(direction.y.mul(elevation)).toVar();
-      cloudUV.mulAssign(U.cloudScale);
-      cloudUV.addAssign(U.time.mul(U.cloudSpeed));
-      const evolve = U.time.mul(U.cloudSpeed).mul(300.0);
-      const cloudNoise = fbm(cloudUV.mul(1000.0), evolve).mul(0.7).add(0.5).clamp(0.0, 1.0).toVar();
-      const region = noise(cloudUV.mul(300.0)).mul(0.37).add(0.5);
-      const cov = clamp(U.cloudCoverage.add(region.sub(0.5).mul(0.6)), 0.0, 1.0);
-      const threshold = sub(1.0, cov).toVar();
+      const origin = select(U.cloudHeight.greaterThan(0.0), cameraPosition, vec3(0.0));
+      const cloudUV = cloudUv(U, direction, origin).toVar();
+      const field = cloudField(U, cloudUV, fbm);
+      const cloudNoise = field.cloudNoise.toVar();
+      const threshold = field.threshold.toVar();
       const cloudMask = smoothstep(threshold, threshold.add(0.3), cloudNoise).toVar();
       const horizonFade = smoothstep(0.0, add(0.03, mul(0.06, U.cloudElevation)), direction.y);
       cloudMask.mulAssign(horizonFade);
@@ -199,6 +245,10 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     texColor.addAssign(vec3(0.7, 0.75, 0.9).mul(U.flash).mul(0.5).mul(add(0.3, pow(max(dot(direction, U.flashDir), 0.0), 4.0))));
     const hz = sub(1.0, smoothstep(-0.02, 0.4, direction.y));
     texColor.assign(mix(texColor, U.fogCol, clamp(U.skyFog.mul(mix(hz, 1.0, U.skyFog.mul(U.skyFog))), 0.0, 1.0)));
+    if (env) {
+      const lum = dot(texColor, vec3(0.2126, 0.7152, 0.0722));
+      texColor.assign(mix(vec3(lum), texColor, U.envSaturation));
+    }
     return vec4(texColor, 1.0);
   })();
 

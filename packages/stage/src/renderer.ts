@@ -6,7 +6,8 @@
  *  - `'webgpu'`: WebGPU only. A browser without it gets `GraphicsUnavailable`, never WebGL 2 (Solarpolis).
  *  - `'webgpu-or-webgl2'`: WebGPU where the browser has it, three's WebGL 2 backend everywhere else (Dunfinity).
  */
-import { ACESFilmicToneMapping, WebGPURenderer } from 'three/webgpu';
+import { ACESFilmicToneMapping, AgXToneMapping, CustomToneMapping, WebGPURenderer } from 'three/webgpu';
+import { gradedAgX } from './grade';
 
 export type Backends = 'webgpu' | 'webgpu-or-webgl2';
 
@@ -46,8 +47,13 @@ export interface RendererOptions {
   backends: Backends;
   /** Draw with WebGL 2 even where WebGPU exists (testing the fallback); only with `'webgpu-or-webgl2'`. */
   forceWebGL?: boolean;
-  /** Exposure for the filmic tone mapping (default 1). */
+  /** Exposure for the tone mapping (default 1). */
   exposure?: number;
+  /**
+   * The tone curve: `'aces'` (default; filmic, shifts bright hues), `'agx'` (keeps hues, softer), or
+   * `'graded'`: AgX with a look whose uniforms are `GRADE` (grade.ts). In the output pass either way.
+   */
+  tone?: 'aces' | 'agx' | 'graded';
   /** Highest device pixel ratio drawn (default 2). */
   maxPixelRatio?: number;
   /**
@@ -76,9 +82,11 @@ export async function createRenderer(canvas: HTMLCanvasElement, opts: RendererOp
     reversedDepthBuffer: opts.depth === 'reversed', logarithmicDepthBuffer: opts.depth === 'logarithmic',
   });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, opts.maxPixelRatio ?? 2));
-  // Filmic tone mapping: bright surfaces roll off into warm highlights instead of clipping to flat
-  // white (it is applied in the output pass, so no material shader changes with it).
-  renderer.toneMapping = ACESFilmicToneMapping;
+  // Tone mapping: bright surfaces roll off instead of clipping to flat white (it is applied in the output
+  // pass, so no material shader changes with it).
+  const tone = opts.tone ?? 'aces';
+  if (tone === 'graded') renderer.library.addToneMapping(gradedAgX, CustomToneMapping);
+  renderer.toneMapping = tone === 'aces' ? ACESFilmicToneMapping : tone === 'agx' ? AgXToneMapping : CustomToneMapping;
   renderer.toneMappingExposure = opts.exposure ?? 1;
   try { await renderer.init(); } catch (err) {
     throw new GraphicsUnavailable(err instanceof Error ? err.message : String(err));

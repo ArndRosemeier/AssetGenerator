@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CLEAR, moonAt, moonPhase, skyLight, skyPath, starField } from '../src/path';
+import { CLEAR, moonAt, moonPhase, skyLight, skyPath, starField, sunTransmittance } from '../src/path';
 
 const len = (v: number[]) => Math.hypot(v[0], v[1], v[2]);
 
@@ -35,4 +35,15 @@ test('star field: seeded and on the upper dome', () => {
   assert.deepEqual(a.position, b.position);
   assert.notDeepEqual(a.position, c.position);
   for (let i = 0; i < 100; i++) assert.ok(a.position[i * 3 + 1] >= 0);
+});
+
+test('sun light: about white at noon, warmer and dimmer towards the horizon, and the ground throws some back', () => {
+  const noon = skyLight(skyPath(12), moonAt(12, 12, skyPath(12)));
+  const late = skyLight(skyPath(17.4), moonAt(17.4, 17.4, skyPath(17.4)));
+  const c = noon.lightColor, w = late.lightColor;
+  assert.ok(c[2] / c[0] > 0.8, 'noon is not far from white');
+  assert.ok(w[2] / w[0] < c[2] / c[0] && w[1] / w[0] < c[1] / c[0], 'evening light is warmer');
+  assert.ok(w[0] + w[1] + w[2] < c[0] + c[1] + c[2], 'and dimmer');
+  assert.deepEqual(sunTransmittance(1).map((v) => +v.toFixed(6)), [1, 1, 1]);
+  assert.ok(noon.bounce[1] > late.bounce[1] && noon.bounce[1] > 0);
 });

@@ -72,6 +72,24 @@ export interface SkyWeather {
 
 export const CLEAR: SkyWeather = { cover: 0.35, density: 0.45, dark: 0, sun: 1, fog: 0, rain: 0 };
 
+/**
+ * How much of the sun's light gets through the air to the ground, per channel (r, g, b), relative to a
+ * sun straight overhead: the sky shader's own extinction (Rayleigh + Mie with its default turbidity,
+ * Preetham's air-mass formula), so the light's colour matches the sky's. About white at noon, yellow
+ * in the afternoon, orange and dim near the horizon, deep red as it sets.
+ */
+export function sunTransmittance(sunUp: number, turbidity = 4, rayleigh = 1.4, mie = 0.004): Vec3 {
+  const R = [5.804542996261093e-6, 1.3562911419845635e-5, 3.0265902468824876e-5];
+  const M = [1.8399918514433978e14, 2.7798023919660528e14, 4.0790479543861094e14];
+  const c = 0.2 * turbidity * 10e-18;
+  const depth = (up: number, i: number): number => {
+    const z = Math.acos(clamp(up, 0, 1));
+    const inv = 1 / (Math.cos(z) + 0.15 * Math.pow(93.885 - (z * 180) / Math.PI, -1.253));
+    return R[i] * rayleigh * 8.4e3 * inv + 0.434 * c * M[i] * mie * 1.25e3 * inv;
+  };
+  return [0, 1, 2].map((i) => Math.exp(depth(1, i) - depth(Math.max(sunUp, 0), i))) as Vec3;
+}
+
 /** The lighting a sky gives at one moment (Scale's light rig, as numbers). */
 export interface SkyLight {
   /** 0 night .. 1 day, 0..1 golden hour, 0..1 night. */
@@ -88,6 +106,11 @@ export interface SkyLight {
   /** Fog colour (the horizon) and exponential fog density per metre. */
   fogColor: Vec3;
   fogDensity: number;
+  /**
+   * Light bounced off the sunlit ground onto everything above it (a hemisphere light's ground colour,
+   * in the units of lightColor x lightIntensity; its sky colour is the environment map's job).
+   */
+  bounce: Vec3;
   /** Tone mapping exposure. */
   exposure: number;
   /** scene.environmentIntensity for the sky's environment map. */
@@ -112,7 +135,9 @@ export function skyLight(sun: Vec3, moon: Moon, wx: SkyWeather = CLEAR): SkyLigh
   let lightDir: Vec3, lightColor: Vec3, lightIntensity: number;
   if (sunUp > -0.05) {
     lightDir = [sun[0], sun[1], sun[2]];
-    lightColor = [1, lerp(0.95, 0.62, golden), lerp(0.9, 0.42, golden)];
+    // The air's colour on the sunlight (a touch softened: the eye adapts to it), never quite black-red.
+    const t = sunTransmittance(sunUp);
+    lightColor = [t[0] ** 0.8 + 0.03, t[1] ** 0.8 + 0.02, t[2] ** 0.8 + 0.02];
     lightIntensity = 3.2 * smoothstep(-0.05, 0.12, sunUp) * wx.sun;
   } else {
     // At night: the moon while it is up, else a faint glow from high overhead.
@@ -133,8 +158,11 @@ export function skyLight(sun: Vec3, moon: Moon, wx: SkyWeather = CLEAR): SkyLigh
   const g = lerp(0.035, 0.66 * (1 - 0.6 * wx.dark), day);
   const gw = Math.max(overcast, Math.min(1, wx.fog * 1.3));
   fog = [lerp(fog[0], g * 0.96, gw), lerp(fog[1], g, gw), lerp(fog[2], g * 1.03, gw)];
+  // Ground albedo ~0.15 (grass, earth, stone): what it throws back of the light falling on it.
+  const lit = 0.15 * lightIntensity * Math.max(lightDir[1], 0);
+  const bounce: Vec3 = [lightColor[0] * lit * 1.05, lightColor[1] * lit, lightColor[2] * lit * 0.8];
   return {
-    day, golden, night, lightDir, lightColor, lightIntensity,
+    day, golden, night, lightDir, lightColor, lightIntensity, bounce,
     skyColor: sky, groundColor: ground, hemiIntensity,
     fogColor: fog,
     fogDensity: 0.00012 + 0.0062 * Math.pow(wx.fog, 2.2) + 0.0011 * wx.rain,
