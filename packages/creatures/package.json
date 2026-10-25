@@ -1,0 +1,20 @@
+{
+  "name": "@futuremagic/creatures",
+  "version": "0.1.0",
+  "description": "Procedural creatures for three.js games: a species grown from a seed (ten body plans, oddities bought with strangeness), its rest skeleton and flesh primitives, one smooth skinned mesh by surface nets with its coat painted per vertex, a rig that poses it every frame (gaits, planted feet, springs, actions), and the node materials (TSL) for its flesh and eyes. Pure parts run in workers. From Dunfinity (after Norgo).",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./three": "./src/three/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "dependencies": {
+    "@futuremagic/core": "*",
+    "@futuremagic/volume": "*"
+  },
+  "peerDependencies": {
+    "three": ">=0.186.0"
+  },
+  "license": "MIT"
+}
