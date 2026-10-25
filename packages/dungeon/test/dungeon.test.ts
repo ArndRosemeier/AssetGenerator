@@ -68,3 +68,19 @@ test('dungeon: the same seed gives the same dungeon', () => {
   assert.deepEqual(a, b);
   assert.deepEqual(layoutDungeon(a, 7), layoutDungeon(b, 7));
 });
+
+test('dungeon: every pattern, as the main cycle, lays out', () => {
+  for (const id of ALL) {
+    let ok = 0;
+    for (let s = 0; s < 8; s++) {
+      const g = cyclicGraph({ ...spec, main: [id] }, 300 + s);
+      if (layoutDungeon(g, s, { entrance: { x: -2, z: -2, w: 4, d: 4 }, attempts: 10 })) ok++;
+    }
+    assert.ok(ok >= 6, `${id}: ${ok}/8 laid out`);
+  }
+});
+
+test('dungeon: the library holds 18 distinct patterns', () => {
+  assert.equal(new Set(ALL).size, ALL.length);
+  assert.ok(ALL.length >= 18, `${ALL.length} patterns`);
+});
