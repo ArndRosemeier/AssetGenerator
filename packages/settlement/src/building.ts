@@ -39,7 +39,7 @@ export interface BuildingMesh {
   index: Uint32Array;
 }
 
-type RGB = [number, number, number];
+export type RGB = [number, number, number];
 const WHITE: RGB = [255, 255, 255];
 
 /** Lime washes, ochres and pale earth colours for plaster. */
@@ -51,7 +51,7 @@ const PAINTS: RGB[] = [[120, 150, 110], [150, 70, 54], [80, 104, 130], [176, 140
 const STONES: RGB[] = [[236, 228, 214], [222, 214, 200], [210, 204, 196], [232, 220, 196]];
 
 /** Collects triangles; `world` turns local (a, y, b) into positions relative to the origin. */
-class Out {
+export class Out {
   pos: number[] = [];
   nrm: number[] = [];
   uv: number[] = [];
@@ -118,7 +118,7 @@ function planeUV(q: number[], n: number[]): number[] {
 }
 
 /** The building's frame: local a along u, b along v, y up from the floor, to positions relative to the origin. */
-class Frame {
+export class Frame {
   constructor(private readonly b: { cx: number; cz: number; ux: number; uz: number; vx: number; vz: number; y: number }, private readonly o: [number, number, number]) {}
   point(a: number, y: number, bb: number): [number, number, number] {
     const f = this.b;

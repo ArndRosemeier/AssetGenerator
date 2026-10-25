@@ -4,3 +4,4 @@ export * from './lots';
 export * from './streets';
 export * from './town';
 export * from './building';
+export * from './interior';
