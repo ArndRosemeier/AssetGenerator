@@ -34,7 +34,10 @@ else {
     if (process.platform === 'linux') flags.push('--enable-features=Vulkan');
     const opts = { headless: !args.includes('--headed'), args: flags };
     let browser;
-    try { browser = await pw.chromium.launch(opts); } catch { browser = await pw.chromium.launch({ ...opts, channel: 'chrome' }); }
+    // Full Chromium first: Playwright's default headless shell lacks dxcompiler.dll, so WebGPU fails on Windows.
+    for (const channel of ['chromium', undefined, 'chrome']) {
+      try { browser = await pw.chromium.launch({ ...opts, ...(channel ? { channel } : {}) }); break; } catch (e) { if (channel === 'chrome') throw e; }
+    }
     const page = await browser.newPage();
     page.on('console', (m) => { if (!m.text().startsWith('{')) console.log('[page] ' + m.text()); });
     await page.goto(url + (args.find((a) => a.startsWith('?')) ?? ''));

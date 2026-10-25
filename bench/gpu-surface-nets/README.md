@@ -32,3 +32,15 @@ Reported times (median):
 - `gpuMeshWallMs`: meshing only, density already on the GPU, mesh stays there: submit to done.
 - `gpuMeshTimestampMs`: the same on the GPU clock (when the adapter has `timestamp-query`).
 - `gpuUploadMeshReadbackMs`: upload densities, mesh, read back `MeshData` per chunk.
+
+## Results (2026-10-25, RTX 5070, Ryzen 5 9600X, Chromium 156, PC idle)
+
+All 64 chunks match the TS mesh (125258 tris, 107503 verts, max position error 1.5e-5). Median of 3 runs:
+
+| | ms |
+| --- | --- |
+| TS mesher (original) | 56 |
+| TS mesher (typed-array rewrite) | 50 |
+| GPU meshing, submit to done | 2.5 |
+| GPU meshing, GPU clock | 0.33 |
+| GPU upload + mesh + read back per chunk | 15.5 |
