@@ -9,7 +9,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, float, floor, fract, vec2, vec3, vec4, acos, add, mul, clamp, cos, dot, exp, max, min, mix, modelViewProjection,
   normalize, positionWorld, pow, smoothstep, sub, varyingProperty, uniform, cameraPosition, If, Loop, cross, sqrt, log, select,
-  instancedBufferAttribute, pmremTexture,
+  instancedBufferAttribute, pmremTexture, length,
 } from 'three/tsl';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,6 +96,26 @@ export function cloudShadow(U: N, position: N, sunDir: N, strength = 0.7): N {
 export function skyToward(envMap: THREE.Texture, direction: N, blur = 0.55): N {
   const d = normalize(vec3(direction.x, max(direction.y, 0.02), direction.z));
   return pmremTexture(envMap, d, float(blur)).rgb;
+}
+
+/**
+ * The sky's glow while the sun is just below the horizon (sun height -0.18..0.05), where Preetham
+ * has gone black: a warm band low toward the sun, a blue that deepens to the zenith, and a faint
+ * pink above the shadowed horizon opposite. It fades as the sun sinks and as Preetham takes over.
+ */
+export function twilight(direction: N, sunDirection: N): N {
+  const s = sunDirection.y;
+  const glow = smoothstep(-0.18, -0.01, s).mul(sub(1.0, smoothstep(-0.01, 0.06, s)).mul(0.85).add(0.15)).mul(sub(1.0, smoothstep(0.03, 0.1, s)));
+  const h = max(direction.y, 0.0);
+  const flat = vec2(direction.x, direction.z);
+  const sunFlat = vec2(sunDirection.x, sunDirection.z);
+  const toward = dot(flat.div(max(length(flat), 1e-4)), sunFlat.div(max(length(sunFlat), 1e-4))).mul(0.5).add(0.5);
+  const low = pow(sub(1.0, h), 6.0);
+  // The band toward the sun sinks and narrows with it.
+  const band = vec3(0.9, 0.38, 0.12).mul(low).mul(pow(toward, 3.0).mul(0.85).add(0.15)).mul(smoothstep(-0.18, -0.02, s));
+  const blue = mix(vec3(0.05, 0.08, 0.16), vec3(0.012, 0.03, 0.085), pow(h, 0.6)).mul(smoothstep(-0.2, -0.04, s).add(0.3));
+  const belt = vec3(0.12, 0.06, 0.09).mul(pow(sub(1.0, h), 3.0)).mul(pow(sub(1.0, toward), 2.0));
+  return band.add(blue).add(belt).mul(glow).mul(0.5).mul(smoothstep(-0.12, 0.0, direction.y));
 }
 
 /** A unit box drawn behind everything; scale it large and keep it on the camera. */
@@ -189,6 +209,10 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     texColor.addAssign(min(vSunE.mul(Fex), 80.0).mul(float(0.05).mul(pow(cz, 6000.0)).add(float(0.003).mul(pow(cz, 400.0))))
       .mul(U.showSunDisc).mul(sub(1.0, U.overcast)).mul(smoothstep(-0.05, 0.02, direction.y)));
 
+    // Twilight: Preetham goes black once the sun is 2 degrees down, but the sky glows on until about 10 degrees.
+    const twi = twilight(direction, vSunDirection).toVar();
+    texColor.addAssign(twi.mul(sub(1.0, U.overcast.mul(0.6))));
+
     // The moon: a sphere lit from the sun's side (its phase), maria, craters, reddened low down.
     if (!env) {
       const cosM = dot(direction, U.moonDir);
@@ -230,6 +254,8 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
       const cloudColor = skyAmbient.add(sunColor.mul(shade)).toVar();
       cloudColor.addAssign(sunColor.mul(silver).mul(edge).mul(0.6));
       cloudColor.mulAssign(dayFactor.max(0.03));
+      // After sunset the clouds take the glow from below: warm toward the sun, dim elsewhere.
+      cloudColor.addAssign(twi.mul(0.6).add(twilight(vec3(direction.x, 0.0, direction.z).normalize(), vSunDirection).mul(0.5)));
       // Weather: darker clouds, lightning lighting them.
       cloudColor.mulAssign(sub(1.0, U.cloudDark.mul(0.72)));
       cloudColor.addAssign(vec3(0.75, 0.8, 1.0).mul(U.flash).mul(add(0.25, pow(max(dot(direction, U.flashDir), 0.0), 8.0).mul(2.5))).mul(3.0));
