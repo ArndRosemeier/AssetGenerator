@@ -84,8 +84,16 @@ async function main() {
   const dir = new Vector3(0.3, -1, 0.5).normalize(), reach = 40;
   const sweep = dir.clone().multiplyScalar(reach).toArray() as [number, number, number];
   const gpu = new GpuInstanceDraws(renderer, ks, { horizontal: true, shadow: { dir, reach }, capacity: 1024 });
-  gpu.set(data, N); // grows from 1024
+  const rt = new RenderTarget(W, H, { type: UnsignedByteType, depthBuffer: true });
+  const scene = new Scene();
+  scene.background = new Color(0x000000);
+  scene.add(gpu.group);
+  // Drawn once with a few instances first, so the buffers grow under live draws (as when flying into new woods).
+  gpu.set(data, 500);
   await gpu.ready();
+  gpu.update(cam);
+  await pixels(renderer, scene, cam, rt);
+  gpu.set(data, N); // grows from 1024
   gpu.update(cam);
   const got = await gpu.counts(), want = expected(ks, data, N, cam, sweep, true);
   log(`counts gpu ${got.join(' ')}`);
@@ -94,10 +102,6 @@ async function main() {
   const countsOk = got.every((g, i) => Math.abs(g - want[i]) <= 2);
 
   // Same image as the CPU path (which draws every level whole; the view culling must not take anything visible).
-  const rt = new RenderTarget(W, H, { type: UnsignedByteType, depthBuffer: true });
-  const scene = new Scene();
-  scene.background = new Color(0x000000);
-  scene.add(gpu.group);
   const a = await pixels(renderer, scene, cam, rt);
   scene.remove(gpu.group);
   const cpu = new CpuInstanceDraws(ks, { horizontal: true });
