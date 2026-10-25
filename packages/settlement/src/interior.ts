@@ -348,8 +348,10 @@ function fixture(o: Out, f: InteriorFixture): void {
       o.box(a0, a1, 0.55, f.h, b0, b1, BuildingMat.Slate, IRON);
       break;
     case 'hatch':
-      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, DARK);
-      o.box(f.a - 0.08, f.a + 0.08, f.h, f.h + 0.02, f.b - 0.08, f.b + 0.08, BuildingMat.Slate, IRON);
+      // Planks a shade lighter than the floor (it lies in a dark corner), two battens and an iron ring.
+      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, [150, 116, 84]);
+      for (const t of [-0.25, 0.25]) o.box(a0 + 0.06, a1 - 0.06, f.h, f.h + 0.025, f.b + t * f.d - 0.05, f.b + t * f.d + 0.05, BuildingMat.Oak, TIMBER);
+      o.box(f.a - 0.1, f.a + 0.1, f.h, f.h + 0.03, f.b - 0.1, f.b + 0.1, BuildingMat.Slate, [120, 120, 126]);
       break;
     case 'basin':
       o.box(f.a - 0.3, f.a + 0.3, 0, f.h - 0.2, f.b - 0.3, f.b + 0.3, BuildingMat.Ashlar, STONE);
