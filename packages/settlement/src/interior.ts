@@ -14,7 +14,9 @@ import type { TownBuilding } from './town';
 
 export type InteriorFixtureKind =
   | 'table' | 'bench' | 'counter' | 'barrel' | 'hearth' | 'bed' | 'chest' | 'shelf'
-  | 'forge' | 'anvil' | 'tub' | 'workbench' | 'woodpile' | 'oven' | 'basin';
+  | 'forge' | 'anvil' | 'tub' | 'workbench' | 'woodpile' | 'oven' | 'basin'
+  /** A trapdoor in the floor (to a cellar): walked over, not round. */
+  | 'hatch';
 
 /** A fixture: an axis-aligned block (in the building's frame) from the floor up. */
 export interface InteriorFixture {
@@ -59,7 +61,8 @@ const WALL = 0.28;
 const FACE_A = 0, FACE_B = Math.PI / 2, FACE_NA = Math.PI, FACE_NB = -Math.PI / 2;
 
 /** The ground floor of `b`, furnished for what it is. */
-export function planInterior(b: TownBuilding): InteriorPlan {
+/** `hatch`: a trapdoor down to a cellar, on free floor one can walk to. */
+export function planInterior(b: TownBuilding, opts: { hatch?: boolean } = {}): InteriorPlan {
   const r = new Rng(b.seed ^ 0x1e7e);
   const ha = Math.max(1.6, b.hu - WALL), hb = Math.max(1.6, b.hv - WALL);
   const P = new Planner(ha, hb);
@@ -70,6 +73,7 @@ export function planInterior(b: TownBuilding): InteriorPlan {
     case 'temple': temple(P, r); break;
     default: home(P, r, b.kind === 'workshop' || b.kind === 'mill' || b.trade !== '');
   }
+  if (opts.hatch) P.hatch();
   const plan: InteriorPlan = {
     building: b.id, ha, hb, height: Math.max(2.4, b.floorH - 0.25), doorW: 0.55, doorH: 2.05,
     stoneFloor: b.kind === 'smithy' || b.kind === 'temple' || b.kind === 'bakery',
@@ -133,6 +137,23 @@ class Planner {
 
   spot(kind: InteriorSpotKind, a: number, b: number, yaw: number): void {
     this.spots.push({ kind, a, b, yaw });
+  }
+
+  /** A trapdoor on free floor, as far back from the door as it fits (looser gaps if need be). */
+  hatch(): void {
+    for (const gap of [0.4, 0.2, 0]) {
+      for (let b = this.hb - 0.6; b > -this.hb + 1.9; b -= 0.2) {
+        for (const a of [this.ha - 0.6, -(this.ha - 0.6), 0, this.ha / 2, -this.ha / 2]) {
+          if (!this.fits(a, b, 0.9, 0.9, gap)) continue;
+          this.fixtures.push({ kind: 'hatch', a, b, w: 0.9, d: 0.9, h: 0.04 });
+          const reach = reachable({ building: -1, ha: this.ha, hb: this.hb, height: 2.4, doorW: 0.55, doorH: 2.05, stoneFloor: false, fixtures: this.fixtures, spots: [] });
+          if (reach(a, b)) return;
+          this.fixtures.pop();
+        }
+      }
+    }
+    // Nothing free: at the door's way in (always open).
+    this.fixtures.push({ kind: 'hatch', a: 0, b: -this.hb + 1.4, w: 0.9, d: 0.9, h: 0.04 });
   }
 
   /** A table (`len` long) with a bench on each long side; people sit facing it. Returns whether it fitted. */
@@ -326,6 +347,10 @@ function fixture(o: Out, f: InteriorFixture): void {
       o.box(f.a - 0.18, f.a + 0.18, 0, 0.55, f.b - 0.18, f.b + 0.18, BuildingMat.Oak, DARK);
       o.box(a0, a1, 0.55, f.h, b0, b1, BuildingMat.Slate, IRON);
       break;
+    case 'hatch':
+      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, DARK);
+      o.box(f.a - 0.08, f.a + 0.08, f.h, f.h + 0.02, f.b - 0.08, f.b + 0.08, BuildingMat.Slate, IRON);
+      break;
     case 'basin':
       o.box(f.a - 0.3, f.a + 0.3, 0, f.h - 0.2, f.b - 0.3, f.b + 0.3, BuildingMat.Ashlar, STONE);
       o.box(a0, a1, f.h - 0.2, f.h, b0, b1, BuildingMat.Ashlar, STONE);
@@ -341,6 +366,6 @@ export function interiorBlocked(plan: InteriorPlan, a: number, b: number, r: num
   const inDoor = Math.abs(a) < plan.doorW - r * 0.5 && b < -plan.hb + r;
   if (!inDoor && (Math.abs(a) > plan.ha - r || b < -plan.hb + r)) return true;
   if (b > plan.hb - r) return true;
-  for (const f of plan.fixtures) if (Math.abs(a - f.a) < f.w / 2 + r && Math.abs(b - f.b) < f.d / 2 + r) return true;
+  for (const f of plan.fixtures) if (f.kind !== 'hatch' && Math.abs(a - f.a) < f.w / 2 + r && Math.abs(b - f.b) < f.d / 2 + r) return true;
   return false;
 }
