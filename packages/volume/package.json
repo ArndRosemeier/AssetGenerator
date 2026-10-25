@@ -1,11 +1,12 @@
 {
   "name": "@futuremagic/volume",
   "version": "0.1.0",
-  "description": "Volumes of rock in signed distances: surface nets meshing (smooth, indexed, seamless between chunks). Pure, runs in workers. From Dunfinity.",
+  "description": "Volumes of rock in signed distances: surface nets meshing (smooth, indexed, seamless between chunks). Pure, runs in workers; ./gpu meshes the same on the GPU (WebGPU). From Dunfinity.",
   "type": "module",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./gpu": "./src/gpu.ts"
   },
   "license": "MIT"
 }
