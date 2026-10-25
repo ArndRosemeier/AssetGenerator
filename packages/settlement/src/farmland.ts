@@ -211,10 +211,12 @@ export function planFarmland(input: FarmlandInput): Farmland {
       const [x0, z0, x1, z1] = polyBounds(piece.outer);
       const span = Math.hypot(x1 - x0, z1 - z0);
       const [pcx, pcz] = polyCentroid(piece.outer);
+      // Grass along the furlong's edge too (two furlongs may meet where a track was left out).
+      const inner = shapesToPolys(offset(shapesToPolys([piece]), -BALK / 2, 'miter'));
       for (let v = -span / 2, w = 0; v < span / 2; v += w + BALK) {
         w = sw * cr.range(0.8, 1.2);
         const strip = rect(pcx - ux * span - vx * -v, pcz - uz * span - vz * -v, ux, uz, vx, vz, span * 2, w);
-        for (const s of intersection([ensureCCW(strip)], shapesToPolys([piece]))) {
+        for (const s of intersection([ensureCCW(strip)], inner)) {
           if (s.holes.length || shapeArea(s) < 250 || polyWet(s.outer, wet)) continue;
           let crop: CropKind = cr.chance(0.8) ? mainCrop : cr.pick(garden ? KITCHEN : ODD);
           // Steep strips and those by the water are left to grass: hay meadows.
