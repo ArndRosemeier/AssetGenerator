@@ -1,0 +1,15 @@
+{
+  "name": "@futuremagic/audio",
+  "version": "0.1.0",
+  "description": "Game sound on Web Audio: crossfading ambience beds, placed (HRTF) and seeded one-shots, music decks that crossfade and duck, muffling and room echo; the footstep clock and music picker as pure code; and the script that makes a game's sounds and music through OpenRouter. From Solarpolis.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./web": "./src/web.ts"
+  },
+  "dependencies": {
+    "@futuremagic/core": "*"
+  },
+  "license": "MIT"
+}
