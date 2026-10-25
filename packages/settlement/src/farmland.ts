@@ -283,7 +283,7 @@ function farmEdge(n: Noise, cx: number, cz: number, outline: Poly, W: number, we
   smoothRing(rs).forEach((r, i) => {
     const a = (i / N) * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a);
     let rr = r;
-    for (let t = r0s[i] + 6; t < rr; t += 5) if (wet(cx + dx * t, cz + dz * t)) { rr = Math.max(r0s[i] + 4, t - 6); break; }
+    for (let t = r0s[i] + 6; t < rr; t += 8) if (wet(cx + dx * t, cz + dz * t)) { rr = Math.max(r0s[i] + 4, t - 8); break; }
     out.push(cx + dx * rr, cz + dz * rr);
   });
   return ensureCCW(out);
@@ -382,20 +382,20 @@ const at = (l: FarmLay, u: number, v: number): [number, number] => [l.ox + l.ux 
 /** Dry, gentle, outside the town and inside the farmland, clear of other farms and other roads. */
 function farmFits(l: FarmLay, input: FarmlandInput, inTown: (x: number, z: number) => boolean, inEdge: (x: number, z: number) => boolean, others: Poly[], roads: number[][]): boolean {
   const f = l.footprint;
+  // The cheap checks first: the ground is slow to ask.
+  for (const p of others) if (intersection([f], [p]).length) return false;
+  // No road through the farm (its own road runs along the front).
+  for (const r of roads) for (let k = 0; k + 1 < r.length; k += 2) if (pointInPoly(f, r[k], r[k + 1])) return false;
   const [x0, z0, x1, z1] = polyBounds(f);
   let lo = Infinity, hi = -Infinity;
-  for (let i = 0; i <= 6; i++) for (let j = 0; j <= 6; j++) {
-    const x = x0 + ((x1 - x0) * i) / 6, z = z0 + ((z1 - z0) * j) / 6;
+  for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) {
+    const x = x0 + ((x1 - x0) * i) / 4, z = z0 + ((z1 - z0) * j) / 4;
     if (!pointInPoly(f, x, z)) continue;
     if (input.wet(x, z) || inTown(x, z) || !inEdge(x, z)) return false;
     const h = input.site.height(x, z);
     lo = Math.min(lo, h); hi = Math.max(hi, h);
   }
-  if (hi - lo > Math.max(3, 0.12 * Math.hypot(x1 - x0, z1 - z0))) return false;
-  for (const p of others) if (intersection([f], [p]).length) return false;
-  // No road through the farm (its own road runs along the front).
-  for (const r of roads) for (let k = 0; k + 1 < r.length; k += 2) if (pointInPoly(f, r[k], r[k + 1])) return false;
-  return true;
+  return hi - lo <= Math.max(3, 0.12 * Math.hypot(x1 - x0, z1 - z0));
 }
 
 function addFarm(l: FarmLay, input: FarmlandInput, farms: Farm[], paddocks: Paddock[], props: TownProp[], fields: Field[], r: Rng): void {
@@ -433,6 +433,9 @@ function addFarm(l: FarmLay, input: FarmlandInput, farms: Farm[], paddocks: Padd
   stable.floorH = r.range(2.7, 3.1);
   stable.wall = r.chance(0.5) ? 'timber' : 'plaster';
   stable.ridgeAlongU = true;
+  // Barn and stable have earthen floors at the level of the ground before their doors (dug into a slope
+  // behind): a wagon or a horse walks straight in, no steps.
+  for (const b of [barn, stable]) b.floorY = Math.min(b.floorY, site.height(b.door[0], b.door[1]) + 0.12);
   // The paddock, its fence (posts every 2.5 m round it, a gate gap on the yard side) and its pasture.
   const pPoly = ensureCCW(boxPoly(l, l.paddock));
   const gv = Math.min(l.paddock.v - l.paddock.hv + 4, l.stable.v);

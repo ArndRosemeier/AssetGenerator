@@ -332,6 +332,13 @@ export function planTown(site: TownSite): TownPlan {
   const land = farmland
     ? planFarmland({ site, rng: rng.fork('farmland'), cx, cz, outline, roads, radius: R, people, buildings, streets, fix: (k, x, z, yaw, b) => fix(k, x, z, yaw, b), wet, roadWidth: ROAD_W })
     : { edge: outline, furlongs: [], fields: [], paddocks: [], farms: [], props: [] };
+  // The roads end a little beyond the fields (the world's road network takes over from there).
+  if (farmland) for (const st of streets) {
+    if (st.kind !== 'road') continue;
+    let k = 2;
+    while (k < st.pts.length && pointInPoly(land.edge, st.pts[k], st.pts[k + 1])) k += 2;
+    st.pts = st.pts.slice(0, Math.min(st.pts.length, k + 12));
+  }
 
   return {
     seed, centre: [cx, cz], radius: R, market, outline, streets, blocks, lots, yards, templeGrounds, buildings, fixtures,
