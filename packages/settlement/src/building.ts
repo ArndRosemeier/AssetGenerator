@@ -1,0 +1,524 @@
+/**
+ * Medieval buildings as meshes, from a planned TownBuilding: a rubble plinth, walls per storey (lime
+ * plaster, rubble or dressed stone, or timber framing with real posts, rails and braces), upper storeys
+ * jettied over the street, windows with reveals, frames, sills, leaded glass and painted shutters, a
+ * plank door, gable or hip roofs with overhanging eaves and verges (thatch, tile, slate, shingle), gable
+ * framing, chimneys, and the temple: a stone hall with a round sanctuary under a cone of slate.
+ *
+ * Pure geometry (no three.js): positions relative to a given origin, normals, uv in metres (the game
+ * divides by its texture's tile size), a material per vertex (BuildingMat) and a tint. `detail` false
+ * gives the far version: the same shape without frames, beams, shutters and reveals.
+ */
+import { Rng } from '@futuremagic/core';
+import type { TownBuilding } from './town';
+
+/** Surface materials. The game maps each to a texture layer. */
+export const BuildingMat = {
+  Plaster: 0,
+  Rubble: 1,
+  Ashlar: 2,
+  Oak: 3,
+  Thatch: 4,
+  Tile: 5,
+  Slate: 6,
+  Shingle: 7,
+  Glass: 8,
+} as const;
+export type BuildingMat = (typeof BuildingMat)[keyof typeof BuildingMat];
+export const BUILDING_MAT_COUNT = 9;
+
+export interface BuildingMesh {
+  position: Float32Array;
+  normal: Float32Array;
+  /** Texture coordinates in metres. */
+  uv: Float32Array;
+  /** BuildingMat per vertex. */
+  mat: Uint8Array;
+  /** Tint per vertex, rgb 0..255 (multiplies the texture). */
+  tint: Uint8Array;
+  index: Uint32Array;
+}
+
+type RGB = [number, number, number];
+const WHITE: RGB = [255, 255, 255];
+
+/** Lime washes, ochres and pale earth colours for plaster. */
+const WASHES: RGB[] = [[244, 238, 224], [238, 228, 204], [232, 214, 178], [226, 206, 170], [236, 222, 212], [214, 222, 214], [240, 232, 214], [222, 196, 160]];
+/** Old oak, from weathered silver-brown to almost black. */
+const TIMBERS: RGB[] = [[150, 120, 96], [110, 82, 62], [86, 62, 48], [66, 48, 38], [128, 104, 86]];
+/** Painted shutters and doors. */
+const PAINTS: RGB[] = [[120, 150, 110], [150, 70, 54], [80, 104, 130], [176, 140, 74], [116, 92, 70], [96, 120, 96]];
+const STONES: RGB[] = [[236, 228, 214], [222, 214, 200], [210, 204, 196], [232, 220, 196]];
+
+/** Collects triangles; `world` turns local (a, y, b) into positions relative to the origin. */
+class Out {
+  pos: number[] = [];
+  nrm: number[] = [];
+  uv: number[] = [];
+  mat: number[] = [];
+  tint: number[] = [];
+  idx: number[] = [];
+  constructor(private readonly t: Frame) {}
+
+  /** A quad from four local corners (any winding: it is turned to face `n`), uv from (s, t) metres. */
+  quad(p: number[][], n: number[], uv: number[][], m: BuildingMat, c: RGB): void {
+    const w = p.map((q) => this.t.point(q[0], q[1], q[2]));
+    const wn = this.t.dir(n[0], n[1], n[2]);
+    const base = this.pos.length / 3;
+    for (let i = 0; i < 4; i++) {
+      this.pos.push(w[i][0], w[i][1], w[i][2]);
+      this.nrm.push(wn[0], wn[1], wn[2]);
+      this.uv.push(uv[i][0], uv[i][1]);
+      this.mat.push(m);
+      this.tint.push(c[0], c[1], c[2]);
+    }
+    const e1 = [w[1][0] - w[0][0], w[1][1] - w[0][1], w[1][2] - w[0][2]], e2 = [w[2][0] - w[0][0], w[2][1] - w[0][1], w[2][2] - w[0][2]];
+    const cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
+    if (cx * wn[0] + cy * wn[1] + cz * wn[2] >= 0) this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    else this.idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+  }
+
+  /** A triangle (as a degenerate quad would waste a vertex: emitted directly). */
+  tri(p: number[][], n: number[], uv: number[][], m: BuildingMat, c: RGB): void {
+    const w = p.map((q) => this.t.point(q[0], q[1], q[2]));
+    const wn = this.t.dir(n[0], n[1], n[2]);
+    const base = this.pos.length / 3;
+    for (let i = 0; i < 3; i++) {
+      this.pos.push(w[i][0], w[i][1], w[i][2]);
+      this.nrm.push(wn[0], wn[1], wn[2]);
+      this.uv.push(uv[i][0], uv[i][1]);
+      this.mat.push(m);
+      this.tint.push(c[0], c[1], c[2]);
+    }
+    const e1 = [w[1][0] - w[0][0], w[1][1] - w[0][1], w[1][2] - w[0][2]], e2 = [w[2][0] - w[0][0], w[2][1] - w[0][1], w[2][2] - w[0][2]];
+    const cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
+    if (cx * wn[0] + cy * wn[1] + cz * wn[2] >= 0) this.idx.push(base, base + 1, base + 2);
+    else this.idx.push(base, base + 2, base + 1);
+  }
+
+  /** An axis-aligned box in local space (a0..a1, y0..y1, b0..b1); `bottom` false leaves the underside out. */
+  box(a0: number, a1: number, y0: number, y1: number, b0: number, b1: number, m: BuildingMat, c: RGB, bottom = false): void {
+    const faces: [number[][], number[]][] = [
+      [[[a0, y0, b0], [a1, y0, b0], [a1, y1, b0], [a0, y1, b0]], [0, 0, -1]],
+      [[[a1, y0, b1], [a0, y0, b1], [a0, y1, b1], [a1, y1, b1]], [0, 0, 1]],
+      [[[a0, y0, b1], [a0, y0, b0], [a0, y1, b0], [a0, y1, b1]], [-1, 0, 0]],
+      [[[a1, y0, b0], [a1, y0, b1], [a1, y1, b1], [a1, y1, b0]], [1, 0, 0]],
+      [[[a0, y1, b0], [a1, y1, b0], [a1, y1, b1], [a0, y1, b1]], [0, 1, 0]],
+    ];
+    if (bottom) faces.push([[[a0, y0, b1], [a1, y0, b1], [a1, y0, b0], [a0, y0, b0]], [0, -1, 0]]);
+    for (const [p, n] of faces) this.quad(p, n, p.map((q) => planeUV(q, n)), m, c);
+  }
+}
+
+/** UV in metres for a planar face with normal n: the two axes in its plane. */
+function planeUV(q: number[], n: number[]): number[] {
+  if (Math.abs(n[1]) > 0.5) return [q[0], q[2]];
+  if (Math.abs(n[0]) > 0.5) return [q[2], q[1]];
+  return [q[0], q[1]];
+}
+
+/** The building's frame: local a along u, b along v, y up from the floor, to positions relative to the origin. */
+class Frame {
+  constructor(private readonly b: { cx: number; cz: number; ux: number; uz: number; vx: number; vz: number; y: number }, private readonly o: [number, number, number]) {}
+  point(a: number, y: number, bb: number): [number, number, number] {
+    const f = this.b;
+    return [f.cx + f.ux * a + f.vx * bb - this.o[0], f.y + y - this.o[1], f.cz + f.uz * a + f.vz * bb - this.o[2]];
+  }
+  dir(a: number, y: number, bb: number): [number, number, number] {
+    const f = this.b;
+    const x = f.ux * a + f.vx * bb, z = f.uz * a + f.vz * bb;
+    const l = Math.hypot(x, y, z) || 1;
+    return [x / l, y / l, z / l];
+  }
+}
+
+interface Opening { s0: number; s1: number; t0: number; t1: number; door?: boolean }
+
+/** The look of one building, rolled from its seed. */
+interface Look {
+  wash: RGB;
+  timber: RGB;
+  paint: RGB;
+  stone: RGB;
+  shutters: number;
+  jetty: number;
+  bay: number;
+}
+
+export function buildingMesh(b: TownBuilding, origin: [number, number, number], detail = true): BuildingMesh {
+  const r = new Rng(b.seed);
+  const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+  const frame = new Frame({ cx: b.cx, cz: b.cz, ux, uz, vx: b.vx, vz: b.vz, y: b.floorY }, origin);
+  const out = new Out(frame);
+  const look: Look = {
+    wash: r.pick(WASHES), timber: r.pick(TIMBERS), paint: r.pick(PAINTS), stone: r.pick(STONES),
+    shutters: r.range(0.2, 0.8),
+    jetty: b.kind !== 'temple' && b.floors > 1 && b.wall !== 'stone' && r.chance(b.attached ? 0.7 : 0.4) ? r.range(0.3, 0.5) : 0,
+    bay: r.range(2.4, 3.1),
+  };
+  if (b.kind === 'temple') temple(out, b, look, r, detail);
+  else house(out, b, look, r, detail);
+  return {
+    position: Float32Array.from(out.pos), normal: Float32Array.from(out.nrm), uv: Float32Array.from(out.uv),
+    mat: Uint8Array.from(out.mat), tint: Uint8Array.from(out.tint), index: Uint32Array.from(out.idx),
+  };
+}
+
+// ---------------------------------------------------------------- houses
+
+function house(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void {
+  const { hu, hv } = b;
+  const plinthDown = b.floorY - b.groundY + 0.3;
+  // The plinth: rubble from below the lowest ground to the floor.
+  o.box(-hu - 0.06, hu + 0.06, -plinthDown, 0.05, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
+  if (detail && b.floorY - b.groundY > 0.35) {
+    // Steps up to the door.
+    const steps = Math.min(4, Math.ceil((b.floorY - b.groundY) / 0.2));
+    for (let i = 0; i < steps; i++) o.box(-0.7, 0.7, -plinthDown, -i * 0.2, -hv - 0.06 - 0.32 * (steps - i), -hv - 0.06, BuildingMat.Ashlar, L.stone);
+  }
+  let y = 0;
+  const wallMat = b.wall === 'stone' ? (r.chance(0.6) ? BuildingMat.Rubble : BuildingMat.Ashlar) : BuildingMat.Plaster;
+  const tint = b.wall === 'stone' ? L.stone : L.wash;
+  let front = -hv, back = hv;
+  for (let f = 0; f < b.floors; f++) {
+    const h = b.floorH;
+    // A jetty: each upper storey stands out over the street (and on free-standing houses over the back too).
+    if (f > 0 && L.jetty > 0) {
+      const f0 = front;
+      front -= L.jetty;
+      if (!b.attached) back += L.jetty * 0.6;
+      if (detail) for (let a = -hu + 0.3; a < hu - 0.1; a += 0.62) o.box(a - 0.08, a + 0.08, y - 0.18, y, front, f0 + 0.05, BuildingMat.Oak, L.timber, true);
+      // The jetty's underside.
+      o.quad([[-hu, y - 0.18, front], [hu, y - 0.18, front], [hu, y - 0.18, f0], [-hu, y - 0.18, f0]], [0, -1, 0], [[-hu, front], [hu, front], [hu, f0], [-hu, f0]], BuildingMat.Oak, L.timber);
+    }
+    const ground = f === 0;
+    // A stone ground floor under plastered or timbered upper floors, now and then.
+    const mat = ground && b.wall !== 'stone' && b.floors > 1 && r.chance(0.3) ? BuildingMat.Rubble : wallMat;
+    const tn = mat === BuildingMat.Plaster ? tint : L.stone;
+    const timbered = b.wall === 'timber' && mat === BuildingMat.Plaster;
+    const sides: [number, number, number, number, number][] = [
+      // a0, b0 -> a1, b1 along the wall, and the side's id: 0 front, 1 right, 2 back, 3 left.
+      [-hu, front, hu, front, 0], [hu, front, hu, back, 1], [hu, back, -hu, back, 2], [-hu, back, -hu, front, 3],
+    ];
+    for (const [a0, b0, a1, b1, id] of sides) {
+      const len = Math.hypot(a1 - a0, b1 - b0);
+      const blind = b.attached && (id === 1 || id === 3);
+      const opens = blind ? [] : openings(len, h, L.bay, ground && id === 0 ? doorAt(a0, a1, len) : null, ground, b.kind, r);
+      wall(o, a0, b0, a1, b1, y, y + h, opens, mat, tn, detail, L, timbered, r);
+    }
+    y += h;
+  }
+  roof(o, b, -hu, hu, front, back, y, L, r, detail);
+}
+
+/** Where the door goes along the front wall (s from a0): the middle, where the plan put it. */
+function doorAt(a0: number, a1: number, len: number): number {
+  return a1 > a0 ? -a0 : len + a0;
+}
+
+/** Windows (and the door) on a wall `len` long and `h` high. */
+function openings(len: number, h: number, bay: number, door: number | null, ground: boolean, kind: TownBuilding['kind'], r: Rng): Opening[] {
+  const out: Opening[] = [];
+  const shop = ground && (kind === 'workshop' || kind === 'bakery' || kind === 'smithy' || kind === 'inn');
+  if (door !== null) {
+    const w = kind === 'stable' || kind === 'smithy' || kind === 'mill' ? 1.9 : kind === 'inn' ? 1.3 : 1.05;
+    out.push({ s0: door - w / 2, s1: door + w / 2, t0: 0, t1: Math.min(h - 0.35, kind === 'stable' ? 2.5 : 2.05), door: true });
+  }
+  const n = Math.max(1, Math.round(len / bay));
+  for (let i = 0; i < n; i++) {
+    const c = (i + 0.5) * (len / n);
+    const w = shop ? 1.4 : ground ? 0.75 : 0.85, hh = shop ? 1.2 : ground ? 0.95 : 1.1;
+    const t0 = shop ? 0.75 : ground ? 1.0 : 0.85;
+    if (c - w / 2 < 0.45 || c + w / 2 > len - 0.45) continue;
+    if (out.some((q) => q.door && c + w / 2 > q.s0 - 0.5 && c - w / 2 < q.s1 + 0.5)) continue;
+    if (!shop && r.chance(0.12)) continue; // a blank bay now and then
+    out.push({ s0: c - w / 2, s1: c + w / 2, t0, t1: Math.min(h - 0.3, t0 + hh) });
+  }
+  return out;
+}
+
+/**
+ * One storey of one wall: the face with holes for its openings, their reveals, glass, frames, sills and
+ * shutters, the door leaf, and timber framing.
+ */
+function wall(o: Out, a0: number, b0: number, a1: number, b1: number, y0: number, y1: number, opens: Opening[], m: BuildingMat, c: RGB, detail: boolean, L: Look, timbered: boolean, r: Rng): void {
+  const len = Math.hypot(a1 - a0, b1 - b0);
+  const da = (a1 - a0) / len, db = (b1 - b0) / len;
+  // Outward normal: the wall runs counter-clockwise seen from above in (a, b), so outward is (db, -da).
+  const na = db, nb = -da;
+  const P = (s: number, t: number, d = 0): number[] => [a0 + da * s + na * d, t, b0 + db * s + nb * d];
+  const N = [na, 0, nb];
+  // The face, split on a grid at the openings' edges.
+  const ss = [0, len], ts = [y0, y1];
+  for (const q of opens) { ss.push(q.s0, q.s1); ts.push(y0 + q.t0, y0 + q.t1); }
+  const S = [...new Set(ss)].sort((x, y) => x - y), T = [...new Set(ts)].sort((x, y) => x - y);
+  for (let i = 0; i + 1 < S.length; i++) for (let j = 0; j + 1 < T.length; j++) {
+    const sm = (S[i] + S[i + 1]) / 2, tm = (T[j] + T[j + 1]) / 2 - y0;
+    if (opens.some((q) => sm > q.s0 && sm < q.s1 && tm > q.t0 && tm < q.t1)) continue;
+    o.quad([P(S[i], T[j]), P(S[i + 1], T[j]), P(S[i + 1], T[j + 1]), P(S[i], T[j + 1])], N, [[S[i], T[j]], [S[i + 1], T[j]], [S[i + 1], T[j + 1]], [S[i], T[j + 1]]], m, c);
+  }
+  const frameMat = m === BuildingMat.Plaster ? BuildingMat.Oak : BuildingMat.Ashlar;
+  const frameTint = m === BuildingMat.Plaster ? L.timber : L.stone;
+  for (const q of opens) {
+    const t0 = y0 + q.t0, t1 = y0 + q.t1;
+    const back = q.door ? 0.12 : 0.16;
+    if (detail) {
+      // Reveals.
+      o.quad([P(q.s0, t0), P(q.s0, t1), P(q.s0, t1, -back), P(q.s0, t0, -back)], [da, 0, db], [[0, t0], [0, t1], [back, t1], [back, t0]], m, c);
+      o.quad([P(q.s1, t0), P(q.s1, t1), P(q.s1, t1, -back), P(q.s1, t0, -back)], [-da, 0, -db], [[0, t0], [0, t1], [back, t1], [back, t0]], m, c);
+      o.quad([P(q.s0, t1), P(q.s1, t1), P(q.s1, t1, -back), P(q.s0, t1, -back)], [0, -1, 0], [[q.s0, 0], [q.s1, 0], [q.s1, back], [q.s0, back]], m, c);
+      if (!q.door) o.quad([P(q.s0, t0), P(q.s1, t0), P(q.s1, t0, -back), P(q.s0, t0, -back)], [0, 1, 0], [[q.s0, 0], [q.s1, 0], [q.s1, back], [q.s0, back]], m, c);
+    }
+    const d = detail ? -back : -0.02;
+    if (q.door) {
+      // A plank door, painted or bare.
+      o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Oak, r.chance(0.5) ? L.paint : L.timber);
+    } else {
+      o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Glass, WHITE);
+    }
+    if (!detail) continue;
+    // Frame, and a sill under windows.
+    const fw = 0.09, fo = 0.035;
+    const fb = (s0: number, s1: number, u0: number, u1: number, thick?: number) => frameBox(o, P, da, db, na, nb, s0, s1, u0, u1, fo, frameMat, frameTint, thick);
+    fb(q.s0 - fw, q.s0, t0, t1 + fw);
+    fb(q.s1, q.s1 + fw, t0, t1 + fw);
+    fb(q.s0, q.s1, t1, t1 + fw);
+    if (!q.door) {
+      fb(q.s0 - fw - 0.04, q.s1 + fw + 0.04, t0 - 0.07, t0);
+      // Shutters, folded back against the wall.
+      if (r.float() < L.shutters) {
+        const w = (q.s1 - q.s0) / 2;
+        fb(q.s0 - fw - w, q.s0 - fw - 0.01, t0, t1, 0.03);
+        fb(q.s1 + fw + 0.01, q.s1 + fw + w, t0, t1, 0.03);
+      }
+    }
+  }
+  if (detail && timbered) frameWall(o, P, da, db, na, nb, len, y0, y1, opens, L, r);
+}
+
+/** A box lying on the wall face from (s0, t0) to (s1, t1), `d` thick (outwards). */
+function frameBox(o: Out, P: (s: number, t: number, d?: number) => number[], da: number, db: number, na: number, nb: number, s0: number, s1: number, t0: number, t1: number, d: number, m: BuildingMat, c: RGB, thick?: number): void {
+  const dd = thick ?? d;
+  const N = [na, 0, nb];
+  o.quad([P(s0, t0, dd), P(s1, t0, dd), P(s1, t1, dd), P(s0, t1, dd)], N, [[s0, t0], [s1, t0], [s1, t1], [s0, t1]], m, c);
+  o.quad([P(s0, t1, 0), P(s1, t1, 0), P(s1, t1, dd), P(s0, t1, dd)], [0, 1, 0], [[s0, 0], [s1, 0], [s1, dd], [s0, dd]], m, c);
+  o.quad([P(s0, t0, 0), P(s1, t0, 0), P(s1, t0, dd), P(s0, t0, dd)], [0, -1, 0], [[s0, 0], [s1, 0], [s1, dd], [s0, dd]], m, c);
+  o.quad([P(s0, t0, 0), P(s0, t1, 0), P(s0, t1, dd), P(s0, t0, dd)], [-da, 0, -db], [[t0, 0], [t1, 0], [t1, dd], [t0, dd]], m, c);
+  o.quad([P(s1, t0, 0), P(s1, t1, 0), P(s1, t1, dd), P(s1, t0, dd)], [da, 0, db], [[t0, 0], [t1, 0], [t1, dd], [t0, dd]], m, c);
+}
+
+/** Timber framing over a plastered storey: corner posts, sill and head rails, posts at the openings, braces. */
+function frameWall(o: Out, P: (s: number, t: number, d?: number) => number[], da: number, db: number, na: number, nb: number, len: number, y0: number, y1: number, opens: Opening[], L: Look, r: Rng): void {
+  const w = 0.2, d = 0.045, c = L.timber;
+  const box = (s0: number, s1: number, t0: number, t1: number) => frameBox(o, P, da, db, na, nb, s0, s1, t0, t1, d, BuildingMat.Oak, c);
+  box(0, len, y0, y0 + w);
+  box(0, len, y1 - w, y1);
+  box(0, w, y0 + w, y1 - w);
+  box(len - w, len, y0 + w, y1 - w);
+  // Posts beside the openings, and between them where the gap is wide.
+  const posts: number[] = [];
+  for (const q of opens) posts.push(q.s0 - 0.09 - w / 2, q.s1 + 0.09 + w / 2);
+  const all = [w / 2, ...posts.sort((a, b) => a - b), len - w / 2];
+  const keep: number[] = [];
+  for (const p of all) {
+    // Long blank stretches get posts of their own, at most 1.5 m apart.
+    const last = keep.length ? keep[keep.length - 1] : null;
+    if (last !== null && p - last > 1.7) { const k = Math.ceil((p - last) / 1.5); for (let i = 1; i < k; i++) keep.push(last + ((p - last) * i) / k); }
+    if (last === null || p - keep[keep.length - 1] > 0.5) keep.push(p);
+  }
+  for (const p of keep.slice(1, -1)) if (!opens.some((q) => p > q.s0 - 0.05 && p < q.s1 + 0.05)) box(p - w / 2, p + w / 2, y0 + w, y1 - w);
+  // A rail at window-sill height, and braces in the blank panels.
+  for (let i = 0; i + 1 < keep.length; i++) {
+    const s0 = keep[i] + w / 2, s1 = keep[i + 1] - w / 2;
+    if (s1 - s0 < 0.6) continue;
+    if (opens.some((q) => (s0 + s1) / 2 > q.s0 && (s0 + s1) / 2 < q.s1)) continue;
+    const mid = y0 + (y1 - y0) * 0.42;
+    box(s0, s1, mid - 0.08, mid + 0.08);
+    if (s1 - s0 > 1.1 && r.chance(0.8)) {
+      // A brace: from a bottom corner of the panel up to the far post (a "man" figure's leg, simplified).
+      const left = r.chance(0.5);
+      braceOn(o, P, na, nb, left ? s0 : s1, y0 + w, left ? s1 : s0, mid - 0.08, 0.17, d, c);
+      braceOn(o, P, na, nb, left ? s1 : s0, mid + 0.08, left ? s0 : s1, y1 - w, 0.17, d, c);
+    }
+  }
+}
+
+/** A diagonal timber on the wall face from (s0, t0) to (s1, t1). */
+function braceOn(o: Out, P: (s: number, t: number, d?: number) => number[], na: number, nb: number, s0: number, t0: number, s1: number, t1: number, w: number, d: number, c: RGB): void {
+  const ds = s1 - s0, dt = t1 - t0, L = Math.hypot(ds, dt) || 1;
+  const os = (-dt / L) * (w / 2), ot = (ds / L) * (w / 2);
+  // Ends cut to the rails (horizontal), so the brace meets them flush.
+  const q = [[s0 - os, t0 - ot], [s1 - os, t1 - ot], [s1 + os, t1 + ot], [s0 + os, t0 + ot]].map(([s, t]) => [s, Math.min(Math.max(t, Math.min(t0, t1)), Math.max(t0, t1))]);
+  o.quad(q.map(([s, t]) => P(s, t, d)), [na, 0, nb], q.map(([s, t]) => [(s - s0) * ds / L + (t - t0) * dt / L, -(s - s0) * dt / L + (t - t0) * ds / L]), BuildingMat.Oak, c);
+  for (let i = 0; i < 4; i++) {
+    const [s, t] = q[i], [s2, t2] = q[(i + 1) % 4];
+    const el = Math.hypot(s2 - s, t2 - t);
+    if (el < 1e-4) continue;
+    // Side faces: their normal lies in the wall plane; the quad helper turns it to face outwards from the brace.
+    const ms = (s + s2) / 2 - (s0 + s1) / 2, mt = (t + t2) / 2 - (t0 + t1) / 2;
+    const P0 = P(0, 0), Ps = P(1, 0), Pt = P(0, 1);
+    const nx = (Ps[0] - P0[0]) * ms + (Pt[0] - P0[0]) * mt, ny = (Ps[1] - P0[1]) * ms + (Pt[1] - P0[1]) * mt, nz = (Ps[2] - P0[2]) * ms + (Pt[2] - P0[2]) * mt;
+    o.quad([P(s, t, 0), P(s2, t2, 0), P(s2, t2, d), P(s, t, d)], [nx, ny, nz], [[0, 0], [el, 0], [el, d], [0, d]], BuildingMat.Oak, c);
+  }
+}
+
+// ---------------------------------------------------------------- roofs
+
+const COVER_MAT: Record<TownBuilding['cover'], BuildingMat> = { thatch: BuildingMat.Thatch, tile: BuildingMat.Tile, slate: BuildingMat.Slate, shingle: BuildingMat.Shingle };
+
+/** The roof over the rectangle a0..a1 × b0..b1 whose walls end at `y`. */
+function roof(o: Out, b: TownBuilding, a0: number, a1: number, b0: number, b1: number, y: number, L: Look, r: Rng, detail: boolean): void {
+  const m = COVER_MAT[b.cover];
+  const thick = b.cover === 'thatch' ? 0.38 : 0.14;
+  const eave = b.cover === 'thatch' ? 0.6 : 0.42;
+  const tint: RGB = b.cover === 'thatch' ? [255, 246, 228] : b.cover === 'tile' ? [255, 236, 226] : WHITE;
+  // Work in a frame where the ridge runs along `p` (from -P to P) and the slopes fall along `q` (-Q to Q).
+  const alongU = b.ridgeAlongU;
+  const P = alongU ? (a1 - a0) / 2 : (b1 - b0) / 2, Q = alongU ? (b1 - b0) / 2 : (a1 - a0) / 2;
+  const ca = (a0 + a1) / 2, cb = (b0 + b1) / 2;
+  const toLocal = (p: number, h: number, q: number): number[] => (alongU ? [ca + p, h, cb + q] : [ca + q, h, cb + p]);
+  const rise = Q * b.pitch;
+  const verge = b.attached && alongU ? 0.02 : 0.3;
+  const hip = b.roof === 'hip' && P > Q * 0.6;
+  const eaveY = y - eave * b.pitch;
+  if (!hip) {
+    for (const side of [-1, 1]) {
+      // One slope: from the eave (q = side * (Q + eave)) up to the ridge (q = 0).
+      const n = normalise([0, Q, side * rise]);
+      const nl = alongU ? [0, n[1], n[2]] : [n[2], n[1], 0];
+      const qe = side * (Q + eave), slope = Math.hypot(Q + eave, rise + eave * b.pitch);
+      const top = [toLocal(-P - verge, eaveY, qe), toLocal(P + verge, eaveY, qe), toLocal(P + verge, y + rise, 0), toLocal(-P - verge, y + rise, 0)];
+      const uv = [[-P - verge, 0], [P + verge, 0], [P + verge, slope], [-P - verge, slope]];
+      o.quad(top, nl, uv, m, tint);
+      const under = top.map((v) => [v[0], v[1] - thick, v[2]]);
+      o.quad(under, [-nl[0], -nl[1], -nl[2]], uv, BuildingMat.Oak, L.timber);
+      // The eave's edge and the verges.
+      o.quad([top[0], top[1], under[1], under[0]], alongU ? [0, 0, side] : [side, 0, 0], [[-P, 0], [P, 0], [P, thick], [-P, thick]], m, tint);
+      for (const e of [0, 1]) {
+        const i = e === 0 ? 0 : 1, j = e === 0 ? 3 : 2;
+        o.quad([top[i], top[j], under[j], under[i]], alongU ? [e === 0 ? -1 : 1, 0, 0] : [0, 0, e === 0 ? -1 : 1], [[0, 0], [slope, 0], [slope, thick], [0, thick]], m, tint);
+      }
+    }
+    // The gables: wall triangles at both ends, framed on timber houses.
+    for (const e of [-1, 1]) {
+      const p = e * P;
+      const gm = b.wall === 'stone' ? BuildingMat.Rubble : BuildingMat.Plaster;
+      const gc = b.wall === 'stone' ? L.stone : L.wash;
+      const n = alongU ? [e, 0, 0] : [0, 0, e];
+      o.tri([toLocal(p, y, -Q), toLocal(p, y, Q), toLocal(p, y + rise - 0.05, 0)], n, [[-Q, y], [Q, y], [0, y + rise]], gm, gc);
+      if (detail && b.wall === 'timber') {
+        const off = e * 0.04;
+        const post = (q0: number, q1: number, h0: number, h1: number) => {
+          const pts = [toLocal(p + off, h0, q0), toLocal(p + off, h0, q1), toLocal(p + off, h1, q1), toLocal(p + off, h1, q0)];
+          o.quad(pts, n, [[q0, h0], [q1, h0], [q1, h1], [q0, h1]], BuildingMat.Oak, L.timber);
+        };
+        const strut = (q0: number, h0: number, q1: number, h1: number) => {
+          const dq = q1 - q0, dh = h1 - h0, l = Math.hypot(dq, dh) || 1, wq = (-dh / l) * 0.08, wh = (dq / l) * 0.08;
+          const pts = [toLocal(p + off, h0 - wh, q0 - wq), toLocal(p + off, h1 - wh, q1 - wq), toLocal(p + off, h1 + wh, q1 + wq), toLocal(p + off, h0 + wh, q0 + wq)];
+          o.quad(pts, n, [[0, 0], [l, 0], [l, 0.16], [0, 0.16]], BuildingMat.Oak, L.timber);
+        };
+        // A collar and two struts leaning in under it: the gable's frame (no upright in the middle).
+        const collar = y + rise * 0.45, half = Q * 0.55;
+        post(-half, half, collar - 0.09, collar + 0.09);
+        strut(-Q * 0.8, y + 0.1, -half * 0.45, collar - 0.09);
+        strut(Q * 0.8, y + 0.1, half * 0.45, collar - 0.09);
+        post(-Q, Q, y - 0.1, y + 0.1);
+      }
+      // A small window high in the gable that faces the street.
+      if (detail && rise > 2.2) {
+        const off = e * 0.03, h0 = y + rise * 0.3, h1 = h0 + 0.7;
+        o.quad([toLocal(p + off, h0, -0.3), toLocal(p + off, h0, 0.3), toLocal(p + off, h1, 0.3), toLocal(p + off, h1, -0.3)], n, [[-0.3, h0], [0.3, h0], [0.3, h1], [-0.3, h1]], BuildingMat.Glass, WHITE);
+      }
+    }
+    // The ridge.
+    const rc = [toLocal(-P - verge, y + rise + 0.06, -0.14), toLocal(P + verge, y + rise + 0.06, -0.14), toLocal(P + verge, y + rise + 0.06, 0.14), toLocal(-P - verge, y + rise + 0.06, 0.14)];
+    o.quad(rc, [0, 1, 0], [[-P, 0], [P, 0], [P, 0.28], [-P, 0.28]], m, tint);
+  } else {
+    // A hip roof: two trapezoids along the ridge and two triangles at the ends, all at one pitch.
+    const ex = Q + eave, ridge = Math.max(0, P - Q);
+    const tops: [number[][], number[]][] = [];
+    for (const side of [-1, 1]) {
+      const n = normalise([0, Q, side * rise]);
+      tops.push([[toLocal(-P - eave, eaveY, side * ex), toLocal(P + eave, eaveY, side * ex), toLocal(ridge, y + rise, 0), toLocal(-ridge, y + rise, 0)], alongU ? [0, n[1], n[2]] : [n[2], n[1], 0]]);
+    }
+    for (const side of [-1, 1]) {
+      const n = normalise([side * rise, Q, 0]);
+      const nl = alongU ? [n[0], n[1], 0] : [0, n[1], n[0]];
+      const apex = toLocal(side * ridge, y + rise, 0);
+      const a = toLocal(side * (P + eave), eaveY, -ex), c = toLocal(side * (P + eave), eaveY, ex);
+      o.tri([a, c, apex], nl, [[-ex, 0], [ex, 0], [0, Math.hypot(Q + eave, rise)]], m, tint);
+      o.tri([a, c, apex].map((v) => [v[0], v[1] - thick, v[2]]), nl.map((v) => -v), [[-ex, 0], [ex, 0], [0, 1]], BuildingMat.Oak, L.timber);
+    }
+    for (const [p, n] of tops) {
+      const slope = Math.hypot(Q + eave, rise);
+      o.quad(p, n, [[-P, 0], [P, 0], [ridge, slope], [-ridge, slope]], m, tint);
+      o.quad(p.map((v) => [v[0], v[1] - thick, v[2]]), n.map((v) => -v), [[-P, 0], [P, 0], [ridge, 1], [-ridge, 1]], BuildingMat.Oak, L.timber);
+      o.quad([p[0], p[1], [p[1][0], p[1][1] - thick, p[1][2]], [p[0][0], p[0][1] - thick, p[0][2]]], [n[0], 0, n[2]], [[-P, 0], [P, 0], [P, thick], [-P, thick]], m, tint);
+    }
+  }
+  // A chimney through the roof, off the ridge.
+  if (b.kind !== 'stable' && r.chance(0.85)) {
+    const cp = (r.chance(0.5) ? -1 : 1) * Math.max(0, P - 1.2) * r.range(0.4, 0.9), cq = r.range(-0.5, 0.5) * Q * 0.5;
+    const [la, , lb] = toLocal(cp, 0, cq);
+    const top = y + rise + r.range(0.7, 1.2);
+    o.box(la - 0.32, la + 0.32, y + rise * 0.3, top, lb - 0.32, lb + 0.32, BuildingMat.Rubble, L.stone);
+    if (detail) o.box(la - 0.4, la + 0.4, top, top + 0.1, lb - 0.4, lb + 0.4, BuildingMat.Ashlar, L.stone, true);
+  }
+}
+
+function normalise(v: number[]): number[] {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+}
+
+// ---------------------------------------------------------------- the temple
+
+function temple(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void {
+  const { hu, hv } = b;
+  const plinthDown = b.floorY - b.groundY + 0.3;
+  const stone = BuildingMat.Ashlar;
+  o.box(-hu - 0.15, hu + 0.15, -plinthDown, 0.25, -hv - 0.15, hv + 0.15, BuildingMat.Rubble, L.stone);
+  const H = b.floorH;
+  // The hall: tall windows along the sides, a wide door in the front gable.
+  const sides: [number, number, number, number, number][] = [[hu, -hv, hu, hv, 1], [hu, hv, -hu, hv, 2], [-hu, hv, -hu, -hv, 3], [-hu, -hv, hu, -hv, 0]];
+  for (const [a0, b0, a1, b1, id] of sides) {
+    const len = Math.hypot(a1 - a0, b1 - b0);
+    const opens: Opening[] = [];
+    if (id === 1 || id === 3) for (let s = 2.6; s < len - 1.8; s += 3.4) opens.push({ s0: s - 0.4, s1: s + 0.4, t0: 2.4, t1: Math.min(H - 1, 5.6) });
+    if (id === 0) opens.push({ s0: len / 2 - 1.1, s1: len / 2 + 1.1, t0: 0, t1: 3.2, door: true });
+    wall(o, a0, b0, a1, b1, 0, H, opens, stone, L.stone, detail, L, false, r);
+  }
+  if (detail) {
+    // Pilasters along the sides and two columns at the door.
+    for (const a of [-hu, hu]) for (let bb = -hv; bb <= hv + 0.01; bb += (2 * hv) / Math.max(2, Math.round(hv / 1.7))) {
+      const out = a < 0 ? -1 : 1;
+      o.box(a + (out < 0 ? -0.18 : 0), a + (out < 0 ? 0 : 0.18), 0, H, bb - 0.22, bb + 0.22, stone, L.stone);
+    }
+    for (const a of [-1.6, 1.6]) o.box(a - 0.25, a + 0.25, 0, 3.9, -hv - 0.6, -hv - 0.1, stone, L.stone);
+    o.box(-2.1, 2.1, 3.9, 4.3, -hv - 0.75, -hv, stone, L.stone, true);
+  }
+  roof(o, { ...b, ridgeAlongU: false, attached: false, roof: 'gable', kind: 'temple' } as TownBuilding, -hu, hu, -hv, hv, H, L, new Rng(b.seed + 1), detail);
+  // The sanctuary: a round drum behind the hall, windows high up, a cone of slate and a stone finial.
+  const s = b.sanctuary!;
+  const sc = hv; // its centre sits on the hall's back wall
+  const n = 16, R = s.r;
+  const ring = (rad: number, k: number): [number, number] => [Math.cos((k / n) * Math.PI * 2) * rad, sc + Math.sin((k / n) * Math.PI * 2) * rad];
+  for (let k = 0; k < n; k++) {
+    const [a0, b0] = ring(R, k), [a1, b1] = ring(R, k + 1);
+    const len = Math.hypot(a1 - a0, b1 - b0);
+    // The polygon runs counter-clockwise in (a, b) seen from above only if turned: walls take (a1,b1) -> (a0,b0).
+    const opens: Opening[] = k % 4 === 1 && b0 > sc ? [{ s0: len / 2 - 0.35, s1: len / 2 + 0.35, t0: s.h - 3, t1: s.h - 1.2 }] : [];
+    wall(o, a1, b1, a0, b0, -plinthDown, s.h, opens, stone, L.stone, detail, L, false, r);
+  }
+  const apex = s.h + R * 1.1, eave = 0.45;
+  for (let k = 0; k < n; k++) {
+    const [a0, b0] = ring(R + eave, k), [a1, b1] = ring(R + eave, k + 1);
+    const ma = (a0 + a1) / 2, mb = (b0 + b1) / 2 - sc, ml = Math.hypot(ma, mb) || 1;
+    const nrm = normalise([(ma / ml) * R * 1.1, R + eave, (mb / ml) * R * 1.1]);
+    const seg = Math.hypot(a1 - a0, b1 - b0), slope = Math.hypot(R + eave, R * 1.1 + eave * 1.1);
+    o.tri([[a0, s.h - eave * 1.1, b0], [a1, s.h - eave * 1.1, b1], [0, apex, sc]], nrm, [[0, 0], [seg, 0], [seg / 2, slope]], b.cover === 'tile' ? BuildingMat.Tile : BuildingMat.Slate, WHITE);
+    o.tri([[a0, s.h - eave * 1.1 - 0.12, b0], [a1, s.h - eave * 1.1 - 0.12, b1], [0, apex - 0.12, sc]], [-nrm[0], -nrm[1], -nrm[2]], [[0, 0], [seg, 0], [seg / 2, slope]], BuildingMat.Oak, L.timber);
+  }
+  o.box(-0.18, 0.18, apex - 0.2, apex + 0.9, sc - 0.18, sc + 0.18, stone, L.stone);
+  o.box(-0.3, 0.3, apex + 0.9, apex + 1.4, sc - 0.3, sc + 0.3, stone, L.stone, true);
+}

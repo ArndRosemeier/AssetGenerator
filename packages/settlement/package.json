@@ -1,0 +1,15 @@
+{
+  "name": "@futuremagic/settlement",
+  "version": "0.1.0",
+  "description": "Settlement planning on the ground plane: polygon geometry and booleans, street blocks, lots with frontage, and a medieval small-town planner (market, roads, lanes, buildings by trade, the fixtures people use). Pure, runs in workers. From Scale.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "clipper-lib": "^6.4.2",
+    "@types/clipper-lib": "^6.4.0"
+  },
+  "license": "MIT"
+}

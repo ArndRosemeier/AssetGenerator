@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  GROUND_LAYER_COUNT, NATURAL_LAYER_COUNT, NATURAL_NAMES, NATURAL_TILE_METERS,
-  generateGroundLayer, generateNaturalLayer,
+  GROUND_LAYER_COUNT, MEDIEVAL_LAYER_COUNT, MEDIEVAL_NAMES, NATURAL_LAYER_COUNT, NATURAL_NAMES, NATURAL_TILE_METERS,
+  generateGroundLayer, generateMedievalLayer, generateNaturalLayer,
 } from '../src/index';
 
 const N = 64;
@@ -35,6 +35,19 @@ for (let i = 0; i < NATURAL_LAYER_COUNT; i++) {
     assert.equal(a.normal.length, N * N * 4);
     assert.deepEqual(a.albedo, b.albedo);
     assert.deepEqual(a.normal, b.normal);
+    const s = seam(a.albedo, N);
+    assert.ok(s.wrap < s.inner * 2.5 + N, `seam ${s.wrap} vs interior ${s.inner}`);
+    let min = 255, max = 0;
+    for (let p = 0; p < N * N; p++) { const v = a.albedo[p * 4 + 1]; min = Math.min(min, v); max = Math.max(max, v); }
+    assert.ok(max - min > 10, 'layer has visible variation');
+  });
+}
+
+for (let i = 0; i < MEDIEVAL_LAYER_COUNT; i++) {
+  test(`medieval layer ${MEDIEVAL_NAMES[i]}: size, determinism, seamless wrap, not flat`, () => {
+    const a = generateMedievalLayer(i, N), b = generateMedievalLayer(i, N);
+    assert.equal(a.albedo.length, N * N * 4);
+    assert.deepEqual(a.albedo, b.albedo);
     const s = seam(a.albedo, N);
     assert.ok(s.wrap < s.inner * 2.5 + N, `seam ${s.wrap} vs interior ${s.inner}`);
     let min = 255, max = 0;
