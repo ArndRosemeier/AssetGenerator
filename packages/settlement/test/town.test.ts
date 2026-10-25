@@ -14,14 +14,14 @@ test('settlement: the same site gives the same town', () => {
   assert.notDeepEqual(planTown(site(7)).buildings.map((b) => b.cx), planTown(site(8)).buildings.map((b) => b.cx));
 });
 
-test('settlement: a small town has its houses, church, inn, smithy and well', () => {
+test('settlement: a small town has its houses, temple, hall, inn, smithy and well', () => {
   for (const seed of [1, 2, 3, 4, 5]) {
     const t0 = performance.now();
     const town = planTown(site(seed));
     const ms = performance.now() - t0;
     const kinds = new Set(town.buildings.map((b) => b.kind));
     assert.ok(town.buildings.length >= 50 && town.buildings.length <= 260, `seed ${seed}: ${town.buildings.length} buildings`);
-    for (const k of ['house', 'inn', 'smithy']) assert.ok(kinds.has(k as never), `seed ${seed}: no ${k}`);
+    for (const k of ['house', 'inn', 'hall', 'smithy', 'temple']) assert.ok(kinds.has(k as never), `seed ${seed}: no ${k}`);
     assert.ok(town.fixtures.some((f) => f.kind === 'well'), `seed ${seed}: no well`);
     assert.ok(town.fixtures.some((f) => f.kind === 'anvil'), `seed ${seed}: no anvil`);
     assert.ok(ms < 1500, `seed ${seed}: planned in ${ms.toFixed(0)} ms`);

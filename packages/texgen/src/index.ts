@@ -30,6 +30,7 @@ import { FACADE_WALLS } from './facade';
 import { ROOFS } from './roof';
 import { GROUNDS } from './ground';
 import { NATURALS } from './natural';
+import { MEDIEVALS } from './medieval';
 
 export type { TexLayer } from './core';
 
@@ -37,6 +38,7 @@ export const TEX_SIZE = 512;
 export const FACADE_LAYER_COUNT = 24;
 export const GROUND_LAYER_COUNT = 13;
 export const NATURAL_LAYER_COUNT = NATURALS.length;
+export const MEDIEVAL_LAYER_COUNT = MEDIEVALS.length;
 
 const FACADE_DEFS = [...FACADE_WALLS, ...ROOFS];
 
@@ -46,6 +48,10 @@ export const FACADE_TILE_METERS: number[] = FACADE_DEFS.map((d) => d.W);
 export const GROUND_TILE_METERS: number[] = GROUNDS.map((d) => d.W);
 /** Physical size in meters covered by one texture tile, per natural layer. */
 export const NATURAL_TILE_METERS: number[] = NATURALS.map((d) => d.W);
+/** Physical size in meters covered by one texture tile, per medieval layer. */
+export const MEDIEVAL_TILE_METERS: number[] = MEDIEVALS.map((d) => d.W);
+/** Names of the medieval layers, by index. */
+export const MEDIEVAL_NAMES: string[] = MEDIEVALS.map((d) => d.name);
 /** Names of the natural layers, by index. */
 export const NATURAL_NAMES: string[] = NATURALS.map((d) => d.name);
 
@@ -72,5 +78,11 @@ export function generateGroundLayer(index: number, size: number = TEX_SIZE): Tex
 export function generateNaturalLayer(index: number, size: number = TEX_SIZE): TexLayer {
   const def = NATURALS[index];
   if (!def) throw new Error(`texgen: natural layer ${index} out of range`);
+  return run(def, size);
+}
+
+export function generateMedievalLayer(index: number, size: number = TEX_SIZE): TexLayer {
+  const def = MEDIEVALS[index];
+  if (!def) throw new Error(`texgen: medieval layer ${index} out of range`);
   return run(def, size);
 }

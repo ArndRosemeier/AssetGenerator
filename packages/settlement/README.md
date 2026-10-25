@@ -8,8 +8,8 @@ Planning settlements on the ground plane (x, z), pure TypeScript: runs in worker
 * `streets`: organic street cuts (`organicCuts`).
 * `town`: `planTown(site)`, a medieval small town: market place, roads that follow the land, an outline
   grown along the roads, crooked lanes, plots, houses by zone (timber-framed round the market, cottages
-  at the edge), church and churchyard, inn, bakery, smithy, stable, a mill by water, crafts, and the
-  fixtures people use (well, stalls, anvil, forge, woodpiles, gardens, graves). The same site gives
+  at the edge), a temple of no particular faith and its burial ground, a moot hall, inn, bakery, smithy, stable, a mill by water, crafts, and the
+  fixtures people use (well, stalls, anvil, forge, woodpiles, gardens, graves, an offering stone). The same site gives
   the same town.
 
 Came from Scale (`src/core/geom2.ts`, `src/core/clip.ts`, `src/plan/cell.ts`, v1.0); the town planner

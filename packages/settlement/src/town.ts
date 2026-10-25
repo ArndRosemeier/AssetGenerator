@@ -2,7 +2,7 @@
  * A medieval small town, planned from a seed and the ground it stands on: a market place, the roads
  * that leave it (they follow the land), an organic outline that grows along the roads, crooked lanes
  * between, plots that face the streets, houses by trade and zone (tall timber-framed houses round the
- * market, cottages with gardens at the edge), a church with its churchyard, an inn on the market, a
+ * market, cottages with gardens at the edge), a temple with its burial ground, a moot hall and an inn on the market, a
  * smithy on a road out, and the fixtures people use (well, stalls, anvil, woodpiles, gardens).
  *
  * Pure: no three.js, runs in workers and tests. The same site gives the same town.
@@ -41,7 +41,7 @@ export interface TownStreet {
   closed?: boolean;
 }
 
-export type BuildingKind = 'house' | 'cottage' | 'inn' | 'smithy' | 'bakery' | 'workshop' | 'church' | 'stable' | 'mill';
+export type BuildingKind = 'house' | 'cottage' | 'inn' | 'smithy' | 'bakery' | 'workshop' | 'temple' | 'hall' | 'stable' | 'mill';
 export type WallKind = 'timber' | 'stone' | 'plaster';
 export type RoofCover = 'thatch' | 'tile' | 'shingle' | 'slate';
 
@@ -81,10 +81,13 @@ export interface TownBuilding {
   attached: boolean;
   /** Where one stands outside the door: x, z, and the yaw facing out of the house. */
   door: [number, number, number];
-  /** People living here (0: nobody, e.g. the church). */
+  /** People living here (0: nobody, e.g. the temple). */
   household: number;
-  /** A church's tower: footprint centre, half size, height. */
-  tower?: { cx: number; cz: number; h: number; size: number };
+  /**
+   * A temple's sanctuary: a round drum at the back of its hall (centre, radius, wall height). The faith
+   * is not built in: what is worshipped there is the setting's to say.
+   */
+  sanctuary?: { cx: number; cz: number; r: number; h: number };
   seed: number;
 }
 
@@ -93,7 +96,7 @@ export type FixtureKind =
   | 'well' | 'stall' | 'bench' | 'table' | 'barrel'
   | 'forge' | 'anvil' | 'quench' | 'oven' | 'workbench' | 'trough'
   | 'woodpile' | 'chopblock' | 'garden' | 'washline' | 'chickens'
-  | 'grave' | 'cross';
+  | 'grave' | 'offering';
 
 export interface Fixture {
   id: number;
@@ -119,8 +122,8 @@ export interface TownPlan {
   lots: Lot[];
   /** Back yards and gardens. */
   yards: Shape[];
-  /** The churchyard, if any. */
-  churchyard: Shape | null;
+  /** The temple's grounds and burial ground, if any. */
+  templeGrounds: Shape | null;
   buildings: TownBuilding[];
   fixtures: Fixture[];
 }
@@ -167,7 +170,7 @@ export function planTown(site: TownSite): TownPlan {
   const blocks: Shape[] = [];
   for (const s of sectors) for (const b of difference([s.outer], shapesToPolys(cut))) if (shapeArea(b) > 150) blocks.push(b);
 
-  // 5. The church takes a whole block near the market; the others are cut into plots.
+  // 5. The temple takes a walled plot near the market; the rest is cut into plots.
   const lots: Lot[] = [];
   const yards: Shape[] = [];
   const buildings: TownBuilding[] = [];
@@ -178,16 +181,16 @@ export function planTown(site: TownSite): TownPlan {
     fixtures.push({ id: fixtures.length, kind, x, z, yaw, building });
   };
   const dist = (x: number, z: number) => Math.hypot(x - cx, z - cz) / R;
-  let churchyard: Shape | null = null;
+  let templeGrounds: Shape | null = null;
   const plots: Shape[] = [...blocks];
   const near = (b: Shape) => { let m = Infinity; for (let i = 0; i < b.outer.length; i += 2) m = Math.min(m, dist(b.outer[i], b.outer[i + 1])); return m; };
-  const crr = rng.fork('church');
+  const crr = rng.fork('temple');
   for (const blk of blocks.filter((b) => near(b) < 0.4 && shapeArea(b) > 900).sort((a, b) => near(a) - near(b))) {
-    const yard = churchyardIn(blk, cx, cz, crr);
-    const b = yard && churchOn(yard, buildings.length, site, crr);
+    const yard = groundsIn(blk, cx, cz, crr);
+    const b = yard && templeOn(yard, buildings.length, site, crr);
     if (!yard || !b) continue;
     buildings.push(b);
-    churchyard = yard;
+    templeGrounds = yard;
     plots.splice(plots.indexOf(blk), 1, ...difference([blk.outer], [yard.outer]).filter((s) => shapeArea(s) > 150));
     break;
   }
@@ -202,7 +205,7 @@ export function planTown(site: TownSite): TownPlan {
   // 6. A house on every plot that holds one.
   const br = rng.fork('houses');
   lots.forEach((lot, li) => {
-    const b = houseOn(lot, li, buildings.length, dist, site, br);
+    const b = houseOn(lot, li, buildings.length, dist, site, br, buildings);
     if (b) buildings.push(b);
   });
 
@@ -215,6 +218,8 @@ export function planTown(site: TownSite): TownPlan {
   const take = (b: TownBuilding | undefined, kind: BuildingKind, trade: string) => { if (b) { b.kind = kind; b.trade = trade; } return b; };
   const inn = take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => dist(a.cx, a.cz) - dist(b.cx, b.cz))[0], 'inn', 'innkeeper');
   if (inn) { inn.floors = Math.max(inn.floors, 2) + (tr.chance(0.4) ? 1 : 0); inn.household = 4; }
+  const hall = take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => nearMarket(a) - nearMarket(b))[0], 'hall', 'reeve');
+  if (hall) { hall.floors = 2; hall.wall = 'timber'; hall.household = 2; }
   take(homes().filter((b) => dist(b.cx, b.cz) < 0.5).sort((a, b) => nearMarket(a) - nearMarket(b))[1], 'bakery', 'baker');
   take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.45).sort((a, b) => dist(b.cx, b.cz) - dist(a.cx, a.cz))[0], 'smithy', 'smith');
   take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.6).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0], 'stable', 'carter');
@@ -250,7 +255,7 @@ export function planTown(site: TownSite): TownPlan {
     const side = fr.chance(0.5) ? 1 : -1;
     const backX = b.cx + b.vx * (b.hv + 1.2), backZ = b.cz + b.vz * (b.hv + 1.2);
     switch (b.kind) {
-      case 'church':
+      case 'temple':
         break;
       case 'smithy':
         fix('anvil', dx + ux * 1.6 * side, dz + uz * 1.6 * side, yaw + Math.PI, b.id);
@@ -268,6 +273,9 @@ export function planTown(site: TownSite): TownPlan {
         fix('oven', backX, backZ, yaw, b.id);
         fix('woodpile', backX + ux * 2, backZ + uz * 2, yaw, b.id);
         break;
+      case 'hall':
+        fix('bench', dx + ux * 2, dz + uz * 2, yaw, b.id);
+        break;
       case 'stable':
         fix('trough', dx + ux * 2 * side, dz + uz * 2 * side, yaw + Math.PI / 2, b.id);
         break;
@@ -277,7 +285,7 @@ export function planTown(site: TownSite): TownPlan {
       default:
         if (fr.chance(0.35)) fix('bench', dx + ux * 1.5 * side, dz + uz * 1.5 * side, yaw, b.id);
     }
-    if (b.kind === 'church' || b.household === 0) continue;
+    if (b.kind === 'temple' || b.household === 0) continue;
     // The back: a woodpile against the wall, and where there is room a garden, a washing line, hens.
     if (b.kind !== 'smithy' && b.kind !== 'bakery' && b.kind !== 'inn') fix('woodpile', backX - ux * (b.hu - 1) * side, backZ - uz * (b.hu - 1) * side, yaw, b.id);
     const gx = b.cx + b.vx * (b.hv + 4), gz = b.cz + b.vz * (b.hv + 4);
@@ -288,20 +296,20 @@ export function planTown(site: TownSite): TownPlan {
       if (fr.chance(0.3)) fix('chopblock', backX + ux * 1.5 * side, backZ + uz * 1.5 * side, yaw, b.id);
     }
   }
-  if (churchyard) {
-    const ch = buildings.find((b) => b.kind === 'church')!;
+  if (templeGrounds) {
+    const ch = buildings.find((b) => b.kind === 'temple')!;
     const cr = rng.fork('graves');
-    const [x0, z0, x1, z1] = polyBounds(churchyard.outer);
+    const [x0, z0, x1, z1] = polyBounds(templeGrounds.outer);
     for (let k = 0; k < 140 && fixtures.filter((f) => f.kind === 'grave').length < 18; k++) {
       const x = cr.range(x0, x1), z = cr.range(z0, z1);
-      if (!pointInPoly(churchyard.outer, x, z) || distToPoly(churchyard.outer, x, z) < 2.5) continue;
+      if (!pointInPoly(templeGrounds.outer, x, z) || distToPoly(templeGrounds.outer, x, z) < 2.5) continue;
       if (fixtures.some((f) => f.kind === 'grave' && Math.hypot(f.x - x, f.z - z) < 2.4)) continue;
       fix('grave', x, z, ch.angle + Math.PI / 2, ch.id);
     }
-    fix('cross', ch.door[0] + Math.cos(ch.door[2]) * 3, ch.door[1] + Math.sin(ch.door[2]) * 3, ch.door[2] + Math.PI, ch.id);
+    fix('offering', ch.door[0] + Math.cos(ch.door[2]) * 3, ch.door[1] + Math.sin(ch.door[2]) * 3, ch.door[2] + Math.PI, ch.id);
   }
 
-  return { seed, centre: [cx, cz], radius: R, market, outline, streets, blocks, lots, yards, churchyard, buildings, fixtures };
+  return { seed, centre: [cx, cz], radius: R, market, outline, streets, blocks, lots, yards, templeGrounds, buildings, fixtures };
 }
 
 // ---------------------------------------------------------------- the layout
@@ -381,7 +389,7 @@ function crooked(ch: number[], r: Rng): number[] {
 
 // ---------------------------------------------------------------- buildings
 
-function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) => number, site: TownSite, r: Rng): TownBuilding | null {
+function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) => number, site: TownSite, r: Rng, placed: readonly TownBuilding[]): TownBuilding | null {
   const [ax, az, bx, bz] = lot.front;
   const L = Math.hypot(bx - ax, bz - az);
   if (L < 4.5) return null;
@@ -403,7 +411,8 @@ function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) 
     const t0 = (L - w) / 2;
     const poly = rect(ax + ux * t0 + vx * setback, az + uz * t0 + vz * setback, ux, uz, vx, vz, w, dep);
     const inside = intersection([poly], [lot.poly]).reduce((s, x) => s + shapeArea(x), 0);
-    if (inside >= w * dep * 0.99 && w * dep < lotArea * 0.9) {
+    const clash = placed.some((o) => Math.abs(o.cx - poly[0]) < 30 && Math.abs(o.cz - poly[1]) < 30 && intersection([poly], [o.poly]).some((x) => shapeArea(x) > 0.02));
+    if (inside >= w * dep * 0.99 && w * dep < lotArea * 0.9 && !clash) {
       const ccx = ax + ux * (t0 + w / 2) + vx * (setback + dep / 2), ccz = az + uz * (t0 + w / 2) + vz * (setback + dep / 2);
       return makeBuilding(id, edge ? 'cottage' : 'house', ccx, ccz, ux, uz, vx, vz, w / 2, dep / 2, attached, core, edge, li, site, r);
     }
@@ -432,8 +441,8 @@ function makeBuilding(id: number, kind: BuildingKind, cx: number, cz: number, ux
   };
 }
 
-/** The churchyard: a walled plot of about 40 × 28 m in the block's corner nearest the market. */
-function churchyardIn(blk: Shape, cx: number, cz: number, r: Rng): Shape | null {
+/** The temple grounds: a walled plot of about 40 × 28 m in the block's corner nearest the market. */
+function groundsIn(blk: Shape, cx: number, cz: number, r: Rng): Shape | null {
   let ax = 0, az = 0, best = Infinity;
   for (let i = 0; i < blk.outer.length; i += 2) {
     const d = Math.hypot(blk.outer[i] - cx, blk.outer[i + 1] - cz);
@@ -451,32 +460,36 @@ function churchyardIn(blk: Shape, cx: number, cz: number, r: Rng): Shape | null 
   return pieces.length && shapeArea(pieces[0]) > 600 ? pieces[0] : null;
 }
 
-/** The church: a nave along the churchyard's long side with a tower at its front, the rest is graves. */
-function churchOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding | null {
+/**
+ * The temple: a stone hall along the grounds' long side, its door at the front, and a round sanctuary
+ * at the back; the rest of the grounds is the burial ground.
+ */
+function templeOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding | null {
   const o = minAreaRect(blk.outer);
   const longU = o.hu >= o.hv;
   const lx = longU ? o.ux : -o.uz, lz = longU ? o.uz : o.ux;
   const halfLong = Math.max(o.hu, o.hv), halfShort = Math.min(o.hu, o.hv);
-  const hv = Math.min(13, halfLong * 0.62), hu = Math.min(5.5, halfShort * 0.5);
-  if (hv < 7 || hu < 3.5) return null;
-  // u runs across the nave, v along it; the tower stands at the -v end, the door in its front.
+  const sr = Math.min(5, halfShort * 0.45);
+  const hv = Math.min(10, halfLong * 0.62 - sr * 0.6), hu = Math.min(5, halfShort * 0.42);
+  if (hv < 6 || hu < 3.5) return null;
+  // u runs across the hall, v along it; the door is at the -v end, the sanctuary at the +v end.
   const vx = lx, vz = lz, ux = vz, uz = -vx;
-  const b = makeBuilding(id, 'church', o.cx, o.cz, ux, uz, vx, vz, hu, hv, false, false, false, -1, site, r);
+  const ccx = o.cx - vx * sr * 0.5, ccz = o.cz - vz * sr * 0.5;
+  const b = makeBuilding(id, 'temple', ccx, ccz, ux, uz, vx, vz, hu, hv, false, false, false, -1, site, r);
   const area = intersection([b.poly], [blk.outer]).reduce((s, x) => s + shapeArea(x), 0);
   if (area < hu * hv * 4 * 0.95) return null;
-  const size = Math.min(hu * 0.85, 3.2);
-  b.trade = 'priest';
+  b.trade = 'keeper';
   b.floors = 1;
-  b.floorH = r.range(9, 11);
+  b.floorH = r.range(7, 8.5);
   b.wall = 'stone';
   b.cover = r.chance(0.6) ? 'slate' : 'tile';
   b.roof = 'gable';
   b.ridgeAlongU = false;
-  b.pitch = r.range(1.0, 1.3);
+  b.pitch = r.range(0.75, 0.95);
   b.household = 0;
-  b.tower = { cx: o.cx - vx * (hv - size), cz: o.cz - vz * (hv - size), h: r.range(20, 27), size };
-  b.door = [o.cx - vx * (hv + 1), o.cz - vz * (hv + 1), Math.atan2(-vz, -vx)];
-  b.seed = deriveSeed(site.seed, 'church');
+  b.sanctuary = { cx: ccx + vx * hv, cz: ccz + vz * hv, r: sr, h: b.floorH + r.range(1.5, 3) };
+  b.door = [ccx - vx * (hv + 1), ccz - vz * (hv + 1), Math.atan2(-vz, -vx)];
+  b.seed = deriveSeed(site.seed, 'temple');
   return b;
 }
 
