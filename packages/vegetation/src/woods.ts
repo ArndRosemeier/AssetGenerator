@@ -94,6 +94,6 @@ export function woodsFromAfar(ground: Node<'vec3'>, crown: Node<'vec3'>, cover: 
   // Each crown a dome to the light: the ground's normal leans out from the crown's middle (world xz), so the sun
   // lights one side and leaves the other in shade, as on the trees drawn near; further out the colour's mean carries it.
   // Only while a crown spans many pixels: a normal that turns within a pixel or two shimmers into moiré.
-  const bump = vec3(off.x, 0, off.z).mul(inside).mul(shown(cell.mul(6)));
+  const bump = vec3(off.x, 0, off.z).mul(inside).mul(shown(cell));
   return { color, bump };
 }
