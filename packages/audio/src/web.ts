@@ -94,6 +94,8 @@ export class AudioEngine {
   private duckLevel = 1;
   private readonly plays = new Map<string, { n: number; last: string }>();
   private shots = 0;
+  /** Sounds to preload once the context opens. */
+  private early: string[] = [];
   private readonly seed: number;
   private readonly budget: number;
   private readonly levels: Record<Bus | 'master', number> = { master: 1, world: 1, body: 1, ui: 1, music: 1 };
@@ -162,7 +164,11 @@ export class AudioEngine {
       this.buses.set(b, g);
     }
     void ctx.resume();
-    if (this.wantMusic) this.music(this.wantMusic.piece, this.wantMusic.fade);
+    void this.ready.then(() => {
+      this.preload(this.early);
+      this.early = [];
+      if (this.wantMusic) this.music(this.wantMusic.piece, this.wantMusic.fade);
+    });
   }
 
   /** The listener's ears: where they are, which way they look and which way is up. */
@@ -180,33 +186,43 @@ export class AudioEngine {
     }
   }
 
-  /** Fetch and decode these sounds' takes ahead of need (once sound is open). */
+  /** Fetch and decode these sounds' takes ahead of need (now, or once sound is open). */
   preload(ids: readonly string[]): void {
-    if (!this.ctx) return;
+    if (!this.ctx) { this.early.push(...ids); return; }
     for (const id of ids) for (const f of this.index?.sounds[id]?.files ?? []) if (!this.takes.has(f)) void this.decode(f);
   }
 
-  /** Play a sound once (a seeded take of it). False if it is not ready yet (its takes start loading). */
-  play(id: string, o: PlayOptions = {}): boolean {
+  /**
+   * Play a sound once (a seeded take of it). A take not decoded yet starts loading and plays when it arrives, if that
+   * is within `late` s (0.4 by default; a footstep late by more is better left out). False if the sound is unknown.
+   */
+  play(id: string, o: PlayOptions & { late?: number } = {}): boolean {
     const ctx = this.ctx, entry = this.index?.sounds[id];
     if (!ctx || !entry || this.shots >= MOST_SHOTS) return false;
     const was = this.plays.get(id), n = was?.n ?? 0;
     const pick = pickTake(entry, n, soundSeed(this.seed, id), was?.last ?? null);
     this.plays.set(id, { n: n + 1, last: pick.file });
     const take = this.takes.get(pick.file);
-    if (!take) { this.loadAll(entry); return false; }
+    if (take) { this.shoot(take, pick.pitch, pick.gain, o); return true; }
+    const asked = ctx.currentTime;
+    this.loadAll(entry);
+    void this.decode(pick.file).then((t) => { if (t && ctx.currentTime - asked <= (o.late ?? 0.4)) this.shoot(t, pick.pitch, pick.gain, o); });
+    return true;
+  }
+
+  private shoot(take: Take, pitch: number, gain: number, o: PlayOptions): void {
+    const ctx = this.ctx!;
     take.used = ctx.currentTime;
     const src = ctx.createBufferSource(), g = ctx.createGain();
     src.buffer = take.buffer;
-    src.playbackRate.value = pick.pitch * (o.pitch ?? 1);
-    g.gain.value = pick.gain * (o.gain ?? 1);
+    src.playbackRate.value = pitch * (o.pitch ?? 1);
+    g.gain.value = gain * (o.gain ?? 1);
     const panner = o.at ? spot(ctx, o.at, o.ref ?? 4) : null;
     src.connect(g);
     (panner ? g.connect(panner) : g).connect(this.buses.get(o.bus ?? (o.at ? 'world' : 'body'))!);
     this.shots++;
     src.onended = () => { this.shots--; g.disconnect(); panner?.disconnect(); };
     src.start(ctx.currentTime + (o.delay ?? 0));
-    return true;
   }
 
   /**
@@ -246,7 +262,7 @@ export class AudioEngine {
   music(piece: string | null, fade = 4): void {
     this.wantMusic = { piece, fade };
     const ctx = this.ctx;
-    if (!ctx) return;
+    if (!ctx || !this.index) return;
     if (this.decks.length === 0) this.decks = [0, 1].map(() => this.deck(ctx));
     const [a, b] = this.decks, now = ctx.currentTime;
     if (a.piece === piece) return;
