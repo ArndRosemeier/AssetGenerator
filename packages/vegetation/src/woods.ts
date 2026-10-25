@@ -48,9 +48,10 @@ export interface WoodsLight {
 /**
  * The woods from afar: `ground` is the floor's colour, `crown` the crowns', `cover` the share of the ground the
  * crowns cover (0 … 1), `spacing` the trees' spacing (m), `world` the point (world, m). Closed woods stay closed and
- * open land stays open: the stands and clumps only move the cover where it is in between.
+ * open land stays open: the stands and clumps only move the cover where it is in between. Returns the colour and
+ * `bump`, how far the normal leans out over each crown (world xz, up to 1 at its rim; add it to the ground's normal).
  */
-export function woodsFromAfar(ground: Node<'vec3'>, crown: Node<'vec3'>, cover: Node<'float'>, spacing: Node<'float'>, world: Node<'vec3'>, light: WoodsLight = {}): Node<'vec3'> {
+export function woodsFromAfar(ground: Node<'vec3'>, crown: Node<'vec3'>, cover: Node<'float'>, spacing: Node<'float'>, world: Node<'vec3'>, light: WoodsLight = {}): { color: Node<'vec3'>; bump: Node<'vec3'> } {
   const top = light.top ?? 0.85, mean = light.mean ?? 0.5;
   const { foot, shown } = footprint();
   const cell = max(spacing, 2);
@@ -65,12 +66,15 @@ export function woodsFromAfar(ground: Node<'vec3'>, crown: Node<'vec3'>, cover: 
   const chance = clamp(log(max(float(1).sub(local.mul(0.999)), 1e-3)).negate().div(CLOSE), 0, 1);
   const p = world.div(cell), base = floor(p.sub(0.5));
   let q: Node<'float'> = float(9);
+  let off: Node<'vec3'> = vec3(0);
   for (let o = 0; o < 8; o++) {
     const c = base.add(vec3(o & 1, (o >> 1) & 1, (o >> 2) & 1));
     const jitter = cellHash(c);
     const there = fract(jitter.x.mul(7.31).add(jitter.y.mul(3.17)).add(jitter.z.mul(5.73))).lessThan(chance);
-    const d = length(p.sub(c.add(jitter.mul(0.6).add(0.2)))).div(jitter.z.mul(0.3).add(0.85).mul(CROWN));
-    q = select(there, min(q, d), q);
+    const v = p.sub(c.add(jitter.mul(0.6).add(0.2))).div(jitter.z.mul(0.3).add(0.85).mul(CROWN));
+    const d = length(v), nearer = there.and(d.lessThan(q));
+    off = select(nearer, v, off);
+    q = select(nearer, d, q);
   }
   const edge = foot.div(cell.mul(CROWN)).add(0.04);
   const inside = float(1).sub(smoothstep(float(1).sub(edge), float(1).add(edge), q));
@@ -85,5 +89,10 @@ export function woodsFromAfar(ground: Node<'vec3'>, crown: Node<'vec3'>, cover: 
   const covered = float(1).sub(exp(chance.mul(-CLOSE)));
   const far = mix(gap, crown.mul(mean), covered);
   // The land itself is never one flat colour: stands and clumps tint it a little, woods and open ground alike.
-  return mix(near, far, float(1).sub(shown(cell.mul(2.6)))).mul(stands.mul(0.1).add(groves.mul(0.06)).add(clumps.mul(0.05)).add(1));
+  const seen = shown(cell.mul(2.6));
+  const color = mix(near, far, float(1).sub(seen)).mul(stands.mul(0.1).add(groves.mul(0.06)).add(clumps.mul(0.05)).add(1));
+  // Each crown a dome to the light: the ground's normal leans out from the crown's middle (world xz), so the sun
+  // lights one side and leaves the other in shade, as on the trees drawn near.
+  const bump = vec3(off.x, 0, off.z).mul(inside).mul(seen);
+  return { color, bump };
 }
