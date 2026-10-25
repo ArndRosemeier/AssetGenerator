@@ -85,8 +85,8 @@ export function woodsFromAfar(ground: Node<'vec3'>, crown: Node<'vec3'>, cover: 
   // Crowns differ: groups of a few trees stand taller or lower, lighter or darker, yellower or bluer, so a canopy
   // seen from above is mottled even where every crown is too small to see.
   const tone = mx_noise_float(world.div(cell.mul(3)).add(vec3(5.3, 2.9, 7.1))).mul(shown(cell.mul(3)));
-  const hue = mix(vec3(1.12, 1, 0.78), vec3(0.88, 1, 1.15), groves.mul(0.5).add(0.5));
-  const tinted = crown.mul(hue).mul(tone.mul(0.45).add(stands.mul(0.35)).add(1));
+  const hue = mix(vec3(1.12, 1, 0.78), vec3(0.88, 1, 1.15), groves.mul(1.4).add(0.5).clamp(0, 1));
+  const tinted = crown.mul(hue).mul(tone.mul(1.2).add(stands.mul(1.1)).add(1));
   const crowns = tinted.mul(dome.mul(slope).add(top - slope));
   const gap = ground.mul(mix(float(1), float(GAP_SHADE), smoothstep(0.15, 0.6, local)));
   const near = mix(gap, crowns, inside);
