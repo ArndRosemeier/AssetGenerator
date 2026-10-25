@@ -413,3 +413,4 @@ export function batchCap(n: number): number {
   while (c < n * 1.25) c *= 4;
   return c;
 }
+export * from './woods';
