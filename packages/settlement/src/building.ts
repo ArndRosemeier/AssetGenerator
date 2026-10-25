@@ -164,6 +164,57 @@ export function buildingMesh(b: TownBuilding, origin: [number, number, number], 
   };
 }
 
+// ---------------------------------------------------------------- what one walks on
+
+/** A box in a building's frame (u across, v from the front at -hv to the back), its top over the floor (m). */
+export interface EntranceBox {
+  u0: number; u1: number; v0: number; v1: number;
+  /** Top, metres above the building's floor (floorY); the box goes down into the ground. */
+  top: number;
+  mat: BuildingMat;
+}
+
+/** What stands in front of a building's door: platforms and steps to walk on, and posts in the way. */
+export interface Entrance {
+  /** Walked on (the hero stands on the highest one under them). */
+  floors: EntranceBox[];
+  /** Solid from the ground up (the temple porch's columns). */
+  posts: EntranceBox[];
+}
+
+/** Steps from the ground up to `top`, in front of `front` (v), `half` wide each side of the middle. */
+function stepsUp(b: TownBuilding, front: number, top: number, half: number): EntranceBox[] {
+  const rise = top + b.floorY - b.groundY;
+  if (rise <= 0.3) return [];
+  const n = Math.min(5, Math.ceil(rise / 0.2)), h = rise / (n + 1), out: EntranceBox[] = [];
+  // The lowest and outermost first; each one 0.32 m deep and a step higher.
+  for (let i = 0; i < n; i++) out.push({ u0: -half, u1: half, v0: front - 0.32 * (n - i), v1: front, top: top - h * (n - i), mat: BuildingMat.Ashlar });
+  return out;
+}
+
+/** The porch, steps and columns before a building's door (the mesh draws them; the game walks on them). */
+export function buildingEntrance(b: TownBuilding): Entrance {
+  if (b.kind === 'temple') {
+    const { w, f0, f1, top, cols } = porch(b);
+    const floor: EntranceBox = { u0: -w - 0.4, u1: w + 0.4, v0: f0 - 0.5, v1: f1, top: 0.25, mat: BuildingMat.Rubble };
+    const posts = cols.map((a) => ({ u0: a - 0.25, u1: a + 0.25, v0: f0 + 0.1, v1: f0 + 0.6, top, mat: BuildingMat.Ashlar }));
+    return { floors: [floor, ...stepsUp(b, f0 - 0.5, 0.25, Math.min(w, 1.6))], posts };
+  }
+  return { floors: stepsUp(b, -b.hv - 0.06, 0, 0.7), posts: [] };
+}
+
+/** The temple porch's measures: half width, front and back (v), the columns' top and where they stand (u). */
+function porch(b: TownBuilding, detail = true): { w: number; f0: number; f1: number; top: number; cols: number[] } {
+  const w = Math.min(b.hu - 0.4, 3.6), d = 2.2, n = detail ? 4 : 2;
+  return { w, f0: -b.hv - d, f1: -b.hv, top: b.floorH - 0.6, cols: Array.from({ length: n }, (_, i) => -w + 0.3 + ((2 * w - 0.6) * i) / (n - 1)) };
+}
+
+/** Draws the entrance's boxes down to below the lowest ground. */
+function drawEntrance(o: Out, b: TownBuilding, L: Look): void {
+  const down = b.floorY - b.groundY + 0.3;
+  for (const f of buildingEntrance(b).floors) o.box(f.u0, f.u1, -down, f.top, f.v0, f.v1, f.mat, L.stone);
+}
+
 // ---------------------------------------------------------------- houses
 
 /**
@@ -180,11 +231,8 @@ function house(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void 
   const plinthDown = b.floorY - b.groundY + 0.3;
   // The plinth: rubble from below the lowest ground to the floor.
   o.box(-hu - 0.06, hu + 0.06, -plinthDown, 0.05, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
-  if (detail && b.floorY - b.groundY > 0.35) {
-    // Steps up to the door.
-    const steps = Math.min(4, Math.ceil((b.floorY - b.groundY) / 0.2));
-    for (let i = 0; i < steps; i++) o.box(-0.7, 0.7, -plinthDown, -i * 0.2, -hv - 0.06 - 0.32 * (steps - i), -hv - 0.06, BuildingMat.Ashlar, L.stone);
-  }
+  // Steps up to the door.
+  if (detail) drawEntrance(o, b, L);
   let y = 0;
   const wallMat = b.wall === 'stone' ? (r.chance(0.6) ? BuildingMat.Rubble : BuildingMat.Ashlar) : BuildingMat.Plaster;
   const tint = b.wall === 'stone' ? L.stone : L.wash;
@@ -498,7 +546,7 @@ function temple(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void
     wall(o, a0, b0, a1, b1, 0, H, opens, stone, L.stone, detail, L, false, r);
   }
   roof(o, { ...b, ridgeAlongU: false, attached: false, roof: 'hip', kind: 'temple' } as TownBuilding, -hu, hu, -hv, hv, H, L, new Rng(b.seed + 1), detail);
-  portico(o, b, L, H, detail);
+  portico(o, b, L, detail);
   // The sanctuary: a round drum rising out of the hall's middle, a ring of windows, a dome and a lantern.
   const s = b.sanctuary!;
   const n = 16, R = s.r;
@@ -552,16 +600,11 @@ function temple(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void
 const DOME: RGB = [150, 200, 178];
 
 /** The temple's porch: columns before the door under a low pediment. */
-function portico(o: Out, b: TownBuilding, L: Look, H: number, detail: boolean): void {
-  const stone = BuildingMat.Ashlar, hv = b.hv, w = Math.min(b.hu - 0.4, 3.6), d = 2.2, top = H - 0.6;
-  const f0 = -hv - d, f1 = -hv;
-  // Steps and the porch floor.
-  o.box(-w - 0.4, w + 0.4, -0.3, 0.25, f0 - 0.5, f1, BuildingMat.Rubble, L.stone);
-  const cols = detail ? 4 : 2;
-  for (let i = 0; i < cols; i++) {
-    const a = -w + 0.3 + ((2 * w - 0.6) * i) / (cols - 1);
-    o.box(a - 0.25, a + 0.25, 0.25, top, f0 + 0.1, f0 + 0.6, stone, L.stone);
-  }
+function portico(o: Out, b: TownBuilding, L: Look, detail: boolean): void {
+  const stone = BuildingMat.Ashlar, { w, f0, f1, top, cols } = porch(b, detail), d = f1 - f0;
+  // The porch floor and its steps (also far off: they carry the columns).
+  drawEntrance(o, b, L);
+  for (const a of cols) o.box(a - 0.25, a + 0.25, 0.25, top, f0 + 0.1, f0 + 0.6, stone, L.stone);
   // The beam, then the pediment: a front triangle and two slopes back to the hall.
   o.box(-w - 0.2, w + 0.2, top, top + 0.55, f0, f1, stone, L.stone, true);
   const y = top + 0.55, rise = (w + 0.2) * 0.38, e = w + 0.3;

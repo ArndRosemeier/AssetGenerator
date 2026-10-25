@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, planTown } from '../src/index';
+import { BUILDING_MAT_COUNT, buildingEntrance, buildingMesh, planTown } from '../src/index';
 
 const town = planTown({ seed: 3, x: 500, z: 200, height: (x, z) => 20 + 3 * Math.sin(x / 60) + 2 * Math.cos(z / 45) });
 
@@ -37,4 +37,23 @@ test('building mesh: the far version is much lighter', () => {
   let near = 0, far = 0;
   for (const b of town.buildings) { near += buildingMesh(b, [0, 0, 0]).index.length; far += buildingMesh(b, [0, 0, 0], false).index.length; }
   assert.ok(far < near * 0.45, `far ${far / 3} vs near ${near / 3} triangles`);
+});
+
+test('building entrance: steps climb evenly from the ground to the door, the temple porch has its columns', () => {
+  const plan = planTown({ seed: 7, x: 0, z: 0, radius: 130, height: (x, z) => 10 + x * 0.06 + z * 0.03 });
+  let stepped = 0;
+  for (const b of plan.buildings) {
+    const { floors, posts } = buildingEntrance(b);
+    const top = b.kind === 'temple' ? 0.25 : 0;
+    const steps = floors.filter((f) => f.top < top);
+    let below = b.groundY - b.floorY;
+    for (const f of steps) {
+      assert.ok(f.top - below > 0 && f.top - below <= 0.31, `${b.kind} ${b.id}: a step of ${(f.top - below).toFixed(2)} m`);
+      below = f.top;
+    }
+    if (steps.length) { stepped++; assert.ok(top - below <= 0.31, `${b.kind} ${b.id}: the last step to the door`); }
+    if (b.kind === 'temple') assert.ok(posts.length >= 2 && floors.some((f) => f.top === 0.25), 'the porch and its columns');
+    else assert.equal(posts.length, 0);
+  }
+  assert.ok(stepped > 0, 'some buildings stand high enough for steps');
 });
