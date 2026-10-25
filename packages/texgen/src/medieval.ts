@@ -1,6 +1,6 @@
 /**
- * Medieval layers (for MasterWorld's towns): rubble walls, oak, thatch, wooden shingles and leaded
- * glass. Same conventions as the facade and roof layers: +v is up (and up-slope on roofs), heights
+ * Medieval layers (for MasterWorld's towns): rubble walls, oak, thatch, wooden shingles, leaded
+ * glass, cobbles. Same conventions as the facade and roof layers: +v is up (and up-slope on roofs), heights
  * in metres, tileable.
  */
 import { TNoise, Tex, clamp01, mix, newCell, rgb, rnd, smooth, worley, wrapd } from './core';
@@ -96,6 +96,29 @@ const leaded: Gen = (t) => {
   });
 };
 
+/** Cobbles: rounded field stones of mixed sizes, set close in sandy earth, worn smooth on top. */
+const cobbles: Gen = (t) => {
+  const W = t.W, N = Math.round(W / 0.14), m = W / N;
+  const n1 = new TNoise(7601, W), n2 = new TNoise(7602, W);
+  const cell = newCell();
+  const S = [rgb(126, 120, 112), rgb(108, 106, 104), rgb(94, 96, 100), rgb(134, 120, 106), rgb(142, 136, 124), rgb(116, 110, 100), rgb(100, 92, 84)];
+  t.each((u, v, _x, _y, idx) => {
+    const wu = u + n1.fbm(u, v, 0.3, 2) * 0.004, wv = v + n1.fbm(u + 0.4, v, 0.3, 2) * 0.004;
+    worley(7603, wu * N + 0.5, wv * N + 0.5, N, N, 0.7, cell, true);
+    const ra = rnd(7604, cell.id), rb = rnd(7605, cell.id);
+    const edge = cell.edge * m;
+    const e = edge - 0.005 - ra * 0.004;
+    const stone = smooth(-0.002, 0.005, e);
+    const dome = Math.pow(clamp01(e / (0.045 + rb * 0.02)), 0.6) * 0.03;
+    const grain = n2.fbm(u, v, 0.015, 3) * 0.002;
+    const c = S[Math.floor(ra * S.length) % S.length];
+    const k = (0.85 + rb * 0.3) * (1 + grain * 40) * (0.75 + 0.25 * Math.sqrt(clamp01(e / 0.04)));
+    const dirt = smooth(-0.3, 0.6, n2.fbm(u, v, 0.4, 3)) * 0.25;
+    const r = mix(0.2, mix(c[0] * k, 0.3, dirt), stone), g = mix(0.18, mix(c[1] * k, 0.27, dirt), stone), b = mix(0.14, mix(c[2] * k, 0.2, dirt), stone);
+    t.set(idx, r, g, b, mix(0.95, 0.7 - dome * 6, stone), stone * (0.004 + dome) + grain);
+  });
+};
+
 /** Every medieval layer, in a fixed order (index = layer number). */
 export const MEDIEVALS: { name: string; W: number; gen: Gen; normal: number; aoK: number; aoR: [number, number] }[] = [
   { name: 'rubble', W: 2.4, gen: rubble, normal: 1, aoK: 40, aoR: [0.01, 0.05] },
@@ -103,4 +126,5 @@ export const MEDIEVALS: { name: string; W: number; gen: Gen; normal: number; aoK
   { name: 'thatch', W: 2.4, gen: thatch, normal: 1, aoK: 60, aoR: [0.006, 0.03] },
   { name: 'shingle', W: 2.0, gen: shingle, normal: 1, aoK: 60, aoR: [0.006, 0.02] },
   { name: 'leaded', W: 0.88, gen: leaded, normal: 0.6, aoK: 10, aoR: [0.003, 0.01] },
+  { name: 'cobbles', W: 2.1, gen: cobbles, normal: 1, aoK: 50, aoR: [0.006, 0.025] },
 ];

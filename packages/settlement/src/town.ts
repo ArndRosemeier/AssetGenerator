@@ -84,7 +84,7 @@ export interface TownBuilding {
   /** People living here (0: nobody, e.g. the temple). */
   household: number;
   /**
-   * A temple's sanctuary: a round drum at the back of its hall (centre, radius, wall height). The faith
+   * A temple's sanctuary: a round drum in the middle of its hall (centre, radius, wall height). The faith
    * is not built in: what is worshipped there is the setting's to say.
    */
   sanctuary?: { cx: number; cz: number; r: number; h: number };
@@ -461,34 +461,35 @@ function groundsIn(blk: Shape, cx: number, cz: number, r: Rng): Shape | null {
 }
 
 /**
- * The temple: a stone hall along the grounds' long side, its door at the front, and a round sanctuary
- * at the back; the rest of the grounds is the burial ground.
+ * The temple: a low stone hall with a porch at the front and a round, domed sanctuary rising from its
+ * middle; the rest of the grounds is the burial ground.
  */
 function templeOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding | null {
   const o = minAreaRect(blk.outer);
   const longU = o.hu >= o.hv;
   const lx = longU ? o.ux : -o.uz, lz = longU ? o.uz : o.ux;
   const halfLong = Math.max(o.hu, o.hv), halfShort = Math.min(o.hu, o.hv);
-  const sr = Math.min(5, halfShort * 0.45);
-  const hv = Math.min(10, halfLong * 0.62 - sr * 0.6), hu = Math.min(5, halfShort * 0.42);
-  if (hv < 6 || hu < 3.5) return null;
-  // u runs across the hall, v along it; the door is at the -v end, the sanctuary at the +v end.
+  // A square-ish hall; the porch takes about 2.5 m in front of it.
+  const hu = Math.min(6, halfShort * 0.42), hv = Math.min(hu * 1.15, halfLong * 0.5 - 1.5);
+  if (hv < 4 || hu < 4) return null;
+  // u runs across the hall, v along it; the door is at the -v end, the sanctuary in the middle.
   const vx = lx, vz = lz, ux = vz, uz = -vx;
-  const ccx = o.cx - vx * sr * 0.5, ccz = o.cz - vz * sr * 0.5;
+  const ccx = o.cx + vx * 1.2, ccz = o.cz + vz * 1.2;
   const b = makeBuilding(id, 'temple', ccx, ccz, ux, uz, vx, vz, hu, hv, false, false, false, -1, site, r);
   const area = intersection([b.poly], [blk.outer]).reduce((s, x) => s + shapeArea(x), 0);
   if (area < hu * hv * 4 * 0.95) return null;
   b.trade = 'keeper';
   b.floors = 1;
-  b.floorH = r.range(7, 8.5);
+  b.floorH = r.range(5.5, 6.5);
   b.wall = 'stone';
   b.cover = r.chance(0.6) ? 'slate' : 'tile';
-  b.roof = 'gable';
+  b.roof = 'hip';
   b.ridgeAlongU = false;
-  b.pitch = r.range(0.75, 0.95);
+  b.pitch = r.range(0.45, 0.55);
   b.household = 0;
-  b.sanctuary = { cx: ccx + vx * hv, cz: ccz + vz * hv, r: sr, h: b.floorH + r.range(1.5, 3) };
-  b.door = [ccx - vx * (hv + 1), ccz - vz * (hv + 1), Math.atan2(-vz, -vx)];
+  const sr = hu * 0.72;
+  b.sanctuary = { cx: ccx, cz: ccz, r: sr, h: b.floorH + hu * b.pitch + r.range(3.6, 4.6) };
+  b.door = [ccx - vx * (hv + 3), ccz - vz * (hv + 3), Math.atan2(-vz, -vx)];
   b.seed = deriveSeed(site.seed, 'temple');
   return b;
 }

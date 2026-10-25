@@ -3,7 +3,7 @@
  * plaster, rubble or dressed stone, or timber framing with real posts, rails and braces), upper storeys
  * jettied over the street, windows with reveals, frames, sills, leaded glass and painted shutters, a
  * plank door, gable or hip roofs with overhanging eaves and verges (thatch, tile, slate, shingle), gable
- * framing, chimneys, and the temple: a stone hall with a round sanctuary under a cone of slate.
+ * framing, chimneys, and the temple: a low stone hall with a porch, a round drum rising from its middle under a dome.
  *
  * Pure geometry (no three.js): positions relative to a given origin, normals, uv in metres (the game
  * divides by its texture's tile size), a material per vertex (BuildingMat) and a tint. `detail` false
@@ -166,6 +166,15 @@ export function buildingMesh(b: TownBuilding, origin: [number, number, number], 
 
 // ---------------------------------------------------------------- houses
 
+/**
+ * A plastered wall seen from afar (no frames, windows or shutters drawn): its tint carries them on
+ * average, so far houses are not paler than near ones.
+ */
+function farWall(c: RGB, L: Look, timbered: boolean): RGB {
+  const k = timbered ? 0.3 : 0, dim = 0.86;
+  return [0, 1, 2].map((i) => Math.round((c[i] * (1 - k) + L.timber[i] * k) * dim)) as RGB;
+}
+
 function house(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void {
   const { hu, hv } = b;
   const plinthDown = b.floorY - b.groundY + 0.3;
@@ -194,8 +203,8 @@ function house(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void 
     const ground = f === 0;
     // A stone ground floor under plastered or timbered upper floors, now and then.
     const mat = ground && b.wall !== 'stone' && b.floors > 1 && r.chance(0.3) ? BuildingMat.Rubble : wallMat;
-    const tn = mat === BuildingMat.Plaster ? tint : L.stone;
     const timbered = b.wall === 'timber' && mat === BuildingMat.Plaster;
+    const tn = mat === BuildingMat.Plaster ? (detail ? tint : farWall(tint, L, timbered)) : L.stone;
     const sides: [number, number, number, number, number][] = [
       // a0, b0 -> a1, b1 along the wall, and the side's id: 0 front, 1 right, 2 back, 3 left.
       [-hu, front, hu, front, 0], [hu, front, hu, back, 1], [hu, back, -hu, back, 2], [-hu, back, -hu, front, 3],
@@ -403,7 +412,7 @@ function roof(o: Out, b: TownBuilding, a0: number, a1: number, b0: number, b1: n
     for (const e of [-1, 1]) {
       const p = e * P;
       const gm = b.wall === 'stone' ? BuildingMat.Rubble : BuildingMat.Plaster;
-      const gc = b.wall === 'stone' ? L.stone : L.wash;
+      const gc = b.wall === 'stone' ? L.stone : detail ? L.wash : farWall(L.wash, L, b.wall === 'timber');
       const n = alongU ? [e, 0, 0] : [0, 0, e];
       o.tri([toLocal(p, y, -Q), toLocal(p, y, Q), toLocal(p, y + rise - 0.05, 0)], n, [[-Q, y], [Q, y], [0, y + rise]], gm, gc);
       if (detail && b.wall === 'timber') {
@@ -479,46 +488,86 @@ function temple(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void
   const stone = BuildingMat.Ashlar;
   o.box(-hu - 0.15, hu + 0.15, -plinthDown, 0.25, -hv - 0.15, hv + 0.15, BuildingMat.Rubble, L.stone);
   const H = b.floorH;
-  // The hall: tall windows along the sides, a wide door in the front gable.
+  // The hall: a low square of stone, small windows high up, a wide door at the front.
   const sides: [number, number, number, number, number][] = [[hu, -hv, hu, hv, 1], [hu, hv, -hu, hv, 2], [-hu, hv, -hu, -hv, 3], [-hu, -hv, hu, -hv, 0]];
   for (const [a0, b0, a1, b1, id] of sides) {
     const len = Math.hypot(a1 - a0, b1 - b0);
     const opens: Opening[] = [];
-    if (id === 1 || id === 3) for (let s = 2.6; s < len - 1.8; s += 3.4) opens.push({ s0: s - 0.4, s1: s + 0.4, t0: 2.4, t1: Math.min(H - 1, 5.6) });
+    if (id !== 0) for (let s = 1.8; s < len - 1.2; s += 2.6) opens.push({ s0: s - 0.35, s1: s + 0.35, t0: H - 2.1, t1: H - 1.3 });
     if (id === 0) opens.push({ s0: len / 2 - 1.1, s1: len / 2 + 1.1, t0: 0, t1: 3.2, door: true });
     wall(o, a0, b0, a1, b1, 0, H, opens, stone, L.stone, detail, L, false, r);
   }
-  if (detail) {
-    // Pilasters along the sides and two columns at the door.
-    for (const a of [-hu, hu]) for (let bb = -hv; bb <= hv + 0.01; bb += (2 * hv) / Math.max(2, Math.round(hv / 1.7))) {
-      const out = a < 0 ? -1 : 1;
-      o.box(a + (out < 0 ? -0.18 : 0), a + (out < 0 ? 0 : 0.18), 0, H, bb - 0.22, bb + 0.22, stone, L.stone);
-    }
-    for (const a of [-1.6, 1.6]) o.box(a - 0.25, a + 0.25, 0, 3.9, -hv - 0.6, -hv - 0.1, stone, L.stone);
-    o.box(-2.1, 2.1, 3.9, 4.3, -hv - 0.75, -hv, stone, L.stone, true);
-  }
-  roof(o, { ...b, ridgeAlongU: false, attached: false, roof: 'gable', kind: 'temple' } as TownBuilding, -hu, hu, -hv, hv, H, L, new Rng(b.seed + 1), detail);
-  // The sanctuary: a round drum behind the hall, windows high up, a cone of slate and a stone finial.
+  roof(o, { ...b, ridgeAlongU: false, attached: false, roof: 'hip', kind: 'temple' } as TownBuilding, -hu, hu, -hv, hv, H, L, new Rng(b.seed + 1), detail);
+  portico(o, b, L, H, detail);
+  // The sanctuary: a round drum rising out of the hall's middle, a ring of windows, a dome and a lantern.
   const s = b.sanctuary!;
-  const sc = hv; // its centre sits on the hall's back wall
   const n = 16, R = s.r;
-  const ring = (rad: number, k: number): [number, number] => [Math.cos((k / n) * Math.PI * 2) * rad, sc + Math.sin((k / n) * Math.PI * 2) * rad];
+  const ring = (rad: number, k: number): [number, number] => [Math.cos((k / n) * Math.PI * 2) * rad, Math.sin((k / n) * Math.PI * 2) * rad];
   for (let k = 0; k < n; k++) {
     const [a0, b0] = ring(R, k), [a1, b1] = ring(R, k + 1);
     const len = Math.hypot(a1 - a0, b1 - b0);
-    // The polygon runs counter-clockwise in (a, b) seen from above only if turned: walls take (a1,b1) -> (a0,b0).
-    const opens: Opening[] = k % 4 === 1 && b0 > sc ? [{ s0: len / 2 - 0.35, s1: len / 2 + 0.35, t0: s.h - 3, t1: s.h - 1.2 }] : [];
-    wall(o, a1, b1, a0, b0, -plinthDown, s.h, opens, stone, L.stone, detail, L, false, r);
+    const y0 = H - 0.6, opens: Opening[] = k % 2 === 0 ? [{ s0: len / 2 - 0.3, s1: len / 2 + 0.3, t0: s.h - y0 - 2.3, t1: s.h - y0 - 0.9 }] : [];
+    wall(o, a0, b0, a1, b1, y0, s.h, opens, stone, L.stone, detail, L, false, r);
   }
-  const apex = s.h + R * 1.1, eave = 0.45;
-  for (let k = 0; k < n; k++) {
-    const [a0, b0] = ring(R + eave, k), [a1, b1] = ring(R + eave, k + 1);
-    const ma = (a0 + a1) / 2, mb = (b0 + b1) / 2 - sc, ml = Math.hypot(ma, mb) || 1;
-    const nrm = normalise([(ma / ml) * R * 1.1, R + eave, (mb / ml) * R * 1.1]);
-    const seg = Math.hypot(a1 - a0, b1 - b0), slope = Math.hypot(R + eave, R * 1.1 + eave * 1.1);
-    o.tri([[a0, s.h - eave * 1.1, b0], [a1, s.h - eave * 1.1, b1], [0, apex, sc]], nrm, [[0, 0], [seg, 0], [seg / 2, slope]], b.cover === 'tile' ? BuildingMat.Tile : BuildingMat.Slate, WHITE);
-    o.tri([[a0, s.h - eave * 1.1 - 0.12, b0], [a1, s.h - eave * 1.1 - 0.12, b1], [0, apex - 0.12, sc]], [-nrm[0], -nrm[1], -nrm[2]], [[0, 0], [seg, 0], [seg / 2, slope]], BuildingMat.Oak, L.timber);
+  // A cornice ring, then the dome in bands (its rise is 0.9 of its radius).
+  const cR = R + 0.25;
+  if (detail) for (let k = 0; k < n; k++) {
+    const [a0, b0] = ring(R, k), [a1, b1] = ring(R, k + 1), [c0, d0] = ring(cR, k), [c1, d1] = ring(cR, k + 1);
+    const ma = (a0 + a1) / 2, mb = (b0 + b1) / 2, ml = Math.hypot(ma, mb) || 1;
+    const seg = Math.hypot(c1 - c0, d1 - d0);
+    o.quad([[c0, s.h, d0], [c1, s.h, d1], [c1, s.h + 0.3, d1], [c0, s.h + 0.3, d0]], [ma / ml, 0, mb / ml], [[0, 0], [seg, 0], [seg, 0.3], [0, 0.3]], stone, L.stone);
+    o.quad([[a0, s.h + 0.3, b0], [a1, s.h + 0.3, b1], [c1, s.h + 0.3, d1], [c0, s.h + 0.3, d0]], [0, 1, 0], [[0, 0], [seg, 0], [seg, 0.25], [0, 0.25]], stone, L.stone);
   }
-  o.box(-0.18, 0.18, apex - 0.2, apex + 0.9, sc - 0.18, sc + 0.18, stone, L.stone);
-  o.box(-0.3, 0.3, apex + 0.9, apex + 1.4, sc - 0.3, sc + 0.3, stone, L.stone, true);
+  const bands = detail ? 5 : 3, rise = R * 0.9, y0 = s.h + 0.3, lr = Math.max(0.7, R * 0.2);
+  const dome = BuildingMat.Slate;
+  const at = (i: number): [number, number] => {
+    // From the base to the lantern's foot: a quarter ellipse.
+    const t = (i / bands) * Math.acos(lr / R);
+    return [Math.cos(t) * R, y0 + Math.sin(t) * rise];
+  };
+  for (let i = 0; i < bands; i++) {
+    const [r0, h0] = at(i), [r1, h1] = at(i + 1);
+    const sl = Math.hypot(r0 - r1, h1 - h0);
+    for (let k = 0; k < n; k++) {
+      const [a0, b0] = ring(1, k), [a1, b1] = ring(1, k + 1);
+      const ma = (a0 + a1) / 2, mb = (b0 + b1) / 2, ml = Math.hypot(ma, mb);
+      const nrm = normalise([(ma / ml) * (h1 - h0), r0 - r1, (mb / ml) * (h1 - h0)]);
+      const w0 = Math.hypot(a1 - a0, b1 - b0) * r0, w1 = Math.hypot(a1 - a0, b1 - b0) * r1;
+      o.quad([[a0 * r0, h0, b0 * r0], [a1 * r0, h0, b1 * r0], [a1 * r1, h1, b1 * r1], [a0 * r1, h1, b0 * r1]], nrm, [[0, i * sl], [w0, i * sl], [(w0 + w1) / 2, (i + 1) * sl], [(w0 - w1) / 2, (i + 1) * sl]], dome, DOME);
+    }
+  }
+  // The lantern: a small open drum of posts with a cap and a finial.
+  const [, ly] = at(bands);
+  const lh = 1.1 + R * 0.08;
+  if (detail) for (let k = 0; k < 6; k++) {
+    const t = (k / 6) * Math.PI * 2, px = Math.cos(t) * (lr - 0.12), pz = Math.sin(t) * (lr - 0.12);
+    o.box(px - 0.1, px + 0.1, ly, ly + lh, pz - 0.1, pz + 0.1, stone, L.stone);
+  } else o.box(-lr * 0.8, lr * 0.8, ly, ly + lh, -lr * 0.8, lr * 0.8, stone, L.stone);
+  o.box(-lr - 0.1, lr + 0.1, ly + lh, ly + lh + 0.25, -lr - 0.1, lr + 0.1, stone, L.stone, true);
+  o.box(-lr * 0.55, lr * 0.55, ly + lh + 0.25, ly + lh + 0.65, -lr * 0.55, lr * 0.55, dome, DOME);
+  o.box(-0.12, 0.12, ly + lh + 0.65, ly + lh + 1.4, -0.12, 0.12, stone, L.stone);
+}
+
+/** The dome's tint over slate: weathered copper green. */
+const DOME: RGB = [150, 200, 178];
+
+/** The temple's porch: columns before the door under a low pediment. */
+function portico(o: Out, b: TownBuilding, L: Look, H: number, detail: boolean): void {
+  const stone = BuildingMat.Ashlar, hv = b.hv, w = Math.min(b.hu - 0.4, 3.6), d = 2.2, top = H - 0.6;
+  const f0 = -hv - d, f1 = -hv;
+  // Steps and the porch floor.
+  o.box(-w - 0.4, w + 0.4, -0.3, 0.25, f0 - 0.5, f1, BuildingMat.Rubble, L.stone);
+  const cols = detail ? 4 : 2;
+  for (let i = 0; i < cols; i++) {
+    const a = -w + 0.3 + ((2 * w - 0.6) * i) / (cols - 1);
+    o.box(a - 0.25, a + 0.25, 0.25, top, f0 + 0.1, f0 + 0.6, stone, L.stone);
+  }
+  // The beam, then the pediment: a front triangle and two slopes back to the hall.
+  o.box(-w - 0.2, w + 0.2, top, top + 0.55, f0, f1, stone, L.stone, true);
+  const y = top + 0.55, rise = (w + 0.2) * 0.38, e = w + 0.3;
+  o.tri([[-e, y, f0 - 0.05], [e, y, f0 - 0.05], [0, y + rise, f0 - 0.05]], [0, 0, -1], [[-e, 0], [e, 0], [0, rise]], stone, L.stone);
+  const sl = Math.hypot(e, rise), m = b.cover === 'tile' ? BuildingMat.Tile : BuildingMat.Slate;
+  for (const side of [-1, 1]) {
+    o.quad([[side * e, y, f0 - 0.1], [0, y + rise, f0 - 0.1], [0, y + rise, f1 + 0.5], [side * e, y, f1 + 0.5]], normalise([side * rise, e, 0]), [[0, 0], [sl, 0], [sl, d + 0.6], [0, d + 0.6]], m, WHITE);
+  }
 }
