@@ -43,3 +43,13 @@ test('interior mesh: sound buffers, inside the footprint', () => {
     assert.ok(m.index.length / 3 < 6000, `${b.kind}: ${m.index.length / 3} triangles`);
   }
 });
+
+test('interior: a hatch down to a cellar lies on free floor one can walk to, in every kind of building', () => {
+  for (const b of town.buildings) {
+    const p = planInterior(b, { hatch: true }), h = p.fixtures.filter((f) => f.kind === 'hatch');
+    assert.equal(h.length, 1, `${b.kind} #${b.id}: one hatch`);
+    assert.ok(reachable(p)(h[0].a, h[0].b), `${b.kind} #${b.id}: the hatch can be walked to`);
+    assert.ok(Math.abs(h[0].a) + 0.45 <= p.ha + 1e-6 && Math.abs(h[0].b) + 0.45 <= p.hb + 1e-6, 'inside');
+    assert.equal(planInterior(b).fixtures.some((f) => f.kind === 'hatch'), false, 'only when asked');
+  }
+});
