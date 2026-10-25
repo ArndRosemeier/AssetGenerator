@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three/webgpu';
-import { randomAppearance, setHumanAssetBase, RIDE, pedalAt } from '../src/index';
+import { randomAppearance, setHumanAssetBase, RIDE, HORSE_RIDE, pedalAt } from '../src/index';
 import { Humanoid, clipLibraryReady, type Wardrobe } from '../src/three/index';
 
 // The assets come from disk: fetch of file:// URLs, which node's fetch does not do.
@@ -58,4 +58,36 @@ test('riding a bicycle: on the saddle, hands on the bars, feet on the pedals goi
   assert.ok(Math.abs(Math.min(L, R) - low) < 0.05 && Math.abs(Math.max(L, R) - high) < 0.05, `stopped with one pedal down (feet at ${L.toFixed(2)} and ${R.toFixed(2)} m)`);
   step(0);
   assert.ok(Math.abs(at(h, 'foot.L').y - L) < 0.002, 'the feet rest');
+});
+
+test('riding a horse: upright on the saddle, the knees round the barrel, the feet hanging below, the hands on the reins', async () => {
+  await clipLibraryReady();
+  const h = await Humanoid.create(randomAppearance('human', 7), { wardrobe: NAKED });
+  const saddle = 1.32, dt = 1 / 60;
+  let t = 0;
+  for (let k = 0; k < 90; k++) {
+    // The saddle rises and falls a little with the trot.
+    const y = 0.03 * Math.sin(t * 9);
+    h.update({ pos: [0, y, 0], vel: [0, 0, -3.5], yaw: 0, anim: { move: 'ride', mount: 'horse', seat: saddle } }, dt, t, () => 0);
+    h.object.updateMatrixWorld(true);
+    t += dt;
+  }
+  const y = 0.03 * Math.sin((t - dt) * 9);
+  const hipL = at(h, 'upperleg01.L'), hipR = at(h, 'upperleg01.R');
+  const hip = hipL.clone().add(hipR).multiplyScalar(0.5);
+  assert.ok(hip.y > y + saddle && hip.y < y + saddle + 0.15, `hips ${(hip.y - y).toFixed(2)} m on a ${saddle} m saddle`);
+  assert.ok(Math.abs(hip.z) < 0.15 && Math.abs(hip.x) < 0.05, `hips over the saddle (${hip.x.toFixed(2)}, ${hip.z.toFixed(2)})`);
+  // Upright: the neck over the hips, not leaning over bars.
+  const neck = at(h, 'neck01');
+  assert.ok(neck.y - hip.y > 0.4 && Math.abs(neck.z - hip.z) < 0.2, `upright (neck ${(neck.y - hip.y).toFixed(2)} up, ${(hip.z - neck.z).toFixed(2)} ahead)`);
+  for (const s of ['L', 'R'] as const) {
+    const knee = at(h, `lowerleg01.${s}`), foot = at(h, `foot.${s}`), wrist = at(h, `wrist.${s}`);
+    const out = Math.abs(knee.x);
+    assert.ok(out > HORSE_RIDE.barrel, `${s} knee ${out.toFixed(2)} m out, round the barrel (${HORSE_RIDE.barrel})`);
+    assert.ok(Math.sign(knee.x) === Math.sign((s === 'L' ? hipL : hipR).x), `${s} knee on its own side`);
+    assert.ok(knee.y < hip.y && foot.y < knee.y - 0.2, `${s} foot hangs below the knee (${foot.y.toFixed(2)}, knee ${knee.y.toFixed(2)})`);
+    assert.ok(Math.abs(foot.z - hip.z) < 0.35, `${s} foot under the rider (${(hip.z - foot.z).toFixed(2)} ahead)`);
+    assert.ok(Math.abs(Math.abs(foot.x) - out) < 0.08, `${s} shin hangs down from the knee (foot ${foot.x.toFixed(2)}, knee ${knee.x.toFixed(2)})`);
+    assert.ok(wrist.y > hip.y + 0.05 && wrist.y < hip.y + 0.45 && hip.z - wrist.z > 0.2 && hip.z - wrist.z < 0.6, `${s} hand low in front (${(wrist.y - hip.y).toFixed(2)} up, ${(hip.z - wrist.z).toFixed(2)} ahead)`);
+  }
 });
