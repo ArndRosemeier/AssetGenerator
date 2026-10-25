@@ -58,6 +58,26 @@ function casterKey(m: Mesh): string {
 }
 
 /**
+ * The casters already drawn into the shadow pass, each with the geometry and material it was drawn with.
+ * A caster drawn again with both unchanged has its shadow-pass objects built already (three keeps them
+ * per mesh), so `everyCaster` skips it: a character re-dressed in turn keeps its earlier garments as
+ * hidden meshes, and drawing those again each time made a warm-up grow with every outfit.
+ */
+export class DrawnCasters {
+  private readonly drawn = new WeakMap<object, { geometry: object; material: object }>();
+
+  /** True if `m` was never drawn, or was drawn with another geometry or material. */
+  fresh(m: { geometry: object; material: object }): boolean {
+    const d = this.drawn.get(m);
+    return !d || d.geometry !== m.geometry || d.material !== m.material;
+  }
+
+  mark(m: { geometry: object; material: object }): void {
+    this.drawn.set(m, { geometry: m.geometry, material: m.material });
+  }
+}
+
+/**
  * Start a new frame for three's nodes (its frame counter, which the shadow map is drawn once per),
  * as the renderer's own loop does each frame. Reaches into r186 internals: skipped if renamed.
  */
@@ -147,6 +167,8 @@ export class Stage {
   private shadowCam: Camera | null = null;
   /** The kinds of shadow caster whose shadow-pass shaders are built (`casterKey`). */
   private readonly casters = new Set<string>();
+  /** Which meshes were drawn into the shadow pass as they are now (`everyCaster` skips those). */
+  private readonly drawnCasters = new DrawnCasters();
 
   /**
    * Warm `objs` while the game is already drawing (behind the title screen) instead of in the
@@ -170,7 +192,7 @@ export class Stage {
     for (const m of meshes) {
       if (!m.castShadow) continue; // the shadow pass draws casters only
       const key = casterKey(m);
-      if (this.casters.has(key) && !every) continue;
+      if (this.casters.has(key) && (!every || !this.drawnCasters.fresh(m))) continue;
       this.casters.add(key);
       fresh.push(m);
     }
@@ -194,6 +216,7 @@ export class Stage {
       this.renderer.render(this.scene, this.camera);
       this.scene.remove(obj);
       m.layers.disableAll();
+      this.drawnCasters.mark(m);
       if (inst) inst.count = count;
       for (const p of hidden) p.visible = false;
       this.monitor.note = '';
