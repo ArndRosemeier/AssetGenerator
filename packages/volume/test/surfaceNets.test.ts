@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { surfaceNets, PAD, SIDE, OVERLAP, type Grid } from '../src/index';
+import { surfaceNets, cpuMesher, PAD, SIDE, OVERLAP, type Grid } from '../src/index';
 
 /** Sample an analytic field the way meshChunk does (padded by PAD cells on every side). */
 function grid(f: (x: number, y: number, z: number) => number, ox: number, oy: number, oz: number, step: number, cells: number): Grid {
@@ -97,4 +97,10 @@ test('volume: overlap adds the faces OVERLAP cells past the chosen sides, and on
   assert.equal(high.indices.length / 6, (16 + OVERLAP) ** 2);
   assert.equal(lowX.indices.length / 6, (16 + OVERLAP) * 16);
   assert.equal(yOnly.indices.length / 6, 16 * 16);
+});
+
+test('volume: cpuMesher gives what surfaceNets gives', async () => {
+  const g = grid(ball, 0, 0, 0, 1, 32);
+  assert.deepEqual(await cpuMesher.mesh(g, 0, 0, 0, 1, SIDE.highX), surfaceNets(g, 0, 0, 0, 1, SIDE.highX));
+  assert.equal(cpuMesher.kind, 'cpu');
 });

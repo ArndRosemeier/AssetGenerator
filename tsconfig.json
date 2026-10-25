@@ -7,7 +7,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": false,
-    "types": ["node"]
+    "types": ["node", "@webgpu/types"]
   },
   "include": ["packages/*/src/**/*.ts", "packages/*/test/**/*.ts"]
 }

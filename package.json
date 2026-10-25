@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "test": "node --import tsx --test \"packages/*/test/*.test.ts\"",
+    "test:gpu": "node packages/volume/test/gpu/run.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
@@ -15,6 +16,7 @@
     "typescript": "~5.9.0",
     "@types/node": "^24.0.0",
     "three": "^0.186.1",
-    "@types/three": "^0.186.0"
+    "@types/three": "^0.186.0",
+    "@webgpu/types": "^0.1.64"
   }
 }
