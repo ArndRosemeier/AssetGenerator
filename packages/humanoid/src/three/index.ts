@@ -1,3 +1,4 @@
+/** @deprecated Use Actors (github.com/ArndRosemeier/Actors, `@actors/three`) for characters; see ../index.ts. */
 /**
  * The renderer side of the humanoid: a skinned Character with its node materials, garments fitted
  * by the EquipmentRig (items come from the host's Wardrobe), and the Animator with its mocap clips.

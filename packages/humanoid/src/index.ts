@@ -1,4 +1,7 @@
 /**
+ * @deprecated Use Actors (github.com/ArndRosemeier/Actors, `@actors/*`) for every human, people and giant
+ * (Arnd, 2026-10-25). This package gets no new features; games move their characters to Actors.
+ *
  * @futuremagic/humanoid: Scale's humans. This entry is the pure body build (no three.js, no DOM):
  * appearance → morphed body, skeleton, sockets, hair and parts. It runs in workers and tests.
  * The renderer side lives in `three/` (import `@futuremagic/humanoid/three/...`).
