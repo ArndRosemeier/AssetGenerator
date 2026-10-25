@@ -50,7 +50,7 @@ and normals equal up to f32 rounding (about 1e-5). `null` in the same cases (no 
    `gpuMesher()` also works inside a worker (with its own device) if meshing must stay there.
 5. **Do not change** grid sizes, `PAD`, `OVERLAP` or overlap masks for the GPU: everything
    `surfaceNets` accepts works the same.
-6. **Check it:** in this repo, `npm i --no-save playwright` once, then `npm run test:gpu` compares the
+6. **Check it:** in this repo, `npm i --no-save playwright` once, then `npm run test:gpu` (tools/gpu-page.mjs) compares the
    GPU with `surfaceNets` on 73 cases in Chromium and exits 1 on any difference. In the game, compare a
    few chunks' `MeshData` from both meshers once (indices equal, positions within 1e-4).
 7. `mesher.destroy()` (GPU) frees its buffers, e.g. when the game shuts its world down.

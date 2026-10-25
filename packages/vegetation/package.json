@@ -9,7 +9,8 @@
     "./node": "./src/node.ts"
   },
   "dependencies": {
-    "@futuremagic/core": "*"
+    "@futuremagic/core": "*",
+    "@futuremagic/instances": "*"
   },
   "peerDependencies": {
     "three": ">=0.186.0"
