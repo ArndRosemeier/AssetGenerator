@@ -1,7 +1,7 @@
 {
   "name": "@futuremagic/humanoid",
   "version": "0.1.0",
-  "description": "Scale's humans: MakeHuman bodies on the Woman/Man base, races, hair and parts, garment shells, skeleton, animator and node materials. The body build is pure (workers, tests); the three/ folder renders it with three.js node materials.",
+  "description": "DEPRECATED: use Actors (github.com/ArndRosemeier/Actors, @actors/*) for every character, race and giant. Scale's humans: MakeHuman bodies on the Woman/Man base, races, hair and parts, garment shells, skeleton, animator and node materials. The body build is pure (workers, tests); the three/ folder renders it with three.js node materials.",
   "type": "module",
   "private": true,
   "exports": {
@@ -12,5 +12,6 @@
   "peerDependencies": {
     "three": ">=0.186.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "deprecated": "Use Actors (@actors/*, github.com/ArndRosemeier/Actors) for humans, peoples and giants; this package gets no new features."
 }
