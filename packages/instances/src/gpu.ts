@@ -16,7 +16,7 @@
  * Needs WebGPU with 'indirect-first-instance' (each draw starts at its list's slot).
  */
 import {
-  Frustum, Group, Matrix4, Mesh, Sphere, StorageBufferAttribute, StorageInstancedBufferAttribute, IndirectStorageBufferAttribute,
+  Frustum, Group, MathUtils, Matrix4, Mesh, Sphere, StorageBufferAttribute, StorageInstancedBufferAttribute, IndirectStorageBufferAttribute,
   InterleavedBufferAttribute, Vector3, Vector4, type Camera, type InstancedBufferGeometry, type WebGPURenderer,
 } from 'three/webgpu';
 import { Fn, If, Loop, atomicAdd, atomicLoad, atomicStore, dot, instanceIndex, length, max, min, smoothstep, storage, uint, uniform, uniformArray, vec3 } from 'three/tsl';
@@ -36,6 +36,8 @@ const NO_FADE = [1e30, 2e30];
  * whichever use comes first.
  */
 class MatrixBuffer extends StorageInstancedBufferAttribute {
+  /** three tells interleaved buffers apart by uuid (RenderObject.needsGeometryUpdate): without one a new buffer goes unnoticed. */
+  readonly uuid = MathUtils.generateUUID();
   readonly stride = 16;
   readonly isInterleavedBuffer = true;
   readonly isInstancedInterleavedBuffer = true;
@@ -117,9 +119,14 @@ export class GpuInstanceDraws implements InstanceDraws {
 
   /** Input room for `records` instances and output room for `slots`; new buffers mean new passes (same code: cache hits). */
   private allocate(records: number, slots: number): void {
-    if (!this.input || this.input.count < records * R4) this.input = new StorageBufferAttribute(new Float32Array(Math.max(1, records) * RECORD), 4);
+    let grown = false;
+    if (!this.input || this.input.count < records * R4) {
+      // Headroom, so streaming in more instances rarely grows the buffers again.
+      this.input = new StorageBufferAttribute(new Float32Array(Math.max(1, Math.ceil(records * 1.5)) * RECORD), 4);
+      grown = true;
+    }
     if (!this.out || this.out.count < slots) {
-      this.out = new MatrixBuffer(Math.max(slots, this.out ? this.out.count * 2 : 0));
+      this.out = new MatrixBuffer(Math.max(Math.ceil(slots * 1.5), this.out ? this.out.count * 2 : 0));
       for (const d of this.draws) {
         for (let c = 0; c < 4; c++) {
           const a = new InterleavedBufferAttribute(this.out as any, 4, c * 4);
@@ -127,8 +134,10 @@ export class GpuInstanceDraws implements InstanceDraws {
           d.geometry.setAttribute(`iM${c}`, a);
         }
       }
+      grown = true;
     }
-    this.passes = undefined;
+    // New buffers need passes bound to them (same code: cache hits).
+    if (grown) this.passes = undefined;
   }
 
   private build(): { reset: any; cull: any; finish: any } {
