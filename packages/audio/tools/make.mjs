@@ -11,7 +11,7 @@
  *  - `bed`: a long take, trimmed and levelled to −24 dBFS RMS; the player crossfades it into a loop;
  *  - `loop`: the same for a sound with a place, cut to its middle `seconds` (default 8);
  *  - `steps`: a take of separate hits (footsteps, hooves, rungs), cut into its `count` clearest;
- *  - `call`: one sound, trimmed, peak at −3 dBFS (`count` > 1 with `from`: one per file).
+ *  - `call`: one sound, trimmed (quieter than `trim` of its loudest moment, 0.03 by default), peak at −3 dBFS.
  * A piece of music is `{ id, prompt, out, model?: "clip", mono? }`, levelled to −16 LUFS (only a take whose `out` is
  * set goes into the game). `from` (a list of files in the raw folder) takes sounds made before (another game's) instead
  * of asking a model: `steps` and `call` cut each file as one take, `bed` and `loop` use the first.
@@ -165,9 +165,9 @@ function loop(x, secs) {
   return bed(t.slice(a, a + n));
 }
 
-/** A single call: trimmed, peak at −3 dBFS, at most `most` s long (faded out). */
-function call(x, most) {
-  let t = trim(x, 0.03);
+/** A single call: trimmed (below `share` of its loudest 5 ms), peak at −3 dBFS, at most `most` s long (faded out). */
+function call(x, most, share = 0.03) {
+  let t = trim(x, share);
   if (most && t.length > most * RATE) t = t.slice(0, Math.round(most * RATE));
   return fade(scale(t, dB(-3) / Math.max(peakOf(t), 1e-6)), 0.005, most ? Math.min(0.3, most / 4) : 0.08);
 }
@@ -219,13 +219,13 @@ function cut(s, raw) {
     const xs = s.from.map((f) => decode(join(RAW, f)));
     if (s.kind === 'bed') return [bed(xs[0])];
     if (s.kind === 'loop') return [loop(xs[0], s.seconds ?? 8)];
-    return xs.map((x) => call(x, s.most));
+    return xs.map((x) => call(x, s.most, s.trim));
   }
   const x = decode(raw);
   if (s.kind === 'steps') return steps(x, s.count, s.tail);
   if (s.kind === 'bed') return [bed(x)];
   if (s.kind === 'loop') return [loop(x, s.seconds ?? 8)];
-  return [call(x, s.most)];
+  return [call(x, s.most, s.trim)];
 }
 
 async function main() {
@@ -250,8 +250,8 @@ async function main() {
   }
   const index = existsSync(join(OUT, 'index.json')) ? JSON.parse(readFileSync(join(OUT, 'index.json'), 'utf8')) : { sounds: {} };
   for (const s of items) {
-    const raw = rawOf(s);
-    if (!s.from && !existsSync(raw)) continue;
+    const raw = s.kind === 'music' && s.from ? join(RAW, s.from[0]) : rawOf(s);
+    if (!existsSync(s.from ? join(RAW, s.from[0]) : raw)) continue;
     const dir = join(OUT, dirname(s.id)), base = s.id.split('/').pop();
     for (const f of existsSync(dir) ? readdirSync(dir) : []) if (f === `${base}.mp3` || new RegExp(`^${base}-\\d+\\.mp3$`).test(f)) rmSync(join(dir, f));
     if (s.kind === 'music') {
