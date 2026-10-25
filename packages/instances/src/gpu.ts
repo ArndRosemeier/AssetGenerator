@@ -92,7 +92,8 @@ export class GpuInstanceDraws implements InstanceDraws {
           mesh.frustumCulled = false;
           mesh.castShadow = part.castShadow ?? false;
           mesh.receiveShadow = part.receiveShadow ?? false;
-          if (part.name) mesh.name = part.name;
+          mesh.renderOrder = part.renderOrder ?? 0;
+    if (part.name) mesh.name = part.name;
           this.group.add(mesh);
           this.draws.push({ geometry, list });
         }

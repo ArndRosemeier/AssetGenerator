@@ -243,6 +243,28 @@ export function createBarkNodeMaterial(map: THREE.Texture, normalMap: THREE.Text
 // Leaves
 // ---------------------------------------------------------------------------------------------
 
+/** The leaf atlas through the cards' uv, alpha boosted in the smaller mips (LEAF_ALPHA_BOOST: thin leaves would vanish). */
+function leafAtlas(atlas: THREE.Texture) {
+  return Fn(() => {
+    const vMapUv = uv();
+    const c = texture(atlas, vMapUv).toVar();
+    const dxA = dFdx(vMapUv.mul(1024.0)), dyA = dFdy(vMapUv.mul(1024.0));
+    const lodA = max(0.0, mul(0.5, log2(max(dot(dxA, dxA), dot(dyA, dyA)))));
+    return vec4(c.rgb, clamp(c.a.mul(add(1.0, lodA.mul(0.32))), 0.0, 1.0));
+  })();
+}
+
+/** Cards seen edge-on fade (they would read as streaks): an opacity that the alpha test cuts. */
+function leafEdgeFade() {
+  return Fn(() => {
+    const fN = normalize(cross(dFdx(positionView), dFdy(positionView)));
+    const edgeOn = abs(dot(fN, normalize(positionView)));
+    return smoothstep(0.04, 0.32, edgeOn).mul(0.55).add(0.45);
+  })();
+}
+
+const LEAF_ALPHA_TEST = 0.45;
+
 /**
  * Leaf cards. `autumn`: 16 atlas cells' autumn colours (linear rgb, a = turns), `trans`: the
  * translucency. The atlas goes in through colorNode (not `map`) so the shadow pass uses the
@@ -250,7 +272,7 @@ export function createBarkNodeMaterial(map: THREE.Texture, normalMap: THREE.Text
  */
 export function createLeafNodeMaterial(atlas: THREE.Texture, autumn: THREE.Vector4[], trans: number, U: VegUniforms): THREE.MeshStandardNodeMaterial {
   const mat = new THREE.MeshStandardNodeMaterial({
-    color: 0xffffff, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.78, metalness: 0, alphaToCoverage: false,
+    color: 0xffffff, alphaTest: LEAF_ALPHA_TEST, side: THREE.DoubleSide, roughness: 0.78, metalness: 0, alphaToCoverage: false,
   });
   mat.shadowSide = THREE.DoubleSide;
   const vTint = attribute('aLeafTint', 'float');
@@ -261,19 +283,8 @@ export function createLeafNodeMaterial(atlas: THREE.Texture, autumn: THREE.Vecto
   const uAutumn = uniformArray(autumn, 'vec4').setName('uAutumn');
   const vMapUv = uv();
 
-  mat.colorNode = Fn(() => {
-    const c = texture(atlas, vMapUv).toVar();
-    // LEAF_ALPHA_BOOST: keep thin leaves from vanishing in the smaller mips.
-    const dxA = dFdx(vMapUv.mul(1024.0)), dyA = dFdy(vMapUv.mul(1024.0));
-    const lodA = max(0.0, mul(0.5, log2(max(dot(dxA, dxA), dot(dyA, dyA)))));
-    return vec4(c.rgb, clamp(c.a.mul(add(1.0, lodA.mul(0.32))), 0.0, 1.0));
-  })();
-  // fade cards seen edge-on (they would read as streaks)
-  mat.opacityNode = Fn(() => {
-    const fN = normalize(cross(dFdx(positionView), dFdy(positionView)));
-    const edgeOn = abs(dot(fN, normalize(positionView)));
-    return smoothstep(0.04, 0.32, edgeOn).mul(0.55).add(0.45);
-  })();
+  mat.colorNode = leafAtlas(atlas);
+  mat.opacityNode = leafEdgeFade();
   afterDiffuse(mat, () => {
     const cellI = floor(clamp(vMapUv, 0.0, 0.9999).mul(4.0));
     const ci = int(cellI.y).mul(4).add(int(cellI.x));
@@ -382,6 +393,31 @@ export function createBarkMaterial(U: VegUniforms): THREE.MeshStandardNodeMateri
 export function createLeafMaterial(U: VegUniforms, conifer = false): THREE.MeshStandardNodeMaterial {
   const autumn = AUTUMN.map((a) => new THREE.Vector4(srgbToLinear(a[0]), srgbToLinear(a[1]), srgbToLinear(a[2]), a[3]));
   return createLeafNodeMaterial(vegetationTextures().leaves, autumn, conifer ? 0.35 : 0.85, U);
+}
+
+/**
+ * Leaves in two passes, so each leaf pixel is lit once instead of once per card on top of each other:
+ * `depth` (draw it first: renderOrder lower) writes only the cut-out cards' depth with a cheap shader, and
+ * `color` (the leaf material, made to test against that depth and not write it) shades only what is in
+ * front. `color` keeps its alpha test (where a card is see-through the depth behind it would let it pass),
+ * which costs nothing extra: with no depth write the GPU still rejects hidden pixels before shading.
+ * The depth pass sits a hair further back (depth bias, `reversedDepth`: the renderer's reversedDepthBuffer),
+ * so its depth and the color pass's never miss each other by rounding. Shadows: cast them with `color`
+ * (as before), not with `depth`.
+ */
+export function createLeafPasses(U: VegUniforms, conifer: boolean, reversedDepth: boolean): { depth: THREE.MeshBasicNodeMaterial; color: THREE.MeshStandardNodeMaterial } {
+  const color = createLeafMaterial(U, conifer);
+  color.depthWrite = false;
+  color.name = 'leaves (after depth)';
+  const depth = new THREE.MeshBasicNodeMaterial({ alphaTest: LEAF_ALPHA_TEST, side: THREE.DoubleSide, colorWrite: false, fog: false });
+  depth.name = 'leaf depth';
+  depth.positionNode = windPosition(U, 1.0, () => attribute('aLeafTint', 'float'));
+  depth.colorNode = leafAtlas(vegetationTextures().leaves);
+  depth.opacityNode = leafEdgeFade();
+  depth.polygonOffset = true;
+  depth.polygonOffsetFactor = 0;
+  depth.polygonOffsetUnits = reversedDepth ? -4 : 4;
+  return { depth, color };
 }
 
 /** The far canopy hulls (a model's `far`). */
