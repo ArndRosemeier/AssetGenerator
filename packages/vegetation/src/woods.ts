@@ -7,7 +7,7 @@
  *
  * From Solarpolis (src/render/groundShaders.ts, docs/far-view.md: "Woods from afar", "Woods seen at a slant").
  */
-import { clamp, dFdx, dFdy, dot, exp, float, floor, fract, length, log, max, min, mix, mx_noise_float, positionWorld, select, smoothstep, sqrt, vec3 } from 'three/tsl';
+import { clamp, dFdx, dFdy, dot, exp, float, floor, fract, length, log, max, mix, mx_noise_float, positionWorld, select, smoothstep, sqrt, vec3 } from 'three/tsl';
 import type { Node } from 'three/webgpu';
 
 /** A jittered offset 0..1 per integer lattice cell. */
