@@ -1,9 +1,10 @@
-// GPU mesher check: builds page.ts, serves it on localhost and runs it in Chromium via Playwright.
-// Exit 1 when a GPU mesh differs from surfaceNets. Usage (repo root, after `npm install`):
+// A package's GPU check in the browser: builds <dir>/page.ts, serves it on localhost and runs it in Chromium via
+// Playwright; the page sets window.__result ({ match, error? }). Exit 1 when it does not match. Usage (repo root,
+// after `npm install`):
 //   npm i --no-save playwright && npx playwright install chromium     (once)
-//   npm run test:gpu                  headless (a software GPU, SwiftShader, where there is no real one)
-//   npm run test:gpu -- --headed      a visible window
-//   npm run test:gpu -- --serve       only serve; open the printed URL in Chrome yourself
+//   node tools/gpu-page.mjs packages/volume/test/gpu                   headless (SwiftShader where there is no real GPU)
+//   ... --headed                       a visible window
+//   ... --serve                        only serve; open the printed URL in Chrome yourself
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -11,12 +12,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
-const here = dirname(fileURLToPath(import.meta.url)), root = join(here, '..', '..', '..', '..'), out = join(here, 'out');
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
+const here = join(root, args.find((a) => !a.startsWith('-') && !a.startsWith('?')) ?? 'packages/volume/test/gpu'), out = join(here, 'out');
 const esb = join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'esbuild.cmd' : 'esbuild');
 mkdirSync(out, { recursive: true });
 execSync(`"${esb}" page.ts --bundle --format=esm --target=es2022 --outfile=out/page.js --log-level=warning`, { cwd: here, stdio: 'inherit' });
-writeFileSync(join(out, 'index.html'), '<!doctype html><meta charset="utf-8"><title>GPU mesher check</title><pre id="out"></pre><script type="module" src="page.js"></script>');
+writeFileSync(join(out, 'index.html'), '<!doctype html><meta charset="utf-8"><title>GPU check</title><pre id="out"></pre><script type="module" src="page.js"></script>');
 
 const server = createServer((req, res) => {
   const f = new URL(req.url, 'http://x').pathname === '/' ? 'index.html' : 'page.js';
@@ -33,7 +35,7 @@ else {
   if (pw) {
     const flags = ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist'];
     if (process.platform === 'linux') flags.push('--enable-features=Vulkan');
-    const opts = { headless: !args.includes('--headed'), args: flags };
+    const opts = { headless: !args.includes('--headed'), args: flags, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) };
     let browser;
     // Full Chromium first: Playwright's default headless shell lacks dxcompiler.dll, so WebGPU fails on Windows.
     for (const channel of ['chromium', undefined, 'chrome']) {

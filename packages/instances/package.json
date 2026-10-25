@@ -1,0 +1,18 @@
+{
+  "name": "@futuremagic/instances",
+  "version": "0.1.0",
+  "description": "Repeated meshes (trees, rocks, buildings, crowds) drawn by distance and view: GPU culling and packing in compute passes with indirect draws on WebGPU, a CPU path elsewhere. Instance matrices as iM0..iM3 attributes, so materials need no change.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@futuremagic/core": "*"
+  },
+  "peerDependencies": {
+    "three": ">=0.186.0"
+  },
+  "license": "MIT"
+}

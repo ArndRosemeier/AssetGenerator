@@ -131,23 +131,8 @@ function vegWind(U: VegUniforms, I: Cols | null, p, n, w, flutter: number, seed)
   return p.add(o);
 }
 
-/**
- * A batch of `capacity` instances of `source` (its attributes and index shared) as an instanced geometry:
- * the instance matrices are the attributes iM0..iM3 of one interleaved buffer (`matrices`, 16 floats per
- * instance, column-major like Matrix4.elements). Draw it with a plain Mesh (not frustum-culled) and set
- * `instanceCount`. Unlike an InstancedMesh, batches of any size and number share their shaders.
- */
-export function instancedGeometry(source: THREE.BufferGeometry, capacity: number): { geometry: THREE.InstancedBufferGeometry; matrices: Float32Array; buffer: THREE.InstancedInterleavedBuffer } {
-  const g = new THREE.InstancedBufferGeometry();
-  for (const [name, a] of Object.entries(source.attributes)) g.setAttribute(name, a);
-  g.setIndex(source.index);
-  const matrices = new Float32Array(capacity * 16);
-  const buffer = new THREE.InstancedInterleavedBuffer(matrices, 16, 1);
-  buffer.setUsage(THREE.DynamicDrawUsage);
-  for (let c = 0; c < 4; c++) g.setAttribute(`iM${c}`, new THREE.InterleavedBufferAttribute(buffer, 4, c * 4));
-  g.instanceCount = 0;
-  return { geometry: g, matrices, buffer };
-}
+// The iM0..iM3 batches live in @futuremagic/instances (shared with other repeated meshes).
+export { instancedGeometry, batchCap } from '@futuremagic/instances/geometry';
 
 /** Normals turned by the instance matrix when the instances are geometry attributes (iM0..iM3). */
 function instanceNormals(mat: THREE.NodeMaterial): void {
@@ -404,13 +389,4 @@ export function createFarTreeMaterial(U: VegUniforms): THREE.MeshStandardNodeMat
   return createFarTreeNodeMaterial(U);
 }
 
-/**
- * Room for `n` instances with headroom, in few big steps: a batch that grows is a new InstancedMesh, and
- * every new instanced mesh builds its shaders again (main and shadow pass).
- */
-export function batchCap(n: number): number {
-  let c = 512;
-  while (c < n * 1.25) c *= 4;
-  return c;
-}
 export * from './woods';
