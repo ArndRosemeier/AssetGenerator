@@ -151,3 +151,14 @@ pub extern "C" fn wasm_noise_all() -> f64 { let n = Noise::new(1234); let mut s 
 #[no_mangle]
 pub extern "C" fn wasm_chunks_all() -> u32 { let n = Noise::new(1234); let mut tris = 0;
     for z in 0..4 { for y in 0..4 { for x in 0..4 { let (_, m) = chunk(&n, x, y, z); if let Some(m) = m { tris += m.indices.len() as u32 / 3; } } } } tris }
+
+static mut GRIDS: Vec<Vec<f32>> = Vec::new();
+#[no_mangle]
+#[allow(static_mut_refs)]
+pub extern "C" fn wasm_prepare() { let n = Noise::new(1234); unsafe { GRIDS.clear();
+    for z in 0..4 { for y in 0..4 { for x in 0..4 { GRIDS.push(density(&n, x, y, z)); } } } } }
+#[no_mangle]
+#[allow(static_mut_refs)]
+pub extern "C" fn wasm_mesh_all() -> u32 { let mut tris = 0; let mut q = 0;
+    for z in 0..4 { for y in 0..4 { for x in 0..4 { let d = unsafe { &GRIDS[q] }; q += 1;
+        if let Some(m) = surface_nets(NS, d, (x*N) as f64, (y*N) as f64, (z*N) as f64, 1.0, 0) { tris += m.indices.len() as u32 / 3; } } } } tris }
