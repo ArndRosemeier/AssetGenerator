@@ -414,11 +414,22 @@ export class GpuMesher implements Mesher {
     this.queue = [];
     const byN = new Map<number, Job[]>();
     for (const j of jobs) byN.set(j.grid.n, [...(byN.get(j.grid.n) ?? []), j]);
-    for (const [n, list] of byN) for (let i = 0; i < list.length; i += this.maxBatch) {
-      const batch = list.slice(i, i + this.maxBatch);
-      // One batch at a time: the runners share the device queue, and a runner's buffers serve one batch.
-      this.busy = this.busy.then(() => this.run(n, batch)).catch((e) => batch.forEach((j) => j.reject(e)));
+    for (const [n, list] of byN) {
+      const size = this.batchSize(n);
+      for (let i = 0; i < list.length; i += size) {
+        const batch = list.slice(i, i + size);
+        // One batch at a time: the runners share the device queue, and a runner's buffers serve one batch.
+        this.busy = this.busy.then(() => this.run(n, batch)).catch((e) => batch.forEach((j) => j.reject(e)));
+      }
     }
+  }
+
+  /** Chunks per batch: `maxBatch` rounded down to a power of two, fewer for big grids so the largest buffer fits the device's limits. */
+  private batchSize(n: number): number {
+    const lim = this.device.limits, perChunk = (n - 1) ** 3 * 12; // positions: one vec3 per cell, worst case
+    let cap = 1;
+    while (cap * 2 <= this.maxBatch && cap * 2 * perChunk <= Math.min(lim.maxStorageBufferBindingSize, lim.maxBufferSize)) cap *= 2;
+    return cap;
   }
 
   private async run(n: number, batch: Job[]): Promise<void> {
