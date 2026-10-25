@@ -82,17 +82,20 @@ export function woodsFromAfar(ground: Node<'vec3'>, crown: Node<'vec3'>, cover: 
   const dome = clamp(float(1).sub(q.mul(q).mul(0.5)), 0.5, 1);
   // A dome's mean over a crown is 0.75 (q² is even over its disc): the light runs from the mean there to the top's.
   const slope = (top - mean) / 0.25;
-  const crowns = crown.mul(dome.mul(slope).add(top - slope));
+  // Crowns differ: groups of a few trees stand taller or lower, lighter or darker, yellower or bluer, so a canopy
+  // seen from above is mottled even where every crown is too small to see.
+  const tone = mx_noise_float(world.div(cell.mul(3)).add(vec3(5.3, 2.9, 7.1))).mul(shown(cell.mul(3)));
+  const hue = mix(vec3(1.12, 1, 0.78), vec3(0.88, 1, 1.15), groves.mul(0.5).add(0.5));
+  const tinted = crown.mul(hue).mul(tone.mul(0.45).add(stands.mul(0.35)).add(1));
+  const crowns = tinted.mul(dome.mul(slope).add(top - slope));
   const gap = ground.mul(mix(float(1), float(GAP_SHADE), smoothstep(0.15, 0.6, local)));
   const near = mix(gap, crowns, inside);
   // Beyond the crowns' size: their mean over the covered share.
   const covered = float(1).sub(exp(chance.mul(-CLOSE)));
-  const far = mix(gap, crown.mul(mean), covered);
-  // The land itself is never one flat colour: stands and clumps tint it, woods more than open ground (a canopy seen
-  // from above is mottled by its stands' heights and kinds).
-  const mottle = mix(float(0.1), float(0.25), smoothstep(0.3, 0.8, cover));
+  const far = mix(gap, tinted.mul(mean), covered);
+  // The land itself is never one flat colour: stands and clumps tint it a little, woods and open ground alike.
   const seen = shown(cell.mul(2.6));
-  const color = mix(near, far, float(1).sub(seen)).mul(stands.mul(mottle).add(groves.mul(mottle.mul(0.6))).add(clumps.mul(0.05)).add(1));
+  const color = mix(near, far, float(1).sub(seen)).mul(stands.mul(0.1).add(groves.mul(0.06)).add(clumps.mul(0.05)).add(1));
   // Each crown a dome to the light: the ground's normal leans out from the crown's middle (world xz), so the sun
   // lights one side and leaves the other in shade, as on the trees drawn near; further out the colour's mean carries it.
   // Only while a crown spans many pixels: a normal that turns within a pixel or two shimmers into moiré.
