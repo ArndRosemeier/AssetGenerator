@@ -45,6 +45,11 @@ export interface InstanceDraws {
   update(camera: Camera): void;
   /** Builds what the path needs ahead (the GPU path's compute shaders); call behind the loading screen. */
   ready(): Promise<void>;
+  /**
+   * Builds the draw shaders with `compile` (e.g. a Stage's prepare) on the group, every part with at least one
+   * instance meanwhile (kinds not around yet included), then puts the real counts back.
+   */
+  prepare(compile: (group: Group) => Promise<void>): Promise<void>;
   /** Instances drawn per part, in group order (the GPU path reads them back: for checks and HUDs, not every frame). */
   counts(): Promise<number[]>;
   dispose(): void;

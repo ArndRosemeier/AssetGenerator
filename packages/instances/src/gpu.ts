@@ -247,6 +247,12 @@ export class GpuInstanceDraws implements InstanceDraws {
     await this.renderer.computeAsync([this.passes.reset, this.passes.cull, this.passes.finish]);
   }
 
+  async prepare(compile: (group: Group) => Promise<void>): Promise<void> {
+    await this.ready();
+    // Drawn indirectly with instanceCount 1 throughout, so every part already builds.
+    await compile(this.group);
+  }
+
   async counts(): Promise<number[]> {
     const buf = new Uint32Array(await this.renderer.getArrayBufferAsync(this.indirect));
     return this.draws.map((_, i) => buf[i * 5 + 1]);

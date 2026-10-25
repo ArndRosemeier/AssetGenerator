@@ -19,6 +19,8 @@ export class CpuInstanceDraws implements InstanceDraws {
   private count = 0;
   private readonly at: [number, number, number] = [Infinity, 0, 0];
   private dirty = true;
+  /** While shaders build, every batch draws at least one instance. */
+  private preparing = false;
 
   constructor(private readonly kinds: DrawKind[], private readonly opts: DrawOptions = {}) {
     const cap = batchCap(opts.capacity ?? 0);
@@ -65,7 +67,7 @@ export class CpuInstanceDraws implements InstanceDraws {
       });
     }
     for (const k of this.batches) for (const l of k) for (const b of l) {
-      b.mesh.geometry.instanceCount = b.n;
+      b.mesh.geometry.instanceCount = this.preparing ? Math.max(1, b.n) : b.n;
       b.buffer.needsUpdate = true;
     }
   }
@@ -81,6 +83,17 @@ export class CpuInstanceDraws implements InstanceDraws {
   }
 
   async ready(): Promise<void> {}
+
+  async prepare(compile: (group: Group) => Promise<void>): Promise<void> {
+    this.preparing = true;
+    for (const b of this.batches.flat(2)) b.mesh.geometry.instanceCount = Math.max(1, b.n);
+    try {
+      await compile(this.group);
+    } finally {
+      this.preparing = false;
+      for (const b of this.batches.flat(2)) b.mesh.geometry.instanceCount = b.n;
+    }
+  }
 
   async counts(): Promise<number[]> {
     return this.batches.flat(2).map((b) => b.n);

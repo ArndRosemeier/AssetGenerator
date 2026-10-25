@@ -56,3 +56,20 @@ test('the CPU path puts each instance into the parts of its levels', async () =>
   assert.deepEqual(await draws.counts(), [1, 1, 1, 1]);
   assert.equal(draws.group.children.length, 4);
 });
+
+test('the CPU path keeps its counts when frames run while shaders build', async () => {
+  const geo = new BoxGeometry(), mat = new MeshBasicNodeMaterial();
+  const draws = new CpuInstanceDraws([{ lods: [{ far: 50, parts: [{ geometry: geo, material: mat }] }] }, { lods: [{ far: 50, parts: [{ geometry: geo, material: mat }] }] }]);
+  const data = new Float32Array(RECORD);
+  data.set(new Matrix4().elements);
+  draws.set(data, 1);
+  const cam = new PerspectiveCamera();
+  const counts = () => draws.group.children.map((m) => (m as unknown as { geometry: { instanceCount: number } }).geometry.instanceCount);
+  await draws.prepare(async () => {
+    draws.update(cam); // the game loop runs meanwhile
+    assert.deepEqual(counts(), [1, 1]);
+  });
+  assert.deepEqual(counts(), [1, 0]);
+  draws.update(cam);
+  assert.deepEqual(counts(), [1, 0]);
+});
