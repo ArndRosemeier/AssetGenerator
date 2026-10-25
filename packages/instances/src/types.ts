@@ -7,6 +7,8 @@ export interface DrawPart {
   material: Material;
   castShadow?: boolean;
   receiveShadow?: boolean;
+  /** Draw order among opaque meshes (three's renderOrder), e.g. a depth pre-pass before its colour pass. */
+  renderOrder?: number;
   name?: string;
 }
 
