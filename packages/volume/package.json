@@ -1,0 +1,11 @@
+{
+  "name": "@futuremagic/volume",
+  "version": "0.1.0",
+  "description": "Volumes of rock in signed distances: surface nets meshing (smooth, indexed, seamless between chunks). Pure, runs in workers. From Dunfinity.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "license": "MIT"
+}
