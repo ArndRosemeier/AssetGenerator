@@ -1,0 +1,11 @@
+{
+  "name": "@futuremagic/dungeon",
+  "version": "0.1.0",
+  "description": "Dungeons built from cycles, not trees: a library of cycle patterns (lock and key on a loop, the goal seen early, hidden shortcuts, drops into lower halls), a multi-level grid layout with stairs, ledges and tall rooms, and a tension curve along the route. Pure, runs in workers.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "license": "MIT"
+}
