@@ -88,9 +88,11 @@ export function woodsFromAfar(ground: Node<'vec3'>, crown: Node<'vec3'>, cover: 
   // Beyond the crowns' size: their mean over the covered share.
   const covered = float(1).sub(exp(chance.mul(-CLOSE)));
   const far = mix(gap, crown.mul(mean), covered);
-  // The land itself is never one flat colour: stands and clumps tint it a little, woods and open ground alike.
+  // The land itself is never one flat colour: stands and clumps tint it, woods more than open ground (a canopy seen
+  // from above is mottled by its stands' heights and kinds).
+  const mottle = mix(float(0.1), float(0.25), smoothstep(0.3, 0.8, cover));
   const seen = shown(cell.mul(2.6));
-  const color = mix(near, far, float(1).sub(seen)).mul(stands.mul(0.1).add(groves.mul(0.06)).add(clumps.mul(0.05)).add(1));
+  const color = mix(near, far, float(1).sub(seen)).mul(stands.mul(mottle).add(groves.mul(mottle.mul(0.6))).add(clumps.mul(0.05)).add(1));
   // Each crown a dome to the light: the ground's normal leans out from the crown's middle (world xz), so the sun
   // lights one side and leaves the other in shade, as on the trees drawn near; further out the colour's mean carries it.
   // Only while a crown spans many pixels: a normal that turns within a pixel or two shimmers into moiré.
