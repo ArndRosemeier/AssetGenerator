@@ -99,6 +99,16 @@ export class FloatingOrigin {
    * relative to the origin. Call once a frame, after the game has moved its camera.
    */
   view<C extends Camera>(camera: C, out: C): C {
+    // The renderer sets up the camera it draws (reversed depth, its coordinate system) and builds its projection
+    // for that; the game's camera is never drawn, so it takes the same set-up here, or the copy would bring back
+    // a projection for the wrong depth (WebGL 2 drew the land through itself).
+    const c = camera as unknown as { _reversedDepth: boolean; coordinateSystem: number; updateProjectionMatrix?: () => void };
+    const d = out as unknown as { _reversedDepth: boolean; coordinateSystem: number };
+    if (c._reversedDepth !== d._reversedDepth || c.coordinateSystem !== d.coordinateSystem) {
+      c._reversedDepth = d._reversedDepth;
+      c.coordinateSystem = d.coordinateSystem;
+      c.updateProjectionMatrix?.();
+    }
     camera.updateMatrixWorld();
     out.copy(camera, false);
     out.position.x -= this.at.x;

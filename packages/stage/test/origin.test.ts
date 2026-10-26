@@ -71,3 +71,18 @@ test('float32 near the camera: centimetres off at 300 km from zero without an or
   }
   assert.ok(viewError(300000, 0) > 0.005, 'without: millimetres to centimetres at 300 km (this is the shimmer)');
 });
+
+test('FloatingOrigin.view: the game camera takes the drawn camera\'s depth set-up, so its projection matches', () => {
+  const o = new FloatingOrigin();
+  const cam = new PerspectiveCamera(55, 1.5, 0.2, 1000), drawn = new PerspectiveCamera();
+  o.view(cam, drawn);
+  // What the renderer does to the camera it draws (reversed depth, WebGPU's coordinate system).
+  (drawn as unknown as { _reversedDepth: boolean })._reversedDepth = true;
+  drawn.coordinateSystem = 2001;
+  drawn.updateProjectionMatrix();
+  const wanted = drawn.projectionMatrix.clone();
+  o.view(cam, drawn);
+  assert.equal(cam.reversedDepth, true);
+  assert.equal(cam.coordinateSystem, 2001);
+  assert.ok(drawn.projectionMatrix.equals(wanted), 'the copy keeps the projection the renderer wants');
+});
