@@ -342,3 +342,25 @@ export function simplifyClosed(p: Poly, tol: number): Poly {
   for (let i = 0; i < n; i++) if (keep[i]) out.push(p[i * 2], p[i * 2 + 1]);
   return out;
 }
+
+/** Douglas-Peucker simplification of an open polyline (its ends kept). */
+export function simplifyOpen(pts: number[], tol: number): number[] {
+  const n = pts.length >> 1;
+  if (n <= 2) return pts.slice();
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const tol2 = tol * tol;
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [i, j] = stack.pop()!;
+    let maxD = -1, idx = -1;
+    for (let k = i + 1; k < j; k++) {
+      const d = distSqPointSeg(pts[k * 2], pts[k * 2 + 1], pts[i * 2], pts[i * 2 + 1], pts[j * 2], pts[j * 2 + 1]);
+      if (d > maxD) { maxD = d; idx = k; }
+    }
+    if (idx >= 0 && maxD > tol2) { keep[idx] = 1; stack.push([i, idx], [idx, j]); }
+  }
+  const out: number[] = [];
+  for (let k = 0; k < n; k++) if (keep[k]) out.push(pts[k * 2], pts[k * 2 + 1]);
+  return out;
+}
