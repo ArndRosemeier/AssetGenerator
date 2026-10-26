@@ -341,8 +341,9 @@ function farWall(c: RGB, L: Look, timbered: boolean): RGB {
 function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, open: boolean): void {
   const { hu, hv } = b, L = S.look;
   const plinthDown = b.floorY - b.groundY + 0.3;
-  // The plinth: rubble from below the lowest ground to the floor.
-  o.box(-hu - 0.06, hu + 0.06, -plinthDown, 0.05, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
+  // The plinth: rubble from below the lowest ground to the floor. Opened, its top drops under the
+  // room's floor boards (interior.ts FLOOR), or the two fight for the same depth.
+  o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : 0.05, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
   // Steps up to the door.
   if (detail) drawEntrance(o, b, L);
   S.storeys.forEach((st, f) => {
@@ -639,7 +640,7 @@ function temple(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean,
   const { hu, hv } = b, L = S.look;
   const plinthDown = b.floorY - b.groundY + 0.3;
   const stone = BuildingMat.Ashlar;
-  o.box(-hu - 0.15, hu + 0.15, -plinthDown, 0.25, -hv - 0.15, hv + 0.15, BuildingMat.Rubble, L.stone);
+  o.box(-hu - 0.15, hu + 0.15, -plinthDown, open ? 0 : 0.25, -hv - 0.15, hv + 0.15, BuildingMat.Rubble, L.stone);
   const H = b.floorH;
   for (const w of S.storeys[0].walls) wall(o, w.a0, w.b0, w.a1, w.b1, 0, H, w.opens, stone, L.stone, detail, L, false, r, open);
   roof(o, { ...b, ridgeAlongU: false, attached: false, roof: 'hip', kind: 'temple' } as TownBuilding, -hu, hu, -hv, hv, H, L, detail);

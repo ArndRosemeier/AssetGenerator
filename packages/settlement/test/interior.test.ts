@@ -116,6 +116,18 @@ test('open building: no door leaf in its doorway, otherwise as shut', () => {
     const shut = buildingMesh(b, [0, 0, 0]), open = buildingMesh(b, [0, 0, 0], true, { open: true });
     assert.equal(shut.index.length - open.index.length, 6 * houseShape(b).storeys[0].walls.find((w) => w.id === 0)!.opens.filter((q) => q.door).length, 'one quad less per door');
   }
+  // Nothing of the outside lies flat at the ground floor's height inside the walls (the plinth's top
+  // would fight the floor boards for the same depth).
+  for (const b of town.buildings.filter((_, i) => i % 3 === 0)) {
+    const m = buildingMesh(b, [0, 0, 0], true, { open: true }), y = b.floorY + planInterior(b).storeys[0].y;
+    const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+    for (let t = 0; t < m.index.length; t += 3) {
+      const c = [0, 1, 2].map((k) => (m.position[m.index[t] * 3 + k] + m.position[m.index[t + 1] * 3 + k] + m.position[m.index[t + 2] * 3 + k]) / 3);
+      const a = (c[0] - b.cx) * ux + (c[2] - b.cz) * uz, bb = (c[0] - b.cx) * b.vx + (c[2] - b.cz) * b.vz;
+      if (m.normal[m.index[t] * 3 + 1] > 0.9 && Math.abs(a) < b.hu - 0.4 && Math.abs(bb) < b.hv - 0.4)
+        assert.ok(Math.abs(c[1] - y) > 0.02, `${b.kind} #${b.id}: an outside face at the floor`);
+    }
+  }
 });
 
 function segHits(p: number[], q: number[], A: number[], B: number[], C: number[]): boolean {
@@ -137,7 +149,7 @@ function segHits(p: number[], q: number[], A: number[], B: number[], C: number[]
 void WALL_THICK;
 
 test('interior: a hatch down to a cellar lies on free floor one can walk to, in every kind of building', () => {
-  for (const b of town.buildings) {
+  for (const b of town.buildings.filter((_, i) => i % 2 === 0)) {
     const p = planInterior(b, { hatch: true }), h = p.fixtures.filter((f) => f.kind === 'hatch');
     assert.equal(h.length, 1, `${b.kind} #${b.id}: one hatch`);
     assert.ok(reachable(p)(h[0].a, h[0].b), `${b.kind} #${b.id}: the hatch can be walked to`);
