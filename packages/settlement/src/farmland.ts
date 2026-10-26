@@ -118,6 +118,10 @@ const ROTATION: readonly (readonly CropKind[])[] = [['wheat', 'wheat', 'rye'], [
 const ODD: readonly CropKind[] = ['wheat', 'barley', 'oats', 'fallow', 'ploughed', 'rye'];
 /** Grass between two strips (m). */
 const BALK = 1.4;
+/** How far (m) a farmstead keeps from the edge of any street. */
+const STREET_CLEAR = 1;
+/** How much (m) the ground under a farmhouse and before its door may rise. */
+const HOUSE_RISE = 1;
 
 export function planFarmland(input: FarmlandInput): Farmland {
   const { site, rng, cx, cz, outline, roads, wet, streets } = input;
@@ -158,7 +162,7 @@ export function planFarmland(input: FarmlandInput): Farmland {
       if (!lay) continue;
       const [fx, fz] = polyCentroid(lay.footprint);
       if (taken.some((t) => Math.hypot(t.x - fx, t.z - fz) < 75)) continue;
-      if (!farmFits(lay, input, inTown, inEdge, footprints, roads)) continue;
+      if (!farmFits(lay, input, town, inEdge, footprints)) continue;
       taken.push({ x: fx, z: fz, road: st.road });
       footprints.push(lay.footprint);
       addFarm(lay, input, farms, paddocks, props, fields, fr);
@@ -381,23 +385,37 @@ function boxPoly(l: FarmLay, b: Box): Poly {
 
 const at = (l: FarmLay, u: number, v: number): [number, number] => [l.ox + l.ux * u + l.vx * v, l.oz + l.uz * u + l.vz * v];
 
-/** Dry, gentle, outside the town and inside the farmland, clear of other farms and other roads. */
-function farmFits(l: FarmLay, input: FarmlandInput, inTown: (x: number, z: number) => boolean, inEdge: (x: number, z: number) => boolean, others: Poly[], roads: number[][]): boolean {
-  const f = l.footprint;
+/** Dry, gentle, clear of the town, its streets and other farms, and inside the farmland. */
+function farmFits(l: FarmLay, input: FarmlandInput, town: Poly[], inEdge: (x: number, z: number) => boolean, others: Poly[]): boolean {
+  const f = l.footprint, fb = polyBounds(f);
   // The cheap checks first: the ground is slow to ask.
   for (const p of others) if (intersection([f], [p]).length) return false;
-  // No road through the farm (its own road runs along the front).
-  for (const r of roads) for (let k = 0; k + 1 < r.length; k += 2) if (pointInPoly(f, r[k], r[k + 1])) return false;
-  const [x0, z0, x1, z1] = polyBounds(f);
+  // Not a corner in the town, and no street through the farm (its own road runs along the front, farther
+  // off than this): every street so far, the edge track and the other farms' paths too.
+  if (intersection([f], town).length) return false;
+  for (const st of input.streets) {
+    const w = streetStrokes(st), by = near(w.polys, w.bounds, fb);
+    if (by.length && intersection([f], by).length) return false;
+  }
+  const [x0, z0, x1, z1] = fb;
   let lo = Infinity, hi = -Infinity;
   for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) {
     const x = x0 + ((x1 - x0) * i) / 4, z = z0 + ((z1 - z0) * j) / 4;
     if (!pointInPoly(f, x, z)) continue;
-    if (input.wet(x, z) || inTown(x, z) || !inEdge(x, z)) return false;
+    if (input.wet(x, z) || !inEdge(x, z)) return false;
     const h = input.site.height(x, z);
     lo = Math.min(lo, h); hi = Math.max(hi, h);
   }
-  return hi - lo <= Math.max(3, 0.12 * Math.hypot(x1 - x0, z1 - z0));
+  if (hi - lo > Math.max(3, 0.12 * Math.hypot(x1 - x0, z1 - z0))) return false;
+  // The house and the ground before its door nearly level: its steps climb a metre at most.
+  const h = l.house, hb = boxPoly(l, { ...h, v: h.v - 1.5, hv: h.hv + 1.5 });
+  let hlo = Infinity, hhi = -Infinity;
+  for (let k = 0; k < 4; k++) for (let t = 0; t < 1; t += 0.25) {
+    const a = hb[k * 2], b = hb[k * 2 + 1], c = hb[((k + 1) % 4) * 2], d = hb[((k + 1) % 4) * 2 + 1];
+    const g = input.site.height(a + (c - a) * t, b + (d - b) * t);
+    hlo = Math.min(hlo, g); hhi = Math.max(hhi, g);
+  }
+  return hhi - hlo <= HOUSE_RISE;
 }
 
 function addFarm(l: FarmLay, input: FarmlandInput, farms: Farm[], paddocks: Paddock[], props: TownProp[], fields: Field[], r: Rng): void {
@@ -502,6 +520,18 @@ function haystack(x: number, z: number, site: TownSite, r: Rng): TownProp {
 }
 
 // ---------------------------------------------------------------- helpers
+
+const strokeCache = new WeakMap<TownStreet, { polys: Poly[]; bounds: [number, number, number, number][] }>();
+/** A street stroked STREET_CLEAR past its edges, in pieces with their bounds (kept per street). */
+function streetStrokes(st: TownStreet): { polys: Poly[]; bounds: [number, number, number, number][] } {
+  let w = strokeCache.get(st);
+  if (!w) {
+    const polys = pieceStrokes([st.closed ? [...st.pts, st.pts[0], st.pts[1]] : st.pts], st.width / 2 + STREET_CLEAR);
+    w = { polys, bounds: polys.map(polyBounds) };
+    strokeCache.set(st, w);
+  }
+  return w;
+}
 
 /** Polylines stroked in short pieces (each its own polygon, so `near` can pass over most of them). */
 function pieceStrokes(lines: number[][], half: number): Poly[] {
