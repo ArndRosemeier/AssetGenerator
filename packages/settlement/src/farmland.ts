@@ -120,6 +120,8 @@ const ODD: readonly CropKind[] = ['wheat', 'barley', 'oats', 'fallow', 'ploughed
 const BALK = 1.4;
 /** How far (m) a farmstead keeps from the edge of any street. */
 const STREET_CLEAR = 1;
+/** How much (m) the ground under a farmhouse and before its door may rise. */
+const HOUSE_RISE = 1;
 
 export function planFarmland(input: FarmlandInput): Farmland {
   const { site, rng, cx, cz, outline, roads, wet, streets } = input;
@@ -404,7 +406,16 @@ function farmFits(l: FarmLay, input: FarmlandInput, town: Poly[], inEdge: (x: nu
     const h = input.site.height(x, z);
     lo = Math.min(lo, h); hi = Math.max(hi, h);
   }
-  return hi - lo <= Math.max(3, 0.12 * Math.hypot(x1 - x0, z1 - z0));
+  if (hi - lo > Math.max(3, 0.12 * Math.hypot(x1 - x0, z1 - z0))) return false;
+  // The house and the ground before its door nearly level: its steps climb a metre at most.
+  const h = l.house, hb = boxPoly(l, { ...h, v: h.v - 1.5, hv: h.hv + 1.5 });
+  let hlo = Infinity, hhi = -Infinity;
+  for (let k = 0; k < 4; k++) for (let t = 0; t < 1; t += 0.25) {
+    const a = hb[k * 2], b = hb[k * 2 + 1], c = hb[((k + 1) % 4) * 2], d = hb[((k + 1) % 4) * 2 + 1];
+    const g = input.site.height(a + (c - a) * t, b + (d - b) * t);
+    hlo = Math.min(hlo, g); hhi = Math.max(hhi, g);
+  }
+  return hhi - hlo <= HOUSE_RISE;
 }
 
 function addFarm(l: FarmLay, input: FarmlandInput, farms: Farm[], paddocks: Paddock[], props: TownProp[], fields: Field[], r: Rng): void {
