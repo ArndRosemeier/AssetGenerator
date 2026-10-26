@@ -158,6 +158,7 @@ export class Stage {
     // in software GL, with it 37 to 53 ms (the budget is 100).
     await new Promise((r) => setTimeout(r, SETTLE_MS));
     for (let k = 0; k < WARM_FRAMES; k++) {
+      this.redrawShadow();
       this.onTarget(() => this.renderer.render(this.scene, this.camera));
       await new Promise((r) => setTimeout(r, 30));
     }
@@ -232,7 +233,9 @@ export class Stage {
       const others: Object3D[] = [];
       for (const c of this.scene.children) if (c !== obj && c.visible && !(c as { isLight?: boolean }).isLight) { others.push(c); c.visible = false; }
       newNodeFrame(this.renderer); // the shadow map is drawn once a frame, and the view may have drawn this one
+      this.redrawShadow();
       try { this.onTarget(() => this.renderer.render(this.scene, this.camera)); } finally { for (const c of others) c.visible = true; }
+      this.redrawShadow(); // it holds only this caster now: the next frame draws it whole again
       this.scene.remove(obj);
       m.layers.disableAll();
       this.drawnCasters.mark(m);
@@ -242,6 +245,17 @@ export class Stage {
       release();
     }
     meshes.forEach((m, i) => { m.layers.mask = masks[i]; m.frustumCulled = culled[i]; });
+  }
+
+  /**
+   * The light with the shadow camera draws its map on the next render even if the game draws it only now and then
+   * (`shadow.autoUpdate` off): the shadow warm-up builds its shaders by drawing into it.
+   */
+  private redrawShadow(): void {
+    for (const c of this.scene.children) {
+      const shadow = (c as { shadow?: { camera?: Camera; needsUpdate: boolean } }).shadow;
+      if ((c as { isLight?: boolean }).isLight && shadow?.camera && shadow.camera === this.shadowCam) shadow.needsUpdate = true;
+    }
   }
 
   /** Put `obj` into the scene once everything it draws with is compiled. */
