@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BoxGeometry, Matrix4, MeshBasicNodeMaterial, PerspectiveCamera } from 'three/webgpu';
+import { BoxGeometry, Matrix4, MeshBasicNodeMaterial, PerspectiveCamera, Vector3 } from 'three/webgpu';
 import { CpuInstanceDraws, RECORD, KIND, DITHER, inLod, listLayout, recordSphere, sphereVisible } from '../src/index';
 
 test('a level holds from near up to far, and dithers out over its fade', () => {
@@ -72,4 +72,24 @@ test('the CPU path keeps its counts when frames run while shaders build', async 
   assert.deepEqual(counts(), [1, 0]);
   draws.update(cam);
   assert.deepEqual(counts(), [1, 0]);
+});
+
+test('the CPU path draws relative to a floating origin, and writes again when it steps', () => {
+  const geo = new BoxGeometry(), mat = new MeshBasicNodeMaterial();
+  const origin = new Vector3(299520, 0, -299520);
+  const draws = new CpuInstanceDraws([{ lods: [{ far: 50, parts: [{ geometry: geo, material: mat }] }] }], { horizontal: true, origin });
+  const data = new Float32Array(RECORD);
+  data.set(new Matrix4().setPosition(299530.5, 20, -299510.25).elements);
+  draws.set(data, 1);
+  const cam = new PerspectiveCamera();
+  cam.position.set(299525, 22, -299515);
+  const drawn = () => {
+    const a = (draws.group.children[0] as unknown as { geometry: { getAttribute(n: string): { data: { array: Float32Array } } } }).geometry.getAttribute('iM3').data.array;
+    return [a[12], a[13], a[14]];
+  };
+  draws.update(cam);
+  assert.deepEqual(drawn(), [10.5, 20, 9.75], 'distance chosen in world space, drawn relative to the origin');
+  origin.set(298240, 0, -299520);
+  draws.update(cam);
+  assert.deepEqual(drawn(), [1290.5, 20, 9.75], 'the origin stepped: written again without the camera moving');
 });
