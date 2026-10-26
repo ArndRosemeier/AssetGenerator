@@ -57,6 +57,15 @@ export class ShaderCap {
     };
   }
 
+  /**
+   * A build that did not wait for a slot (a synchronous one: something drawn that was never compiled ahead) still
+   * spent the time: the next build waits after it as after any other, so one stray build does not set off a burst.
+   */
+  spent(t0: number, t1: number): void {
+    if (!this.active || this.share >= 1 || this.share <= 0 || this.busySince !== null) return; // inside a slot: its release counts it
+    this.freeAt = Math.max(this.freeAt, t1 + (t1 - t0) * (1 / this.share - 1));
+  }
+
   /** Resolves on a frame with room, and takes it; give it back once the build is done. */
   slot(): Promise<Release> {
     if (this.room()) return Promise.resolve(this.take());

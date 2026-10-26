@@ -65,3 +65,21 @@ test('a slot never given back holds the cap for a second at most', async () => {
   for (let f = 0; f < 200 && at < 0; f++) { step(); await new Promise((r) => setImmediate(r)); }
   assert.ok(at >= 1000 && at < 1100, `${at}`);
 });
+
+test('a build outside the slots (synchronous) makes the next one wait as after any other', async () => {
+  const { cap, step, now, spend } = sim();
+  cap.active = true;
+  step();
+  const t0 = now();
+  spend(6);
+  cap.spent(t0, now()); // a stray 6 ms build: the next waits 12 ms after it
+  assert.equal(cap.room(), false);
+  let started = -1;
+  void cap.slot().then((release) => { started = now(); release(); });
+  step();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(started >= t0 + 6 + 12, `started ${started - t0} ms after the stray build began`);
+  cap.active = false;
+  cap.spent(now(), now() + 50);
+  assert.equal(cap.room(), true, 'no cap in the warm-up');
+});

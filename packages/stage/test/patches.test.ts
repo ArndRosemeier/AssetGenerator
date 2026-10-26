@@ -58,3 +58,43 @@ test('shadow nodes: materials that lend the same nodes share one set (so one sha
   assert.ok(na.colorNode && nc.colorNode);
   assert.equal(renderer._getShadowNodes(plain).colorNode, null, 'nothing to lend: no colour node, as in three');
 });
+
+test('late builds: after warm-up a draw without its shader builds only in a frame with room under the cap, else waits', async () => {
+  const { deferLateBuilds } = await import('../src/patches');
+  const { ShaderCap } = await import('../src/cap');
+  const { ShaderMonitor } = await import('../src/monitor');
+  let now = 0, frames: (() => void)[] = [];
+  const cap = new ShaderCap(() => now, (fn) => frames.push(fn)), monitor = new ShaderMonitor(() => now);
+  const ro = { object: { name: 'beard', type: 'Mesh' }, material: { type: 'ShadowMaterial' } };
+  let built = new Set<unknown>();
+  const drawn: unknown[] = [];
+  const renderer = {
+    _currentRenderContext: {},
+    _objects: { get: (o: unknown) => ({ ...ro, object: o }) },
+    _nodes: { getForRenderCacheKey: () => 7 },
+    _renderObjectDirect(object: unknown) { drawn.push(object); built.add(object); now += 2; }, // a 2 ms build while drawn
+  };
+  assert.ok(deferLateBuilds(renderer as unknown as WebGPURenderer, cap, monitor, (r: { object: unknown }) => !built.has(r.object), () => 'beard shadow'));
+  const a = { name: 'a' }, b = { name: 'b' };
+  renderer._renderObjectDirect(a); // warm-up: drawn (and built) at once
+  assert.equal(drawn.length, 1);
+  built = new Set();
+  cap.active = true;
+  renderer._renderObjectDirect(a); // room: built in this frame's slot, while drawn
+  renderer._renderObjectDirect(b); // same frame: no room, skipped
+  assert.deepEqual(drawn.slice(1), [a]);
+  assert.equal(monitor.summary().late, 1);
+  cap.newFrame(); now += 1;
+  renderer._renderObjectDirect(b); // 2 ms build needs 4 ms after it: still waits
+  assert.equal(drawn.length, 2);
+  cap.newFrame(); now += 5;
+  renderer._renderObjectDirect(a); renderer._renderObjectDirect(b);
+  assert.deepEqual(drawn.slice(2), [a, b], 'a built already draws; b now has its slot');
+  assert.equal(monitor.summary().late, 1, 'noted once per shader');
+  frames = [];
+  monitor.note = 'shadow warm-up';
+  built = new Set();
+  renderer._renderObjectDirect(a); renderer._renderObjectDirect(b);
+  assert.equal(drawn.length, 6, 'the Stage\'s own warm-up draws at once');
+  assert.equal(deferLateBuilds({} as WebGPURenderer, cap, monitor, () => true, () => ''), false);
+});
