@@ -16,6 +16,12 @@ FMPK v1, little-endian:
     i16 positions[3 * n] (times the scale), padding to 4,
     i8 normals[3 * n] (/ 127), u8 colours[3 * n] (linear = (v / 255)^2), padding to 4,
     u16 indices (u32 when vertex count > 65535), padding to 4.
+
+FMPK v2 (`ag.py pack --slots`) is v1 plus the material each vertex comes from, so an
+engine can give wood, iron and cloth their own surface: after the name's padding
+    u16 slot count, per slot u16 name length and name (utf-8, the spec's material name),
+    padding to 4;
+and after the colours (before their padding) u8 slot[n].
 """
 
 from __future__ import annotations
@@ -151,6 +157,41 @@ def _pattern_colors(mesh: bpy.types.Mesh, asset: object) -> list[tuple[float, fl
     return [tuple(c) for c in out.tolist()]
 
 
+def _image_colors(mesh: bpy.types.Mesh) -> list[tuple[float, float, float]] | None:
+    """Per loop-triangle corner, the colour of the baked albedo where a material's base colour
+    is an image (generators that bake their looks into textures), or None."""
+    import numpy as np
+
+    images = []
+    for material in mesh.materials:
+        node = material.node_tree.nodes.get("Principled BSDF") if material and material.node_tree else None
+        link = node.inputs["Base Color"].links[0] if node and node.inputs["Base Color"].links else None
+        image = link.from_node.image if link and link.from_node.type == "TEX_IMAGE" else None
+        if image is None:
+            images.append(None)
+            continue
+        w, h = image.size
+        px = np.empty(w * h * 4, dtype=np.float32)
+        image.pixels.foreach_get(px)
+        images.append((w, h, px.reshape(h, w, 4)))
+    if not any(images) or not mesh.uv_layers:
+        return None
+    uv = mesh.uv_layers.active.data
+    out = []
+    for tri in mesh.loop_triangles:
+        img = images[tri.material_index]
+        for loop in tri.loops:
+            if img is None:
+                node = mesh.materials[tri.material_index].node_tree.nodes["Principled BSDF"]
+                out.append(tuple(node.inputs["Base Color"].default_value)[:3])
+                continue
+            w, h, px = img
+            u, v = uv[loop].uv
+            c = px[min(h - 1, max(0, int(v * h))), min(w - 1, max(0, int(u * w)))]
+            out.append((float(c[0]), float(c[1]), float(c[2])))
+    return out
+
+
 def _shade(island: int, seed: int) -> float:
     h = (island * 2654435761 + seed * 40503) & 0xFFFFFFFF
     h ^= h >> 15
@@ -159,7 +200,11 @@ def _shade(island: int, seed: int) -> float:
     return 1.0 + SHADE_JITTER * (2.0 * (h / 0xFFFFFFFF) - 1.0)
 
 
-def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]]:
+def _slot_name(material: bpy.types.Material) -> str:
+    return material.name.split(".")[0]
+
+
+def _model(spec_path: Path, samples: int, slots: bool = False) -> tuple[str, bytes, dict[str, object]]:
     spec = load_spec(spec_path)
     module = importlib.import_module(resolve_generator_module(spec.generator))
     reset_scene()
@@ -172,7 +217,10 @@ def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]
         tuple(m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value)[:3]
         for m in mesh.materials
     ]
-    patterned = _pattern_colors(mesh, asset)
+    patterned = _pattern_colors(mesh, asset) or _image_colors(mesh)
+    # Slots a texture bake merged into one material (blender/lib/bake.py keeps them).
+    face_slot = mesh.attributes.get("slot")
+    slot_names = [str(n) for n in mesh.get("slot_names", [])] if face_slot is not None else [_slot_name(m) for m in mesh.materials]
     island = _islands(mesh)
     # A recipe's own shading (tool marks, grime) per vertex, when it has one.
     shade = mesh.attributes.get("shade")
@@ -184,9 +232,11 @@ def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]
     pos: list[tuple[float, float, float]] = []
     nor: list[tuple[int, int, int]] = []
     col: list[tuple[int, int, int]] = []
+    slot: list[int] = []
     idx: list[int] = []
     for t, tri in enumerate(mesh.loop_triangles):
         color = base[tri.material_index]
+        tri_slot = face_slot.data[tri.polygon_index].value if face_slot is not None else tri.material_index
         for corner, loop in enumerate(tri.loops):
             if patterned is not None:
                 color = patterned[3 * t + corner]
@@ -199,12 +249,13 @@ def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]
             p = (x, z, -y)
             n = (round(nx * 127), round(nz * 127), round(-ny * 127))
             c = tuple(min(255, round(math.sqrt(max(0.0, ch * k)) * 255)) for ch in color)
-            key = (p, n, c)
+            key = (p, n, c, tri_slot if slots else 0)
             if key not in keys:
                 keys[key] = len(pos)
                 pos.append(p)
                 nor.append(n)
                 col.append(c)
+                slot.append(tri_slot)
             idx.append(keys[key])
 
     lo = [min(p[i] for p in pos) for i in range(3)]
@@ -214,11 +265,19 @@ def _model(spec_path: Path, samples: int) -> tuple[str, bytes, dict[str, object]
     name = spec.asset_id.encode()
     out += struct.pack("<H", len(name)) + name
     out += b"\0" * (-len(out) % 4)
+    if slots:
+        names = [nm.encode() for nm in slot_names]
+        out += struct.pack("<H", len(names))
+        for nm in names:
+            out += struct.pack("<H", len(nm)) + nm
+        out += b"\0" * (-len(out) % 4)
     out += struct.pack("<f3f3fII", scale, *lo, *hi, len(pos), len(idx))
     out += struct.pack(f"<{3 * len(pos)}h", *(round(c / scale) for p in pos for c in p))
     out += b"\0" * (-len(out) % 4)
     out += struct.pack(f"<{3 * len(nor)}b", *(c for n in nor for c in n))
     out += bytes(c for cc in col for c in cc)
+    if slots:
+        out += bytes(slot)
     out += b"\0" * (-len(out) % 4)
     out += struct.pack(f"<{len(idx)}{'H' if len(pos) <= 65535 else 'I'}", *idx)
     out += b"\0" * (-len(out) % 4)
@@ -234,14 +293,15 @@ def handle(payload: Mapping[str, object]) -> Report:
     specs = [Path(str(p)) for p in payload["specs"]]  # type: ignore[union-attr]
     out_path = Path(str(payload["out"]))
     samples = int(payload.get("samples", 32))  # type: ignore[arg-type]
+    slots = bool(payload.get("slots", False))
     blobs: list[bytes] = []
     models: dict[str, object] = {}
     for spec_path in specs:
-        name, blob, stats = _model(spec_path, samples)
+        name, blob, stats = _model(spec_path, samples, slots)
         blobs.append(blob)
         models[name] = stats
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(b"FMPK" + struct.pack("<II", 1, len(blobs)) + b"".join(blobs))
+    out_path.write_bytes(b"FMPK" + struct.pack("<II", 2 if slots else 1, len(blobs)) + b"".join(blobs))
     return {
         "ok": True,
         "command": "pack",
