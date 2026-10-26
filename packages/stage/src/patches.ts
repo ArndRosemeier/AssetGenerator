@@ -4,7 +4,8 @@
  * skipped and `installShaderPolicy` says which, so the monitor still shows what happens.
  * Adapted from Scale (src/render/webgpu/index.ts) via Dunfinity (src/render/shaders/patches.ts).
  */
-import { BufferAttribute, InterleavedBuffer, DynamicDrawUsage, NodeUpdateType, StaticDrawUsage, TextureNode, type WebGPURenderer } from 'three/webgpu';
+import { BufferAttribute, InterleavedBuffer, DynamicDrawUsage, NodeUpdateType, ReferenceNode, StaticDrawUsage, TextureNode, type WebGPURenderer } from 'three/webgpu';
+import { Fn, float, nodeObject, vec3, vec4 } from 'three/tsl';
 import type { ShaderCap } from './cap';
 import { codeHash, type ShaderMonitor } from './monitor';
 
@@ -18,6 +19,7 @@ export function installShaderPolicy(renderer: WebGPURenderer, cap: ShaderCap, mo
   if (!asyncDrawPipelines(renderer)) missing.push('async draw pipelines');
   if (!rebindSwitchedTextures(renderer)) missing.push('texture rebind');
   if (!keepTextureUpdates()) missing.push('texture node updates');
+  if (!shareShadowNodes(renderer)) missing.push('shared shadow nodes');
   noPerFrameUploads();
   timeGpu(monitor);
   return missing;
@@ -167,4 +169,71 @@ function timeGpu(monitor: ShaderMonitor): void {
   // WebGL 2 backend: linking is where a driver compiles (and getProgramParameter waits for it).
   const G = (globalThis as Any).WebGL2RenderingContext?.prototype;
   wrap(G, 'linkProgram', 'gl-link');
+}
+
+/**
+ * The shadow pass draws every caster with one material per light and borrows what it needs from the caster's own
+ * material (its colour's alpha, its map, its mask, a moved position). three r186 makes those borrowed nodes anew for
+ * every material (`_getShadowNodes`), and a node's id is part of the shader's cache key: materials alike but not one
+ * (Actors gives every person their own, sharing the nodes) each built their own shadow shader, the same code over
+ * again. Here the borrowed nodes are made once per kind of material (the nodes it lends, whether it has a map) and
+ * the map is read from the mesh drawn (`material.map` of the object), so all such casters share one shader.
+ * Returns false (and leaves three's way) if the internal is renamed.
+ */
+export function shareShadowNodes(renderer: WebGPURenderer): boolean {
+  const r = renderer as Any;
+  if (typeof r._getShadowNodes !== 'function' || r._getShadowNodes.shared) return typeof r._getShadowNodes === 'function';
+  const kinds = new Map<string, { colorNode: Any; depthNode: Any; positionNode: Any }>();
+  const shared = function (this: Any, material: Any) {
+    const key = shadowKindOf(material);
+    let kind = kinds.get(key);
+    if (!kind) kinds.set(key, (kind = shadowNodes(material, this.shadowMap?.transmitted === true)));
+    return kind;
+  };
+  shared.shared = true;
+  r._getShadowNodes = shared;
+  return true;
+}
+
+const isNode = (n: Any): boolean => !!n?.isNode;
+const idOf = (n: Any): string => (isNode(n) ? String(n.id) : '-');
+
+/** What a material lends the shadow pass, as a key: materials with the same key get the same nodes. */
+export function shadowKindOf(m: Any): string {
+  return [m.map?.isTexture ? 'map' : '', idOf(m.colorNode), idOf(m.castShadowNode), idOf(m.maskShadowNode), idOf(m.maskNode), idOf(m.depthNode), idOf(m.castShadowPositionNode), idOf(m.positionNode)].join(',');
+}
+
+/** The map of the material of the mesh drawn (the first with a map, for a mesh with several). */
+class DrawnMapNode extends (ReferenceNode as Any) {
+  constructor() { super('map', 'texture', null); }
+  updateReference(state: Any): Any {
+    const m = state?.object?.material;
+    this.reference = Array.isArray(m) ? (m.find((x: Any) => x?.map) ?? m[0]) : m;
+    return this.reference;
+  }
+}
+
+/** three r186's Renderer._getShadowNodes, with the map read from the mesh drawn instead of from `m`. */
+function shadowNodes(m: Any, transmitted: boolean): { colorNode: Any; depthNode: Any; positionNode: Any } {
+  const hasMap = !!m.map?.isTexture, hasColor = isNode(m.colorNode), hasCast = isNode(m.castShadowNode);
+  const mask = isNode(m.maskShadowNode) ? m.maskShadowNode : isNode(m.maskNode) ? m.maskNode : null;
+  let colorNode: Any = null;
+  if (hasMap || hasColor || hasCast || mask) {
+    let rgb: Any, alpha: Any;
+    if (hasCast) {
+      rgb = m.castShadowNode.rgb;
+      alpha = m.castShadowNode.a;
+      if (!transmitted) console.warn('Renderer: `shadowMap.transmitted` needs to be set to `true` when using `material.castShadowNode`.');
+    } else {
+      rgb = vec3(0);
+      alpha = float(1);
+    }
+    if (hasMap) alpha = alpha.mul((nodeObject as Any)(new DrawnMapNode()).a);
+    if (hasColor) alpha = alpha.mul(m.colorNode.a);
+    colorNode = vec4(rgb, alpha);
+    if (mask) colorNode = (Fn as Any)(([color]: Any[]) => { mask.not().discard(); return color; })(colorNode);
+  }
+  const depthNode = isNode(m.depthNode) ? m.depthNode : null;
+  const positionNode = isNode(m.castShadowPositionNode) ? m.castShadowPositionNode : isNode(m.positionNode) ? m.positionNode : null;
+  return { colorNode, depthNode, positionNode };
 }

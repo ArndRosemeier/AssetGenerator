@@ -11,7 +11,7 @@
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, type Camera, type InstancedMesh, type Material, type Object3D, type RenderTarget, type Scene, type WebGPURenderer } from 'three/webgpu';
 import { ShaderCap } from './cap';
 import { ShaderMonitor } from './monitor';
-import { installShaderPolicy } from './patches';
+import { installShaderPolicy, shadowKindOf } from './patches';
 
 /**
  * A material kind as the Stage sees it: each game keeps its own closed registry of kinds (its
@@ -54,14 +54,15 @@ const WARM_LAYER = 7;
 /**
  * What the shadow pass's shader for a caster depends on: whether it is instanced, how many bones it
  * is skinned to, its attributes and morphs, and what the pass borrows from its material (its kind,
- * by type and name; side, cut-outs, moved vertices). Casters alike share a shader; one of each is
- * drawn. Humans have a material each, alike per part, so not the material itself.
+ * by type and name; side, cut-outs, moved vertices, the nodes it lends: `shadowKindOf`). Casters
+ * alike share a shader (with the shared shadow nodes, patches.ts); one of each is drawn. Humans have
+ * a material each, alike per part, so not the material itself.
  */
 function casterKey(m: Mesh): string {
-  const g = m.geometry, mat = (Array.isArray(m.material) ? m.material[0] : m.material) as Material & { alphaMap?: unknown; positionNode?: unknown; displacementMap?: unknown };
-  return [(m as { isInstancedMesh?: boolean }).isInstancedMesh, (m as { skeleton?: { bones: unknown[] } }).skeleton?.bones.length ?? -1,
-    Object.keys(g.attributes).sort().join(','), Object.keys(g.morphAttributes).join(','),
-    mat.type, mat.name, mat.side, mat.shadowSide, mat.alphaTest > 0, !!mat.alphaMap, mat.transparent, !!mat.positionNode, !!mat.displacementMap].join('|');
+  const g = m.geometry, mats = (Array.isArray(m.material) ? m.material : [m.material]) as (Material & { alphaMap?: unknown; positionNode?: unknown; displacementMap?: unknown })[];
+  return [(m as { isInstancedMesh?: boolean }).isInstancedMesh, (m as { skeleton?: { bones: unknown[] } }).skeleton?.bones.length ?? -1, m.receiveShadow,
+    Object.keys(g.attributes).sort().map((k) => `${k}${g.attributes[k]!.itemSize}`).join(','), Object.keys(g.morphAttributes).join(','), !!g.index,
+    ...mats.map((mat) => [mat.type, mat.name, mat.side, mat.shadowSide, mat.alphaTest > 0, !!mat.alphaMap, mat.transparent, !!mat.positionNode, !!mat.displacementMap, shadowKindOf(mat)].join(':'))].join('|');
 }
 
 /**
@@ -101,8 +102,12 @@ export class Stage {
 
   constructor(readonly renderer: WebGPURenderer, readonly scene: Scene, readonly camera: Camera, private readonly opts: StageOptions) {
     this.missingHooks = installShaderPolicy(renderer, this.cap, this.monitor);
+    this.sharedShadows = !this.missingHooks.includes('shared shadow nodes');
     (globalThis as { shaders?: ShaderMonitor }).shaders = this.monitor;
   }
+
+  /** Casters alike share their shadow shader (patches.ts `shareShadowNodes` is in place). */
+  private readonly sharedShadows: boolean;
 
   /** Objects compiled but not yet visible. */
   get waiting(): number { return this.pending.size; }
@@ -200,7 +205,9 @@ export class Stage {
     for (const m of meshes) {
       if (!m.castShadow) continue; // the shadow pass draws casters only
       const key = casterKey(m);
-      if (this.casters.has(key) && (!every || !this.drawnCasters.fresh(m))) continue;
+      // With the shadow nodes shared (patches.ts), a caster of a known kind has its shader: drawing it again
+      // builds nothing. Without them (three renamed the internal), `every` draws each new caster.
+      if (this.casters.has(key) && (!every || this.sharedShadows || !this.drawnCasters.fresh(m))) continue;
       this.casters.add(key);
       fresh.push(m);
     }
@@ -220,8 +227,12 @@ export class Stage {
       // Drawn now, not left to the view's next frame (the view may not be drawing yet): its build
       // happens here, in the slot just taken.
       this.scene.add(obj);
+      // Everything else hidden (the lights stay: they are part of every key): the draw costs next to nothing,
+      // where the whole scene again, and its shadow map, took as long as a frame of its own.
+      const others: Object3D[] = [];
+      for (const c of this.scene.children) if (c !== obj && c.visible && !(c as { isLight?: boolean }).isLight) { others.push(c); c.visible = false; }
       newNodeFrame(this.renderer); // the shadow map is drawn once a frame, and the view may have drawn this one
-      this.onTarget(() => this.renderer.render(this.scene, this.camera));
+      try { this.onTarget(() => this.renderer.render(this.scene, this.camera)); } finally { for (const c of others) c.visible = true; }
       this.scene.remove(obj);
       m.layers.disableAll();
       this.drawnCasters.mark(m);
@@ -245,8 +256,9 @@ export class Stage {
   /**
    * Compile everything `obj` draws with, without adding it (for callers that add it to a group of
    * their own once it is ready, like the terrain). `everyCaster`: draw each of its shadow casters
-   * into the shadow pass once, even of a kind already warmed (a rebuilt human: its shadow builds are
-   * its own, Dunfinity's src/render/humans/nobody.ts restyle).
+   * into the shadow pass once, even of a kind already warmed (a rebuilt human: its shadow builds were
+   * its own, Dunfinity's src/render/humans/nobody.ts restyle). With the shadow nodes shared
+   * (patches.ts `shareShadowNodes`) casters alike share their shader, and this draws only new kinds.
    */
   prepare(obj: Object3D, opts: { everyCaster?: boolean } = {}): Promise<void> {
     // compileAsync skips what is outside the view; it must compile everything, or the object
