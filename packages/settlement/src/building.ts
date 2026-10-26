@@ -252,7 +252,8 @@ function chimneyOf(b: TownBuilding, r: Rng): HouseChimney | null {
   const ha = Math.max(1.6, b.hu - WALL_THICK), hb = Math.max(1.6, b.hv - WALL_THICK);
   if (b.kind === 'smithy') return { a: (r.chance(0.5) ? -1 : 1) * Math.min(ha - 1.0, 1.2), b: hb - 0.6, wall: 'back' };
   if (b.kind === 'bakery') return { a: 0, b: hb - 0.7, wall: 'back' };
-  if (b.kind === 'inn') return { a: -(ha - 0.45), b: r.range(-0.5, 0.5), wall: 'left' };
+  // On a gable wall, where the stack rises through the roof near its ridge.
+  if (b.kind === 'inn') return b.ridgeAlongU ? { a: -(ha - 0.45), b: r.range(-0.5, 0.5), wall: 'left' } : { a: r.range(-0.5, 0.5), b: hb - 0.45, wall: 'back' };
   const side = r.chance(0.5) ? -1 : 1;
   if (b.ridgeAlongU || hb < 2.2) return { a: side * (ha - 0.45), b: r.range(-0.3, 0.3), wall: side < 0 ? 'left' : 'right' };
   return { a: side * r.range(0.25, 0.5) * ha, b: hb - 0.45, wall: 'back' };
@@ -358,7 +359,7 @@ function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, 
     for (const w of st.walls) wall(o, w.a0, w.b0, w.a1, w.b1, st.y0, st.y1, w.opens, st.mat, tn, detail, L, st.timbered, r, open);
   });
   roof(o, b, -hu, hu, S.front, S.back, S.top, L, detail);
-  if (S.chimney) chimney(o, b, S, S.chimney, detail);
+  chimney(o, b, S, detail);
 }
 
 /** Where the door goes along the front wall (s from a0): the middle, where the plan put it. */
@@ -527,7 +528,7 @@ const COVER_MAT: Record<TownBuilding['cover'], BuildingMat> = { thatch: Building
 function roof(o: Out, b: TownBuilding, a0: number, a1: number, b0: number, b1: number, y: number, L: Look, detail: boolean): void {
   const m = COVER_MAT[b.cover];
   const thick = b.cover === 'thatch' ? 0.38 : 0.14;
-  const eave = b.cover === 'thatch' ? 0.6 : 0.42;
+  const eave = eaveOf(b);
   const tint: RGB = b.cover === 'thatch' ? [255, 246, 228] : b.cover === 'tile' ? [255, 236, 226] : WHITE;
   // Work in a frame where the ridge runs along `p` (from -P to P) and the slopes fall along `q` (-Q to Q).
   const alongU = b.ridgeAlongU;
@@ -620,13 +621,44 @@ function roofRise(b: TownBuilding, front: number, back: number): number {
   return (b.ridgeAlongU ? (back - front) / 2 : b.hu) * b.pitch;
 }
 
+/** The roof's top surface over (a, b) of a house (m over its floor), as `roof` draws it. */
+export function roofAt(b: TownBuilding, S: HouseShape, a: number, bb: number): number {
+  const alongU = b.ridgeAlongU;
+  const P = alongU ? b.hu : (S.back - S.front) / 2, Q = alongU ? (S.back - S.front) / 2 : b.hu;
+  const p = alongU ? a : bb - (S.front + S.back) / 2, q = alongU ? bb - (S.front + S.back) / 2 : a;
+  const rise = Q * b.pitch;
+  let h = rise - Math.abs(q) * b.pitch;
+  if (b.roof === 'hip' && P > Q * 0.6) {
+    // The hip ends fall from the ridge's ends to the eaves (steeper when the roof is about square).
+    const ridge = Math.max(0, P - Q), e = eaveOf(b);
+    h = Math.min(h, rise - Math.max(0, Math.abs(p) - ridge) * (rise + e * b.pitch) / (P + e - ridge));
+  }
+  return S.top + h;
+}
+
+/** How far the roof reaches out past the walls (m). */
+function eaveOf(b: TownBuilding): number {
+  return b.cover === 'thatch' ? 0.6 : 0.42;
+}
+
+/** A house's chimney stack: its middle, half width, and from where it comes out of the roof to its top. */
+export function chimneyStack(b: TownBuilding, S: HouseShape = houseShape(b)): { a: number; b: number; half: number; y0: number; y1: number } | null {
+  const c = S.chimney;
+  if (!c) return null;
+  const r = new Rng(b.seed ^ 0xc41e), half = 0.32;
+  const y1 = S.top + roofRise(b, S.front, S.back) + r.range(0.7, 1.2);
+  // From a little under the roof at the stack's lowest corner.
+  let y0 = Infinity;
+  for (const da of [-half, half]) for (const db of [-half, half]) y0 = Math.min(y0, roofAt(b, S, c.a + da, c.b + db));
+  return { a: c.a, b: c.b, half, y0: y0 - 0.25, y1 };
+}
+
 /** The chimney's stack: from inside the roof up past the ridge, capped. */
-function chimney(o: Out, b: TownBuilding, S: HouseShape, c: HouseChimney, detail: boolean): void {
-  const r = new Rng(b.seed ^ 0xc41e);
-  const rise = roofRise(b, S.front, S.back), y = S.top;
-  const top = y + rise + r.range(0.7, 1.2);
-  o.box(c.a - 0.32, c.a + 0.32, y + rise * 0.3, top, c.b - 0.32, c.b + 0.32, BuildingMat.Rubble, S.look.stone);
-  if (detail) o.box(c.a - 0.4, c.a + 0.4, top, top + 0.1, c.b - 0.4, c.b + 0.4, BuildingMat.Ashlar, S.look.stone, true);
+function chimney(o: Out, b: TownBuilding, S: HouseShape, detail: boolean): void {
+  const k = chimneyStack(b, S);
+  if (!k) return;
+  o.box(k.a - k.half, k.a + k.half, k.y0, k.y1, k.b - k.half, k.b + k.half, BuildingMat.Rubble, S.look.stone);
+  if (detail) o.box(k.a - 0.4, k.a + 0.4, k.y1, k.y1 + 0.1, k.b - 0.4, k.b + 0.4, BuildingMat.Ashlar, S.look.stone, true);
 }
 
 function normalise(v: number[]): number[] {
