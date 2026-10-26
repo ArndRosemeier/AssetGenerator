@@ -110,7 +110,7 @@ export class Stage {
   /**
    * Compile every material kind, then switch the cap on. Call after lights and fog are set up.
    * `extra`: objects whose materials are not registry kinds (the humanoid's, made by its package),
-   * compiled with them; add them with `add` later (a cache hit by then).
+   * compiled with them (all at once); add them with `add` later (a cache hit by then).
    */
   async warmUp(extra: readonly Object3D[] = []): Promise<void> {
     // One real frame first: it settles the render context (frame buffer target) that compiled
@@ -123,8 +123,9 @@ export class Stage {
     }
     const group = new Group();
     for (const m of standIns) group.add(m);
-    await this.onTarget(() => this.renderer.compileAsync(group, this.camera, this.scene));
-    for (const o of extra) await this.prepare(o);
+    // All at once: the kinds and every extra start compiling together, so the GPU builds their pipelines side by
+    // side (one after another, each waited for, a cold start on WebGPU took about twice as long: MasterWorld A7).
+    await Promise.all([this.onTarget(() => this.renderer.compileAsync(group, this.camera, this.scene)), ...extra.map((o) => this.prepare(o))]);
     // Then draw them, for the shadow pass's own (small) shaders, which compileAsync does not build.
     await this.warmShadows(group, extra);
     for (const m of standIns) m.geometry.dispose();
