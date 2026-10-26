@@ -98,8 +98,9 @@ const CEILING = 0.17;
 const STAIR_W = 0.9;
 const TREAD = 0.22;
 const RISER = 0.21;
-/** The stair's hole starts this share of the flight up (below it the ceiling clears one's head). */
-const WELL_FROM = 0.15;
+/** The stair's hole starts this share of the flight up. 0: over the whole flight, since storeys are low
+ *  (2.4 m) and a tall body coming down meets the hole's edge with its head a step above where it climbed. */
+const WELL_FROM = 0;
 /** Facing: towards +a, +b, -a, -b (atan2(b, a)). */
 const FACE_A = 0, FACE_B = Math.PI / 2, FACE_NA = Math.PI, FACE_NB = -Math.PI / 2;
 
