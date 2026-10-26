@@ -109,7 +109,9 @@ export function twilight(direction: N, sunDirection: N): N {
   const h = max(direction.y, 0.0);
   const flat = vec2(direction.x, direction.z);
   const sunFlat = vec2(sunDirection.x, sunDirection.z);
-  const toward = dot(flat.div(max(length(flat), 1e-4)), sunFlat.div(max(length(sunFlat), 1e-4))).mul(0.5).add(0.5);
+  // Clamped: rounding takes it a hair past 0 or 1 straight away from or toward the sun, and WGSL's pow of a
+  // negative base is NaN (a dark dotted line down the sky on WebGPU, in the sun's vertical plane).
+  const toward = dot(flat.div(max(length(flat), 1e-4)), sunFlat.div(max(length(sunFlat), 1e-4))).mul(0.5).add(0.5).clamp(0.0, 1.0);
   const low = pow(sub(1.0, h), 6.0);
   // The band toward the sun sinks and narrows with it.
   const band = vec3(0.9, 0.38, 0.12).mul(low).mul(pow(toward, 3.0).mul(0.85).add(0.15)).mul(smoothstep(-0.18, -0.02, s));
