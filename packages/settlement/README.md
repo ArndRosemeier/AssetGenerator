@@ -11,6 +11,14 @@ Planning settlements on the ground plane (x, z), pure TypeScript: runs in worker
   at the edge), a temple of no particular faith and its burial ground, a moot hall, inn, bakery, smithy, stable, a mill by water, crafts, and the
   fixtures people use (well, stalls, anvil, forge, woodpiles, gardens, graves, an offering stone). The same site gives
   the same town.
+* `building`: `houseShape(b)`, a building's storeys (jettied out over the street), every window and door
+  and the chimney, rolled once from its seed; `buildingMesh(b, origin, detail, { open })` draws it from
+  outside (`open`: its door stands open, for drawing it hollow).
+* `interior`: `planInterior(b)` furnishes every storey of that same shape (stairs up, the hearth under the
+  chimney, furniture and the spots people use), `interiorMesh` draws the inside faces with the windows open
+  through them and a daylight level per vertex (`INSIDE_LIGHT`), `interiorSolids` gives the boxes a walker
+  is walled in by and `interiorBlocked` the furniture in its way. Merged with the open building it is a
+  hollow building one walks into where it stands.
 
 Came from Scale (`src/core/geom2.ts`, `src/core/clip.ts`, `src/plan/cell.ts`, v1.0); the town planner
 is new, for MasterWorld.

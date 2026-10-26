@@ -132,10 +132,12 @@ export class Frame {
   }
 }
 
-interface Opening { s0: number; s1: number; t0: number; t1: number; door?: boolean }
+/** A hole in a wall: from s0 to s1 along it (m from its first corner), t0 to t1 up from the storey's floor. */
+export interface WallOpening { s0: number; s1: number; t0: number; t1: number; door?: boolean }
+type Opening = WallOpening;
 
 /** The look of one building, rolled from its seed. */
-interface Look {
+export interface Look {
   wash: RGB;
   timber: RGB;
   paint: RGB;
@@ -145,19 +147,129 @@ interface Look {
   bay: number;
 }
 
-export function buildingMesh(b: TownBuilding, origin: [number, number, number], detail = true): BuildingMesh {
+/** One wall of a storey: from (a0, b0) to (a1, b1) in the building's frame, counter-clockwise seen from above. */
+export interface HouseWall {
+  /** 0 front (the street, with the door), 1 right (+a), 2 back, 3 left (-a). */
+  id: 0 | 1 | 2 | 3;
+  a0: number; b0: number; a1: number; b1: number;
+  opens: WallOpening[];
+}
+
+/** One storey: its floor and the walls' top over the building's floor (m), and its front and back (b). */
+export interface HouseStorey {
+  y0: number; y1: number;
+  front: number; back: number;
+  mat: BuildingMat;
+  /** The wall's colour (plaster's wash or the stone's). */
+  tint: RGB;
+  /** Plaster between timber framing. */
+  timbered: boolean;
+  walls: HouseWall[];
+}
+
+/** Where the chimney's stack stands (its middle in the building's frame) and the wall the hearth is built against. */
+export interface HouseChimney { a: number; b: number; wall: 'left' | 'right' | 'back' }
+
+/**
+ * A building's shape as the outside shows it and the inside must match: its storeys (jettied out over the
+ * street), every window and the door on every wall, and the chimney. `buildingMesh` draws it from outside,
+ * `planInterior` and `interiorMesh` furnish and draw it from within; both read this, so they agree.
+ */
+export interface HouseShape {
+  look: Look;
+  storeys: HouseStorey[];
+  /** The walls' top, where the roof sits, and the top storey's front and back (b). */
+  top: number; front: number; back: number;
+  chimney: HouseChimney | null;
+}
+
+/** Inner wall thickness (m): the inside faces stand this far in from the outside ones. */
+export const WALL_THICK = 0.28;
+
+/** The shape of `b` (see HouseShape). Pure and seeded: the same building gives the same shape. */
+export function houseShape(b: TownBuilding): HouseShape {
   const r = new Rng(b.seed);
-  const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
-  const frame = new Frame({ cx: b.cx, cz: b.cz, ux, uz, vx: b.vx, vz: b.vz, y: b.floorY }, origin);
-  const out = new Out(frame);
   const look: Look = {
     wash: r.pick(WASHES), timber: r.pick(TIMBERS), paint: r.pick(PAINTS), stone: r.pick(STONES),
     shutters: r.range(0.2, 0.8),
     jetty: b.kind !== 'temple' && b.floors > 1 && b.wall !== 'stone' && r.chance(b.attached ? 0.7 : 0.4) ? r.range(0.3, 0.5) : 0,
     bay: r.range(2.4, 3.1),
   };
-  if (b.kind === 'temple') temple(out, b, look, r, detail);
-  else house(out, b, look, r, detail);
+  const { hu, hv } = b;
+  if (b.kind === 'temple') {
+    // The hall: a low square of stone, small windows high up, a wide door at the front.
+    const H = b.floorH, walls: HouseWall[] = [];
+    const sides: [number, number, number, number, 0 | 1 | 2 | 3][] = [[hu, -hv, hu, hv, 1], [hu, hv, -hu, hv, 2], [-hu, hv, -hu, -hv, 3], [-hu, -hv, hu, -hv, 0]];
+    for (const [a0, b0, a1, b1, id] of sides) {
+      const len = Math.hypot(a1 - a0, b1 - b0), opens: Opening[] = [];
+      if (id !== 0) for (let s = 1.8; s < len - 1.2; s += 2.6) opens.push({ s0: s - 0.35, s1: s + 0.35, t0: H - 2.1, t1: H - 1.3 });
+      else opens.push({ s0: len / 2 - 1.1, s1: len / 2 + 1.1, t0: 0, t1: 3.2, door: true });
+      walls.push({ id, a0, b0, a1, b1, opens });
+    }
+    return { look, storeys: [{ y0: 0, y1: H, front: -hv, back: hv, mat: BuildingMat.Ashlar, tint: look.stone, timbered: false, walls }], top: H, front: -hv, back: hv, chimney: null };
+  }
+  const wallMat = b.wall === 'stone' ? (r.chance(0.6) ? BuildingMat.Rubble : BuildingMat.Ashlar) : BuildingMat.Plaster;
+  const tint = b.wall === 'stone' ? look.stone : look.wash;
+  const storeys: HouseStorey[] = [];
+  // The chimney first: no window where its breast stands against the wall inside.
+  const chim = chimneyOf(b, r);
+  const breast = chim ? (b.kind === 'smithy' || b.kind === 'bakery' ? 1.2 : 0.9) : 0;
+  let y = 0, front = -hv, back = hv;
+  for (let f = 0; f < b.floors; f++) {
+    const h = b.floorH;
+    // A jetty: each upper storey stands out over the street (and on free-standing houses over the back too).
+    if (f > 0 && look.jetty > 0) {
+      front -= look.jetty;
+      if (!b.attached) back += look.jetty * 0.6;
+    }
+    const ground = f === 0;
+    // A stone ground floor under plastered or timbered upper floors, now and then.
+    const mat = ground && b.wall !== 'stone' && b.floors > 1 && r.chance(0.3) ? BuildingMat.Rubble : wallMat;
+    const sides: [number, number, number, number, 0 | 1 | 2 | 3][] = [
+      [-hu, front, hu, front, 0], [hu, front, hu, back, 1], [hu, back, -hu, back, 2], [-hu, back, -hu, front, 3],
+    ];
+    const walls = sides.map(([a0, b0, a1, b1, id]): HouseWall => {
+      const len = Math.hypot(a1 - a0, b1 - b0);
+      const blind = b.attached && (id === 1 || id === 3);
+      // Where the breast is along this wall (s from its first corner).
+      const at = !chim ? null : chim.wall === 'back' && id === 2 ? hu - chim.a : chim.wall === 'right' && id === 1 ? chim.b - front : chim.wall === 'left' && id === 3 ? back - chim.b : null;
+      const opens = blind ? [] : openings(len, h, look.bay, ground && id === 0 ? doorAt(a0, a1, len) : null, ground, b.kind, r);
+      return { id, a0, b0, a1, b1, opens: at === null ? opens : opens.filter((q) => q.s1 < at - breast || q.s0 > at + breast) };
+    });
+    storeys.push({ y0: y, y1: y + h, front, back, mat, tint: mat === BuildingMat.Plaster ? tint : look.stone, timbered: b.wall === 'timber' && mat === BuildingMat.Plaster, walls });
+    y += h;
+  }
+  return { look, storeys, top: y, front, back, chimney: chim };
+}
+
+/**
+ * Where the hearth and its chimney go: over the forge or the oven at the back of a smithy or bakery, else
+ * against a gable wall (a side wall when the ridge runs along the street, the back wall when it runs into
+ * the plot); the inn's hearth is always on its left wall, clear of the counter across the back.
+ */
+function chimneyOf(b: TownBuilding, r: Rng): HouseChimney | null {
+  if (b.kind === 'stable' || b.kind === 'barn' || b.kind === 'temple') return null;
+  const ha = Math.max(1.6, b.hu - WALL_THICK), hb = Math.max(1.6, b.hv - WALL_THICK);
+  if (b.kind === 'smithy') return { a: (r.chance(0.5) ? -1 : 1) * Math.min(ha - 1.0, 1.2), b: hb - 0.6, wall: 'back' };
+  if (b.kind === 'bakery') return { a: 0, b: hb - 0.7, wall: 'back' };
+  if (b.kind === 'inn') return { a: -(ha - 0.45), b: r.range(-0.5, 0.5), wall: 'left' };
+  const side = r.chance(0.5) ? -1 : 1;
+  if (b.ridgeAlongU || hb < 2.2) return { a: side * (ha - 0.45), b: r.range(-0.3, 0.3), wall: side < 0 ? 'left' : 'right' };
+  return { a: side * r.range(0.25, 0.5) * ha, b: hb - 0.45, wall: 'back' };
+}
+
+/** `open`: the door stands open (the inside is drawn too, by `interiorMesh`): no door leaf in the doorway. */
+export function buildingMesh(b: TownBuilding, origin: [number, number, number], detail = true, opts: { open?: boolean } = {}): BuildingMesh {
+  const S = houseShape(b);
+  // The small things (shutters, paint, braces) from a stream of their own: the near and far versions draw
+  // different ones, and the shape must not move with them.
+  const r = new Rng(b.seed ^ 0x5eed);
+  const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+  const frame = new Frame({ cx: b.cx, cz: b.cz, ux, uz, vx: b.vx, vz: b.vz, y: b.floorY }, origin);
+  const out = new Out(frame);
+  const open = !!opts.open;
+  if (b.kind === 'temple') temple(out, b, S, r, detail, open);
+  else house(out, b, S, r, detail, open);
   return {
     position: Float32Array.from(out.pos), normal: Float32Array.from(out.nrm), uv: Float32Array.from(out.uv),
     mat: Uint8Array.from(out.mat), tint: Uint8Array.from(out.tint), index: Uint32Array.from(out.idx),
@@ -226,46 +338,26 @@ function farWall(c: RGB, L: Look, timbered: boolean): RGB {
   return [0, 1, 2].map((i) => Math.round((c[i] * (1 - k) + L.timber[i] * k) * dim)) as RGB;
 }
 
-function house(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void {
-  const { hu, hv } = b;
+function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, open: boolean): void {
+  const { hu, hv } = b, L = S.look;
   const plinthDown = b.floorY - b.groundY + 0.3;
   // The plinth: rubble from below the lowest ground to the floor.
   o.box(-hu - 0.06, hu + 0.06, -plinthDown, 0.05, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
   // Steps up to the door.
   if (detail) drawEntrance(o, b, L);
-  let y = 0;
-  const wallMat = b.wall === 'stone' ? (r.chance(0.6) ? BuildingMat.Rubble : BuildingMat.Ashlar) : BuildingMat.Plaster;
-  const tint = b.wall === 'stone' ? L.stone : L.wash;
-  let front = -hv, back = hv;
-  for (let f = 0; f < b.floors; f++) {
-    const h = b.floorH;
-    // A jetty: each upper storey stands out over the street (and on free-standing houses over the back too).
-    if (f > 0 && L.jetty > 0) {
-      const f0 = front;
-      front -= L.jetty;
-      if (!b.attached) back += L.jetty * 0.6;
+  S.storeys.forEach((st, f) => {
+    const y = st.y0;
+    if (f > 0 && st.front < S.storeys[f - 1].front) {
+      const f0 = S.storeys[f - 1].front, front = st.front;
       if (detail) for (let a = -hu + 0.3; a < hu - 0.1; a += 0.62) o.box(a - 0.08, a + 0.08, y - 0.18, y, front, f0 + 0.05, BuildingMat.Oak, L.timber, true);
       // The jetty's underside.
       o.quad([[-hu, y - 0.18, front], [hu, y - 0.18, front], [hu, y - 0.18, f0], [-hu, y - 0.18, f0]], [0, -1, 0], [[-hu, front], [hu, front], [hu, f0], [-hu, f0]], BuildingMat.Oak, L.timber);
     }
-    const ground = f === 0;
-    // A stone ground floor under plastered or timbered upper floors, now and then.
-    const mat = ground && b.wall !== 'stone' && b.floors > 1 && r.chance(0.3) ? BuildingMat.Rubble : wallMat;
-    const timbered = b.wall === 'timber' && mat === BuildingMat.Plaster;
-    const tn = mat === BuildingMat.Plaster ? (detail ? tint : farWall(tint, L, timbered)) : L.stone;
-    const sides: [number, number, number, number, number][] = [
-      // a0, b0 -> a1, b1 along the wall, and the side's id: 0 front, 1 right, 2 back, 3 left.
-      [-hu, front, hu, front, 0], [hu, front, hu, back, 1], [hu, back, -hu, back, 2], [-hu, back, -hu, front, 3],
-    ];
-    for (const [a0, b0, a1, b1, id] of sides) {
-      const len = Math.hypot(a1 - a0, b1 - b0);
-      const blind = b.attached && (id === 1 || id === 3);
-      const opens = blind ? [] : openings(len, h, L.bay, ground && id === 0 ? doorAt(a0, a1, len) : null, ground, b.kind, r);
-      wall(o, a0, b0, a1, b1, y, y + h, opens, mat, tn, detail, L, timbered, r);
-    }
-    y += h;
-  }
-  roof(o, b, -hu, hu, front, back, y, L, r, detail);
+    const tn = st.mat === BuildingMat.Plaster && !detail ? farWall(st.tint, L, st.timbered) : st.tint;
+    for (const w of st.walls) wall(o, w.a0, w.b0, w.a1, w.b1, st.y0, st.y1, w.opens, st.mat, tn, detail, L, st.timbered, r, open);
+  });
+  roof(o, b, -hu, hu, S.front, S.back, S.top, L, detail);
+  if (S.chimney) chimney(o, b, S, S.chimney, detail);
 }
 
 /** Where the door goes along the front wall (s from a0): the middle, where the plan put it. */
@@ -304,7 +396,7 @@ function openings(len: number, h: number, bay: number, door: number | null, grou
  * One storey of one wall: the face with holes for its openings, their reveals, glass, frames, sills and
  * shutters, the door leaf, and timber framing.
  */
-function wall(o: Out, a0: number, b0: number, a1: number, b1: number, y0: number, y1: number, opens: Opening[], m: BuildingMat, c: RGB, detail: boolean, L: Look, timbered: boolean, r: Rng): void {
+function wall(o: Out, a0: number, b0: number, a1: number, b1: number, y0: number, y1: number, opens: Opening[], m: BuildingMat, c: RGB, detail: boolean, L: Look, timbered: boolean, r: Rng, open = false): void {
   const len = Math.hypot(a1 - a0, b1 - b0);
   const da = (a1 - a0) / len, db = (b1 - b0) / len;
   // Outward normal: the wall runs counter-clockwise seen from above in (a, b), so outward is (db, -da).
@@ -334,8 +426,9 @@ function wall(o: Out, a0: number, b0: number, a1: number, b1: number, y0: number
     }
     const d = detail ? -back : -0.02;
     if (q.door) {
-      // A plank door, painted or bare.
-      o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Oak, r.chance(0.5) ? L.paint : L.timber);
+      // A plank door, painted or bare (the paint rolled either way, so an open door keeps the rest).
+      const paint = r.chance(0.5) ? L.paint : L.timber;
+      if (!open) o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Oak, paint);
     } else {
       o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Glass, WHITE);
     }
@@ -430,7 +523,7 @@ function braceOn(o: Out, P: (s: number, t: number, d?: number) => number[], na: 
 const COVER_MAT: Record<TownBuilding['cover'], BuildingMat> = { thatch: BuildingMat.Thatch, tile: BuildingMat.Tile, slate: BuildingMat.Slate, shingle: BuildingMat.Shingle };
 
 /** The roof over the rectangle a0..a1 × b0..b1 whose walls end at `y`. */
-function roof(o: Out, b: TownBuilding, a0: number, a1: number, b0: number, b1: number, y: number, L: Look, r: Rng, detail: boolean): void {
+function roof(o: Out, b: TownBuilding, a0: number, a1: number, b0: number, b1: number, y: number, L: Look, detail: boolean): void {
   const m = COVER_MAT[b.cover];
   const thick = b.cover === 'thatch' ? 0.38 : 0.14;
   const eave = b.cover === 'thatch' ? 0.6 : 0.42;
@@ -519,14 +612,20 @@ function roof(o: Out, b: TownBuilding, a0: number, a1: number, b0: number, b1: n
       o.quad([p[0], p[1], [p[1][0], p[1][1] - thick, p[1][2]], [p[0][0], p[0][1] - thick, p[0][2]]], [n[0], 0, n[2]], [[-P, 0], [P, 0], [P, thick], [-P, thick]], m, tint);
     }
   }
-  // A chimney through the roof, off the ridge.
-  if (b.kind !== 'stable' && b.kind !== 'barn' && r.chance(0.85)) {
-    const cp = (r.chance(0.5) ? -1 : 1) * Math.max(0, P - 1.2) * r.range(0.4, 0.9), cq = r.range(-0.5, 0.5) * Q * 0.5;
-    const [la, , lb] = toLocal(cp, 0, cq);
-    const top = y + rise + r.range(0.7, 1.2);
-    o.box(la - 0.32, la + 0.32, y + rise * 0.3, top, lb - 0.32, lb + 0.32, BuildingMat.Rubble, L.stone);
-    if (detail) o.box(la - 0.4, la + 0.4, top, top + 0.1, lb - 0.4, lb + 0.4, BuildingMat.Ashlar, L.stone, true);
-  }
+}
+
+/** The roof's rise over the walls' top (m) for the rectangle front..back. */
+function roofRise(b: TownBuilding, front: number, back: number): number {
+  return (b.ridgeAlongU ? (back - front) / 2 : b.hu) * b.pitch;
+}
+
+/** The chimney's stack: from inside the roof up past the ridge, capped. */
+function chimney(o: Out, b: TownBuilding, S: HouseShape, c: HouseChimney, detail: boolean): void {
+  const r = new Rng(b.seed ^ 0xc41e);
+  const rise = roofRise(b, S.front, S.back), y = S.top;
+  const top = y + rise + r.range(0.7, 1.2);
+  o.box(c.a - 0.32, c.a + 0.32, y + rise * 0.3, top, c.b - 0.32, c.b + 0.32, BuildingMat.Rubble, S.look.stone);
+  if (detail) o.box(c.a - 0.4, c.a + 0.4, top, top + 0.1, c.b - 0.4, c.b + 0.4, BuildingMat.Ashlar, S.look.stone, true);
 }
 
 function normalise(v: number[]): number[] {
@@ -536,22 +635,14 @@ function normalise(v: number[]): number[] {
 
 // ---------------------------------------------------------------- the temple
 
-function temple(o: Out, b: TownBuilding, L: Look, r: Rng, detail: boolean): void {
-  const { hu, hv } = b;
+function temple(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, open: boolean): void {
+  const { hu, hv } = b, L = S.look;
   const plinthDown = b.floorY - b.groundY + 0.3;
   const stone = BuildingMat.Ashlar;
   o.box(-hu - 0.15, hu + 0.15, -plinthDown, 0.25, -hv - 0.15, hv + 0.15, BuildingMat.Rubble, L.stone);
   const H = b.floorH;
-  // The hall: a low square of stone, small windows high up, a wide door at the front.
-  const sides: [number, number, number, number, number][] = [[hu, -hv, hu, hv, 1], [hu, hv, -hu, hv, 2], [-hu, hv, -hu, -hv, 3], [-hu, -hv, hu, -hv, 0]];
-  for (const [a0, b0, a1, b1, id] of sides) {
-    const len = Math.hypot(a1 - a0, b1 - b0);
-    const opens: Opening[] = [];
-    if (id !== 0) for (let s = 1.8; s < len - 1.2; s += 2.6) opens.push({ s0: s - 0.35, s1: s + 0.35, t0: H - 2.1, t1: H - 1.3 });
-    if (id === 0) opens.push({ s0: len / 2 - 1.1, s1: len / 2 + 1.1, t0: 0, t1: 3.2, door: true });
-    wall(o, a0, b0, a1, b1, 0, H, opens, stone, L.stone, detail, L, false, r);
-  }
-  roof(o, { ...b, ridgeAlongU: false, attached: false, roof: 'hip', kind: 'temple' } as TownBuilding, -hu, hu, -hv, hv, H, L, new Rng(b.seed + 1), detail);
+  for (const w of S.storeys[0].walls) wall(o, w.a0, w.b0, w.a1, w.b1, 0, H, w.opens, stone, L.stone, detail, L, false, r, open);
+  roof(o, { ...b, ridgeAlongU: false, attached: false, roof: 'hip', kind: 'temple' } as TownBuilding, -hu, hu, -hv, hv, H, L, detail);
   portico(o, b, L, detail);
   // The sanctuary: a round drum rising out of the hall's middle, a ring of windows, a dome and a lantern.
   const s = b.sanctuary!;

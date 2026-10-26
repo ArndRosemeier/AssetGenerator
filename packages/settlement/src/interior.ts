@@ -1,26 +1,34 @@
 /**
- * The inside of a town building's ground floor: a room the size of the footprint, its fixtures (tables
- * and benches, a counter, a hearth, a forge and anvil, beds, chests ...) by the building's kind, and the
- * places people use them (spots, like the town's fixtures). Pure; `interiorMesh` builds it with the same
- * materials and tints as the building's outside (`buildingMesh`), placed anywhere (`origin`).
+ * The inside of a town building, every storey of it: rooms the size of each storey's walls (jettied ones
+ * wider), the stairs up, the hearth under the chimney, the fixtures (tables and benches, a counter, a
+ * forge and anvil, beds, chests ...) by the building's kind, and the places people use them (spots, like
+ * the town's fixtures). It reads the same `houseShape` as the outside, so the storeys, windows and chimney
+ * match what is seen from the street. Pure; `interiorMesh` draws it with the building's materials, to be
+ * merged with the open building (`buildingMesh(b, origin, true, { open: true })`) in its place.
  *
  * Coordinates: the building's own frame, metres. a runs along the street front (u), b from the street
- * into the plot (v), y up from the floor; (0, 0) is the footprint's middle, the door in the front wall
- * (b = -hb) at a = 0.
+ * into the plot (v), y up from the building's floor (`floorY`); (0, 0) is the footprint's middle, the door
+ * in the front wall (b = -hb) at a = 0.
  */
 import { Rng } from '@futuremagic/core';
-import { BuildingMat, Frame, Out, type BuildingMesh, type RGB } from './building';
+import { BuildingMat, Frame, houseShape, Out, WALL_THICK, type BuildingMesh, type HouseShape, type RGB } from './building';
 import type { TownBuilding } from './town';
 
 export type InteriorFixtureKind =
   | 'table' | 'bench' | 'counter' | 'barrel' | 'hearth' | 'bed' | 'chest' | 'shelf'
   | 'forge' | 'anvil' | 'tub' | 'workbench' | 'woodpile' | 'oven' | 'basin'
   /** A trapdoor in the floor (to a cellar): walked over, not round. */
-  | 'hatch';
+  | 'hatch'
+  /** A flight of stairs up to the next storey (walked on); the hole it comes up through (open floor). */
+  | 'stair' | 'well'
+  /** The rail round a stair's hole; the chimney breast on the storeys above the hearth; the open door. */
+  | 'rail' | 'flue' | 'door';
 
-/** A fixture: an axis-aligned block (in the building's frame) from the floor up. */
+/** A fixture: an axis-aligned block (in the building's frame) from its storey's floor up. */
 export interface InteriorFixture {
   readonly kind: InteriorFixtureKind;
+  /** The storey it stands on (0: the ground floor). */
+  readonly storey: number;
   /** Middle, metres. */
   readonly a: number;
   readonly b: number;
@@ -35,14 +43,38 @@ export type InteriorSpotKind = 'sit' | 'drink' | 'serve' | 'smith' | 'stoke' | '
 /** Where someone stands or sits to do something, and which way they face (yaw in the frame: atan2(b, a)). */
 export interface InteriorSpot {
   readonly kind: InteriorSpotKind;
+  readonly storey: number;
   readonly a: number;
   readonly b: number;
   readonly yaw: number;
 }
 
+/** One storey inside: its floor over the building's floor, its clear height, and its walls' inner faces. */
+export interface InteriorStorey {
+  readonly y: number;
+  readonly height: number;
+  readonly a0: number; readonly a1: number;
+  readonly b0: number; readonly b1: number;
+  /** Where one first stands on it: inside the door, or off the top of the stairs. */
+  readonly entry: readonly [number, number];
+}
+
+/** A flight of stairs from `storey` to the one above: its foot (the first step's front edge, in the middle) and the way up. */
+export interface InteriorStair {
+  readonly storey: number;
+  readonly a: number; readonly b: number;
+  /** Unit direction up the flight, along a or b. */
+  readonly da: number; readonly db: number;
+  readonly w: number;
+  readonly steps: number;
+  /** Each step's depth and rise. */
+  readonly tread: number;
+  readonly riser: number;
+}
+
 export interface InteriorPlan {
   readonly building: number;
-  /** Inner half width (along a) and half depth (along b), and the room's height. */
+  /** The ground floor's inner half width (along a) and half depth (along b), and its height. */
   readonly ha: number;
   readonly hb: number;
   readonly height: number;
@@ -51,47 +83,113 @@ export interface InteriorPlan {
   readonly doorH: number;
   /** Stone floor (flags) or boards. */
   readonly stoneFloor: boolean;
+  readonly storeys: readonly InteriorStorey[];
+  readonly stairs: readonly InteriorStair[];
   readonly fixtures: readonly InteriorFixture[];
   readonly spots: readonly InteriorSpot[];
 }
 
 /** Wall thickness inside the footprint, metres. */
-const WALL = 0.28;
+const WALL = WALL_THICK;
+/** A storey's floor stands this far over its walls' foot (boards on joists), its ceiling this far under their top. */
+const FLOOR = 0.05;
+const CEILING = 0.17;
+/** Stairs: width, and a step's depth; the rise is the storey's height over a whole number of steps of about RISER. */
+const STAIR_W = 0.9;
+const TREAD = 0.22;
+const RISER = 0.21;
+/** The stair's hole starts this share of the flight up (below it the ceiling clears one's head). */
+const WELL_FROM = 0.15;
 /** Facing: towards +a, +b, -a, -b (atan2(b, a)). */
 const FACE_A = 0, FACE_B = Math.PI / 2, FACE_NA = Math.PI, FACE_NB = -Math.PI / 2;
 
-/** The ground floor of `b`, furnished for what it is. */
 /** `hatch`: a trapdoor down to a cellar, on free floor one can walk to. */
 export function planInterior(b: TownBuilding, opts: { hatch?: boolean } = {}): InteriorPlan {
-  const r = new Rng(b.seed ^ 0x1e7e);
-  const ha = Math.max(1.6, b.hu - WALL), hb = Math.max(1.6, b.hv - WALL);
-  const P = new Planner(ha, hb);
-  switch (b.kind) {
-    case 'inn': tavern(P, r); break;
-    case 'smithy': smithy(P, r); break;
-    case 'bakery': bakery(P, r); break;
-    case 'temple': temple(P, r); break;
-    default: home(P, r, b.kind === 'workshop' || b.kind === 'mill' || b.trade !== '');
-  }
-  if (opts.hatch) P.hatch();
-  const plan: InteriorPlan = {
-    building: b.id, ha, hb, height: Math.max(2.4, b.floorH - 0.25), doorW: 0.55, doorH: 2.05,
-    stoneFloor: b.kind === 'smithy' || b.kind === 'temple' || b.kind === 'bakery',
-    fixtures: P.fixtures, spots: P.spots,
+  const S = houseShape(b);
+  const ha = Math.max(1.6, b.hu - WALL);
+  const door = S.storeys[0].walls.find((w) => w.id === 0)!.opens.find((q) => q.door);
+  const doorW = door ? (door.s1 - door.s0) / 2 : 0.55, doorH = door ? door.t1 - FLOOR : 2.05;
+  const storeys: InteriorStorey[] = [], stairs: InteriorStair[] = [], fixtures: InteriorFixture[] = [], spots: InteriorSpot[] = [];
+  S.storeys.forEach((st, k) => {
+    const hb = Math.max(1.6, (st.back - st.front) / 2 - WALL), cb = (st.front + st.back) / 2;
+    const y = st.y0 + FLOOR, height = Math.max(2.3, st.y1 - CEILING - y);
+    // Off the top of the stairs, or just inside the door.
+    const up = stairs.find((s) => s.storey === k - 1);
+    const entry: [number, number] = up ? [up.a + up.da * (up.steps * up.tread + 0.5), up.b + up.db * (up.steps * up.tread + 0.5) - cb] : [0, -hb + 0.5];
+    const next = S.storeys[k + 1];
+    const plan = (stairFirst: boolean): { P: Planner; stair: Omit<InteriorStair, 'storey'> | null } => {
+      // Each storey rolls from its own stream (so a second try is the same as a first would be).
+      const r = new Rng((b.seed ^ 0x1e7e) + k * 7919);
+      const P = new Planner(ha, hb, k === 0, entry);
+      P.seeWindows(st, cb, st.y0 - y);
+      // The door stands open against the wall inside (two leaves in a wide doorway).
+      if (k === 0 && door) {
+        const leaves = doorW > 0.8 ? [-1, 1] : [-1], lw = (2 * doorW) / leaves.length;
+        for (const s of leaves) P.fixtures.push({ kind: 'door', a: s * (doorW - 0.03), b: -hb + lw / 2, w: 0.06, d: lw, h: doorH });
+      }
+      if (up) P.well(up, cb);
+      if (S.chimney) P.chimney(S, b, k, cb);
+      let stair: Omit<InteriorStair, 'storey'> | null = null;
+      const climb = () => {
+        if (!next) return;
+        const nb = (next.back - next.front) / 2 - WALL, ncb = (next.front + next.back) / 2, c = S.chimney;
+        // Off the top: on the floor above, clear of the chimney breast there.
+        stair = P.stair(r, next.y0 - st.y0, (ta, tb) => Math.abs(tb + cb - ncb) <= nb - 0.3 && !(c && Math.abs(ta - c.a) < 1.0 && Math.abs(tb + cb - c.b) < 1.1));
+      };
+      if (stairFirst) climb();
+      if (k === 0) {
+        switch (b.kind) {
+          case 'inn': tavern(P, r); break;
+          case 'smithy': smithy(P, S.chimney?.a ?? 1.2); break;
+          case 'bakery': bakery(P, r); break;
+          case 'temple': temple(P, r); break;
+          case 'barn': case 'stable': break;
+          default: home(P, r, b.kind === 'workshop' || b.kind === 'mill' || b.trade !== '');
+        }
+        if (opts.hatch) P.hatch();
+      } else bedroom(P, r, b.kind === 'inn');
+      if (!stairFirst) climb();
+      return { P, stair };
+    };
+    // The stairs first, so there is room for them; but the inn's tables first, where the stairs still fit after.
+    let tried = plan(!(k === 0 && b.kind === 'inn'));
+    if (next && !tried.stair) tried = plan(true);
+    const { P, stair } = tried;
+    if (stair) stairs.push({ ...(stair as Omit<InteriorStair, 'storey'>), storey: k, b: (stair as InteriorStair).b + cb });
+    storeys.push({ y, height, a0: -ha, a1: ha, b0: cb - hb, b1: cb + hb, entry: [entry[0], entry[1] + cb] });
+    const reach = P.reach();
+    fixtures.push(...P.fixtures.filter((f) => f.kind !== 'keep').map((f) => ({ ...f, kind: f.kind as InteriorFixtureKind, storey: k, b: f.b + cb })));
+    // Only the spots one can get to (a table may have shut a hearth's off).
+    spots.push(...P.spots.filter((s) => SPOT_RING.some(([da, db]) => reach(s.a + da, s.b + db))).map((s) => ({ ...s, storey: k, b: s.b + cb })));
+  });
+  const g = storeys[0];
+  return {
+    building: b.id, ha, hb: g.b1, height: g.height, doorW, doorH,
+    stoneFloor: b.kind === 'smithy' || b.kind === 'temple' || b.kind === 'bakery' || b.kind === 'stable' || b.kind === 'barn',
+    storeys, stairs, fixtures, spots,
   };
-  // Only the spots one can get to from the door (a table may have shut a hearth's off).
-  const reach = reachable(plan);
-  return { ...plan, spots: plan.spots.filter((s) => SPOT_RING.some(([da, db]) => reach(s.a + da, s.b + db))) };
 }
 
 /** Where someone could step from to use a spot: on it, or beside it within a metre. */
 const SPOT_RING: readonly (readonly [number, number])[] = [[0, 0], ...[0.4, 0.7, 1.0].flatMap((d) => Array.from({ length: 16 }, (_, k) => [d * Math.cos((k * Math.PI) / 8), d * Math.sin((k * Math.PI) / 8)] as const))];
 
-/** The floor a person (radius 0.3) can walk to from the door, on a 0.2 m grid. */
-export function reachable(p: InteriorPlan): (a: number, b: number) => boolean {
-  const s = 0.2, r = 0.3, na = Math.ceil((2 * p.ha) / s), nb = Math.ceil((2 * p.hb) / s);
+/** The storey a body with its feet at `y` (over the building's floor) is on. */
+export function storeyAt(p: InteriorPlan, y: number): number {
+  let k = 0;
+  for (let i = 1; i < p.storeys.length; i++) if (y >= p.storeys[i].y - 0.3) k = i;
+  return k;
+}
+
+/** The floor of a storey a person (radius 0.3) can walk to from its entry, on a 0.2 m grid. */
+export function reachable(p: InteriorPlan, storey = 0): (a: number, b: number) => boolean {
+  const st = p.storeys[storey];
+  return reachGrid(st.a0, st.a1, st.b0, st.b1, st.entry, (a, b, r) => interiorBlocked(p, a, b, r, storey, true));
+}
+
+function reachGrid(a0: number, a1: number, b0: number, b1: number, entry: readonly [number, number], blocked: (a: number, b: number, r: number) => boolean): (a: number, b: number) => boolean {
+  const s = 0.2, r = 0.3, na = Math.ceil((a1 - a0) / s), nb = Math.ceil((b1 - b0) / s);
   const seen = new Uint8Array(na * nb), q: number[] = [];
-  const i0 = Math.floor(na / 2), j0 = Math.ceil(r / s) + 1;
+  const i0 = Math.min(na - 1, Math.max(0, Math.floor((entry[0] - a0) / s))), j0 = Math.min(nb - 1, Math.max(0, Math.floor((entry[1] - b0) / s)));
   seen[j0 * na + i0] = 1;
   q.push(i0, j0);
   while (q.length) {
@@ -99,35 +197,63 @@ export function reachable(p: InteriorPlan): (a: number, b: number) => boolean {
     for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const ii = i + di, jj = j + dj;
       if (ii < 0 || jj < 0 || ii >= na || jj >= nb || seen[jj * na + ii]) continue;
-      if (interiorBlocked(p, -p.ha + (ii + 0.5) * s, -p.hb + (jj + 0.5) * s, r)) continue;
+      if (blocked(a0 + (ii + 0.5) * s, b0 + (jj + 0.5) * s, r)) continue;
       seen[jj * na + ii] = 1;
       q.push(ii, jj);
     }
   }
   return (a, b) => {
-    const i = Math.floor((a + p.ha) / s), j = Math.floor((b + p.hb) / s);
+    const i = Math.floor((a - a0) / s), j = Math.floor((b - b0) / s);
     return i >= 0 && j >= 0 && i < na && j < nb && seen[j * na + i] === 1;
   };
 }
 
-/** Places fixtures where they fit: inside the walls, clear of each other and of the way in. */
+/** A planner's block: a fixture, or free floor kept clear (`keep`: before a stair's foot, its top). */
+interface Block { kind: InteriorFixtureKind | 'keep'; a: number; b: number; w: number; d: number; h: number }
+
+/**
+ * Places fixtures on one storey where they fit: inside the walls, clear of each other and of the way in.
+ * Works in the storey's own frame (centred on it); `planInterior` moves them into the building's.
+ */
 class Planner {
-  readonly fixtures: InteriorFixture[] = [];
-  readonly spots: InteriorSpot[] = [];
+  readonly fixtures: Block[] = [];
+  readonly spots: { kind: InteriorSpotKind; a: number; b: number; yaw: number }[] = [];
+  /** Places that must stay reachable besides the spots: a stair's foot. */
+  private readonly musts: [number, number][] = [];
   /** While a table and its benches go in together (checked as a whole). */
   private batch = false;
-  constructor(readonly ha: number, readonly hb: number) {}
+  /** The floor in front of each window (half a metre deep) and its sill's height: nothing taller stands there. */
+  windows: (Rect & { sill: number })[] = [];
+  /** Set while a stair may stand before a window after all (no other place for it). */
+  private anyWindow = false;
+  constructor(readonly ha: number, readonly hb: number, readonly ground: boolean, readonly entry: readonly [number, number]) {}
 
-  /** Whether a block (with `gap` around it) fits: inside, clear of the others and of the door's way in. */
-  fits(a: number, b: number, w: number, d: number, gap = 0.5): boolean {
+  /** The windows of this storey (the shape's walls; `cb` the storey's middle along b, `y0` its walls' foot under the floor). */
+  seeWindows(st: HouseShape['storeys'][number], cb: number, y0: number): void {
+    for (const w of st.walls) {
+      const len = Math.hypot(w.a1 - w.a0, w.b1 - w.b0), da = (w.a1 - w.a0) / len, db = (w.b1 - w.b0) / len;
+      for (const q of w.opens) {
+        if (q.door) continue;
+        // Along the wall from s0 to s1, from its inner face 0.5 m into the room (inwards is (-db, da)).
+        const pts = [q.s0, q.s1].flatMap((t) => [0, 0.5].map((e) => [w.a0 + da * t - db * (WALL + e), w.b0 + db * t + da * (WALL + e) - cb]));
+        this.windows.push({ a0: Math.min(...pts.map((p) => p[0])), a1: Math.max(...pts.map((p) => p[0])), b0: Math.min(...pts.map((p) => p[1])), b1: Math.max(...pts.map((p) => p[1])), sill: q.t0 + y0 });
+      }
+    }
+  }
+
+  /** Whether a block (with `gap` around it) fits: inside, clear of the others and of the way in. */
+  fits(a: number, b: number, w: number, d: number, gap = 0.5, h = 0): boolean {
     if (Math.abs(a) + w / 2 > this.ha + 1e-6 || Math.abs(b) + d / 2 > this.hb + 1e-6) return false;
-    // The way in: 1.6 m wide, 1.8 m deep from the door.
-    if (Math.abs(a) < 0.8 + w / 2 && b - d / 2 < -this.hb + 1.8) return false;
+    if (!this.anyWindow && this.windows.some((q) => h > q.sill - 0.05 && a + w / 2 > q.a0 && a - w / 2 < q.a1 && b + d / 2 > q.b0 && b - d / 2 < q.b1)) return false;
+    // The way in: 1.6 m wide, 1.8 m deep from the door; or a metre round the top of the stairs.
+    if (this.ground && Math.abs(a) < 0.8 + w / 2 && b - d / 2 < -this.hb + 1.8) return false;
+    if (!this.ground && Math.abs(a - this.entry[0]) < 0.5 + w / 2 && Math.abs(b - this.entry[1]) < 0.5 + d / 2) return false;
     return this.fixtures.every((f) => Math.abs(f.a - a) >= (f.w + w) / 2 + gap || Math.abs(f.b - b) >= (f.d + d) / 2 + gap);
   }
 
-  add(kind: InteriorFixtureKind, a: number, b: number, w: number, d: number, h: number, gap = 0.5): boolean {
-    if (!this.fits(a, b, w, d, gap)) return false;
+  add(kind: Block['kind'], a: number, b: number, w: number, d: number, h: number, gap = 0.5): boolean {
+    // The fires stand under the chimney, where the walls have no windows.
+    if (!this.fits(a, b, w, d, gap, kind === 'hearth' || kind === 'forge' || kind === 'oven' ? 0 : h)) return false;
     this.fixtures.push({ kind, a, b, w, d, h });
     // Nothing may shut off a spot placed before it (the keeper behind the counter, the hearth, a bench).
     if (this.batch || this.allReachable()) return true;
@@ -139,6 +265,22 @@ class Planner {
     this.spots.push({ kind, a, b, yaw });
   }
 
+  /** The floor one can walk to from the entry. */
+  reach(): (a: number, b: number) => boolean {
+    const { ha, hb } = this;
+    return reachGrid(-ha, ha, -hb, hb, this.entry, (a, b, r) => {
+      const inDoor = this.ground && Math.abs(a) < 0.5 && b < -hb + r;
+      if (!inDoor && (Math.abs(a) > ha - r || Math.abs(b) > hb - r)) return true;
+      return this.fixtures.some((f) => f.kind !== 'hatch' && f.kind !== 'keep' && Math.abs(a - f.a) < f.w / 2 + r && Math.abs(b - f.b) < f.d / 2 + r);
+    });
+  }
+
+  /** Whether every spot so far (and the stair's foot) can be got to. */
+  private allReachable(): boolean {
+    const reach = this.reach();
+    return this.spots.every((s) => SPOT_RING.some(([da, db]) => reach(s.a + da, s.b + db))) && this.musts.every(([a, b]) => reach(a, b));
+  }
+
   /** A trapdoor on free floor, as far back from the door as it fits (looser gaps if need be). */
   hatch(): void {
     for (const gap of [0.4, 0.2, 0]) {
@@ -146,14 +288,98 @@ class Planner {
         for (const a of [this.ha - 0.6, -(this.ha - 0.6), 0, this.ha / 2, -this.ha / 2]) {
           if (!this.fits(a, b, 0.9, 0.9, gap)) continue;
           this.fixtures.push({ kind: 'hatch', a, b, w: 0.9, d: 0.9, h: 0.04 });
-          const reach = reachable({ building: -1, ha: this.ha, hb: this.hb, height: 2.4, doorW: 0.55, doorH: 2.05, stoneFloor: false, fixtures: this.fixtures, spots: [] });
-          if (reach(a, b)) return;
+          if (this.reach()(a, b) && this.allReachable()) return;
           this.fixtures.pop();
         }
       }
     }
     // Nothing free: at the door's way in (always open).
     this.fixtures.push({ kind: 'hatch', a: 0, b: -this.hb + 1.4, w: 0.9, d: 0.9, h: 0.04 });
+  }
+
+  /**
+   * The hearth (or the smith's forge, the baker's oven: the kinds place those) under the chimney, and on
+   * the storeys above it the chimney breast. Built first: the chimney is where the outside has it.
+   */
+  chimney(S: HouseShape, b: TownBuilding, storey: number, cb: number): void {
+    const c = S.chimney!, ca = c.a, cbb = c.b - cb;
+    const toWall = c.wall === 'back' ? this.hb - cbb : this.ha - Math.abs(ca);
+    if (storey > 0) {
+      // The breast: from the stack's far side to the wall.
+      if (c.wall === 'back') { const d = Math.max(0.7, toWall + 0.35); this.fixtures.push({ kind: 'flue', a: ca, b: this.hb - d / 2, w: 0.75, d, h: 9 }); }
+      else { const w = Math.max(0.7, toWall + 0.35), s = Math.sign(ca); this.fixtures.push({ kind: 'flue', a: s * (this.ha - w / 2), b: cbb, w, d: 0.75, h: 9 }); }
+      return;
+    }
+    if (b.kind === 'smithy') { if (this.add('forge', ca, this.hb - 0.7, 1.4, 1.2, 0.9, 0.2)) this.spot('stoke', ca, this.hb - 1.7, FACE_B); return; }
+    if (b.kind === 'bakery') { if (this.add('oven', ca, this.hb - 0.8, 2.0, 1.4, 1.5, 0.2)) this.spot('bake', ca, this.hb - 2.0, FACE_B); return; }
+    if (c.wall === 'back') { if (this.add('hearth', ca, this.hb - 0.45, 1.5, 0.9, 1.3, 0.3)) this.spot('warm', ca, this.hb - 1.55, FACE_B); }
+    else {
+      const side = Math.sign(ca), a = side * (this.ha - 0.45);
+      if (this.add('hearth', a, cbb, 0.9, 1.5, 1.3, 0.3)) this.spot('warm', a - side * 1.1, cbb, side > 0 ? FACE_A : FACE_NA);
+    }
+  }
+
+  /**
+   * Stairs up `rise` metres, along a wall, clear of what stands and with free floor at the foot and the top.
+   * `topOk`: whether the top (b, this storey's frame) lies on the floor above. Null when none fits.
+   */
+  stair(r: Rng, rise: number, topOk: (a: number, b: number) => boolean): Omit<InteriorStair, 'storey'> | null {
+    const side = r.chance(0.5) ? -1 : 1;
+    // Steeper where a narrow storey leaves no room (an upper flight in a tall thin house).
+    // Clear of the windows if it can be, else past one.
+    for (const any of [false, true]) {
+      this.anyWindow = any;
+      for (const tread of [TREAD, 0.18]) {
+        const s = this.flight(side, rise, tread, topOk);
+        if (s) { this.anyWindow = false; return s; }
+      }
+    }
+    this.anyWindow = false;
+    return null;
+  }
+
+  private flight(side: number, rise: number, tread: number, topOk: (a: number, b: number) => boolean): Omit<InteriorStair, 'storey'> | null {
+    const steps = Math.max(8, Math.round(rise / RISER)), riser = rise / steps, run = steps * tread, w = STAIR_W;
+    const tries: [number, number, number, number][] = [];
+    // Along a side wall, going back or forward; then along the back wall, either way.
+    for (const s of [side, -side]) for (const db of [1, -1]) for (let b = -this.hb; b <= this.hb; b += 0.2) tries.push([s * (this.ha - w / 2), b, 0, db]);
+    for (const da of [side, -side]) for (let a = -this.ha; a <= this.ha; a += 0.2) tries.push([a, this.hb - w / 2, da, 0]);
+    // Upstairs, along the front wall too (no door there).
+    if (!this.ground) for (const da of [side, -side]) for (let a = -this.ha; a <= this.ha; a += 0.2) tries.push([a, -this.hb + w / 2, da, 0]);
+    for (const [a, b, da, db] of tries) {
+      const ma = a + da * run / 2, mb = b + db * run / 2, sw = da ? run : w, sd = db ? run : w;
+      // The foot's free floor (a metre before the first step) and the top's (on the floor above).
+      const fa = a - da * 0.45, fb = b - db * 0.45, ta = a + da * (run + 0.5), tb = b + db * (run + 0.5);
+      if (!this.fits(ma, mb, sw, sd, 0.05, rise) || !this.fits(fa, fb, da ? 0.8 : w, db ? 0.8 : w, 0.1)) continue;
+      if (Math.abs(ta) > this.ha - 0.3 || Math.abs(tb) > this.hb + 2 || !topOk(ta, tb)) continue;
+      const f0 = this.fixtures.length;
+      this.fixtures.push({ kind: 'stair', a: ma, b: mb, w: sw, d: sd, h: rise }, { kind: 'keep', a: fa, b: fb, w: da ? 0.8 : w, d: db ? 0.8 : w, h: 0 });
+      this.musts.push([fa - da * 0.2, fb - db * 0.2]);
+      if (this.allReachable()) return { a, b, da, db, w, steps, tread, riser };
+      this.fixtures.length = f0;
+      this.musts.pop();
+    }
+    return null;
+  }
+
+  /** The hole a stair from below comes up through, the rail round its open sides, and room at its top. */
+  well(s: InteriorStair, cb: number): void {
+    const run = s.steps * s.tread, from = run * WELL_FROM;
+    const a0 = s.a + s.da * from, b0 = s.b - cb + s.db * from, a1 = s.a + s.da * run, b1 = s.b - cb + s.db * run;
+    const ma = (a0 + a1) / 2, mb = (b0 + b1) / 2, len = run - from;
+    const ww = s.da ? len : s.w, dd = s.db ? len : s.w;
+    this.fixtures.push({ kind: 'well', a: ma, b: mb, w: ww, d: dd, h: 0 });
+    // Rails: across its low end, and along its side away from the wall.
+    const t = 0.08;
+    if (s.da) {
+      this.fixtures.push({ kind: 'rail', a: a0 - s.da * t / 2, b: mb, w: t, d: dd, h: 0.95 });
+      const out = -Math.sign(mb) || 1;
+      this.fixtures.push({ kind: 'rail', a: ma, b: mb + out * (dd / 2 + t / 2), w: ww, d: t, h: 0.95 });
+    } else {
+      this.fixtures.push({ kind: 'rail', a: ma, b: b0 - s.db * t / 2, w: ww, d: t, h: 0.95 });
+      const out = -Math.sign(ma) || 1;
+      this.fixtures.push({ kind: 'rail', a: ma + out * (ww / 2 + t / 2), b: mb, w: t, d: dd, h: 0.95 });
+    }
   }
 
   /** A table (`len` long) with a bench on each long side; people sit facing it. Returns whether it fitted. */
@@ -176,18 +402,6 @@ class Planner {
     this.fixtures.length = f0;
     this.spots.length = s0;
     return false;
-  }
-
-  /** Whether every spot so far can be got to from the door. */
-  private allReachable(): boolean {
-    const reach = reachable({ building: -1, ha: this.ha, hb: this.hb, height: 2.4, doorW: 0.55, doorH: 2.05, stoneFloor: false, fixtures: this.fixtures, spots: [] });
-    return this.spots.every((s) => SPOT_RING.some(([da, db]) => reach(s.a + da, s.b + db)));
-  }
-
-  /** A hearth against a side wall (left or right), and a place to warm oneself in front of it. */
-  hearth(side: -1 | 1, b = 0): void {
-    const a = side * (this.ha - 0.45);
-    if (this.add('hearth', a, b, 0.9, 1.5, 1.3, 0.3)) this.spot('warm', a - side * 1.1, b, side > 0 ? FACE_A : FACE_NA);
   }
 
   /**
@@ -215,16 +429,14 @@ function tavern(P: Planner, r: Rng): void {
   for (let a = ca - cw / 2 + 0.4; a < ca + cw / 2; a += 0.75) P.add('barrel', a, P.hb - 0.3, 0.6, 0.6, 0.9, 0.05);
   P.spot('drink', ca - cw / 4, P.hb - 2.55, FACE_B);
   P.spot('drink', ca + cw / 4, P.hb - 2.55, FACE_B);
-  P.hearth(-1, r.range(-0.5, 0.5));
-  P.tables('drink', 6);
+  void r;
+  // As many tables as fit; in a narrow taproom smaller ones, closer together.
+  if (!P.tables('drink', 6) && !P.tables('drink', 3, 1.2, 0.3)) P.tables('drink', 2, 0.8, 0.2);
 }
 
-function smithy(P: Planner, r: Rng): void {
-  const side = r.chance(0.5) ? -1 : 1;
-  // Forge against the back wall, the anvil in front of it, the quench tub beside the anvil.
-  const fa = side * Math.min(P.ha - 1.0, 1.2);
-  P.add('forge', fa, P.hb - 0.7, 1.4, 1.2, 0.9, 0.2);
-  P.spot('stoke', fa, P.hb - 1.7, FACE_B);
+function smithy(P: Planner, fa: number): void {
+  const side = fa < 0 ? -1 : 1;
+  // The forge is in (against the back wall under the chimney): the anvil in front of it, the quench tub beside the anvil.
   P.add('anvil', fa, P.hb - 2.6, 0.4, 0.8, 0.8, 0.2);
   P.spot('smith', fa - side * 0.75, P.hb - 2.6, side > 0 ? FACE_A : FACE_NA);
   if (P.add('tub', fa + side * 1.2, P.hb - 2.6, 0.8, 0.8, 0.6, 0.3)) P.spot('quench', fa + side * 1.2, P.hb - 3.4, FACE_B);
@@ -233,12 +445,27 @@ function smithy(P: Planner, r: Rng): void {
 }
 
 function bakery(P: Planner, r: Rng): void {
-  P.add('oven', 0, P.hb - 0.8, 2.0, 1.4, 1.5, 0.2);
-  P.spot('bake', 0, P.hb - 2.0, FACE_B);
+  // The oven is in, against the back wall under the chimney.
   const side = r.chance(0.5) ? -1 : 1;
   if (P.add('workbench', side * (P.ha - 0.4), 0, 0.7, 2.2, 0.9, 0.3)) P.spot('bake', side * (P.ha - 1.2), 0, side > 0 ? FACE_A : FACE_NA);
   P.add('shelf', -side * (P.ha - 0.25), 0.4, 0.4, 2.0, 1.8, 0.2);
   P.add('barrel', -side * (P.ha - 0.5), -P.hb + 2.3, 0.6, 0.6, 0.9, 0.1);
+}
+
+/** An upper storey: beds against the walls (the inn's guest beds in a row), a chest at the foot of each. */
+function bedroom(P: Planner, r: Rng, inn: boolean): void {
+  const n = inn ? 4 : r.chance(0.5) ? 2 : 1;
+  let put = 0;
+  for (const b of [P.hb - 1.05, -P.hb + 1.05, 0]) {
+    for (const a of [P.ha - 0.55, -(P.ha - 0.55), P.ha - 1.75, -(P.ha - 1.75)]) {
+      if (put >= n) break;
+      if (!P.add('bed', a, b, 1.0, 2.0, 0.55, 0.25)) continue;
+      put++;
+      P.spot('sleep', a, b, FACE_NB);
+      P.add('chest', a, b - Math.sign(b || 1) * 1.3, 0.9, 0.5, 0.5, 0.1);
+    }
+  }
+  if (!inn) P.add('shelf', r.chance(0.5) ? P.ha - 0.22 : -(P.ha - 0.22), 0, 0.35, 1.2, 1.7, 0.2);
 }
 
 function temple(P: Planner, _r: Rng): void {
@@ -255,8 +482,9 @@ function temple(P: Planner, _r: Rng): void {
 }
 
 function home(P: Planner, r: Rng, work: boolean): void {
-  const side = r.chance(0.5) ? -1 : 1;
-  P.hearth(side as -1 | 1, r.range(-0.3, 0.3));
+  // The hearth is in (under the chimney): the bed goes to the other side.
+  const h = P.fixtures.find((f) => f.kind === 'hearth');
+  const side = h ? (h.a < -0.3 ? -1 : h.a > 0.3 ? 1 : r.chance(0.5) ? -1 : 1) : r.chance(0.5) ? -1 : 1;
   // The bed in a back corner on the other side, a chest at its foot.
   const ba = -side * (P.ha - 0.5);
   if (P.add('bed', ba, P.hb - 1.05, 1.0, 2.0, 0.55, 0.1)) {
@@ -279,43 +507,235 @@ const LINEN: RGB = [214, 204, 180];
 const STONE: RGB = [196, 188, 176];
 
 /**
- * The room as a mesh (positions relative to `origin`, placed where `at` puts the building's frame: its
- * middle on the ground, facing as the building does). Inner faces only, so the room is seen from inside.
+ * Inside faces carry how much daylight reaches them in their material: `mat` = BuildingMat + INSIDE_LIGHT ×
+ * level, level 1 (dark) .. 15 (as out of doors), the square root of the share of the open sky's light (the
+ * windows' and the door's, by distance and angle, and a little thrown back by the room). Outside faces
+ * have level 0. A game dims the sky's light on them by it (the sun's comes in through the openings by itself).
  */
-export function interiorMesh(plan: InteriorPlan, b: TownBuilding, at: { x: number; y: number; z: number }, origin: [number, number, number]): BuildingMesh {
-  const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
-  const o = new Out(new Frame({ cx: at.x, cz: at.z, ux, uz, vx: b.vx, vz: b.vz, y: at.y }, origin));
-  const { ha, hb, height: H, doorW, doorH } = plan;
-  const r = new Rng(b.seed ^ 0x51de);
-  const lime: RGB = r.chance(0.3) ? SOOT : LIME;
-  // Floor: flags or boards.
-  o.quad([[-ha, 0, -hb], [ha, 0, -hb], [ha, 0, hb], [-ha, 0, hb]], [0, 1, 0], [[-ha, -hb], [ha, -hb], [ha, hb], [-ha, hb]], plan.stoneFloor ? BuildingMat.Ashlar : BuildingMat.Oak, plan.stoneFloor ? STONE : TIMBER);
-  // Walls, facing in; the front one around the door.
-  const wallMat = b.wall === 'stone' ? BuildingMat.Rubble : BuildingMat.Plaster;
-  const wallTint = b.wall === 'stone' ? STONE : lime;
-  const inner = (p: number[][], n: number[]) => o.quad(p, n, p.map((q) => (Math.abs(n[0]) > 0.5 ? [q[2], q[1]] : [q[0], q[1]])), wallMat, wallTint);
-  inner([[-ha, 0, hb], [ha, 0, hb], [ha, H, hb], [-ha, H, hb]], [0, 0, -1]);
-  inner([[-ha, 0, -hb], [-ha, 0, hb], [-ha, H, hb], [-ha, H, -hb]], [1, 0, 0]);
-  inner([[ha, 0, hb], [ha, 0, -hb], [ha, H, -hb], [ha, H, hb]], [-1, 0, 0]);
-  inner([[-ha, 0, -hb], [-doorW, 0, -hb], [-doorW, H, -hb], [-ha, H, -hb]], [0, 0, 1]);
-  inner([[doorW, 0, -hb], [ha, 0, -hb], [ha, H, -hb], [doorW, H, -hb]], [0, 0, 1]);
-  inner([[-doorW, doorH, -hb], [doorW, doorH, -hb], [doorW, H, -hb], [-doorW, H, -hb]], [0, 0, 1]);
-  // The door itself (shut behind whoever came in), and its frame.
-  o.box(-doorW, doorW, 0, doorH, -hb - 0.12, -hb - 0.04, BuildingMat.Oak, DARK);
-  o.box(-doorW - 0.12, -doorW, 0, doorH + 0.12, -hb, -hb + 0.06, BuildingMat.Oak, TIMBER);
-  o.box(doorW, doorW + 0.12, 0, doorH + 0.12, -hb, -hb + 0.06, BuildingMat.Oak, TIMBER);
-  o.box(-doorW, doorW, doorH, doorH + 0.12, -hb, -hb + 0.06, BuildingMat.Oak, TIMBER);
-  // Ceiling boards and the joists under them.
-  o.quad([[-ha, H, -hb], [-ha, H, hb], [ha, H, hb], [ha, H, -hb]], [0, -1, 0], [[-ha, -hb], [-ha, hb], [ha, hb], [ha, -hb]], BuildingMat.Oak, TIMBER);
-  for (let a = -ha + 0.6; a < ha - 0.3; a += 1.1) o.box(a - 0.09, a + 0.09, H - 0.2, H, -hb, hb, BuildingMat.Oak, DARK, true);
-  for (const f of plan.fixtures) fixture(o, f);
-  return {
-    position: Float32Array.from(o.pos), normal: Float32Array.from(o.nrm), uv: Float32Array.from(o.uv),
-    mat: Uint8Array.from(o.mat), tint: Uint8Array.from(o.tint), index: Uint32Array.from(o.idx),
-  };
+export const INSIDE_LIGHT = 16;
+
+/** An axis-aligned box in the building's frame (y over its floor): what the inside walls a body in with. */
+export interface InteriorBox { a0: number; a1: number; y0: number; y1: number; b0: number; b1: number }
+
+interface Rect { a0: number; a1: number; b0: number; b1: number }
+
+/** A rectangle less some holes in it, as rectangles. */
+function rectMinus(r: Rect, holes: readonly Rect[]): Rect[] {
+  let out = [r];
+  for (const h of holes) {
+    const next: Rect[] = [];
+    for (const q of out) {
+      if (h.a1 <= q.a0 || h.a0 >= q.a1 || h.b1 <= q.b0 || h.b0 >= q.b1) { next.push(q); continue; }
+      const b0 = Math.max(q.b0, h.b0), b1 = Math.min(q.b1, h.b1);
+      if (b0 > q.b0) next.push({ ...q, b1: b0 });
+      if (b1 < q.b1) next.push({ ...q, b0: b1 });
+      if (h.a0 > q.a0) next.push({ a0: q.a0, a1: Math.max(q.a0, h.a0), b0, b1 });
+      if (h.a1 < q.a1) next.push({ a0: Math.min(q.a1, h.a1), a1: q.a1, b0, b1 });
+    }
+    out = next;
+  }
+  return out.filter((q) => q.a1 - q.a0 > 1e-3 && q.b1 - q.b0 > 1e-3);
 }
 
-function fixture(o: Out, f: InteriorFixture): void {
+const wellRects = (plan: InteriorPlan, storey: number): Rect[] => plan.fixtures.filter((f) => f.kind === 'well' && f.storey === storey).map((f) => ({ a0: f.a - f.w / 2, a1: f.a + f.w / 2, b0: f.b - f.d / 2, b1: f.b + f.d / 2 }));
+
+/** Splits a..b at about `step` metres (and at `cuts` inside it). */
+function splits(a: number, b: number, step: number, cuts: number[] = []): number[] {
+  const n = Math.max(1, Math.round((b - a) / step)), out = [a, b, ...cuts.filter((c) => c > a + 1e-3 && c < b - 1e-3)];
+  for (let i = 1; i < n; i++) out.push(a + ((b - a) * i) / n);
+  return [...new Set(out.map((v) => Math.round(v * 1e4) / 1e4))].sort((x, y) => x - y);
+}
+
+/**
+ * Every storey's inside as a mesh (positions relative to `origin`, in the building's place): floors and
+ * ceilings with the stairs' holes, the walls' inner faces with the windows and the door open through
+ * them, the stairs and their rails, the chimney breast, the furniture, and the door standing open. Inner
+ * faces only: merged with `buildingMesh(b, origin, true, { open: true })` the building is hollow.
+ */
+export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number]): BuildingMesh {
+  const S = houseShape(b);
+  const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+  const rr = new Rng(b.seed ^ 0x51de);
+  const lime: RGB = rr.chance(0.3) ? SOOT : LIME;
+  const wallMat = b.wall === 'stone' || b.kind === 'temple' ? BuildingMat.Rubble : BuildingMat.Plaster;
+  const wallTint = b.wall === 'stone' || b.kind === 'temple' ? STONE : lime;
+  const parts: BuildingMesh[] = [];
+  plan.storeys.forEach((st, k) => {
+    const o = new Out(new Frame({ cx: b.cx, cz: b.cz, ux, uz, vx: b.vx, vz: b.vz, y: b.floorY + st.y }, origin));
+    const H = st.height, top = k + 1 < plan.storeys.length ? plan.storeys[k + 1].y - st.y : H + CEILING;
+    const room: Rect = { a0: st.a0, a1: st.a1, b0: st.b0, b1: st.b1 };
+    // The floor, less the hole the stairs from below come up through; flags or boards.
+    const stone = k === 0 && plan.stoneFloor;
+    for (const q of rectMinus(room, wellRects(plan, k))) gridQuad(o, q, 0, [0, 1, 0], stone ? BuildingMat.Ashlar : BuildingMat.Oak, stone ? STONE : TIMBER);
+    // The ceiling and its joists, less the hole up; the hole's sides through the floor between.
+    const up = wellRects(plan, k + 1);
+    for (const q of rectMinus(room, up)) gridQuad(o, q, H, [0, -1, 0], BuildingMat.Oak, TIMBER);
+    for (let a = st.a0 + 0.6; a < st.a1 - 0.3; a += 1.1) {
+      for (const q of rectMinus({ a0: a - 0.09, a1: a + 0.09, b0: st.b0, b1: st.b1 }, up)) o.box(q.a0, q.a1, H - 0.2, H, q.b0, q.b1, BuildingMat.Oak, DARK, true);
+    }
+    for (const w of up) {
+      o.quad([[w.a0, H, w.b0], [w.a1, H, w.b0], [w.a1, top, w.b0], [w.a0, top, w.b0]], [0, 0, 1], [[w.a0, 0], [w.a1, 0], [w.a1, 1], [w.a0, 1]], BuildingMat.Oak, DARK);
+      o.quad([[w.a0, H, w.b1], [w.a1, H, w.b1], [w.a1, top, w.b1], [w.a0, top, w.b1]], [0, 0, -1], [[w.a0, 0], [w.a1, 0], [w.a1, 1], [w.a0, 1]], BuildingMat.Oak, DARK);
+      o.quad([[w.a0, H, w.b0], [w.a0, H, w.b1], [w.a0, top, w.b1], [w.a0, top, w.b0]], [1, 0, 0], [[w.b0, 0], [w.b1, 0], [w.b1, 1], [w.b0, 1]], BuildingMat.Oak, DARK);
+      o.quad([[w.a1, H, w.b0], [w.a1, H, w.b1], [w.a1, top, w.b1], [w.a1, top, w.b0]], [-1, 0, 0], [[w.b0, 0], [w.b1, 0], [w.b1, 1], [w.b0, 1]], BuildingMat.Oak, DARK);
+    }
+    // The walls' inner faces, open where the outside has its windows and door.
+    const sh = S.storeys[k];
+    for (const w of sh.walls) innerWall(o, w.a0, w.b0, w.a1, w.b1, w.opens, sh.y0 - st.y, H, room, wallMat, wallTint);
+    for (const s of plan.stairs) if (s.storey === k) stair(o, s);
+    for (const f of plan.fixtures) if (f.storey === k) fixture(o, f, H);
+    const m = toMesh(o);
+    daylight(m, b, origin, st, S.storeys[k], k === 0);
+    parts.push(m);
+  });
+  return merge(parts);
+}
+
+/** A horizontal rectangle at height y as quads of about a metre (so the daylight can vary over it). */
+function gridQuad(o: Out, q: Rect, y: number, n: number[], m: BuildingMat, c: RGB): void {
+  const A = splits(q.a0, q.a1, 1.2), B = splits(q.b0, q.b1, 1.2);
+  for (let i = 0; i + 1 < A.length; i++) for (let j = 0; j + 1 < B.length; j++) {
+    o.quad([[A[i], y, B[j]], [A[i + 1], y, B[j]], [A[i + 1], y, B[j + 1]], [A[i], y, B[j + 1]]], n, [[A[i], B[j]], [A[i + 1], B[j]], [A[i + 1], B[j + 1]], [A[i], B[j + 1]]], m, c);
+  }
+}
+
+/**
+ * One wall's inner face on one storey (the outside wall a0,b0 -> a1,b1, counter-clockwise), between the
+ * storey's floor and ceiling (`H`), with holes where its openings are (`y0`: the openings' storey foot
+ * under this floor), and their reveals through to the outside ones.
+ */
+function innerWall(o: Out, a0: number, b0: number, a1: number, b1: number, opens: readonly { s0: number; s1: number; t0: number; t1: number; door?: boolean }[], y0: number, H: number, room: Rect, m: BuildingMat, c: RGB): void {
+  const len = Math.hypot(a1 - a0, b1 - b0), da = (a1 - a0) / len, db = (b1 - b0) / len;
+  const na = db, nb = -da;
+  // The inner face: WALL inside the outer one, from corner to corner of the room.
+  const P = (s: number, t: number, d = -WALL): number[] => [a0 + da * s + na * d, t, b0 + db * s + nb * d];
+  const N = [-na, 0, -nb];
+  const sOf = (a: number, b: number) => (a - a0) * da + (b - b0) * db;
+  const ends = [sOf(room.a0, room.b0), sOf(room.a1, room.b0), sOf(room.a1, room.b1), sOf(room.a0, room.b1)];
+  const s0 = Math.max(0, Math.min(...ends)), s1 = Math.min(len, Math.max(...ends));
+  const holes = opens.map((q) => ({ s0: q.s0, s1: q.s1, t0: Math.max(0, q.t0 + y0), t1: Math.min(H, q.t1 + y0), door: q.door })).filter((q) => q.t1 > q.t0 + 0.05 && q.s1 > s0 && q.s0 < s1);
+  const S = splits(s0, s1, 1.2, holes.flatMap((q) => [q.s0, q.s1])), T = splits(0, H, 1.3, holes.flatMap((q) => [q.t0, q.t1]));
+  for (let i = 0; i + 1 < S.length; i++) for (let j = 0; j + 1 < T.length; j++) {
+    const sm = (S[i] + S[i + 1]) / 2, tm = (T[j] + T[j + 1]) / 2;
+    if (holes.some((q) => sm > q.s0 && sm < q.s1 && tm > q.t0 && tm < q.t1)) continue;
+    o.quad([P(S[i], T[j]), P(S[i + 1], T[j]), P(S[i + 1], T[j + 1]), P(S[i], T[j + 1])], N, [[S[i], T[j]], [S[i + 1], T[j]], [S[i + 1], T[j + 1]], [S[i], T[j + 1]]], m, c);
+  }
+  // Reveals from the inner face to the outer one's (16 cm in for windows, 12 for the door).
+  for (const q of holes) {
+    const back = q.door ? 0.12 : 0.16, d = WALL - back;
+    const Q = (s: number, t: number, e: number) => P(s, t, -WALL + e);
+    o.quad([Q(q.s0, q.t0, 0), Q(q.s0, q.t1, 0), Q(q.s0, q.t1, d), Q(q.s0, q.t0, d)], [da, 0, db], [[0, q.t0], [0, q.t1], [d, q.t1], [d, q.t0]], m, c);
+    o.quad([Q(q.s1, q.t0, 0), Q(q.s1, q.t1, 0), Q(q.s1, q.t1, d), Q(q.s1, q.t0, d)], [-da, 0, -db], [[0, q.t0], [0, q.t1], [d, q.t1], [d, q.t0]], m, c);
+    o.quad([Q(q.s0, q.t1, 0), Q(q.s1, q.t1, 0), Q(q.s1, q.t1, d), Q(q.s0, q.t1, d)], [0, -1, 0], [[q.s0, 0], [q.s1, 0], [q.s1, d], [q.s0, d]], m, c);
+    // A sill board under a window.
+    if (!q.door) o.quad([Q(q.s0, q.t0, 0), Q(q.s1, q.t0, 0), Q(q.s1, q.t0, d), Q(q.s0, q.t0, d)], [0, 1, 0], [[q.s0, 0], [q.s1, 0], [q.s1, d], [q.s0, d]], BuildingMat.Oak, TIMBER);
+  }
+}
+
+/** A flight of stairs: each step's tread and riser, the sides down to the floor, the back under its top. */
+function stair(o: Out, s: InteriorStair): void {
+  const pa = -s.db, pb = s.da, hw = s.w / 2;
+  const P = (x: number, y: number, side: number): number[] => [s.a + s.da * x + pa * side * hw, y, s.b + s.db * x + pb * side * hw];
+  const fwd = [s.da, 0, s.db], back = [-s.da, 0, -s.db];
+  for (let i = 0; i < s.steps; i++) {
+    const x0 = i * s.tread, x1 = x0 + s.tread, y0 = i * s.riser, y1 = y0 + s.riser;
+    o.quad([P(x0, y1, -1), P(x1, y1, -1), P(x1, y1, 1), P(x0, y1, 1)], [0, 1, 0], [[x0, -hw], [x1, -hw], [x1, hw], [x0, hw]], BuildingMat.Oak, TIMBER);
+    o.quad([P(x0, y0, -1), P(x0, y0, 1), P(x0, y1, 1), P(x0, y1, -1)], back, [[-hw, y0], [hw, y0], [hw, y1], [-hw, y1]], BuildingMat.Oak, DARK);
+    for (const side of [-1, 1]) o.quad([P(x0, 0, side), P(x1, 0, side), P(x1, y1, side), P(x0, y1, side)], [pa * side, 0, pb * side], [[x0, 0], [x1, 0], [x1, y1], [x0, y1]], BuildingMat.Oak, DARK);
+  }
+  const run = s.steps * s.tread, rise = s.steps * s.riser;
+  o.quad([P(run, 0, -1), P(run, 0, 1), P(run, rise, 1), P(run, rise, -1)], fwd, [[-hw, 0], [hw, 0], [hw, rise], [-hw, rise]], BuildingMat.Oak, DARK);
+}
+
+/** The mesh an Out collected. */
+function toMesh(o: Out): BuildingMesh {
+  return { position: Float32Array.from(o.pos), normal: Float32Array.from(o.nrm), uv: Float32Array.from(o.uv), mat: Uint8Array.from(o.mat), tint: Uint8Array.from(o.tint), index: Uint32Array.from(o.idx) };
+}
+
+function merge(parts: readonly BuildingMesh[]): BuildingMesh {
+  let nv = 0, ni = 0;
+  for (const p of parts) { nv += p.position.length / 3; ni += p.index.length; }
+  const out: BuildingMesh = { position: new Float32Array(nv * 3), normal: new Float32Array(nv * 3), uv: new Float32Array(nv * 2), mat: new Uint8Array(nv), tint: new Uint8Array(nv * 3), index: new Uint32Array(ni) };
+  let v = 0, k = 0;
+  for (const p of parts) {
+    out.position.set(p.position, v * 3); out.normal.set(p.normal, v * 3); out.uv.set(p.uv, v * 2); out.mat.set(p.mat, v); out.tint.set(p.tint, v * 3);
+    for (let i = 0; i < p.index.length; i++) out.index[k + i] = p.index[i] + v;
+    v += p.position.length / 3; k += p.index.length;
+  }
+  return out;
+}
+
+/** Writes each vertex's daylight level (INSIDE_LIGHT) from the storey's openings. */
+function daylight(m: BuildingMesh, b: TownBuilding, origin: [number, number, number], st: InteriorStorey, sh: HouseShape['storeys'][number], doorOpen: boolean): void {
+  const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+  // The openings as small area lights: middle, inward normal, area (in the frame, y over the storey floor).
+  const lights: { a: number; y: number; b: number; na: number; nb: number; area: number }[] = [];
+  for (const w of sh.walls) {
+    const len = Math.hypot(w.a1 - w.a0, w.b1 - w.b0), da = (w.a1 - w.a0) / len, db = (w.b1 - w.b0) / len;
+    for (const q of w.opens) {
+      if (q.door && !doorOpen) continue;
+      const s = (q.s0 + q.s1) / 2;
+      lights.push({ a: w.a0 + da * s - db * WALL, y: sh.y0 + (q.t0 + q.t1) / 2 - st.y, b: w.b0 + db * s + da * WALL, na: -db, nb: da, area: (q.s1 - q.s0) * (q.t1 - q.t0) * (q.door ? 1 : 0.8) });
+    }
+  }
+  // Light thrown about the room: the openings' share of its surface, half of it reflected.
+  const wa = st.a1 - st.a0, wb = st.b1 - st.b0, surface = 2 * (wa * wb + (wa + wb) * st.height);
+  const bounce = 0.5 * lights.reduce((t, l) => t + l.area, 0) / surface;
+  const n = m.position.length / 3;
+  for (let i = 0; i < n; i++) {
+    const dx = m.position[i * 3] + origin[0] - b.cx, dz = m.position[i * 3 + 2] + origin[2] - b.cz;
+    const a = dx * ux + dz * uz, bb = dx * b.vx + dz * b.vz, y = m.position[i * 3 + 1] + origin[1] - b.floorY - st.y;
+    const nx = m.normal[i * 3], ny = m.normal[i * 3 + 1], nz = m.normal[i * 3 + 2];
+    const nA = nx * ux + nz * uz, nB = nx * b.vx + nz * b.vz;
+    let f = bounce;
+    for (const l of lights) {
+      const ea = a - l.a, ey = y - l.y, eb = bb - l.b, d2 = Math.max(0.25, ea * ea + ey * ey + eb * eb), d = Math.sqrt(d2);
+      const cw = (ea * l.na + eb * l.nb) / d, cv = -(ea * nA + ey * ny + eb * nB) / d;
+      if (cw > 0 && cv > 0) f += (l.area * cw * cv) / (Math.PI * d2);
+    }
+    const level = Math.min(15, Math.max(1, Math.round(15 * Math.sqrt(Math.min(1, f)))));
+    m.mat[i] += INSIDE_LIGHT * level;
+  }
+}
+
+/**
+ * The inside as boxes a body is walled in by (in the building's frame): every storey's floor and the top
+ * ceiling (open over the stairs), the walls (open at the door; the windows count as shut), the steps,
+ * the rails, the hearth and the chimney breast. A game makes its walls and floors of these.
+ */
+export function interiorSolids(plan: InteriorPlan): InteriorBox[] {
+  const out: InteriorBox[] = [];
+  const T = 0.4;
+  plan.storeys.forEach((st, k) => {
+    const room: Rect = { a0: st.a0, a1: st.a1, b0: st.b0, b1: st.b1 };
+    const below = k > 0 ? plan.storeys[k - 1].y + plan.storeys[k - 1].height : st.y - 1;
+    for (const q of rectMinus(room, wellRects(plan, k))) out.push({ ...q, y0: below, y1: st.y });
+    const y0 = below - 0.05, y1 = st.y + st.height + 0.05;
+    out.push({ a0: st.a0 - T, a1: st.a0, y0, y1, b0: st.b0 - T, b1: st.b1 + T }, { a0: st.a1, a1: st.a1 + T, y0, y1, b0: st.b0 - T, b1: st.b1 + T });
+    out.push({ a0: st.a0 - T, a1: st.a1 + T, y0, y1, b0: st.b1, b1: st.b1 + T });
+    if (k === 0) {
+      const w = plan.doorW, h = st.y + plan.doorH;
+      out.push({ a0: st.a0 - T, a1: -w, y0, y1, b0: st.b0 - T, b1: st.b0 }, { a0: w, a1: st.a1 + T, y0, y1, b0: st.b0 - T, b1: st.b0 }, { a0: -w, a1: w, y0: h, y1, b0: st.b0 - T, b1: st.b0 });
+    } else out.push({ a0: st.a0 - T, a1: st.a1 + T, y0, y1, b0: st.b0 - T, b1: st.b0 });
+    if (k + 1 === plan.storeys.length) out.push({ ...room, y0: st.y + st.height, y1: st.y + st.height + T });
+    for (const f of plan.fixtures) {
+      if (f.storey !== k || !(f.kind === 'rail' || f.kind === 'hearth' || f.kind === 'flue' || f.kind === 'forge' || f.kind === 'oven')) continue;
+      out.push({ a0: f.a - f.w / 2, a1: f.a + f.w / 2, y0: st.y, y1: st.y + Math.min(f.h, st.height), b0: f.b - f.d / 2, b1: f.b + f.d / 2 });
+    }
+    for (const s of plan.stairs) {
+      if (s.storey !== k) continue;
+      const pa = Math.abs(s.db), pb = Math.abs(s.da);
+      for (let i = 0; i < s.steps; i++) {
+        const x0 = i * s.tread, x1 = x0 + s.tread;
+        const ea = [s.a + s.da * x0, s.a + s.da * x1], eb = [s.b + s.db * x0, s.b + s.db * x1];
+        out.push({ a0: Math.min(...ea) - pa * s.w / 2, a1: Math.max(...ea) + pa * s.w / 2, y0: st.y - 0.1, y1: st.y + (i + 1) * s.riser, b0: Math.min(...eb) - pb * s.w / 2, b1: Math.max(...eb) + pb * s.w / 2 });
+      }
+    }
+  });
+  return out;
+}
+
+function fixture(o: Out, f: InteriorFixture, H: number): void {
   const a0 = f.a - f.w / 2, a1 = f.a + f.w / 2, b0 = f.b - f.d / 2, b1 = f.b + f.d / 2;
   const legs = (top: number, t: number, m: BuildingMat, c: RGB) => {
     for (const [a, b] of [[a0 + t, b0 + t], [a1 - t, b0 + t], [a0 + t, b1 - t], [a1 - t, b1 - t]]) o.box(a - t, a + t, 0, top, b - t, b + t, m, c);
@@ -332,8 +752,30 @@ function fixture(o: Out, f: InteriorFixture): void {
     case 'counter': case 'chest': case 'shelf': case 'barrel': case 'tub': case 'woodpile':
       o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, f.kind === 'woodpile' ? [150, 118, 84] : f.kind === 'counter' ? DARK : TIMBER);
       break;
+    case 'flue':
+      o.box(a0, a1, 0, H, b0, b1, BuildingMat.Rubble, SOOT);
+      break;
+    case 'rail': {
+      const along = f.w > f.d, len = along ? f.w : f.d, n = Math.max(2, Math.ceil(len / 1.2) + 1);
+      for (let i = 0; i < n; i++) {
+        const t = -len / 2 + 0.04 + ((len - 0.08) * i) / (n - 1), pa = along ? f.a + t : f.a, pb = along ? f.b : f.b + t;
+        o.box(pa - 0.04, pa + 0.04, 0, f.h - 0.06, pb - 0.04, pb + 0.04, BuildingMat.Oak, DARK);
+      }
+      o.box(a0, a1, f.h - 0.06, f.h, b0, b1, BuildingMat.Oak, TIMBER, true);
+      break;
+    }
+    case 'door':
+      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, DARK, true);
+      break;
+    case 'stair': case 'well':
+      break;
     case 'hearth': case 'forge': case 'oven':
       o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Rubble, SOOT);
+      // The breast above it, up to the ceiling (the chimney's stack goes on through the roof).
+      {
+        const wa = Math.min(f.w / 2, f.w > f.d ? 0.6 : 0.35), wb = Math.min(f.d / 2, f.d > f.w ? 0.6 : 0.35);
+        o.box(f.a - wa, f.a + wa, f.h, H, f.b - wb, f.b + wb, BuildingMat.Rubble, SOOT);
+      }
       // A dark mouth on the side facing the room.
       if (f.kind !== 'forge') {
         const toward = Math.abs(f.a) > Math.abs(f.b) ? (f.a > 0 ? 'na' : 'a') : (f.b > 0 ? 'nb' : 'b');
@@ -361,13 +803,19 @@ function fixture(o: Out, f: InteriorFixture): void {
 }
 
 /**
- * Whether a body of radius `r` at (a, b) in the room's frame touches a wall or a fixture (benches and
- * beds too: people sit and lie at their spots, beside them). The doorway is open, so one walks out.
+ * Whether a body of radius `r` at (a, b) on `storey` touches a wall or a fixture (benches and beds too:
+ * people sit and lie at their spots, beside them). The doorway is open, so one walks out. The stairs and
+ * their hole are walked on and through (their steps and the rails wall one in: `interiorSolids`), unless
+ * `stand`: where a person could stand still.
  */
-export function interiorBlocked(plan: InteriorPlan, a: number, b: number, r: number): boolean {
-  const inDoor = Math.abs(a) < plan.doorW - r * 0.5 && b < -plan.hb + r;
-  if (!inDoor && (Math.abs(a) > plan.ha - r || b < -plan.hb + r)) return true;
-  if (b > plan.hb - r) return true;
-  for (const f of plan.fixtures) if (f.kind !== 'hatch' && Math.abs(a - f.a) < f.w / 2 + r && Math.abs(b - f.b) < f.d / 2 + r) return true;
+export function interiorBlocked(plan: InteriorPlan, a: number, b: number, r: number, storey = 0, stand = false): boolean {
+  const s = plan.storeys[storey];
+  const inDoor = storey === 0 && Math.abs(a) < plan.doorW - r * 0.5 && b < s.b0 + r;
+  if (!inDoor && (a < s.a0 + r || a > s.a1 - r || b < s.b0 + r)) return true;
+  if (b > s.b1 - r) return true;
+  for (const f of plan.fixtures) {
+    if (f.storey !== storey || f.kind === 'hatch' || (!stand && (f.kind === 'stair' || f.kind === 'well'))) continue;
+    if (Math.abs(a - f.a) < f.w / 2 + r && Math.abs(b - f.b) < f.d / 2 + r) return true;
+  }
   return false;
 }
