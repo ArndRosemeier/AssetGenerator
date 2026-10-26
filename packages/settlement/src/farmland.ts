@@ -394,8 +394,8 @@ function farmFits(l: FarmLay, input: FarmlandInput, town: Poly[], inEdge: (x: nu
   // off than this): every street so far, the edge track and the other farms' paths too.
   if (intersection([f], town).length) return false;
   for (const st of input.streets) {
-    const w = streetStrokes(st);
-    if (intersection([f], near(w.polys, w.bounds, fb)).length) return false;
+    const w = streetStrokes(st), by = near(w.polys, w.bounds, fb);
+    if (by.length && intersection([f], by).length) return false;
   }
   const [x0, z0, x1, z1] = fb;
   let lo = Infinity, hi = -Infinity;
