@@ -36,3 +36,25 @@ test('texture node: an update of its own (onObjectUpdate) survives the build, a 
   own.updateType = NodeUpdateType.FRAME;
   assert.equal(own.updateType, NodeUpdateType.FRAME, 'another update type can still be set');
 });
+
+test('shadow nodes: materials that lend the same nodes share one set (so one shadow shader), others get their own', async () => {
+  const { shareShadowNodes, shadowKindOf } = await import('../src/patches');
+  const { MeshStandardNodeMaterial } = await import('three/webgpu');
+  const { color, float } = await import('three/tsl');
+  const own = (m: unknown) => ({ colorNode: null, depthNode: null, positionNode: null, from: m });
+  const renderer = { shadowMap: { transmitted: false }, _getShadowNodes: own } as unknown as { _getShadowNodes(m: unknown): { colorNode: unknown }; shadowMap: unknown };
+  assert.ok(shareShadowNodes(renderer as unknown as WebGPURenderer));
+  assert.ok(shareShadowNodes(renderer as unknown as WebGPURenderer), 'a second install keeps the first');
+  const tint = color(0.5, 0.4, 0.3), other = color(0.1, 0.1, 0.1);
+  const a = new MeshStandardNodeMaterial(), b = new MeshStandardNodeMaterial(), c = new MeshStandardNodeMaterial(), plain = new MeshStandardNodeMaterial();
+  a.colorNode = tint; b.colorNode = tint; c.colorNode = other;
+  a.map = new Texture(); b.map = new Texture(); // each its own picture, read from the mesh drawn
+  c.maskNode = float(1).greaterThan(0);
+  assert.equal(shadowKindOf(a), shadowKindOf(b));
+  assert.notEqual(shadowKindOf(a), shadowKindOf(c));
+  const na = renderer._getShadowNodes(a), nb = renderer._getShadowNodes(b), nc = renderer._getShadowNodes(c);
+  assert.equal(na, nb, 'alike: the very same nodes');
+  assert.notEqual(na, nc);
+  assert.ok(na.colorNode && nc.colorNode);
+  assert.equal(renderer._getShadowNodes(plain).colorNode, null, 'nothing to lend: no colour node, as in three');
+});
