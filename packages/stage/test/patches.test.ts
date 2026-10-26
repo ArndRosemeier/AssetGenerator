@@ -58,3 +58,37 @@ test('shadow nodes: materials that lend the same nodes share one set (so one sha
   assert.ok(na.colorNode && nc.colorNode);
   assert.equal(renderer._getShadowNodes(plain).colorNode, null, 'nothing to lend: no colour node, as in three');
 });
+
+test('late builds: after warm-up a draw without its shader is skipped and built async once, then drawn', async () => {
+  const { deferLateBuilds } = await import('../src/patches');
+  const { ShaderCap } = await import('../src/cap');
+  const { ShaderMonitor } = await import('../src/monitor');
+  const cap = new ShaderCap(), monitor = new ShaderMonitor();
+  const ro = { object: { name: 'beard', type: 'Mesh' }, material: { type: 'ShadowMaterial' } };
+  let built = false, builds = 0;
+  const drawn: unknown[] = [];
+  const renderer = {
+    _currentRenderContext: {},
+    _objects: { get: () => ro },
+    _nodes: { getForRenderCacheKey: () => 7, getForRender: (_: unknown, useAsync: boolean) => { assert.ok(useAsync); builds++; return new Promise((r) => setTimeout(() => { built = true; r({}); }, 0)); } },
+    _renderObjectDirect(object: unknown) { drawn.push(object); },
+  };
+  assert.ok(deferLateBuilds(renderer as unknown as WebGPURenderer, cap, monitor, () => !built, () => 'beard shadow'));
+  const draw = () => renderer._renderObjectDirect(ro.object);
+  draw(); // warm-up: drawn (and built) at once
+  assert.equal(drawn.length, 1);
+  assert.equal(builds, 0);
+  cap.active = true;
+  draw(); draw(); // two frames before the build is done: skipped, built once
+  assert.equal(drawn.length, 1);
+  assert.equal(builds, 1);
+  assert.equal(monitor.summary().late, 1);
+  await new Promise((r) => setTimeout(r, 5));
+  draw();
+  assert.equal(drawn.length, 2, 'built: drawn');
+  built = false;
+  monitor.note = 'shadow warm-up';
+  draw();
+  assert.equal(drawn.length, 3, 'the Stage\'s own warm-up draws at once');
+  assert.equal(deferLateBuilds({} as WebGPURenderer, cap, monitor, () => true, () => ''), false);
+});

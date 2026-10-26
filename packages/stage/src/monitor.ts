@@ -5,7 +5,8 @@
  * shaders built again with the same code (`repeats`), the usual reason stalls come back. `window.shaders.report()` in the console; a game shows `stage.hudLine()` in its HUD or debug menu. From Dunfinity src/render/shaders/monitor.ts.
  */
 export type Phase = 'warmup' | 'run';
-export type BuildKind = 'node-sync' | 'node-async' | 'gpu-module' | 'gpu-pipeline-sync' | 'gpu-pipeline-async' | 'gl-link';
+/** `node-late`: a draw skipped, its shader built async behind it (patches.ts `deferLateBuilds`). */
+export type BuildKind = 'node-sync' | 'node-async' | 'node-late' | 'gpu-module' | 'gpu-pipeline-sync' | 'gpu-pipeline-async' | 'gl-link';
 
 /** `code`: a hash of the shader code a node build made (`codeHash`), to find the same shader built again. */
 export interface ShaderEvent { t: number; kind: BuildKind; ms: number; what: string; phase: Phase; code?: number }
@@ -87,11 +88,12 @@ export class ShaderMonitor {
     return out;
   }
 
-  summary(): { warmup: number; run: number; worstMs: number; violations: number; repeats: number } {
+  summary(): { warmup: number; run: number; late: number; worstMs: number; violations: number; repeats: number } {
     const blocking = this.events.filter((e) => BLOCKING.has(e.kind));
     return {
       warmup: this.events.filter((e) => e.phase === 'warmup' && STARTS.has(e.kind)).length,
       run: this.events.filter((e) => e.phase === 'run' && STARTS.has(e.kind)).length,
+      late: this.events.filter((e) => e.kind === 'node-late').length,
       worstMs: blocking.reduce((m, e) => Math.max(m, e.ms), 0),
       violations: this.violations().length,
       repeats: this.repeats().length,
@@ -101,6 +103,6 @@ export class ShaderMonitor {
   report(): string {
     const s = this.summary();
     const repeats = this.repeats().map((r) => `built ${r.times}× alike (${r.after} after warm-up, ${r.ms.toFixed(0)} ms): ${r.what}`);
-    return [`shaders: ${s.warmup} built in warm-up, ${s.run} after, worst block ${s.worstMs.toFixed(0)} ms, ${s.violations} violations, ${s.repeats} built again alike`, ...this.violations(), ...repeats].join('\n');
+    return [`shaders: ${s.warmup} built in warm-up, ${s.run} after (${s.late} drawn late), worst block ${s.worstMs.toFixed(0)} ms, ${s.violations} violations, ${s.repeats} built again alike`, ...this.violations(), ...repeats].join('\n');
   }
 }
