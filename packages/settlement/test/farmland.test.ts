@@ -77,3 +77,16 @@ test('farmland: fences and haystacks mesh soundly, the far ones lighter', () => 
     assert.ok(far.index.length < near.index.length);
   }
 });
+
+test('farmland: no street runs through a farmstead, the edge track round the town included', () => {
+  for (const seed of [1, 2, 3, 4, 5, 6]) {
+    const plan = planTown(site(seed, 60 + seed * 12));
+    // Every street but the farms' own tracks into their yards, at its own width.
+    const ways = plan.streets.filter((s) => s.kind !== 'path').flatMap((s) => shapesToPolys(strokePolylines([s.closed ? [...s.pts, s.pts[0], s.pts[1]] : s.pts], s.width / 2)));
+    for (const fm of plan.farms) {
+      const parts = [plan.paddocks[fm.paddock].poly, ...[fm.house, fm.barn, fm.stable].map((b) => plan.buildings[b].poly)];
+      const on = intersection(parts, ways).reduce((s, x) => s + shapeArea(x), 0);
+      assert.ok(on < 0.01, `seed ${seed}: farm ${fm.id} has ${on.toFixed(1)} m² of street through it`);
+    }
+  }
+});
