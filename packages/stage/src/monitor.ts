@@ -82,7 +82,7 @@ export class ShaderMonitor {
     const rest = 1 / this.share - 1;
     for (let i = 1; i < starts.length; i++) {
       const a = starts[i - 1], b = starts[i], earliest = a.t + a.ms + a.ms * rest;
-      if (b.t < earliest - 1) out.push(`run: "${b.what}" started ${(b.t - a.t - a.ms).toFixed(0)} ms after a build of ${a.ms.toFixed(0)} ms ended (minimum ${(a.ms * rest).toFixed(0)} ms)`);
+      if (b.t < earliest - 1) out.push(`run: "${b.what}" (${b.kind}) started ${(b.t - a.t - a.ms).toFixed(0)} ms after a build of ${a.ms.toFixed(0)} ms ended (minimum ${(a.ms * rest).toFixed(0)} ms): "${a.what}" (${a.kind})`);
     }
     return out;
   }

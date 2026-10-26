@@ -46,7 +46,10 @@ function queueNodeBuilds(renderer: WebGPURenderer, cap: ShaderCap, monitor: Shad
   let last: Promise<unknown> = Promise.resolve();
   nodes.getForRender = function (this: Any, ro: Any, useAsync = false) {
     if (!needsBuild(ro)) return getForRender.call(this, ro, useAsync);
-    if (!useAsync) return monitor.time('node-sync', label(ro), () => getForRender.call(this, ro, false), codeOf);
+    if (!useAsync) {
+      const t0 = performance.now();
+      try { return monitor.time('node-sync', label(ro), () => getForRender.call(this, ro, false), codeOf); } finally { cap.spent(t0, performance.now()); }
+    }
     const run = last.then(async () => {
       // An identical object queued earlier may have built this shader meanwhile: then it is a cache hit.
       if (!needsBuild(ro)) return getForRender.call(this, ro, true);
