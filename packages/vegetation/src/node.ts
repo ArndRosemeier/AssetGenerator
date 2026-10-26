@@ -50,8 +50,25 @@ function geometryInstancing(mat: THREE.NodeMaterial): void {
   };
 }
 
-/** The shared `{ value }` uniforms of props/vegetation (`vegetationUniforms`). */
-export interface VegUniforms { uTime: { value: number }; uWind: { value: number }; uSeason: { value: number } }
+/**
+ * The shared `{ value }` uniforms of props/vegetation (`vegetationUniforms`). `uOrigin`: a floating origin the
+ * instances are drawn relative to (@futuremagic/stage FloatingOrigin; its `at`), so wind and tints stay put in the
+ * world when it steps.
+ */
+export interface VegUniforms { uTime: { value: number }; uWind: { value: number }; uSeason: { value: number }; uOrigin?: { value: THREE.Vector3 } }
+
+const follow3 = new Map<object, ReturnType<typeof uniform>>();
+/** The floating origin as a node (zero without one). */
+function originOf(U: VegUniforms) {
+  const u = U.uOrigin;
+  if (!u) return vec3(0.0);
+  let n = follow3.get(u);
+  if (!n) follow3.set(u, (n = uniform(u.value).onRenderUpdate(() => u.value)));
+  return n;
+}
+
+/** Where the instance stands in the world (its matrix's origin, plus the floating origin it is drawn relative to). */
+const instanceAt = (U: VegUniforms, I: Cols) => I.c3.xyz.add(originOf(U));
 
 // ---------------------------------------------------------------------------------------------
 // Instance matrix
@@ -107,7 +124,7 @@ const DIR_W = new THREE.Vector3(1.0, 0.0, 0.42).normalize();
 function vegWind(U: VegUniforms, I: Cols | null, p, n, w, flutter: number, seed) {
   const uTime = shared(U.uTime), uWind = shared(U.uWind);
   const org = I ? I.c3.xyz : vec3(0.0);
-  const wo = modelWorldMatrix.mul(vec4(org, 1.0)).xyz;
+  const wo = modelWorldMatrix.mul(vec4(org, 1.0)).xyz.add(originOf(U));
   const ph = dot(wo.xz, vec2(0.137, 0.213)).toVar();
   const dirW = vec3(DIR_W.x, DIR_W.y, DIR_W.z);
   let dir;
@@ -337,7 +354,7 @@ export function createFarTreeNodeMaterial(U: VegUniforms): THREE.MeshStandardNod
   // catches the light in lumps instead of shading as one smooth ball.
   mat.setupNormal = function (builder) {
     const I = instanceCols(builder);
-    const p = varying(I ? positionGeometry.add(I.c3.xyz.mul(0.37)) : positionGeometry, 'vHullPos');
+    const p = varying(I ? positionGeometry.add(instanceAt(U, I).mul(0.37)) : positionGeometry, 'vHullPos');
     const lump = (q, f) => vec3(vnoise3(q.mul(f)), vnoise3(q.mul(f).add(17.3)), vnoise3(q.mul(f).add(41.7))).sub(0.5);
     const bend = lump(p, 0.9).mul(1.5).add(lump(p, 2.4).mul(0.7));
     return normalize(normalViewGeometry.add(bend.mul(vKind.x.greaterThan(0.25).select(1.0, 0.0))));
@@ -346,9 +363,9 @@ export function createFarTreeNodeMaterial(U: VegUniforms): THREE.MeshStandardNod
   afterDiffuse(mat, (builder) => {
     // vObjPos = position (+ instance origin * 0.37)
     const I = instanceCols(builder);
-    const vObjPos = varying(I ? positionGeometry.add(I.c3.xyz.mul(0.37)) : positionGeometry, 'vObjPos');
+    const vObjPos = varying(I ? positionGeometry.add(instanceAt(U, I).mul(0.37)) : positionGeometry, 'vObjPos');
     // Each tree a little lighter or darker, greener or yellower (from its position).
-    const tint = I ? vhash(floor(I.c3.xyz.mul(0.5))) : float(0.5);
+    const tint = I ? vhash(floor(instanceAt(U, I).mul(0.5))) : float(0.5);
     const nV = normalViewGeometry.toVar();
     const nz = vnoise3(vObjPos.mul(2.2)).mul(0.6).add(vnoise3(vObjPos.mul(5.1)).mul(0.4)).toVar();
     If(vKind.x.greaterThan(0.75), () => {

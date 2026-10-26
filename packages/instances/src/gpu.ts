@@ -19,7 +19,7 @@ import {
   Frustum, Group, MathUtils, Matrix4, Mesh, Sphere, StorageBufferAttribute, StorageInstancedBufferAttribute, IndirectStorageBufferAttribute,
   InterleavedBufferAttribute, Vector3, Vector4, type Camera, type InstancedBufferGeometry, type WebGPURenderer,
 } from 'three/webgpu';
-import { Fn, If, Loop, atomicAdd, atomicLoad, atomicStore, dot, instanceIndex, length, max, min, smoothstep, storage, uint, uniform, uniformArray, vec3 } from 'three/tsl';
+import { Fn, If, Loop, atomicAdd, atomicLoad, atomicStore, dot, instanceIndex, length, max, min, smoothstep, storage, uint, uniform, uniformArray, vec3, vec4 } from 'three/tsl';
 import { instancedFrom } from './geometry';
 import { KIND, RECORD, listLayout } from './select';
 import type { DrawKind, DrawOptions, InstanceDraws } from './types';
@@ -70,6 +70,8 @@ export class GpuInstanceDraws implements InstanceDraws {
   private readonly uPlanes = uniformArray(this.planes);
   private readonly uCam = uniform(new Vector3());
   private readonly uSweep = uniform(new Vector3());
+  /** The floating origin (opts.origin): instances are culled and drawn relative to it. */
+  private readonly uOrigin = uniform(new Vector3());
   private readonly frustum = new Frustum();
   private readonly pv = new Matrix4();
   private readonly listsOfKind: number[];
@@ -150,13 +152,15 @@ export class GpuInstanceDraws implements InstanceDraws {
     const counters = storage(this.counters, 'uint', this.counters.count).toAtomic();
     const ind = storage(this.indirect, 'uint', this.indirect.count * 5);
     const horizontal = !!this.opts.horizontal;
-    const planes = this.uPlanes, cam = this.uCam, sweep = this.uSweep;
+    const planes = this.uPlanes, cam = this.uCam, sweep = this.uSweep, origin = this.uOrigin;
 
     const reset = Fn(() => { atomicStore(counters.element(instanceIndex), uint(0)); })().compute(nLists);
 
     const cull = Fn(() => {
       const b = instanceIndex.mul(R4);
-      const c0 = input.element(b).toVar(), c1 = input.element(b.add(1)).toVar(), c2 = input.element(b.add(2)).toVar(), c3 = input.element(b.add(3)).toVar();
+      const c0 = input.element(b).toVar(), c1 = input.element(b.add(1)).toVar(), c2 = input.element(b.add(2)).toVar();
+      // Relative to the origin before anything else (both near it: an exact float32 difference).
+      const c3 = vec4(input.element(b.add(3)).xyz.sub(origin), 1).toVar();
       const ex = input.element(b.add(KIND / 4)).toVar();
       const kind = uint(ex.x).toVar();
       const ks = kinds.element(kind.mul(2)).toVar(), kl = kinds.element(kind.mul(2).add(1)).toVar();
@@ -238,7 +242,12 @@ export class GpuInstanceDraws implements InstanceDraws {
     this.pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.pv, (camera as any).coordinateSystem);
     this.frustum.planes.forEach((p, i) => this.planes[i].set(p.normal.x, p.normal.y, p.normal.z, p.constant));
+    // World space, then relative to the origin (in doubles: a plane moves by its normal along the origin).
+    const o = this.opts.origin;
+    if (o) this.uOrigin.value.copy(o);
+    if (o) for (const p of this.planes) p.w += p.x * o.x + p.y * o.y + p.z * o.z;
     camera.getWorldPosition(this.uCam.value);
+    if (o) this.uCam.value.sub(o);
     const sh = this.opts.shadow;
     if (sh) this.uSweep.value.copy(sh.dir).multiplyScalar(sh.reach);
     else this.uSweep.value.set(0, 0, 0);

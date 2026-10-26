@@ -46,6 +46,8 @@ export const vegetationUniforms = {
   uWind: { value: 0.5 },
   /** 0 = summer green, 0.5 = early autumn, 1 = full autumn colours (evergreens ignore it). */
   uSeason: { value: 0 },
+  /** A floating origin the instances are drawn relative to (set it to @futuremagic/stage FloatingOrigin's `at`). */
+  uOrigin: { value: new THREE.Vector3() },
 };
 
 // ---------------------------------------------------------------------------------------------
