@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type TownSite } from '../src/index';
+import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite } from '../src/index';
 
 /** Gently rolling ground, a river along z = 140 to the south-east of the market. */
 const site = (seed: number, river = false): TownSite => ({
@@ -29,8 +29,8 @@ test('settlement: a small town has its houses, temple, hall, inn, smithy and wel
 });
 
 test('settlement: buildings stand clear of each other, of the streets and of the market', () => {
-  for (const seed of [1, 2, 3]) {
-    const town = planTown(site(seed));
+  for (const [seed, size] of [[1, 'town'], [2, 'town'], [3, 'town'], [1, 'hamlet'], [2, 'village']] as const) {
+    const town = planTown({ ...site(seed), size });
     const bs = town.buildings;
     for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
       const a = intersection([bs[i].poly], [bs[j].poly]).reduce((s, x) => s + shapeArea(x), 0);
@@ -55,4 +55,28 @@ test('settlement: nothing is built in the water, and a mill stands by it', () =>
     if (town.buildings.some((b) => b.kind === 'mill')) mills++;
   }
   assert.ok(mills >= 2, `mills in ${mills} of 4 towns`);
+});
+
+test('settlement: one planner makes every size, from a hamlet round its green to a capital', () => {
+  const kinds = (size: SettlementSize, seed: number) => {
+    const t = planTown({ ...site(seed), size });
+    return { t, has: new Set(t.buildings.map((b) => b.kind)), people: t.buildings.reduce((n, b) => n + b.household, 0) };
+  };
+  for (const seed of [1, 2]) {
+    const hamlet = kinds('hamlet', seed), village = kinds('village', seed), town = kinds('town', seed);
+    // A hamlet: a few cottages and farmsteads, no temple, inn or stalls; a well on its green.
+    assert.ok(hamlet.t.buildings.length >= 5 && hamlet.t.buildings.length <= 20, `hamlet ${hamlet.t.buildings.length} buildings`);
+    for (const k of ['temple', 'inn', 'hall', 'smithy', 'house']) assert.ok(!hamlet.has.has(k as never), `a hamlet with a ${k}`);
+    assert.ok(hamlet.t.fixtures.some((f) => f.kind === 'well') && !hamlet.t.fixtures.some((f) => f.kind === 'stall'));
+    assert.equal(hamlet.t.streets.filter((s) => s.kind === 'lane').length, 0);
+    // A village: its temple, inn and smithy, but no moot hall; bigger than the hamlet, smaller than the town.
+    for (const k of ['temple', 'inn', 'smithy']) assert.ok(village.has.has(k as never), `seed ${seed}: a village without a ${k}`);
+    assert.ok(!village.has.has('hall'));
+    assert.ok(hamlet.people < village.people && village.people < town.people, `${hamlet.people} < ${village.people} < ${town.people} people`);
+    assert.ok(hamlet.t.radius < village.t.radius && village.t.radius < town.t.radius);
+  }
+  // The capital is prepared (plan B3): far bigger, more roads out, planned in well under a second.
+  const t0 = performance.now(), capital = kinds('capital', 3), ms = performance.now() - t0;
+  assert.ok(capital.t.radius >= 240 && capital.t.buildings.length > 500 && ms < 2000, `capital: ${capital.t.buildings.length} buildings in ${ms.toFixed(0)} ms`);
+  assert.ok(capital.t.streets.filter((s) => s.kind === 'road').length >= 5);
 });

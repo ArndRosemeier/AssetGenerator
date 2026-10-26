@@ -10,7 +10,10 @@ Planning settlements on the ground plane (x, z), pure TypeScript: runs in worker
   grown along the roads, crooked lanes, plots, houses by zone (timber-framed round the market, cottages
   at the edge), a temple of no particular faith and its burial ground, a moot hall, inn, bakery, smithy, stable, a mill by water, crafts, and the
   fixtures people use (well, stalls, anvil, forge, woodpiles, gardens, graves, an offering stone). The same site gives
-  the same town.
+  the same town. `size` picks one of `SETTLEMENT_SIZES` (default `town`): a `hamlet` (a few cottages and
+  farmsteads round a green with its well; no lanes, temple or inn), a `village` (temple, inn, smithy, a
+  couple of crafts, a few stalls), a `town`, and a `capital` (about 250 m across, five or six roads out,
+  a taller core; planned in about half a second).
 * `building`: `houseShape(b)`, a building's storeys (jettied out over the street), every window and door
   and the chimney, rolled once from its seed; `buildingMesh(b, origin, detail, { open })` draws it from
   outside (`open`: its door stands open, for drawing it hollow).

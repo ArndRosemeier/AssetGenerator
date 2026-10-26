@@ -1,9 +1,10 @@
 /**
- * A medieval small town, planned from a seed and the ground it stands on: a market place, the roads
+ * A medieval settlement, planned from a seed and the ground it stands on: a market place, the roads
  * that leave it (they follow the land), an organic outline that grows along the roads, crooked lanes
  * between, plots that face the streets, houses by trade and zone (tall timber-framed houses round the
  * market, cottages with gardens at the edge), a temple with its burial ground, a moot hall and an inn on the market, a
- * smithy on a road out, and the fixtures people use (well, stalls, anvil, woodpiles, gardens).
+ * smithy on a road out, and the fixtures people use (well, stalls, anvil, woodpiles, gardens). One planner makes
+ * every size, from a hamlet of a few cottages round a green to a capital (`SETTLEMENT_SIZES`).
  *
  * Pure: no three.js, runs in workers and tests. The same site gives the same town.
  */
@@ -14,13 +15,53 @@ import { perimeterLots, type Lot, type LotRules } from './lots';
 import { organicCuts } from './streets';
 import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
+/** How big a settlement is: a few farms round a green, a village with its temple and inn, a market town, a capital. */
+export type SettlementSize = 'hamlet' | 'village' | 'town' | 'capital';
+
+/** What a size of settlement has. */
+export interface SizeRules {
+  /** Typical outline radius, m (rolled between the two). */
+  readonly radius: readonly [number, number];
+  /** How many roads leave it (one or the other, by seed). */
+  readonly roads: readonly [number, number];
+  /** The market place's size against a town's (a hamlet's is its green). */
+  readonly market: number;
+  /** Stalls on the market. */
+  readonly stalls: boolean;
+  /** Lanes between the roads: the spacing of the cuts, m (none: the houses face the roads and the green). */
+  readonly lanes: readonly [number, number] | null;
+  /** The zones: houses are planned as if this far out at least (0.78: all cottages, 0.42: no tall core)... */
+  readonly inner: number;
+  /** ...and their distance from the middle counts this much (below 1: the tall core reaches farther out). */
+  readonly spread: number;
+  readonly temple: boolean;
+  /** Graves in the burial ground, at most. */
+  readonly graves: number;
+  /** The trades it has: inn, moot hall, bakery, smithy, stable (a carter), and how many crafts. */
+  readonly inn: boolean;
+  readonly hall: boolean;
+  readonly bakery: boolean;
+  readonly smithy: boolean;
+  readonly stable: boolean;
+  readonly crafts: number;
+}
+
+export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
+  hamlet: { radius: [38, 52], roads: [1, 2], market: 0.55, stalls: false, lanes: null, inner: 0.78, spread: 1, temple: false, graves: 0, inn: false, hall: false, bakery: false, smithy: false, stable: false, crafts: 0 },
+  village: { radius: [62, 85], roads: [2, 3], market: 0.75, stalls: true, lanes: [70, 120], inner: 0.42, spread: 1, temple: true, graves: 10, inn: true, hall: false, bakery: false, smithy: true, stable: false, crafts: 2 },
+  town: { radius: [115, 160], roads: [3, 4], market: 1, stalls: true, lanes: [48, 90], inner: 0, spread: 1, temple: true, graves: 18, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 8 },
+  capital: { radius: [240, 300], roads: [5, 6], market: 1.5, stalls: true, lanes: [44, 80], inner: 0, spread: 0.8, temple: true, graves: 30, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 8 },
+};
+
 /** Where a town goes and what the land there is like. */
 export interface TownSite {
   seed: number;
   /** The market place's middle, world metres. */
   x: number;
   z: number;
-  /** Typical outline radius, m (a small town: 110-170). */
+  /** How big (default: a small town). */
+  size?: SettlementSize;
+  /** Typical outline radius, m (default: rolled for the size; a small town 115-160). */
   radius?: number;
   /** Ground height. */
   height: (x: number, z: number) => number;
@@ -150,16 +191,17 @@ const TRACK_W = 3;
 export function planTown(site: TownSite): TownPlan {
   const seed = deriveSeed(site.seed, 'town');
   const rng = new Rng(seed);
-  const R = site.radius ?? rng.range(115, 160);
+  const S = SETTLEMENT_SIZES[site.size ?? 'town'];
+  const R = site.radius ?? rng.range(S.radius[0], S.radius[1]);
   const cx = site.x, cz = site.z;
   const water = site.water ?? (() => 0);
   const wet = (x: number, z: number) => water(x, z) > 0;
 
   // 1. The market place: an irregular triangle or quadrangle.
-  const market = marketPlace(rng.fork('market'), cx, cz);
+  const market = marketPlace(rng.fork('market'), cx, cz, S.market);
 
   // 2. The roads out, following the land.
-  const dirs = site.roads ?? roadDirections(rng.fork('roads'));
+  const dirs = site.roads ?? roadDirections(rng.fork('roads'), S.roads);
   // Out through the town and on through the fields.
   const farmland = site.farmland ?? true;
   const roadLength = R * 1.5 + (farmland ? farmlandReach(R) * 1.25 + 20 : 0);
@@ -175,9 +217,9 @@ export function planTown(site: TownSite): TownPlan {
   const sectors = difference([outline], shapesToPolys(open));
   const lanes: number[][] = [];
   const lr = rng.fork('lanes');
-  for (const s of sectors) {
+  if (S.lanes) for (const s of sectors) {
     if (shapeArea(s) < 400) continue;
-    for (const ch of organicCuts(s.outer, [48, 90], lr, 14).cuts) lanes.push(crooked(ch, lr));
+    for (const ch of organicCuts(s.outer, [S.lanes[0], S.lanes[1]], lr, 14).cuts) lanes.push(crooked(ch, lr));
   }
   for (const pts of lanes) streets.push({ kind: 'lane', pts, width: LANE_W });
   const ring = [...outline, outline[0], outline[1]];
@@ -198,12 +240,12 @@ export function planTown(site: TownSite): TownPlan {
     for (const b of buildings) if (pointInPoly(b.poly, x, z)) return;
     fixtures.push({ id: fixtures.length, kind, x, z, yaw, building });
   };
-  const dist = (x: number, z: number) => Math.hypot(x - cx, z - cz) / R;
+  const dist = (x: number, z: number) => Math.max(S.inner, (Math.hypot(x - cx, z - cz) / R) * S.spread);
   let templeGrounds: Shape | null = null;
   const plots: Shape[] = [...blocks];
   const near = (b: Shape) => { let m = Infinity; for (let i = 0; i < b.outer.length; i += 2) m = Math.min(m, dist(b.outer[i], b.outer[i + 1])); return m; };
   const crr = rng.fork('temple');
-  for (const blk of blocks.filter((b) => near(b) < 0.4 && shapeArea(b) > 900).sort((a, b) => near(a) - near(b))) {
+  for (const blk of blocks.filter((b) => S.temple && near(b) < Math.max(0.4, S.inner + 0.15) && shapeArea(b) > 900).sort((a, b) => near(a) - near(b))) {
     const yard = groundsIn(blk, cx, cz, crr);
     const b = yard && templeOn(yard, buildings.length, site, crr);
     if (!yard || !b) continue;
@@ -234,17 +276,17 @@ export function planTown(site: TownSite): TownPlan {
   const onRoad = (b: TownBuilding) => Math.min(...roads.map((r) => distToLine(r, b.door[0], b.door[1])));
   const homes = () => buildings.filter((b) => b.kind === 'house' || b.kind === 'cottage');
   const take = (b: TownBuilding | undefined, kind: BuildingKind, trade: string) => { if (b) { b.kind = kind; b.trade = trade; } return b; };
-  const inn = take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => dist(a.cx, a.cz) - dist(b.cx, b.cz))[0], 'inn', 'innkeeper');
+  const inn = S.inn && take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => dist(a.cx, a.cz) - dist(b.cx, b.cz))[0], 'inn', 'innkeeper');
   if (inn) { inn.floors = Math.max(inn.floors, 2) + (tr.chance(0.4) ? 1 : 0); inn.household = 4; }
-  const hall = take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => nearMarket(a) - nearMarket(b))[0], 'hall', 'reeve');
+  const hall = S.hall && take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => nearMarket(a) - nearMarket(b))[0], 'hall', 'reeve');
   if (hall) { hall.floors = 2; hall.wall = 'timber'; hall.household = 2; }
-  take(homes().filter((b) => dist(b.cx, b.cz) < 0.5).sort((a, b) => nearMarket(a) - nearMarket(b))[1], 'bakery', 'baker');
-  take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.45).sort((a, b) => dist(b.cx, b.cz) - dist(a.cx, a.cz))[0], 'smithy', 'smith');
-  take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.6).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0], 'stable', 'carter');
+  if (S.bakery) take(homes().filter((b) => dist(b.cx, b.cz) < 0.5).sort((a, b) => nearMarket(a) - nearMarket(b))[1], 'bakery', 'baker');
+  if (S.smithy) take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.45).sort((a, b) => dist(b.cx, b.cz) - dist(a.cx, a.cz))[0], 'smithy', 'smith');
+  if (S.stable) take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.6).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0], 'stable', 'carter');
   const mill = homes().filter((b) => waterNear(b, wet, 22)).sort((a, b) => dist(b.cx, b.cz) - dist(a.cx, a.cz))[0];
   if (mill) take(mill, 'mill', 'miller');
-  const crafts = ['weaver', 'cobbler', 'carpenter', 'cooper', 'potter', 'tailor', 'chandler', 'butcher'];
-  for (const b of tr.shuffle(homes().filter((b) => onRoad(b) < 6 || nearMarket(b) < 8))) {
+  const crafts = ['weaver', 'cobbler', 'carpenter', 'cooper', 'potter', 'tailor', 'chandler', 'butcher'].slice(0, S.crafts);
+  if (crafts.length) for (const b of tr.shuffle(homes().filter((b) => onRoad(b) < 6 || nearMarket(b) < 8))) {
     if (!crafts.length || !tr.chance(0.55)) continue;
     take(b, 'workshop', crafts.shift()!);
   }
@@ -254,7 +296,7 @@ export function planTown(site: TownSite): TownPlan {
   const [mx, mz] = polyCentroid(market);
   fix('well', mx + fr.range(-3, 3), mz + fr.range(-3, 3), fr.range(-Math.PI, Math.PI));
   const mn = market.length >> 1;
-  for (let i = 0; i < mn; i++) {
+  for (let i = 0; S.stalls && i < mn; i++) {
     const ax = market[i * 2], az = market[i * 2 + 1], bx = market[((i + 1) % mn) * 2], bz = market[((i + 1) % mn) * 2 + 1];
     const L = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / L, uz = (bz - az) / L;
     const inX = -uz, inZ = ux; // the market is counter-clockwise: inward is to the left
@@ -318,7 +360,7 @@ export function planTown(site: TownSite): TownPlan {
     const ch = buildings.find((b) => b.kind === 'temple')!;
     const cr = rng.fork('graves');
     const [x0, z0, x1, z1] = polyBounds(templeGrounds.outer);
-    for (let k = 0; k < 140 && fixtures.filter((f) => f.kind === 'grave').length < 18; k++) {
+    for (let k = 0; k < 140 && fixtures.filter((f) => f.kind === 'grave').length < S.graves; k++) {
       const x = cr.range(x0, x1), z = cr.range(z0, z1);
       if (!pointInPoly(templeGrounds.outer, x, z) || distToPoly(templeGrounds.outer, x, z) < 2.5) continue;
       if (fixtures.some((f) => f.kind === 'grave' && Math.hypot(f.x - x, f.z - z) < 2.4)) continue;
@@ -348,9 +390,9 @@ export function planTown(site: TownSite): TownPlan {
 
 // ---------------------------------------------------------------- the layout
 
-function marketPlace(r: Rng, cx: number, cz: number): Poly {
+function marketPlace(r: Rng, cx: number, cz: number, scale: number): Poly {
   const n = r.chance(0.35) ? 3 : 4;
-  const R = r.range(15, 21) * (n === 3 ? 1.3 : 1);
+  const R = r.range(15, 21) * (n === 3 ? 1.3 : 1) * scale;
   const rot = r.range(0, Math.PI * 2);
   const out: Poly = [];
   for (let i = 0; i < n; i++) {
@@ -361,8 +403,8 @@ function marketPlace(r: Rng, cx: number, cz: number): Poly {
   return ensureCCW(out);
 }
 
-function roadDirections(r: Rng): number[] {
-  const n = r.chance(0.5) ? 3 : 4;
+function roadDirections(r: Rng, [few, more]: readonly [number, number]): number[] {
+  const n = r.chance(0.5) ? few : more;
   const rot = r.range(0, Math.PI * 2);
   const out: number[] = [];
   for (let i = 0; i < n; i++) out.push(rot + (i / n) * Math.PI * 2 + r.range(-0.3, 0.3));
