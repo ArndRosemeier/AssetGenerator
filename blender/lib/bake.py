@@ -30,6 +30,8 @@ def _configure_cycles_for_bake(samples: int) -> None:
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
     scene.cycles.samples = samples
+    # A vertex-colour bake before (ag.py pack) leaves the target behind.
+    scene.render.bake.target = "IMAGE_TEXTURES"
     scene.render.bake.use_pass_direct = False
     scene.render.bake.use_pass_indirect = False
     scene.render.bake.use_pass_color = True
@@ -242,6 +244,13 @@ def apply_baked_principled(
     links.new(normal_tex.outputs["Color"], normal_map.inputs["Color"])
     links.new(normal_map.outputs["Normal"], principled.inputs["Normal"])
 
-    obj.data.materials.clear()
-    obj.data.materials.append(material)
+    # Remember which slot each face came from (ag.py pack --slots reads it back).
+    mesh = obj.data
+    mesh["slot_names"] = [m.name.split(".")[0] if m else "" for m in mesh.materials]
+    slot = mesh.attributes.get("slot") or mesh.attributes.new("slot", "INT", "FACE")
+    for poly in mesh.polygons:
+        slot.data[poly.index].value = poly.material_index
+        poly.material_index = 0
+    mesh.materials.clear()
+    mesh.materials.append(material)
     return material

@@ -293,7 +293,7 @@ def cmd_pack(args: argparse.Namespace) -> int:
     result = run_entrypoint(
         install,
         "pack",
-        {"specs": [str(spec.source_path) for spec in specs], "out": str(Path(args.out).resolve()), "samples": args.samples},
+        {"specs": [str(spec.source_path) for spec in specs], "out": str(Path(args.out).resolve()), "samples": args.samples, "slots": args.slots},
     )
     report = result.report
     if not report.get("ok"):
@@ -354,6 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     pack.add_argument("specs", nargs="+", help="spec ids or paths")
     pack.add_argument("--out", required=True, help="the .fmpk file to write")
     pack.add_argument("--samples", type=int, default=32, help="AO bake samples")
+    pack.add_argument("--slots", action="store_true", help="FMPK v2: also write each vertex's material slot")
     pack.set_defaults(func=cmd_pack)
 
     return parser

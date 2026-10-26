@@ -1,11 +1,11 @@
 /**
- * Medieval layers (for MasterWorld's towns): rubble walls, oak, thatch, wooden shingles, leaded
- * glass, cobbles. Same conventions as the facade and roof layers: +v is up (and up-slope on roofs), heights
+ * Medieval layers (for MasterWorld's towns and cellars): rubble walls, oak, thatch, wooden shingles,
+ * leaded glass, cobbles; for the cellars below: flagstones, old brick, floorboards and limewashed rubble. Same conventions as the facade and roof layers: +v is up (and up-slope on roofs), heights
  * in metres, tileable.
  */
 import { TNoise, Tex, clamp01, mix, newCell, rgb, rnd, smooth, worley, wrapd } from './core';
-import { randomCourses } from './layout';
-import { stoneBlocks } from './masonry';
+import { randomCourses, runningBond } from './layout';
+import { brickWall, stoneBlocks } from './masonry';
 
 type Gen = (t: Tex) => void;
 
@@ -119,6 +119,93 @@ const cobbles: Gen = (t) => {
   });
 };
 
+
+/** Flagstones: worn slabs of many sizes laid in rough rows, gritty earth in the wide joints, edges rounded by feet. */
+const flagstone: Gen = (t) => {
+  stoneBlocks(t, {
+    seed: 7701, layout: randomCourses(t.W, [0.52, 0.4, 0.62, 0.46, 0.56, 0.44], 0.38, 0.9, 7702),
+    joint: 0.024, depth: 0.012, bevel: 0.035, ragged: 0.035, bulge: 0.004, rough3d: 0.004,
+    base: rgb(126, 116, 100), vary: 0.2, hue: 0.08, grain: 0.1, bedding: 1.2,
+    mortar: rgb(84, 74, 60), jointDirt: 0.9, soot: 0.25, streaks: 0, rough: 0.78, roughJoint: 0.98, erosion: 0.35,
+  });
+};
+
+/** Old hand-made brick: dull red-brown, uneven and chipped, soft lime joints with a white salt bloom. */
+const brick: Gen = (t) => {
+  const C1 = rgb(132, 70, 50), C2 = rgb(104, 56, 44), C3 = rgb(78, 46, 40), C4 = rgb(150, 92, 66);
+  brickWall(t, {
+    seed: 7801, layout: runningBond(t.W, 24, 8, 7802, 0.008),
+    joint: 0.013, depth: 0.008, bevel: 0.006, ragged: 0.0016, chips: 0.6,
+    palette: (a, b, _k, o) => {
+      const m = (x: number[], y: number[], k: number) => { o[0] = x[0] + (y[0] - x[0]) * k; o[1] = x[1] + (y[1] - x[1]) * k; o[2] = x[2] + (y[2] - x[2]) * k; };
+      m(C1, C2, a);
+      if (b < 0.15) m(o, C3, 0.7); else if (b > 0.88) m(o, C4, 0.6);
+      const v = 0.86 + 0.26 * ((a * 6.13) % 1);
+      o[0] *= v; o[1] *= v; o[2] *= v;
+    },
+    mottle: 0.14, mortar: rgb(168, 160, 144), soot: 0.6, streaks: 0.45, rough: 0.9,
+    paint: { color: rgb(214, 210, 198), coverage: 0.12 },
+  });
+};
+
+/** Floorboards: long planks of uneven width along u, butt joints staggered, nail heads, grime in the gaps. */
+const boards: Gen = (t) => {
+  const W = t.W, n1 = new TNoise(7901, W), n2 = new TNoise(7902, W), n3 = new TNoise(7903, W);
+  // Plank edges across v (sum to W), each row with its own butt joints along u.
+  const widths: number[] = [];
+  for (let k = 0, sum = 0; sum < W - 0.12; k++) { const w = 0.17 + rnd(7904, k) * 0.09; widths.push(w); sum += w; }
+  const scale = W / widths.reduce((a, b) => a + b, 0);
+  const edges = [0];
+  for (const w of widths) edges.push(edges[edges.length - 1] + w * scale);
+  t.each((u, v, x, y, idx) => {
+    let row = 0;
+    while (row < widths.length - 1 && y >= edges[row + 1]) row++;
+    const ly = (y - edges[row]) / (edges[row + 1] - edges[row]);
+    const len = W / (1 + Math.floor(rnd(7905, row) * 2));
+    const xx = (x + rnd(7906, row) * W) % W;
+    const piece = Math.floor(xx / len), lx = (xx % len) / len;
+    const id = row * 31 + piece;
+    const ra = rnd(7907, id), rb = rnd(7908, id);
+    const gapE = Math.min(ly * (edges[row + 1] - edges[row]), (1 - ly) * (edges[row + 1] - edges[row]), lx * len, (1 - lx) * len);
+    const gap = smooth(0.002, 0.008, gapE);
+    // Grain along u, a few knots, wear in the middle of the room's path (low-frequency).
+    const grain = n1.fbm(u + ra, v, 0.5, 4, 0.55, 0.01);
+    const ring = Math.abs(Math.sin(v * 260 + ra * 40 + n2.fbm(u, v, 0.4, 3) * 8));
+    const knot = smooth(0.08, 0.0, Math.hypot(((xx % len) - len * (0.3 + ra * 0.4)) * 0.6, (ly - 0.5) * (edges[row + 1] - edges[row]))) * (rb > 0.6 ? 1 : 0);
+    const nail = (Math.min(lx * len, (1 - lx) * len) < 0.05 && Math.abs(ly - 0.5) < 0.12) ? smooth(0.007, 0.004, Math.hypot(Math.min(lx * len, (1 - lx) * len) - 0.03, (ly - 0.5) * (edges[row + 1] - edges[row]))) : 0;
+    const wear = smooth(-0.2, 0.5, n3.fbm(u, v, 0.9, 3));
+    const dirt = (1 - smooth(0.004, 0.03, gapE)) * 0.4;
+    const k = (0.82 + ra * 0.3) * (1 + grain * 0.22 - (ring < 0.18 ? 0.08 : 0)) * (1 - knot * 0.2) * (1 - dirt);
+    let r = mix(0.42, 0.37, wear) * k, g = mix(0.31, 0.3, wear) * k, b = mix(0.21, 0.24, wear) * k;
+    r = mix(r, 0.12, nail); g = mix(g, 0.11, nail); b = mix(b, 0.1, nail);
+    const h = mix(-0.004, 0.002 * (1 - wear * 0.5) + grain * 0.0006 - knot * 0.0005 + (rb - 0.5) * 0.0015, gap);
+    t.set(idx, mix(0.06, r, gap), mix(0.05, g, gap), mix(0.04, b, gap), mix(0.95, 0.72 + wear * 0.12, gap) - nail * 0.3, h);
+  });
+};
+
+/** Limewashed rubble: the stones' shape shows through coats of whitewash, flaking off in patches, with damp and mould. */
+const limewash: Gen = (t) => {
+  const W = t.W, n1 = new TNoise(8001, W), n2 = new TNoise(8002, W), n3 = new TNoise(8003, W);
+  stoneBlocks(t, {
+    seed: 8004, layout: randomCourses(W, [0.14, 0.27, 0.12, 0.33, 0.19, 0.24, 0.3, 0.16, 0.22], 0.14, 0.6, 8005),
+    joint: 0.034, depth: 0.008, bevel: 0.05, ragged: 0.04, bulge: 0.014, rough3d: 0.006,
+    base: rgb(140, 134, 122), vary: 0.14, hue: 0.05, grain: 0.1, bedding: 1.4,
+    mortar: rgb(176, 168, 150), jointDirt: 0.5, soot: 0, streaks: 0, rough: 0.92, roughJoint: 0.96, erosion: 0.2,
+    extra: (u, v, mask, _hit, c) => {
+      // Whitewash fills the joints a little and covers the stone, except where it has flaked.
+      const flake = smooth(0.16, 0.22, n1.fbm(u, v, 0.6, 5, 0.6) * 0.75 + n2.fbm(u, v, 0.06, 3) * 0.25);
+      const coat = 1 - flake;
+      const tone = 0.9 + n2.fbm(u, v, 0.25, 3) * 0.05 + n3.fbm(u, v, 0.03, 2) * 0.03;
+      const mould = smooth(0.1, 0.45, n3.fbm(u + 0.37, v, 0.35, 4)) * 0.5;
+      let r = 0.86 * tone, g = 0.84 * tone, b = 0.78 * tone;
+      r = mix(r, 0.34, mould * 0.6); g = mix(g, 0.36, mould * 0.6); b = mix(b, 0.28, mould * 0.6);
+      c[0] = mix(c[0], r, coat); c[1] = mix(c[1], g, coat); c[2] = mix(c[2], b, coat);
+      c[3] = mix(c[3], 0.95, coat);
+      c[4] = c[4] * mix(1, 0.6, coat) + (1 - mask) * coat * 0.004 + coat * 0.0012;
+    },
+  });
+};
+
 /** Every medieval layer, in a fixed order (index = layer number). */
 export const MEDIEVALS: { name: string; W: number; gen: Gen; normal: number; aoK: number; aoR: [number, number] }[] = [
   { name: 'rubble', W: 2.4, gen: rubble, normal: 1, aoK: 40, aoR: [0.01, 0.05] },
@@ -127,4 +214,8 @@ export const MEDIEVALS: { name: string; W: number; gen: Gen; normal: number; aoK
   { name: 'shingle', W: 2.0, gen: shingle, normal: 1, aoK: 60, aoR: [0.006, 0.02] },
   { name: 'leaded', W: 0.88, gen: leaded, normal: 0.6, aoK: 10, aoR: [0.003, 0.01] },
   { name: 'cobbles', W: 2.1, gen: cobbles, normal: 1, aoK: 50, aoR: [0.006, 0.025] },
+  { name: 'flagstone', W: 2.4, gen: flagstone, normal: 1, aoK: 45, aoR: [0.008, 0.04] },
+  { name: 'brick', W: 1.8, gen: brick, normal: 1, aoK: 40, aoR: [0.004, 0.02] },
+  { name: 'boards', W: 2.0, gen: boards, normal: 1, aoK: 30, aoR: [0.004, 0.02] },
+  { name: 'limewash', W: 2.4, gen: limewash, normal: 1, aoK: 40, aoR: [0.01, 0.05] },
 ];

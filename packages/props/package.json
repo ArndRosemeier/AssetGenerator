@@ -1,0 +1,11 @@
+{
+  "name": "@futuremagic/props",
+  "version": "0.1.0",
+  "description": "Props made in Blender from AssetGenerator specs and packed by `ag.py pack` (FMPK): decode the pack into plain arrays (positions, normals, colours with baked AO, material slots). Pure, runs in workers.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "license": "MIT"
+}
