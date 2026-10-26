@@ -123,10 +123,10 @@ const cobbles: Gen = (t) => {
 /** Flagstones: worn slabs of many sizes laid in rough rows, gritty earth in the wide joints, edges rounded by feet. */
 const flagstone: Gen = (t) => {
   stoneBlocks(t, {
-    seed: 7701, layout: randomCourses(t.W, [0.52, 0.4, 0.62, 0.46, 0.56, 0.44], 0.38, 0.9, 7702),
-    joint: 0.024, depth: 0.012, bevel: 0.035, ragged: 0.035, bulge: 0.004, rough3d: 0.004,
-    base: rgb(126, 116, 100), vary: 0.2, hue: 0.08, grain: 0.1, bedding: 1.2,
-    mortar: rgb(84, 74, 60), jointDirt: 0.9, soot: 0.25, streaks: 0, rough: 0.78, roughJoint: 0.98, erosion: 0.35,
+    seed: 7701, layout: randomCourses(t.W, [0.34, 0.58, 0.27, 0.49, 0.38, 0.62, 0.3], 0.26, 1.05, 7702),
+    joint: 0.014, depth: 0.008, bevel: 0.03, ragged: 0.03, bulge: 0.003, rough3d: 0.005,
+    base: rgb(124, 120, 112), vary: 0.22, hue: 0.05, grain: 0.12, bedding: 1.2,
+    mortar: rgb(104, 96, 84), jointDirt: 0.45, soot: 0.25, streaks: 0, rough: 0.78, roughJoint: 0.98, erosion: 0.35,
   });
 };
 
