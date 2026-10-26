@@ -8,7 +8,8 @@
  * it red (`userData.hurt`, per object, 0..1). The game registers them in its own material registry
  * (warmed up before first use). From Dunfinity.
  */
-import { MeshStandardNodeMaterial, type Node } from 'three/webgpu';
+import { DoubleSide, MeshStandardNodeMaterial, type Node } from 'three/webgpu';
+import { BIRD_SHOULDER } from './birds';
 import { Fn, If, abs, attribute, dot, faceDirection, float, mix, mx_noise_float, mx_noise_vec3, mx_worley_noise_vec2, normalView, positionGeometry, positionView, sin, smoothstep, time, uniform, vec2, vec3, vertexColor } from 'three/tsl';
 
 /** Screen-space bump of `height` (no tangents needed). */
@@ -86,5 +87,35 @@ export function critterEye(): MeshStandardNodeMaterial {
   const col = mix(vec3(0.42, 0.38, 0.34), vertexColor().mul(rings.mul(0.5).add(0.7)), iris);
   m.colorNode = mix(col, vec3(0.01, 0.01, 0.01), pupil);
   m.emissiveNode = vertexColor().mul(pupil.mul(0.35).add(iris.mul(0.06)));
+  return m;
+}
+
+/**
+ * Small birds, many in one draw (./three/birds.ts `BirdBatch`, the body from ./birds.ts): the wings
+ * beat by the angle each bird is given (the outer part curls more) or fold along the back; the body is
+ * banked, pitched, turned, sized and placed by its instance attributes. Flat shaded: at a bird's size
+ * the facets read as feathers. The back's colour per bird, the belly paler, the beak dark.
+ */
+export function birdMaterial(): MeshStandardNodeMaterial {
+  const m = new MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, flatShading: true, side: DoubleSide });
+  const place = attribute<'vec4'>('bPlace', 'vec4'), turn = attribute<'vec4'>('bTurn', 'vec4'), look = attribute<'vec4'>('bLook', 'vec4');
+  const part = attribute<'vec2'>('bPart', 'vec2');
+  const p = positionGeometry, side = part.x, span = part.y, wingy = abs(side);
+  // A wing turns about the body's long axis at its shoulder.
+  const x0 = side.mul(BIRD_SHOULDER), d = abs(p.x.sub(x0));
+  const th = turn.w.mul(span.mul(0.7).add(0.75));
+  const spread = vec3(x0.add(side.mul(d).mul(th.cos())), p.y.add(d.mul(th.sin())), p.z);
+  const folded = vec3(x0.add(side.mul(d).mul(0.1)), p.y.add(0.02).add(d.mul(0.04)), p.z.sub(d.mul(0.55)));
+  const q = mix(p, mix(spread, folded, look.w), wingy);
+  // Bank (about z), pitch (about x, nose up), turn (about y), then size and place.
+  const cb = turn.y.cos(), sb = turn.y.sin(), cp = turn.x.cos(), sp = turn.x.sin(), cy = place.w.cos(), sy = place.w.sin();
+  const b1 = vec3(q.x.mul(cb).sub(q.y.mul(sb)), q.x.mul(sb).add(q.y.mul(cb)), q.z);
+  const b2 = vec3(b1.x, b1.y.mul(cp).add(b1.z.mul(sp)), b1.z.mul(cp).sub(b1.y.mul(sp)));
+  const b3 = vec3(b2.x.mul(cy).add(b2.z.mul(sy)), b2.y, b2.z.mul(cy).sub(b2.x.mul(sy)));
+  m.positionNode = b3.mul(turn.z).add(place.xyz);
+  const back = look.xyz;
+  const belly = mix(back, back.mul(1.8).add(vec3(0.12, 0.1, 0.07)), smoothstep(0.0, -0.06, p.y).mul(wingy.oneMinus()));
+  const tips = mix(belly, back.mul(0.55), span.mul(span).mul(wingy));
+  m.colorNode = mix(tips, vec3(0.05, 0.04, 0.02), smoothstep(0.44, 0.47, p.z));
   return m;
 }
