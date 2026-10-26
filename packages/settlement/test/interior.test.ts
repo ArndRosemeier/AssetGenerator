@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, storeyAt, WALL_THICK } from '../src/index';
+import { BUILDING_MAT_COUNT, buildingMesh, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, storeyAt, WALL_THICK } from '../src/index';
 
 const towns = [3, 4, 5, 6, 7, 8].map((seed) => planTown({ seed, x: 500, z: 200, height: () => 20 }));
 const town = { buildings: towns.flatMap((t) => t.buildings) };
@@ -156,4 +156,31 @@ test('interior: a hatch down to a cellar lies on free floor one can walk to, in 
     assert.ok(Math.abs(h[0].a) + 0.45 <= p.ha + 1e-6 && Math.abs(h[0].b) + 0.45 <= p.hb + 1e-6, 'inside');
     assert.equal(planInterior(b).fixtures.some((f) => f.kind === 'hatch'), false, 'only when asked');
   }
+});
+
+test('chimney: every stack stands on the roof, within the walls, and rises past the ridge', () => {
+  let n = 0;
+  for (const b of town.buildings) {
+    const S = houseShape(b), k = chimneyStack(b, S);
+    if (!k) continue;
+    n++;
+    const at = `${b.kind} #${b.id}`;
+    assert.ok(Math.abs(k.a) + k.half <= b.hu && k.b - k.half >= S.front && k.b + k.half <= S.back, `${at}: within the walls`);
+    assert.ok(k.y1 > S.top + (b.ridgeAlongU ? (S.back - S.front) / 2 : b.hu) * b.pitch + 0.5, `${at}: past the ridge`);
+    // Just outside each corner of the stack, the drawn roof lies above the stack's foot.
+    const m = buildingMesh(b, [0, 0, 0], false), ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+    const world = (a: number, y: number, bb: number) => [b.cx + ux * a + b.vx * bb, b.floorY + y, b.cz + uz * a + b.vz * bb];
+    for (const da of [-1, 1]) for (const db of [-1, 1]) {
+      const a = k.a + da * (k.half + 0.1), bb = k.b + db * (k.half + 0.1);
+      assert.ok(roofAt(b, S, a, bb) > k.y0, `${at}: the roof over the stack's foot`);
+      const p = world(a, k.y0, bb), q = world(a, k.y0 + 30, bb);
+      let hit = false;
+      for (let t = 0; t < m.index.length && !hit; t += 3) {
+        const v = [0, 1, 2].map((j) => [m.position[m.index[t + j] * 3], m.position[m.index[t + j] * 3 + 1], m.position[m.index[t + j] * 3 + 2]]);
+        hit = segHits(p, q, v[0], v[1], v[2]);
+      }
+      assert.ok(hit, `${at}: roof drawn above the stack's foot (corner ${da}, ${db})`);
+    }
+  }
+  assert.ok(n > 20);
 });
