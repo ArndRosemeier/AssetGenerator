@@ -23,6 +23,11 @@ export interface SkyOptions {
   /** Angular radius of the drawn sun and moon discs, radians (default ~3x the real ones, so they read). */
   sunRadius?: number;
   moonRadius?: number;
+  /**
+   * A floating origin (a vec3 node, @futuremagic/stage FloatingOrigin's `node`) when the scene is drawn relative to
+   * one: the clouds overhead are placed by the camera's world position, so they stay put when it steps.
+   */
+  origin?: N;
 }
 
 const gradient = Fn(([i]: N[]) => {
@@ -256,7 +261,7 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     }
 
     If(direction.y.greaterThan(0.0).and(U.cloudCoverage.greaterThan(0.0)), () => {
-      const origin = select(U.cloudHeight.greaterThan(0.0), cameraPosition, vec3(0.0));
+      const origin = select(U.cloudHeight.greaterThan(0.0), o.origin ? cameraPosition.add(o.origin) : cameraPosition, vec3(0.0));
       const cloudUV = cloudUv(U, direction, origin).toVar();
       const field = cloudField(U, cloudUV, fbm);
       const cloudNoise = field.cloudNoise.toVar();

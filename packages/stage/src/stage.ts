@@ -8,7 +8,7 @@
  *     queued build under the cap) and only then puts it into the scene. Nothing ever draws with a
  *     shader that is not ready, so nothing compiles on the render path.
  */
-import { BufferGeometry, Float32BufferAttribute, Group, Mesh, type Camera, type InstancedMesh, type Material, type Object3D, type RenderTarget, type Scene, type WebGPURenderer } from 'three/webgpu';
+import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Vector3, type Camera, type InstancedMesh, type Material, type Object3D, type RenderTarget, type Scene, type WebGPURenderer } from 'three/webgpu';
 import { ShaderCap } from './cap';
 import { ShaderMonitor } from './monitor';
 import { installShaderPolicy, shadowKindOf } from './patches';
@@ -123,8 +123,11 @@ export class Stage {
     // shaders are keyed by, and builds the renderer's own output pass.
     this.drawFrame();
     const standIns = this.opts.kinds().map((k) => standIn(k, this.opts.attribute));
+    // In front of the camera, in the scene's own frame (its root may stand off zero: a floating origin).
+    this.scene.updateMatrixWorld();
+    const front = this.scene.worldToLocal(this.camera.getWorldPosition(new Vector3()).add(new Vector3(0, 0, -2)));
     for (const m of standIns) {
-      m.position.set(this.camera.position.x, this.camera.position.y, this.camera.position.z - 2);
+      m.position.copy(front);
       m.frustumCulled = false; // compileAsync skips what is out of view, wherever the camera looks
     }
     const group = new Group();

@@ -7,3 +7,4 @@ export * from './farmland';
 export * from './props';
 export * from './building';
 export * from './interior';
+export * from './route';

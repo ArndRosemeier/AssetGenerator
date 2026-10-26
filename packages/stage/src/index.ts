@@ -6,3 +6,4 @@ export { createRenderer, graphicsSupport, hasWebGPU, GraphicsUnavailable, type B
 export { GRADE, gradedAgX } from './grade';
 export { gradeAt, type GradeKey, type Rgb } from './look';
 export { createPost, type Post, type PostOptions } from './post';
+export { FloatingOrigin, worldPosition, worldCamera, type OriginOptions } from './origin';

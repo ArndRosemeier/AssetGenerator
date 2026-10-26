@@ -3,7 +3,7 @@
  * matrices are written on the CPU, with the levels chosen again whenever the camera has moved `step` metres.
  * No view culling: the batches are drawn whole (not frustum-culled, they cover the camera all round).
  */
-import { Group, Mesh, type Camera, type InstancedBufferGeometry, type InstancedInterleavedBuffer } from 'three/webgpu';
+import { Group, Mesh, Vector3, type Camera, type InstancedBufferGeometry, type InstancedInterleavedBuffer } from 'three/webgpu';
 import { batchCap, instancedGeometry } from './geometry';
 import { DITHER, KIND, RECORD, inLod, viewDistance } from './select';
 import type { DrawKind, DrawOptions, DrawPart, InstanceDraws } from './types';
@@ -18,6 +18,9 @@ export class CpuInstanceDraws implements InstanceDraws {
   private data = new Float32Array(0);
   private count = 0;
   private readonly at: [number, number, number] = [Infinity, 0, 0];
+  /** The origin the batches were last written relative to (opts.origin). */
+  private readonly drawnAt: [number, number, number] = [0, 0, 0];
+  private readonly cam = new Vector3();
   private dirty = true;
   /** While shaders build, every batch draws at least one instance. */
   private preparing = false;
@@ -47,10 +50,13 @@ export class CpuInstanceDraws implements InstanceDraws {
   }
 
   update(camera: Camera): void {
-    const p = camera.position;
-    const step = this.opts.step ?? 8;
+    const p = camera.getWorldPosition(this.cam);
+    const step = this.opts.step ?? 8, org = this.opts.origin, ox = org?.x ?? 0, oy = org?.y ?? 0, oz = org?.z ?? 0;
+    // A step of the origin moves every instance's drawn position.
+    if (ox !== this.drawnAt[0] || oy !== this.drawnAt[1] || oz !== this.drawnAt[2]) this.dirty = true;
     if (!this.dirty && Math.hypot(p.x - this.at[0], p.y - this.at[1], p.z - this.at[2]) <= step) return;
     this.dirty = false;
+    this.drawnAt[0] = ox; this.drawnAt[1] = oy; this.drawnAt[2] = oz;
     this.at[0] = p.x; this.at[1] = p.y; this.at[2] = p.z;
     for (const k of this.batches) for (const l of k) for (const b of l) b.n = 0;
     const d = this.data, horizontal = !!this.opts.horizontal;
@@ -63,7 +69,9 @@ export class CpuInstanceDraws implements InstanceDraws {
         if (!inLod(l, dist, d[o + DITHER])) return;
         for (const b of this.batches[kind][li]) {
           if (b.n >= b.cap) this.grow(b);
-          b.matrices.set(d.subarray(o, o + 16), b.n++ * 16);
+          const at = b.n++ * 16;
+          b.matrices.set(d.subarray(o, o + 16), at);
+          b.matrices[at + 12] -= ox; b.matrices[at + 13] -= oy; b.matrices[at + 14] -= oz;
         }
       });
     }

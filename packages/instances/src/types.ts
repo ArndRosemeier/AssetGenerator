@@ -33,6 +33,11 @@ export interface DrawOptions {
   capacity?: number;
   /** Always the CPU path. */
   cpu?: boolean;
+  /**
+   * A floating origin (read on every update): records and the camera stay in world space, the instances are
+   * drawn relative to this point (their group must then draw at the identity: @futuremagic/stage FloatingOrigin.pin).
+   */
+  origin?: Vector3;
 }
 
 /** Instances of several kinds, each drawn at the level its distance asks for. */

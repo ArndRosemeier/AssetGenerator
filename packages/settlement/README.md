@@ -20,5 +20,10 @@ Planning settlements on the ground plane (x, z), pure TypeScript: runs in worker
   is walled in by and `interiorBlocked` the furniture in its way. Merged with the open building it is a
   hollow building one walks into where it stands.
 
+* `route`: roads between places over open land (`routeRoad`): the cheapest way over a grid, where cost
+  grows with the grade, water is crossed only at a ford and the caller may forbid ground; straightened
+  and rounded, points evenly spaced. `roadProfile` lays the height a road runs at (eased over rises,
+  meeting the ground at both ends), so the land can be cut and filled to it.
+
 Came from Scale (`src/core/geom2.ts`, `src/core/clip.ts`, `src/plan/cell.ts`, v1.0); the town planner
 is new, for MasterWorld.
