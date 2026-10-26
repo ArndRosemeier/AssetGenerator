@@ -82,17 +82,17 @@ export function deferLateBuilds(renderer: WebGPURenderer, cap: ShaderCap, monito
   if (typeof direct !== 'function' || typeof objects?.get !== 'function') return false;
   const noted = new Set<string>();
   r._renderObjectDirect = function (this: Any, object: Any, material: Any, scene: Any, camera: Any, lightsNode: Any, group: Any, clippingContext: Any, passId: Any) {
-    const draw = (): unknown => direct.call(this, object, material, scene, camera, lightsNode, group, clippingContext, passId);
-    if (!cap.active || monitor.note) return draw();
+    const drawNow = (): unknown => direct.call(this, object, material, scene, camera, lightsNode, group, clippingContext, passId);
+    if (!cap.active || monitor.note) return drawNow();
     const ro = objects.get(object, material, scene, camera, lightsNode, this._currentRenderContext, clippingContext, passId);
-    if (!needsBuild(ro)) return draw();
+    if (!needsBuild(ro)) return drawNow();
     if (!cap.room()) {
       const key = String(nodes.getForRenderCacheKey(ro));
       if (!noted.has(key)) { noted.add(key); monitor.record('node-late', 0, label(ro)); }
       return undefined;
     }
     const release = cap.take();
-    try { return draw(); } finally { release(); }
+    try { return drawNow(); } finally { release(); }
   };
   return true;
 }
