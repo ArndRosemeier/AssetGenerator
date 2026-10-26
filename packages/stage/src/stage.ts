@@ -61,7 +61,8 @@ const WARM_LAYER = 7;
 function casterKey(m: Mesh): string {
   const g = m.geometry, mats = (Array.isArray(m.material) ? m.material : [m.material]) as (Material & { alphaMap?: unknown; positionNode?: unknown; displacementMap?: unknown })[];
   return [(m as { isInstancedMesh?: boolean }).isInstancedMesh, (m as { skeleton?: { bones: unknown[] } }).skeleton?.bones.length ?? -1, m.receiveShadow,
-    Object.keys(g.attributes).sort().map((k) => `${k}${g.attributes[k]!.itemSize}`).join(','), Object.keys(g.morphAttributes).join(','), !!g.index,
+    // Morph targets by identity, as three keys them: a mesh with morphs of its own has shaders of its own.
+    Object.keys(g.attributes).sort().map((k) => `${k}${g.attributes[k]!.itemSize}`).join(','), Object.entries(g.morphAttributes as Record<string, { id: number }[]>).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, list]) => `${k}:${list.map((a) => a.id).join('.')}`).join(','), !!g.index,
     ...mats.map((mat) => [mat.type, mat.name, mat.side, mat.shadowSide, mat.alphaTest > 0, !!mat.alphaMap, mat.transparent, !!mat.positionNode, !!mat.displacementMap, shadowKindOf(mat)].join(':'))].join('|');
 }
 
@@ -277,10 +278,16 @@ export class Stage {
   prepare(obj: Object3D, opts: { everyCaster?: boolean } = {}): Promise<void> {
     // compileAsync skips what is outside the view; it must compile everything, or the object
     // would build its shader on the render path the first time it comes into view.
-    const culled: Object3D[] = [];
-    obj.traverse((o) => { if (o.frustumCulled) { o.frustumCulled = false; culled.push(o); } });
+    // compileAsync skips hidden objects too: what is hidden now (rain on a dry day) would build on the render path
+    // once shown. Shown while compiling, unless already in the scene (then the view could draw it meanwhile).
+    const culled: Object3D[] = [], hidden: Object3D[] = [];
+    obj.traverse((o) => {
+      if (o.frustumCulled) { o.frustumCulled = false; culled.push(o); }
+      if (!o.visible && !obj.parent) { o.visible = true; hidden.push(o); }
+    });
     return this.onTarget(() => this.renderer.compileAsync(obj, this.camera, this.scene)).finally(() => {
       for (const o of culled) o.frustumCulled = true;
+      for (const o of hidden) o.visible = false;
     }).then(() => this.warmShadowsOf(obj, opts.everyCaster));
   }
 
