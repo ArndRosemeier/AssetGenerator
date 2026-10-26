@@ -70,29 +70,29 @@ function queueNodeBuilds(renderer: WebGPURenderer, cap: ShaderCap, monitor: Shad
 
 /**
  * After warm-up, something drawn whose shader nobody compiled ahead (a mesh made late, a shadow caster of a kind not
- * seen yet, a point light's shadow face) would build it on the render path, at once, whatever the cap says. Instead
- * that draw is skipped and the shader built async in a cap slot of its own; the object shows (or casts its shadow)
- * from the frame after, like a pipeline not ready yet (`asyncDrawPipelines`). The monitor records each as
- * `node-late`. The Stage's own shadow warm-up (`monitor.note` set) draws in a slot it holds and builds at once.
+ * seen yet, a point light's shadow face) would build it on the render path at once, whatever the cap says. Instead
+ * it builds there only in a frame with room under the cap (taking that frame's slot), and is skipped until then: it
+ * shows (or casts its shadow) a few frames later, like a pipeline not ready yet (`asyncDrawPipelines`). It is built
+ * while drawn, not later: a pass's own material (the shadow pass's) holds the object's nodes only during its draw.
+ * The monitor records each skipped shader once as `node-late`. The Stage's own shadow warm-up (`monitor.note` set)
+ * draws in a slot it holds already.
  */
 export function deferLateBuilds(renderer: WebGPURenderer, cap: ShaderCap, monitor: ShaderMonitor, needsBuild: (ro: Any) => boolean, label: (ro: Any) => string): boolean {
   const r = renderer as Any, direct = r._renderObjectDirect, objects = r._objects, nodes = r._nodes;
   if (typeof direct !== 'function' || typeof objects?.get !== 'function') return false;
-  const building = new Set<string>();
+  const noted = new Set<string>();
   r._renderObjectDirect = function (this: Any, object: Any, material: Any, scene: Any, camera: Any, lightsNode: Any, group: Any, clippingContext: Any, passId: Any) {
-    if (cap.active && !monitor.note) {
-      const ro = objects.get(object, material, scene, camera, lightsNode, this._currentRenderContext, clippingContext, passId);
-      if (needsBuild(ro)) {
-        const key = String(nodes.getForRenderCacheKey(ro));
-        if (!building.has(key)) {
-          building.add(key);
-          monitor.record('node-late', 0, label(ro));
-          void Promise.resolve(nodes.getForRender(ro, true)).catch(() => undefined).finally(() => building.delete(key));
-        }
-        return;
-      }
+    const draw = (): unknown => direct.call(this, object, material, scene, camera, lightsNode, group, clippingContext, passId);
+    if (!cap.active || monitor.note) return draw();
+    const ro = objects.get(object, material, scene, camera, lightsNode, this._currentRenderContext, clippingContext, passId);
+    if (!needsBuild(ro)) return draw();
+    if (!cap.room()) {
+      const key = String(nodes.getForRenderCacheKey(ro));
+      if (!noted.has(key)) { noted.add(key); monitor.record('node-late', 0, label(ro)); }
+      return undefined;
     }
-    return direct.call(this, object, material, scene, camera, lightsNode, group, clippingContext, passId);
+    const release = cap.take();
+    try { return draw(); } finally { release(); }
   };
   return true;
 }

@@ -5,7 +5,7 @@
  * shaders built again with the same code (`repeats`), the usual reason stalls come back. `window.shaders.report()` in the console; a game shows `stage.hudLine()` in its HUD or debug menu. From Dunfinity src/render/shaders/monitor.ts.
  */
 export type Phase = 'warmup' | 'run';
-/** `node-late`: a draw skipped, its shader built async behind it (patches.ts `deferLateBuilds`). */
+/** `node-late`: a draw skipped until a frame with room under the cap to build its shader (patches.ts `deferLateBuilds`). */
 export type BuildKind = 'node-sync' | 'node-async' | 'node-late' | 'gpu-module' | 'gpu-pipeline-sync' | 'gpu-pipeline-async' | 'gl-link';
 
 /** `code`: a hash of the shader code a node build made (`codeHash`), to find the same shader built again. */
