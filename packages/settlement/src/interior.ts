@@ -507,12 +507,14 @@ const LINEN: RGB = [214, 204, 180];
 const STONE: RGB = [196, 188, 176];
 
 /**
- * Inside faces carry how much daylight reaches them in their material: `mat` = BuildingMat + INSIDE_LIGHT ×
- * level, level 1 (dark) .. 15 (as out of doors), the square root of the share of the open sky's light (the
+ * Inside faces carry how much daylight reaches them in their material: `mat` = material + INSIDE_LIGHT ×
+ * level, level 1 (dark) .. INSIDE_LEVELS (as out of doors), with room below INSIDE_LIGHT for a game's own
+ * texture layers past BuildingMat's, the square root of the share of the open sky's light (the
  * windows' and the door's, by distance and angle, and a little thrown back by the room). Outside faces
  * have level 0. A game dims the sky's light on them by it (the sun's comes in through the openings by itself).
  */
-export const INSIDE_LIGHT = 16;
+export const INSIDE_LIGHT = 32;
+export const INSIDE_LEVELS = 7;
 
 /** An axis-aligned box in the building's frame (y over its floor): what the inside walls a body in with. */
 export interface InteriorBox { a0: number; a1: number; y0: number; y1: number; b0: number; b1: number }
@@ -693,7 +695,7 @@ function daylight(m: BuildingMesh, b: TownBuilding, origin: [number, number, num
       const cw = (ea * l.na + eb * l.nb) / d, cv = -(ea * nA + ey * ny + eb * nB) / d;
       if (cw > 0 && cv > 0) f += (l.area * cw * cv) / (Math.PI * d2);
     }
-    const level = Math.min(15, Math.max(1, Math.round(15 * Math.sqrt(Math.min(1, f)))));
+    const level = Math.min(INSIDE_LEVELS, Math.max(1, Math.round(INSIDE_LEVELS * Math.sqrt(Math.min(1, f)))));
     m.mat[i] += INSIDE_LIGHT * level;
   }
 }
