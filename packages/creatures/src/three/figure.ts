@@ -5,6 +5,7 @@
  * moves. The game gives the materials (one for the flesh of every species, one for every eye; see
  * ../node.ts), so it keeps its own material registry. From Dunfinity.
  */
+import { skinLocally } from './skinning';
 import { Bone, BufferAttribute, BufferGeometry, Group, Matrix4, Mesh, Quaternion, Skeleton, SkinnedMesh, SphereGeometry, Vector3, Float32BufferAttribute, type Material } from 'three/webgpu';
 import { anatomyOf, type Anatomy } from '../anatomy';
 import { fleshOf, type FleshData } from '../flesh';
@@ -90,6 +91,7 @@ export class CritterFigure {
     this.mesh.castShadow = this.mesh.receiveShadow = shadows;
     this.mesh.add(bones[0]);
     this.mesh.bind(new Skeleton(all, inverses), new Matrix4());
+    skinLocally(this.mesh); // exact far from the origin
     // Its bounds are the rest pose's: a creature rolled over would be culled while in view.
     this.mesh.frustumCulled = false;
     for (const e of an.eyes) {

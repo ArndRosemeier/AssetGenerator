@@ -9,6 +9,7 @@
 import { AdditiveAnimationBlendMode, AnimationMixer, AnimationUtils, Group, LoopOnce, LoopRepeat, Mesh, type AnimationAction, type AnimationClip, type Material, type Object3D } from 'three/webgpu';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { skinLocally } from './skinning';
 
 /** How a clip is played: looped (by time, or by distance with `stride` metres per cycle at size 1), or once and held. */
 export interface ClipUse {
@@ -58,6 +59,7 @@ export class ModelledFigure {
 
   constructor(readonly model: Object3D, rig: ModelledCreature, private readonly uses: Readonly<Record<string, ClipUse>>, flinch?: string) {
     this.root.add(model);
+    skinLocally(model); // exact far from the origin
     this.mixer = new AnimationMixer(model);
     for (const [name, use] of Object.entries(uses)) {
       const clip = rig.clips.get(name);
