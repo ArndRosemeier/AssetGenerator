@@ -3,13 +3,17 @@
  * Hand `target` and `draw` to the Stage (StageOptions), so shaders are compiled against the scene pass and
  * the chain's own shaders are built in the warm-up, not on the render path.
  */
-import { RenderPipeline, type Camera, type RenderTarget, type Scene, type WebGPURenderer } from 'three/webgpu';
+import { DepthTexture, FloatType, RenderPipeline, type Camera, type RenderTarget, type Scene, type WebGPURenderer } from 'three/webgpu';
 import { pass, uniform } from 'three/tsl';
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 
 export interface PostOptions {
   /** Glow around what is brighter than `threshold` (scene light before exposure); off without it. */
   bloom?: { strength: number; radius: number; threshold: number };
+  /** Multisampling of the scene pass (default: the renderer's). */
+  samples?: number;
+  /** A float depth buffer for the scene pass (a reversed depth buffer needs one; default true). */
+  floatDepth?: boolean;
 }
 
 export interface Post {
@@ -22,7 +26,9 @@ export interface Post {
 }
 
 export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, opts: PostOptions = {}): Post {
-  const scenePass = pass(scene, camera);
+  const depth = new DepthTexture(1, 1);
+  if (opts.floatDepth ?? true) depth.type = FloatType;
+  const scenePass = pass(scene, camera, { depthTexture: depth, ...(opts.samples !== undefined ? { samples: opts.samples } : {}) });
   const color = scenePass.getTextureNode('output');
   let out: { add?: unknown } = color;
   let glow: Post['bloom'] = null;
