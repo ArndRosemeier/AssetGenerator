@@ -147,6 +147,10 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     cloudHeight: uniform(0),
     // The env copy only: its colour's saturation. Preetham's clear sky is a very saturated blue; as the light in the shade it reads too blue.
     envSaturation: uniform(1),
+    // The env copy only: how bright it is below the horizon, as a share of the horizon (1 = as the horizon).
+    // Where the ground's own bounce is lit apart (a hemisphere light), lower it: else everything is lit from
+    // below as brightly as from the sky, and under an overcast sky (no sun) nothing shows a shaded side.
+    envGround: uniform(1),
     showSunDisc: uniform(1), time: uniform(0),
     cloudDark: uniform(0), overcast: uniform(0), flash: uniform(0), flashDir: uniform(new THREE.Vector3(0, 0.5, 1)),
     skyFog: uniform(0), fogCol: uniform(new THREE.Color()),
@@ -294,6 +298,7 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     if (env) {
       const lum = dot(texColor, vec3(0.2126, 0.7152, 0.0722));
       texColor.assign(mix(vec3(lum), texColor, U.envSaturation));
+      texColor.mulAssign(mix(U.envGround, 1.0, smoothstep(-0.25, 0.0, direction.y)));
     }
     return vec4(texColor, 1.0);
   })();
