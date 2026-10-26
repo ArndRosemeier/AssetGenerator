@@ -118,6 +118,20 @@ export function twilight(direction: N, sunDirection: N): N {
   return band.add(blue).add(belt).mul(glow).mul(0.5).mul(smoothstep(-0.12, 0.0, direction.y));
 }
 
+/**
+ * The night sky once twilight has gone (sun below about -0.1): not black but a deep blue, lighter
+ * toward the horizon and brighter while the moon is up, so hills and roofs stand against it.
+ */
+export function nightSky(direction: N, sunDirection: N, moonDirection: N): N {
+  const dark = sub(1.0, smoothstep(-0.2, -0.06, sunDirection.y));
+  const h = max(direction.y, 0.0);
+  const base = mix(vec3(0.022, 0.03, 0.055), vec3(0.006, 0.011, 0.03), pow(h, 0.5));
+  const moonUp = smoothstep(-0.05, 0.25, moonDirection.y);
+  // The moon's own halo: a wide, faint glow round it.
+  const halo = vec3(0.05, 0.06, 0.08).mul(pow(max(dot(direction, moonDirection), 0.0), 12.0)).mul(moonUp);
+  return base.mul(moonUp.mul(1.2).add(0.6)).add(halo).mul(dark).mul(smoothstep(-0.15, 0.0, direction.y));
+}
+
 /** A unit box drawn behind everything; scale it large and keep it on the camera. */
 export function makeSkyNode(o: SkyOptions): THREE.Mesh {
   const reversed = o.reversed, env = !!o.env, sunR = o.sunRadius ?? SUN_RADIUS, moonR = o.moonRadius ?? MOON_RADIUS;
@@ -212,6 +226,8 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
     // Twilight: Preetham goes black once the sun is 2 degrees down, but the sky glows on until about 10 degrees.
     const twi = twilight(direction, vSunDirection).toVar();
     texColor.addAssign(twi.mul(sub(1.0, U.overcast.mul(0.6))));
+    const night = nightSky(direction, vSunDirection, U.moonDir).toVar();
+    texColor.addAssign(night.mul(sub(1.0, U.overcast.mul(0.5))));
 
     // The moon: a sphere lit from the sun's side (its phase), maria, craters, reddened low down.
     if (!env) {
@@ -256,6 +272,8 @@ export function makeSkyNode(o: SkyOptions): THREE.Mesh {
       cloudColor.mulAssign(dayFactor.max(0.03));
       // After sunset the clouds take the glow from below: warm toward the sun, dim elsewhere.
       cloudColor.addAssign(twi.mul(0.6).add(twilight(vec3(direction.x, 0.0, direction.z).normalize(), vSunDirection).mul(0.5)));
+      // At night they are grey shapes lit by the night sky (and the moon), darker than the sky round them.
+      cloudColor.addAssign(night.mul(0.8));
       // Weather: darker clouds, lightning lighting them.
       cloudColor.mulAssign(sub(1.0, U.cloudDark.mul(0.72)));
       cloudColor.addAssign(vec3(0.75, 0.8, 1.0).mul(U.flash).mul(add(0.25, pow(max(dot(direction, U.flashDir), 0.0), 8.0).mul(2.5))).mul(3.0));
