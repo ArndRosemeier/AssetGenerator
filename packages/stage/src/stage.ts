@@ -8,7 +8,7 @@
  *     queued build under the cap) and only then puts it into the scene. Nothing ever draws with a
  *     shader that is not ready, so nothing compiles on the render path.
  */
-import { BufferGeometry, Float32BufferAttribute, Group, Mesh, type Camera, type InstancedMesh, type Material, type Object3D, type Scene, type WebGPURenderer } from 'three/webgpu';
+import { BufferGeometry, Float32BufferAttribute, Group, Mesh, type Camera, type InstancedMesh, type Material, type Object3D, type RenderTarget, type Scene, type WebGPURenderer } from 'three/webgpu';
 import { ShaderCap } from './cap';
 import { ShaderMonitor } from './monitor';
 import { installShaderPolicy } from './patches';
@@ -34,6 +34,13 @@ export interface StageOptions {
    * vertices; returns false if it does not know the name. Dunfinity's `surface` goes here.
    */
   attribute?: (g: BufferGeometry, name: string) => boolean;
+  /**
+   * Where the scene is drawn when a post chain draws it (its scene pass, `createPost`): every compile and
+   * warm-up draw happens against it, since a shader is built for the target it draws into.
+   */
+  target?: () => RenderTarget | null;
+  /** Draws one frame the game's way (a post chain); by default `renderer.render(scene, camera)`. */
+  draw?: () => void;
 }
 
 /** Frames drawn to warm the shadow pass (async pipelines finish over a few). */
@@ -108,7 +115,7 @@ export class Stage {
   async warmUp(extra: readonly Object3D[] = []): Promise<void> {
     // One real frame first: it settles the render context (frame buffer target) that compiled
     // shaders are keyed by, and builds the renderer's own output pass.
-    this.renderer.render(this.scene, this.camera);
+    this.drawFrame();
     const standIns = this.opts.kinds().map((k) => standIn(k, this.opts.attribute));
     for (const m of standIns) {
       m.position.set(this.camera.position.x, this.camera.position.y, this.camera.position.z - 2);
@@ -116,7 +123,7 @@ export class Stage {
     }
     const group = new Group();
     for (const m of standIns) group.add(m);
-    await this.renderer.compileAsync(group, this.camera, this.scene);
+    await this.onTarget(() => this.renderer.compileAsync(group, this.camera, this.scene));
     for (const o of extra) await this.prepare(o);
     // Then draw them, for the shadow pass's own (small) shaders, which compileAsync does not build.
     await this.warmShadows(group, extra);
@@ -145,7 +152,7 @@ export class Stage {
     // in software GL, with it 37 to 53 ms (the budget is 100).
     await new Promise((r) => setTimeout(r, SETTLE_MS));
     for (let k = 0; k < WARM_FRAMES; k++) {
-      this.renderer.render(this.scene, this.camera);
+      this.onTarget(() => this.renderer.render(this.scene, this.camera));
       await new Promise((r) => setTimeout(r, 30));
     }
     this.scene.remove(group);
@@ -213,7 +220,7 @@ export class Stage {
       // happens here, in the slot just taken.
       this.scene.add(obj);
       newNodeFrame(this.renderer); // the shadow map is drawn once a frame, and the view may have drawn this one
-      this.renderer.render(this.scene, this.camera);
+      this.onTarget(() => this.renderer.render(this.scene, this.camera));
       this.scene.remove(obj);
       m.layers.disableAll();
       this.drawnCasters.mark(m);
@@ -245,7 +252,7 @@ export class Stage {
     // would build its shader on the render path the first time it comes into view.
     const culled: Object3D[] = [];
     obj.traverse((o) => { if (o.frustumCulled) { o.frustumCulled = false; culled.push(o); } });
-    return this.renderer.compileAsync(obj, this.camera, this.scene).finally(() => {
+    return this.onTarget(() => this.renderer.compileAsync(obj, this.camera, this.scene)).finally(() => {
       for (const o of culled) o.frustumCulled = true;
     }).then(() => this.warmShadowsOf(obj, opts.everyCaster));
   }
@@ -260,6 +267,24 @@ export class Stage {
     const s = this.monitor.summary();
     return `shaders ${s.warmup} warm-up + ${s.run} later · worst ${s.worstMs.toFixed(0)} ms · ${s.violations ? `${s.violations} POLICY VIOLATIONS (shaders.report())` : 'policy ok'}${s.repeats ? ` · ${s.repeats} built again alike (shaders.repeats())` : ''}`
       + (this.missingHooks.length ? `\nshader hooks missing: ${this.missingHooks.join(', ')}` : '');
+  }
+
+  /** One frame the game's way (its post chain, if any). */
+  private drawFrame(): void {
+    if (this.opts.draw) this.opts.draw();
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Runs `f` with the post chain's scene pass as the render target (if there is one). compileAsync
+   * takes the target when called, before its first await, so it can be restored right after.
+   */
+  private onTarget<T>(f: () => T): T {
+    const t = this.opts.target?.();
+    if (!t) return f();
+    const prev = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(t);
+    try { return f(); } finally { this.renderer.setRenderTarget(prev); }
   }
 
   /** Once per frame, before rendering. */
