@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, storeyAt, WALL_THICK } from '../src/index';
+import { BUILDING_MAT_COUNT, buildingMesh, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, storeyAt, WALL_THICK } from '../src/index';
 
 const towns = [3, 4, 5, 6, 7, 8].map((seed) => planTown({ seed, x: 500, z: 200, height: () => 20 }));
 const town = { buildings: towns.flatMap((t) => t.buildings) };
@@ -181,6 +181,31 @@ test('building: a sign over the door adds a shield on the front wall; none witho
     assert.ok(signed.index.length > plain.index.length, `house #${b.id}`);
     assert.equal(buildingMesh(b, [b.cx, 0, b.cz], true, { open: true, sign: [150, 50, 36] }).index.length - buildingMesh(b, [b.cx, 0, b.cz], true, { open: true }).index.length, signed.index.length - plain.index.length);
   }
+});
+
+test('building: the sign sits on the front wall beside the door, under the roof and clear of the windows and shutters, in hamlets, villages and towns', () => {
+  let flat = 0, all = 0;
+  for (const size of ['hamlet', 'village', 'town'] as const) {
+    for (let seed = 1; seed <= 10; seed++) {
+      for (const b of planTown({ seed, x: 0, z: 0, height: () => 20, size }).buildings.filter((x) => x.kind === 'house' || x.kind === 'cottage')) {
+        const S = houseShape(b), p = signPlace(b, S), st = S.storeys[0], w = st.walls.find((x) => x.id === 0)!;
+        assert.ok(p, `${size} ${seed} ${b.kind} #${b.id}: a sign`);
+        all++;
+        // Under the roof's underside at the wall, and under the storey's top beam.
+        const under = (S.storeys.length === 1 && b.ridgeAlongU ? Math.min(st.y1, S.top) - (b.cover === 'thatch' ? 0.38 : 0.14) : st.y1) + 1e-6;
+        assert.ok(p!.y + p!.r <= under, `${size} ${seed} ${b.kind} #${b.id}: top ${(p!.y + p!.r).toFixed(2)} over ${under.toFixed(2)}`);
+        if (!p!.flat) continue;
+        flat++;
+        const len = Math.hypot(w.a1 - w.a0, w.b1 - w.b0), s = ((p!.a - w.a0) * (w.a1 - w.a0) + (p!.b - w.b0) * (w.b1 - w.b0)) / len;
+        for (const o of w.opens) {
+          const pad = o.door ? 0.1 : (o.s1 - o.s0) / 2 + 0.05;
+          const hit = s + p!.r > o.s0 - pad && s - p!.r < o.s1 + pad && p!.y + p!.r > o.t0 && p!.y - p!.r < o.t1;
+          assert.ok(!hit, `${size} ${seed} ${b.kind} #${b.id}: clear of the ${o.door ? 'door' : 'window'}`);
+        }
+      }
+    }
+  }
+  assert.ok(flat >= all * 0.85, `${flat} of ${all} flat on the wall`);
 });
 
 test('chimney: every stack stands on the roof, within the walls, and rises past the ridge', () => {
