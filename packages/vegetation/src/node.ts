@@ -343,7 +343,7 @@ const vnoise3 = Fn(([x]) => {
 }, { x: 'vec3', return: 'float' });
 
 /** Over this distance (m) a far hull's trunk darkens into the wood's shade (hulls start a few tens of metres out). */
-const FAR_SHADE = [50, 200] as const;
+const FAR_SHADE = [50, 150] as const;
 
 export function createFarTreeNodeMaterial(U: VegUniforms): THREE.MeshStandardNodeMaterial {
   const mat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
@@ -378,7 +378,7 @@ export function createFarTreeNodeMaterial(U: VegUniforms): THREE.MeshStandardNod
     // Trunks and limbs go into the wood's shade with distance: seen from outside, a wood is dark under its
     // crowns, and lit far trunks read as a row of bare posts.
     If(vKind.x.lessThan(0.25), () => {
-      diffuseColor.assign(vec4(diffuseColor.rgb.mul(mix(1.0, 0.45, smoothstep(FAR_SHADE[0], FAR_SHADE[1], length(positionView)))), diffuseColor.a));
+      diffuseColor.assign(vec4(diffuseColor.rgb.mul(mix(1.0, 0.25, smoothstep(FAR_SHADE[0], FAR_SHADE[1], length(positionView)))), diffuseColor.a));
     });
     If(vKind.x.greaterThan(0.25), () => {
       const c = diffuseColor.rgb.mul(add(0.62, nz.mul(0.5))).mul(vec3(add(0.84, tint.mul(0.3)), add(0.9, tint.mul(0.18)), 0.92)).toVar();
