@@ -687,7 +687,12 @@ function splits(a: number, b: number, step: number, cuts: number[] = []): number
  * them, the stairs and their rails, the chimney breast, the furniture, and the door standing open. Inner
  * faces only: merged with `buildingMesh(b, origin, true, { open: true })` the building is hollow.
  */
-export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number]): BuildingMesh {
+/**
+ * `lid: false`: a hatch's lid is left out (the game draws it apart, `hatchLidMesh`, to swing it open): the floor
+ * has a hole there, dark below.
+ */
+export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number], opts: { lid?: boolean } = {}): BuildingMesh {
+  const lid = opts.lid !== false;
   const S = houseShape(b);
   const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
   const rr = new Rng(b.seed ^ 0x51de);
@@ -701,7 +706,7 @@ export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [numbe
     const room: Rect = { a0: st.a0, a1: st.a1, b0: st.b0, b1: st.b1 };
     // The floor, less the hole the stairs from below come up through; flags or boards.
     const stone = k === 0 && plan.stoneFloor;
-    for (const q of rectMinus(room, wellRects(plan, k))) gridQuad(o, q, 0, [0, 1, 0], stone ? BuildingMat.Ashlar : BuildingMat.Oak, stone ? STONE : TIMBER);
+    for (const q of rectMinus(room, [...wellRects(plan, k), ...(lid ? [] : hatchRects(plan, k))])) gridQuad(o, q, 0, [0, 1, 0], stone ? BuildingMat.Ashlar : BuildingMat.Oak, stone ? STONE : TIMBER);
     // The ceiling and its joists, less the hole up; the hole's sides through the floor between.
     const up = wellRects(plan, k + 1);
     for (const q of rectMinus(room, up)) gridQuad(o, q, H, [0, -1, 0], BuildingMat.Oak, TIMBER);
@@ -718,7 +723,7 @@ export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [numbe
     const sh = S.storeys[k];
     for (const w of sh.walls) innerWall(o, w.a0, w.b0, w.a1, w.b1, w.opens, sh.y0 - st.y, H, room, wallMat, wallTint);
     for (const s of plan.stairs) if (s.storey === k) stair(o, s);
-    for (const f of plan.fixtures) if (f.storey === k) fixture(o, f, H);
+    for (const f of plan.fixtures) if (f.storey === k) fixture(o, f, H, lid);
     const m = toMesh(o);
     daylight(m, b, origin, st, S.storeys[k], k === 0);
     parts.push(m);
@@ -800,6 +805,34 @@ function merge(parts: readonly BuildingMesh[]): BuildingMesh {
   return out;
 }
 
+/** A hatch's lid: planks a shade lighter than the floor (it lies in a dark corner), two battens and an iron ring. */
+function hatchLid(o: Out, f: InteriorFixture): void {
+  const a0 = f.a - f.w / 2, a1 = f.a + f.w / 2, b0 = f.b - f.d / 2, b1 = f.b + f.d / 2;
+  o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, LIGHT_WOOD);
+  for (const t of [-0.25, 0.25]) o.box(a0 + 0.06, a1 - 0.06, f.h, f.h + 0.025, f.b + t * f.d - 0.05, f.b + t * f.d + 0.05, BuildingMat.Oak, TIMBER);
+  o.box(f.a - 0.1, f.a + 0.1, f.h, f.h + 0.03, f.b - 0.1, f.b + 0.1, BuildingMat.Slate, [120, 120, 126]);
+}
+
+/** The dark under an open hatch (near black: the room's lamp hardly shows on it). */
+const HOLE: RGB = [6, 5, 4];
+
+const hatchRects = (plan: InteriorPlan, storey: number): Rect[] => plan.fixtures.filter((f) => f.kind === 'hatch' && f.storey === storey).map((f) => ({ a0: f.a - f.w / 2, a1: f.a + f.w / 2, b0: f.b - f.d / 2, b1: f.b + f.d / 2 }));
+
+/**
+ * The lid of the house's hatch alone, closed, where `interiorMesh` would draw it (`origin` as there), lit as the
+ * room is; null: no hatch. A game swings it open about one of its edges (the house drawn with `lid: false`).
+ */
+export function hatchLidMesh(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number]): BuildingMesh | null {
+  const f = plan.fixtures.find((x) => x.kind === 'hatch');
+  if (!f) return null;
+  const st = plan.storeys[f.storey], ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+  const o = new Out(new Frame({ cx: b.cx, cz: b.cz, ux, uz, vx: b.vx, vz: b.vz, y: b.floorY + st.y }, origin));
+  hatchLid(o, f);
+  const m = toMesh(o);
+  daylight(m, b, origin, st, houseShape(b).storeys[f.storey], f.storey === 0);
+  return m;
+}
+
 /** Writes each vertex's daylight level (INSIDE_LIGHT) from the storey's openings. */
 function daylight(m: BuildingMesh, b: TownBuilding, origin: [number, number, number], st: InteriorStorey, sh: HouseShape['storeys'][number], doorOpen: boolean): void {
   const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
@@ -870,7 +903,7 @@ export function interiorSolids(plan: InteriorPlan): InteriorBox[] {
   return out;
 }
 
-function fixture(o: Out, f: InteriorFixture, H: number): void {
+function fixture(o: Out, f: InteriorFixture, H: number, lid = true): void {
   const a0 = f.a - f.w / 2, a1 = f.a + f.w / 2, b0 = f.b - f.d / 2, b1 = f.b + f.d / 2;
   const legs = (top: number, t: number, m: BuildingMat, c: RGB) => {
     for (const [a, b] of [[a0 + t, b0 + t], [a1 - t, b0 + t], [a0 + t, b1 - t], [a1 - t, b1 - t]]) o.box(a - t, a + t, 0, top, b - t, b + t, m, c);
@@ -925,10 +958,9 @@ function fixture(o: Out, f: InteriorFixture, H: number): void {
       o.box(a0, a1, 0.55, f.h, b0, b1, BuildingMat.Slate, IRON);
       break;
     case 'hatch':
-      // Planks a shade lighter than the floor (it lies in a dark corner), two battens and an iron ring.
-      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, LIGHT_WOOD);
-      for (const t of [-0.25, 0.25]) o.box(a0 + 0.06, a1 - 0.06, f.h, f.h + 0.025, f.b + t * f.d - 0.05, f.b + t * f.d + 0.05, BuildingMat.Oak, TIMBER);
-      o.box(f.a - 0.1, f.a + 0.1, f.h, f.h + 0.03, f.b - 0.1, f.b + 0.1, BuildingMat.Slate, [120, 120, 126]);
+      if (lid) hatchLid(o, f);
+      // The lid drawn apart: the hole it shuts, dark below the floor.
+      else o.quad([[a0, 0, b0], [a1, 0, b0], [a1, 0, b1], [a0, 0, b1]], [0, 1, 0], [[a0, b0], [a1, b0], [a1, b1], [a0, b1]], BuildingMat.Slate, HOLE);
       break;
     case 'rack': {
       // Two uprights, a bar low and one high; blades and spears leaning in it, a round shield hung at one end.
