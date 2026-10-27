@@ -160,7 +160,7 @@ test('interior: a hatch down to a cellar lies on free floor one can walk to, in 
 
 test('interior: a hall (where fighting is taught) has weapon racks, a practice post with its master\'s place, a bench, and no bed or family table downstairs', () => {
   const homes = town.buildings.filter((b) => b.kind === 'house' || b.kind === 'cottage');
-  let full = 0;
+  let full = 0, far = 0;
   for (const b of homes) {
     assert.ok(!planInterior(b).fixtures.some((f) => f.kind === 'rack' || f.kind === 'pell'), `plain ${b.kind} #${b.id}`);
     const p = planInterior(b, { hall: true }), reach = reachable(p, 0), down = p.fixtures.filter((f) => f.storey === 0);
@@ -169,10 +169,14 @@ test('interior: a hall (where fighting is taught) has weapon racks, a practice p
     assert.ok(racks >= 1 && pell && drill, `${b.kind} #${b.id}: ${racks} racks, pell ${!!pell}, master ${!!drill}`);
     if (racks >= 2) full++;
     assert.ok(reach(drill!.a, drill!.b), `${b.kind} #${b.id}: the master's place can be walked to`);
+    // A few steps in from the door, not where one first stands.
+    const [ea, eb] = p.storeys[0].entry;
+    if (Math.hypot(drill!.a - ea, drill!.b - eb) >= 1.8) far++;
     for (const s of p.spots) if (s.storey === 0) assert.ok([0, 0.4, 0.7, 1.0].some((d) => Array.from({ length: 16 }, (_, k) => (k / 16) * 2 * Math.PI).some((t) => reach(s.a + d * Math.cos(t), s.b + d * Math.sin(t)))), `${b.kind} #${b.id}: ${s.kind} reached`);
     assert.ok(interiorMesh(p, b, [b.cx, 0, b.cz]).position.length > 0);
   }
   assert.ok(full >= homes.length * 0.7, `${full} of ${homes.length} halls have two racks or more`);
+  assert.ok(far >= homes.length * 0.9, `${far} of ${homes.length} masters stand 1.8 m or more in from the door`);
 });
 
 test('building: a sign over the door adds a shield on the front wall; none without asking', () => {
