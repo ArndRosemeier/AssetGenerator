@@ -501,8 +501,14 @@ function home(P: Planner, r: Rng, work: boolean): void {
 /** Inside colours. */
 const LIME: RGB = [236, 228, 210];
 const SOOT: RGB = [150, 140, 128];
-const TIMBER: RGB = [112, 84, 62];
-const DARK: RGB = [74, 56, 44];
+/**
+ * Interior wood, on BuildingMat.Oak, whose texture is already dark oak (about 6.6 % reflectance): the tints
+ * sit on its own colour. TIMBER (boards, benches, table tops) about 6 %, DARK (beams, legs, stairs, the
+ * counter, doors) about 2.6 %, LIGHT_WOOD (fresh logs, the hatch's planks) a shade over TIMBER.
+ */
+const TIMBER: RGB = [255, 240, 225];
+const DARK: RGB = [180, 160, 145];
+const LIGHT_WOOD: RGB = [255, 250, 245];
 const IRON: RGB = [70, 70, 74];
 const LINEN: RGB = [214, 204, 180];
 const STONE: RGB = [196, 188, 176];
@@ -753,7 +759,7 @@ function fixture(o: Out, f: InteriorFixture, H: number): void {
       o.box(a0 + 0.05, a1 - 0.05, 0.3, f.h, b0 + 0.05, b1 - 0.05, BuildingMat.Plaster, LINEN);
       break;
     case 'counter': case 'chest': case 'shelf': case 'barrel': case 'tub': case 'woodpile':
-      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, f.kind === 'woodpile' ? [150, 118, 84] : f.kind === 'counter' ? DARK : TIMBER);
+      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, f.kind === 'woodpile' ? LIGHT_WOOD : f.kind === 'counter' ? DARK : TIMBER);
       break;
     case 'flue':
       o.box(a0, a1, 0, H, b0, b1, BuildingMat.Rubble, SOOT);
@@ -794,7 +800,7 @@ function fixture(o: Out, f: InteriorFixture, H: number): void {
       break;
     case 'hatch':
       // Planks a shade lighter than the floor (it lies in a dark corner), two battens and an iron ring.
-      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, [150, 116, 84]);
+      o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, LIGHT_WOOD);
       for (const t of [-0.25, 0.25]) o.box(a0 + 0.06, a1 - 0.06, f.h, f.h + 0.025, f.b + t * f.d - 0.05, f.b + t * f.d + 0.05, BuildingMat.Oak, TIMBER);
       o.box(f.a - 0.1, f.a + 0.1, f.h, f.h + 0.03, f.b - 0.1, f.b + 0.1, BuildingMat.Slate, [120, 120, 126]);
       break;
