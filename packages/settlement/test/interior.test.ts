@@ -171,12 +171,14 @@ test('interior: a hall (where fighting is taught) has weapon racks, a practice p
     assert.ok(reach(drill!.a, drill!.b), `${b.kind} #${b.id}: the master's place can be walked to`);
     // A few steps in from the door, not where one first stands.
     const [ea, eb] = p.storeys[0].entry;
-    if (Math.hypot(drill!.a - ea, drill!.b - eb) >= 1.8) far++;
+    // ...and not hidden behind the post from there.
+    const along = (pell!.a - ea) * (drill!.b - eb) - (pell!.b - eb) * (drill!.a - ea), off = Math.abs(along) / Math.hypot(pell!.a - ea, pell!.b - eb);
+    if (Math.hypot(drill!.a - ea, drill!.b - eb) >= 1.8 && off >= 0.5) far++;
     for (const s of p.spots) if (s.storey === 0) assert.ok([0, 0.4, 0.7, 1.0].some((d) => Array.from({ length: 16 }, (_, k) => (k / 16) * 2 * Math.PI).some((t) => reach(s.a + d * Math.cos(t), s.b + d * Math.sin(t)))), `${b.kind} #${b.id}: ${s.kind} reached`);
     assert.ok(interiorMesh(p, b, [b.cx, 0, b.cz]).position.length > 0);
   }
   assert.ok(full >= homes.length * 0.7, `${full} of ${homes.length} halls have two racks or more`);
-  assert.ok(far >= homes.length * 0.9, `${far} of ${homes.length} masters stand 1.8 m or more in from the door`);
+  assert.ok(far >= homes.length * 0.9, `${far} of ${homes.length} masters stand 1.8 m or more in from the door, clear of the post`);
 });
 
 test('building: a sign over the door adds a shield on the front wall; none without asking', () => {
