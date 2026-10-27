@@ -80,3 +80,21 @@ test('settlement: one planner makes every size, from a hamlet round its green to
   assert.ok(capital.t.radius >= 240 && capital.t.buildings.length > 500 && ms < 2000, `capital: ${capital.t.buildings.length} buildings in ${ms.toFixed(0)} ms`);
   assert.ok(capital.t.streets.filter((s) => s.kind === 'road').length >= 5);
 });
+
+test('settlement: a waystation is an inn and a stable facing each other across the road through it', () => {
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const t = planTown({ ...site(seed), size: 'waystation', farmland: false });
+    assert.deepEqual(t.buildings.map((b) => b.kind).sort(), ['inn', 'stable'], `seed ${seed}`);
+    assert.equal(t.streets.filter((s) => s.kind === 'road').length, 2);
+    const road = shapesToPolys(strokePolylines(t.streets.filter((s) => s.kind === 'road').map((s) => s.pts), 3, 'round', 'round'));
+    for (const b of t.buildings) {
+      assert.ok(!intersection([b.poly], road).some((x) => shapeArea(x) > 0.5), `seed ${seed}: the ${b.kind} stands off the road`);
+      // Its door faces the road, a few steps from it.
+      const d = Math.hypot(b.door[0] - t.centre[0], b.door[1] - t.centre[1]);
+      assert.ok(d < 16, `seed ${seed}: the ${b.kind}'s door is by the road through the middle (${d.toFixed(1)} m)`);
+    }
+    const [inn, stable] = [t.buildings.find((b) => b.kind === 'inn')!, t.buildings.find((b) => b.kind === 'stable')!];
+    assert.ok(inn.household > 0 && inn.floors >= 2);
+    assert.ok(!intersection([inn.poly], [stable.poly]).some((x) => shapeArea(x) > 0.01), 'they do not overlap');
+  }
+});
