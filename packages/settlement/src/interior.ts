@@ -902,15 +902,46 @@ function hatchShaft(o: Out, f: InteriorFixture, sides: HatchSides): void {
     side([[a1, t1, b0], [a1, t1, b1], [a1, t0, b1], [a1, t0, b0]], [-1, 0, 0]);
   }
   o.quad([[a0, y0, b0], [a1, y0, b0], [a1, y0, b1], [a0, y0, b1]], [0, 1, 0], [[a0, b0], [a1, b0], [a1, b1], [a0, b1]], BuildingMat.Slate, HOLE);
-  // The ladder: the rungs' line HATCH_RUNG_IN inside the edge, two rails and a rung each HATCH_RUNG, from HATCH_RAILS_UP over the floor down.
-  const [la, lb] = sides.ladder, out = hatchEdge(f, sides.ladder) - HATCH_RUNG_IN, across = hatchEdge(f, [lb, la]);
-  const hw = Math.min(0.3, across - 0.12), ca = f.a + la * out, cb = f.b + lb * out;
-  // A box round the rung line: `t0..t1` across it, `d` either side of it, y0..y1.
+  hatchLadder(o, f, sides, false);
+}
+
+/** Half the width between a hatch's ladder's rails (m): wide to the hatch's edges, to step through. */
+export function hatchLadderHalfWidth(f: InteriorFixture, ladder: readonly [number, number]): number {
+  return hatchEdge(f, [ladder[1], ladder[0]]) - 0.1;
+}
+
+/**
+ * A hatch's ladder: the rungs' line HATCH_RUNG_IN inside the edge, two rails and a rung each HATCH_RUNG. Under the
+ * floor (`top` false: down the shaft), or its top standing HATCH_RAILS_UP out of the hole (`top`: drawn apart, it
+ * rises as the lid opens and sinks back under it as it shuts).
+ */
+function hatchLadder(o: Out, f: InteriorFixture, sides: HatchSides, top: boolean): void {
+  const [la, lb] = sides.ladder, out = hatchEdge(f, sides.ladder) - HATCH_RUNG_IN;
+  const hw = hatchLadderHalfWidth(f, sides.ladder), ca = f.a + la * out, cb = f.b + lb * out;
+  // A box round the rung line: `t0..t1` across it, `d` either side of it, y0..y1. The top a hair thicker: it slides
+  // down over the rails under it.
+  const e = top ? 0.004 : 0;
   const bar = (t0: number, t1: number, d: number, ya: number, yb: number) => la
-    ? o.box(ca - d, ca + d, ya, yb, cb + t0, cb + t1, BuildingMat.Oak, DARK, true)
-    : o.box(ca + t0, ca + t1, ya, yb, cb - d, cb + d, BuildingMat.Oak, DARK, true);
-  for (const t of [-hw - 0.05, hw]) bar(t, t + 0.05, 0.035, y0, HATCH_RAILS_UP + 0.06);
-  for (let k = -Math.round(HATCH_RAILS_UP / HATCH_RUNG); k * HATCH_RUNG <= HATCH_SHAFT + 1e-6; k++) bar(-hw, hw, 0.02, -k * HATCH_RUNG - 0.035, -k * HATCH_RUNG);
+    ? o.box(ca - d - e, ca + d + e, ya, yb, cb + t0 - e, cb + t1 + e, BuildingMat.Oak, DARK, true)
+    : o.box(ca + t0 - e, ca + t1 + e, ya, yb, cb - d - e, cb + d + e, BuildingMat.Oak, DARK, true);
+  const up = Math.round(HATCH_RAILS_UP / HATCH_RUNG);
+  for (const t of [-hw - 0.05, hw]) bar(t, t + 0.05, 0.035, top ? -0.1 : -HATCH_SHAFT, top ? HATCH_RAILS_UP + 0.06 : 0);
+  for (let k = top ? -up : 0; top ? k < 0 : k * HATCH_RUNG <= HATCH_SHAFT + 1e-6; k++) bar(-hw, hw, 0.02, -k * HATCH_RUNG - 0.035, -k * HATCH_RUNG);
+}
+
+/**
+ * The top of the house's hatch's ladder alone, standing up out of the hole as when the lid is open (`origin` as
+ * `interiorMesh`'s); null: no hatch. A game lowers it by up to HATCH_RAILS_UP + 0.1 to hide it under a shut lid.
+ */
+export function hatchLadderTopMesh(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number]): BuildingMesh | null {
+  const f = plan.fixtures.find((x) => x.kind === 'hatch');
+  if (!f) return null;
+  const st = plan.storeys[f.storey], ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+  const o = new Out(new Frame({ cx: b.cx, cz: b.cz, ux, uz, vx: b.vx, vz: b.vz, y: b.floorY + st.y }, origin));
+  hatchLadder(o, f, hatchSides(plan, f), true);
+  const m = toMesh(o);
+  daylight(m, b, origin, st, houseShape(b).storeys[f.storey], f.storey === 0);
+  return m;
 }
 
 /** The dark under an open hatch (near black: the room's lamp hardly shows on it). */
