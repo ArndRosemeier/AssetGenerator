@@ -193,6 +193,19 @@ export interface Look {
   bay: number;
   /** The front door's outside: painted or bare wood (its own roll, so a door drawn apart matches: `doorLeaves`). */
   door: RGB;
+  /** The door is painted (`door` is a paint), else bare wood (`door` is the timber). */
+  doorPainted: boolean;
+}
+
+/**
+ * How the front door's outside is drawn (`buildingMesh`'s shut door, `doorLeaves`' leaf): paint as paint, on the
+ * near-plain layer, so it reads as a coloured door from down the street; bare wood on the oak layer, its tint
+ * lifted onto the texture's own colour (the oak layer is already dark oak: the timbers' tints would take it
+ * near black, a dark hole in the wall).
+ */
+export function doorFace(L: Look): { readonly mat: BuildingMat; readonly tint: RGB } {
+  if (L.doorPainted) return { mat: BuildingMat.Plaster, tint: L.door.map((v) => Math.round(v * 0.9)) as RGB };
+  return { mat: BuildingMat.Oak, tint: L.door.map((v) => Math.round(255 * Math.sqrt(Math.min(1, v / 150)))) as RGB };
 }
 
 /** One wall of a storey: from (a0, b0) to (a1, b1) in the building's frame, counter-clockwise seen from above. */
@@ -243,8 +256,10 @@ export function houseShape(b: TownBuilding): HouseShape {
     jetty: b.kind !== 'temple' && b.floors > 1 && b.wall !== 'stone' && r.chance(b.attached ? 0.7 : 0.4) ? r.range(0.3, 0.5) : 0,
     bay: r.range(2.4, 3.1),
     door: [0, 0, 0],
+    doorPainted: false,
   };
-  look.door = new Rng(b.seed ^ 0xd00e).chance(0.5) ? look.paint : look.timber;
+  look.doorPainted = new Rng(b.seed ^ 0xd00e).chance(0.5);
+  look.door = look.doorPainted ? look.paint : look.timber;
   const { hu, hv } = b;
   if (b.kind === 'temple') {
     // The hall: a low square of stone, small windows high up, a wide door at the front.
@@ -550,8 +565,8 @@ function wall(o: Out, a0: number, b0: number, a1: number, b1: number, y0: number
       // A plank door, painted or bare (the paint rolled either way, so an open door keeps the rest).
       // (The roll is kept so the rest of the walls roll as before.)
       r.chance(0.5);
-      const paint = L.door;
-      if (!open) o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Oak, paint);
+      const face = doorFace(L);
+      if (!open) o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], face.mat, face.tint);
     } else {
       o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Glass, WHITE);
     }
