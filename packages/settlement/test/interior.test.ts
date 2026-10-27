@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, storeyAt, WALL_THICK } from '../src/index';
+import { BUILDING_MAT_COUNT, buildingMesh, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
 
 const towns = [3, 4, 5, 6, 7, 8].map((seed) => planTown({ seed, x: 500, z: 200, height: () => 20 }));
 const town = { buildings: towns.flatMap((t) => t.buildings) };
@@ -233,4 +233,27 @@ test('chimney: every stack stands on the roof, within the walls, and rises past 
     }
   }
   assert.ok(n > 20);
+});
+
+test('interior: a way in from the door to every spot on the ground floor, round the fixtures, and out again', () => {
+  let ways = 0;
+  for (const b of town.buildings) {
+    const p = planInterior(b), st = p.storeys[0], door: [number, number] = [0, st.b0 - 0.3];
+    for (const s of p.spots) {
+      if (s.storey !== 0) continue;
+      const w = roomPath(p, door, [s.a, s.b]);
+      assert.ok(w, `${b.kind} #${b.id}: a way to the ${s.kind} spot`);
+      assert.deepEqual([w[0], w[1], w[w.length - 2], w[w.length - 1]], [door[0], door[1], s.a, s.b]);
+      // Between the floor beside each end, nothing in the way (the last leg steps onto a seat).
+      for (let k = 2; k + 4 < w.length; k += 2) {
+        for (let t = 0; t <= 1; t += 0.1) {
+          assert.ok(!interiorBlocked(p, w[k] + (w[k + 2] - w[k]) * t, w[k + 1] + (w[k + 3] - w[k + 1]) * t, 0.29, 0, true), `${b.kind} #${b.id}: the way to ${s.kind} runs through something`);
+        }
+      }
+      const back = roomPath(p, [s.a, s.b], door);
+      assert.ok(back && back.length >= 4);
+      ways++;
+    }
+  }
+  assert.ok(ways > 50, `${ways} ways`);
 });
