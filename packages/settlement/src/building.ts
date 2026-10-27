@@ -114,7 +114,7 @@ export class Out {
  * A round shield (a hall's sign, one on a weapon rack): a painted disc `r` across facing `n` (along a or b,
  * in the frame), its back at `c`, with an iron rim and boss.
  */
-export function roundShield(o: Out, c: [number, number, number], n: [number, number], r: number, face: RGB, rim: RGB = [72, 72, 76]): void {
+export function roundShield(o: Out, c: [number, number, number], n: [number, number], r: number, face: RGB, rim: RGB = [72, 72, 76], rimMat: BuildingMat = BuildingMat.Slate): void {
   const SEG = 12, th = 0.04;
   const ta = Math.abs(n[0]) > 0.5 ? 0 : 1, tb = 1 - ta, nn = [n[0], 0, n[1]];
   const at = (k: number, rr: number, d: number) => {
@@ -123,13 +123,14 @@ export function roundShield(o: Out, c: [number, number, number], n: [number, num
   };
   const mid = [c[0] + n[0] * th, c[1], c[2] + n[1] * th], uv = [[0.5, 0.5], [1, 0.5], [0.5, 1]];
   for (let k = 0; k < SEG; k++) {
-    o.tri([mid, at(k, r * 0.86, th), at(k + 1, r * 0.86, th)], nn, uv, BuildingMat.Oak, face);
-    o.quad([at(k, r * 0.86, th), at(k + 1, r * 0.86, th), at(k + 1, r, th), at(k, r, th)], nn, [[0, 0], [1, 0], [1, 1], [0, 1]], BuildingMat.Slate, rim);
+    // Paint on a smooth ground (plaster), not on the dark oak: the colour reads in shade.
+    o.tri([mid, at(k, r * 0.86, th), at(k + 1, r * 0.86, th)], nn, uv, BuildingMat.Plaster, face);
+    o.quad([at(k, r * 0.86, th), at(k + 1, r * 0.86, th), at(k + 1, r, th), at(k, r, th)], nn, [[0, 0], [1, 0], [1, 1], [0, 1]], rimMat, rim);
     const t = ((k + 0.5) / SEG) * 2 * Math.PI, rn = [ta * Math.cos(t), Math.sin(t), tb * Math.cos(t)];
-    o.quad([at(k, r, 0), at(k + 1, r, 0), at(k + 1, r, th), at(k, r, th)], rn, [[0, 0], [1, 0], [1, 1], [0, 1]], BuildingMat.Slate, rim);
+    o.quad([at(k, r, 0), at(k + 1, r, 0), at(k + 1, r, th), at(k, r, th)], rn, [[0, 0], [1, 0], [1, 1], [0, 1]], rimMat, rim);
   }
   const b = 0.06;
-  o.box(mid[0] - b + n[0] * b, mid[0] + b + n[0] * b, c[1] - b, c[1] + b, mid[2] - b + n[1] * b, mid[2] + b + n[1] * b, BuildingMat.Slate, rim);
+  o.box(mid[0] - b + n[0] * b, mid[0] + b + n[0] * b, c[1] - b, c[1] + b, mid[2] - b + n[1] * b, mid[2] + b + n[1] * b, rimMat, rim);
 }
 
 /** UV in metres for a planar face with normal n: the two axes in its plane. */
@@ -433,19 +434,20 @@ export function signPlace(b: TownBuilding, S: HouseShape): SignPlace | null {
 function doorSign(o: Out, b: TownBuilding, S: HouseShape, face: RGB): void {
   const p = signPlace(b, S);
   if (!p) return;
-  const iron: RGB = [52, 50, 48], brass: RGB = [196, 160, 86];
+  // Brass: a pale gold on the plaster ground (on slate it went olive in shade).
+  const iron: RGB = [52, 50, 48], brass: RGB = [214, 178, 98];
   if (p.flat) {
     // A peg in the wall, the shield on it facing the street.
-    roundShield(o, [p.a, p.y, p.b - 0.06], [0, -1], p.r, face, brass);
+    roundShield(o, [p.a, p.y, p.b - 0.06], [0, -1], p.r, face, brass, BuildingMat.Plaster);
     return;
   }
-  const out = 2 * p.r + 0.2, armY = p.y + p.r + 0.08;
+  // No free wall: an arm out from the wall, the shield on its end, still facing the street.
+  const out = 0.55, armY = p.y + p.r + 0.08;
   o.box(p.a - 0.03, p.a + 0.03, armY, armY + 0.05, p.b - out, p.b, BuildingMat.Slate, iron, true);
   o.box(p.a - 0.025, p.a + 0.025, armY - 0.4, armY + 0.05, p.b - 0.05, p.b, BuildingMat.Slate, iron, true);
-  const cb = p.b - out / 2 - 0.05;
-  for (const d of [-0.15, 0.15]) o.box(p.a - 0.015, p.a + 0.015, p.y + p.r - 0.02, armY, cb + d - 0.015, cb + d + 0.015, BuildingMat.Slate, iron);
-  roundShield(o, [p.a + 0.005, p.y, cb], [1, 0], p.r, face, brass);
-  roundShield(o, [p.a - 0.005, p.y, cb], [-1, 0], p.r, face, brass);
+  o.box(p.a - 0.015, p.a + 0.015, p.y + p.r - 0.02, armY, p.b - out - 0.015, p.b - out + 0.015, BuildingMat.Slate, iron);
+  roundShield(o, [p.a, p.y, p.b - out - 0.02], [0, -1], p.r, face, brass, BuildingMat.Plaster);
+  roundShield(o, [p.a, p.y, p.b - out + 0.02], [0, 1], p.r, face, brass, BuildingMat.Plaster);
 }
 
 /** Where the door goes along the front wall (s from a0): the middle, where the plan put it. */
