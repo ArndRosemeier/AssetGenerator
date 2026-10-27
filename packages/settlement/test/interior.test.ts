@@ -192,7 +192,8 @@ test('building: the sign sits on the front wall beside the door, under the roof 
         assert.ok(p, `${size} ${seed} ${b.kind} #${b.id}: a sign`);
         all++;
         // Under the roof's underside at the wall, and under the storey's top beam.
-        const under = (S.storeys.length === 1 && b.ridgeAlongU ? Math.min(st.y1, S.top) - (b.cover === 'thatch' ? 0.38 : 0.14) : st.y1) + 1e-6;
+        // The eave's edge: out past the wall it reaches (0.6 m thatch, 0.42 m else) and falls by the pitch.
+        const under = (S.storeys.length === 1 && b.ridgeAlongU ? Math.min(st.y1, S.top) - (b.cover === 'thatch' ? 0.6 : 0.42) * b.pitch - (b.cover === 'thatch' ? 0.38 : 0.14) : st.y1) + 1e-6;
         assert.ok(p!.y + p!.r <= under, `${size} ${seed} ${b.kind} #${b.id}: top ${(p!.y + p!.r).toFixed(2)} over ${under.toFixed(2)}`);
         if (!p!.flat) continue;
         flat++;
