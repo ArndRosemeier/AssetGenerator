@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, hatchLidMesh, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
+import { BUILDING_MAT_COUNT, buildingMesh, doorLeaves, hatchLidMesh, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
 
 const towns = [3, 4, 5, 6, 7, 8].map((seed) => planTown({ seed, x: 500, z: 200, height: () => 20 }));
 const town = { buildings: towns.flatMap((t) => t.buildings) };
@@ -279,4 +279,37 @@ test('interior: a hatch\'s lid drawn apart leaves a dark hole in the floor, and 
     assert.ok(lid.mat[i] >= INSIDE_LIGHT);
   }
   assert.equal(hatchLidMesh(planInterior(b), b, at), null);
+});
+
+test('interior: the front door\'s leaves drawn apart shut the doorway, and opened stand inside the house', () => {
+  let seen = 0;
+  for (const b of town.buildings.slice(0, 40)) {
+    const p = planInterior(b), at: [number, number, number] = [b.cx, 0, b.cz];
+    const leaves = doorLeaves(p, b, at), whole = interiorMesh(p, b, at), apart = interiorMesh(p, b, at, { doors: false });
+    if (!leaves.length) continue;
+    seen++;
+    assert.equal(leaves.length, p.doorW > 0.8 ? 2 : 1, `${b.kind} #${b.id}`);
+    assert.ok(apart.index.length < whole.index.length, 'the open leaves left out');
+    const S = houseShape(b), front = S.storeys[0].walls.find((w) => w.id === 0)!;
+    for (const l of leaves) {
+      // Shut: every vertex in the front wall's doorway (between the jambs, inside the wall's thickness).
+      const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+      const local = (x: number, z: number) => [(x + at[0] - b.cx) * ux + (z + at[2] - b.cz) * uz, (x + at[0] - b.cx) * b.vx + (z + at[2] - b.cz) * b.vz];
+      for (let i = 0; i < l.mesh.position.length / 3; i++) {
+        const [a, bb] = local(l.mesh.position[i * 3], l.mesh.position[i * 3 + 2]);
+        assert.ok(Math.abs(a) <= p.doorW + 1e-6 && bb >= front.b0 && bb <= front.b0 + WALL_THICK, `${b.kind} #${b.id}: shut in the doorway`);
+      }
+      // Opened: the leaf's far edge turned about the hinge lies inside the house.
+      const [hx, , hz] = l.hinge;
+      let far = 0, fx = 0, fz = 0;
+      for (let i = 0; i < l.mesh.position.length / 3; i++) {
+        const dx = l.mesh.position[i * 3] - hx, dz = l.mesh.position[i * 3 + 2] - hz, d = Math.hypot(dx, dz);
+        if (d > far) { far = d; fx = dx; fz = dz; }
+      }
+      const c = Math.cos(l.open), s = Math.sin(l.open), ox = fx * c + fz * s, oz = -fx * s + fz * c;
+      const [, ob] = local(hx + ox, hz + oz);
+      assert.ok(ob > front.b0 + 0.3, `${b.kind} #${b.id}: opens inward (${ob.toFixed(2)} vs ${front.b0.toFixed(2)})`);
+    }
+  }
+  assert.ok(seen > 10);
 });

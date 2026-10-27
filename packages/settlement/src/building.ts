@@ -168,6 +168,8 @@ export interface Look {
   shutters: number;
   jetty: number;
   bay: number;
+  /** The front door's outside: painted or bare wood (its own roll, so a door drawn apart matches: `doorLeaves`). */
+  door: RGB;
 }
 
 /** One wall of a storey: from (a0, b0) to (a1, b1) in the building's frame, counter-clockwise seen from above. */
@@ -217,7 +219,9 @@ export function houseShape(b: TownBuilding): HouseShape {
     shutters: r.range(0.2, 0.8),
     jetty: b.kind !== 'temple' && b.floors > 1 && b.wall !== 'stone' && r.chance(b.attached ? 0.7 : 0.4) ? r.range(0.3, 0.5) : 0,
     bay: r.range(2.4, 3.1),
+    door: [0, 0, 0],
   };
+  look.door = new Rng(b.seed ^ 0xd00e).chance(0.5) ? look.paint : look.timber;
   const { hu, hv } = b;
   if (b.kind === 'temple') {
     // The hall: a low square of stone, small windows high up, a wide door at the front.
@@ -520,7 +524,9 @@ function wall(o: Out, a0: number, b0: number, a1: number, b1: number, y0: number
     const d = detail ? -back : -0.02;
     if (q.door) {
       // A plank door, painted or bare (the paint rolled either way, so an open door keeps the rest).
-      const paint = r.chance(0.5) ? L.paint : L.timber;
+      // (The roll is kept so the rest of the walls roll as before.)
+      r.chance(0.5);
+      const paint = L.door;
       if (!open) o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Oak, paint);
     } else {
       o.quad([P(q.s0, t0, d), P(q.s1, t0, d), P(q.s1, t1, d), P(q.s0, t1, d)], N, [[q.s0, t0], [q.s1, t0], [q.s1, t1], [q.s0, t1]], BuildingMat.Glass, WHITE);
