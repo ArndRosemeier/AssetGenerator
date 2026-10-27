@@ -11,7 +11,7 @@
  * in the front wall (b = -hb) at a = 0.
  */
 import { Rng } from '@futuremagic/core';
-import { BuildingMat, Frame, houseShape, Out, WALL_THICK, type BuildingMesh, type HouseShape, type RGB } from './building';
+import { BuildingMat, Frame, houseShape, Out, roundShield, WALL_THICK, type BuildingMesh, type HouseShape, type RGB } from './building';
 import type { TownBuilding } from './town';
 
 export type InteriorFixtureKind =
@@ -40,7 +40,8 @@ export interface InteriorFixture {
   readonly h: number;
 }
 
-export type InteriorSpotKind = 'sit' | 'drink' | 'serve' | 'smith' | 'stoke' | 'quench' | 'craft' | 'bake' | 'sleep' | 'pray' | 'tend' | 'warm';
+/** `drill`: a hall's master at the practice post (work, like the smith's). */
+export type InteriorSpotKind = 'sit' | 'drink' | 'serve' | 'smith' | 'stoke' | 'quench' | 'craft' | 'bake' | 'sleep' | 'pray' | 'tend' | 'warm' | 'drill';
 
 /** Where someone stands or sits to do something, and which way they face (yaw in the frame: atan2(b, a)). */
 export interface InteriorSpot {
@@ -108,8 +109,9 @@ const FACE_A = 0, FACE_B = Math.PI / 2, FACE_NA = Math.PI, FACE_NB = -Math.PI / 
 
 /** `hatch`: a trapdoor down to a cellar, on free floor one can walk to. */
 /**
- * `hatch`: a trapdoor down to a cellar. `hall`: a home that is also a hall where fighting is taught (a game's
- * guild house): a weapon rack and a practice post besides the household's bed and table.
+ * `hatch`: a trapdoor down to a cellar. `hall`: a house whose ground floor is a hall where fighting is taught
+ * (a game's guild house): weapon racks on the walls, a practice post with its master's place, a bench for
+ * those who watch; no family table or bed down there (the household lives upstairs).
  */
 export function planInterior(b: TownBuilding, opts: { hatch?: boolean; hall?: boolean } = {}): InteriorPlan {
   const S = houseShape(b);
@@ -151,9 +153,8 @@ export function planInterior(b: TownBuilding, opts: { hatch?: boolean; hall?: bo
           case 'bakery': bakery(P, r); break;
           case 'temple': temple(P, r); break;
           case 'barn': case 'stable': break;
-          default: home(P, r, b.kind === 'workshop' || b.kind === 'mill' || b.trade !== '');
+          default: if (opts.hall) hall(P); else home(P, r, b.kind === 'workshop' || b.kind === 'mill' || b.trade !== '');
         }
-        if (opts.hall) hall(P);
         if (opts.hatch) P.hatch();
       } else bedroom(P, r, b.kind === 'inn');
       if (!stairFirst) climb();
@@ -505,23 +506,34 @@ function home(P: Planner, r: Rng, work: boolean): void {
   P.add('shelf', -side * (P.ha - 0.22), -P.hb + 2.0, 0.35, 1.2, 1.7, 0.1);
 }
 
-/** A hall's rack on a free stretch of side or back wall, and its pell on free floor nearest the room's middle. */
+/**
+ * A hall: the practice post nearest the room's middle with its master's place beside it (towards the door),
+ * up to three weapon racks on free stretches of the side and back walls, a bench by the front wall.
+ */
 function hall(P: Planner): void {
-  const walls: [number, number, number, number][] = [];
-  for (let t = -P.hb + 2.2; t <= P.hb - 1.0; t += 0.3) for (const s of [-1, 1]) walls.push([s * (P.ha - 0.2), t, 0.3, 1.5]);
-  for (let t = -P.ha + 1.0; t <= P.ha - 1.0; t += 0.3) walls.push([t, P.hb - 0.2, 1.5, 0.3]);
-  walls.find(([a, b, w, d]) => P.add('rack', a, b, w, d, 1.8, 0.3));
   const floor: [number, number][] = [];
-  for (let b = -P.hb + 0.6; b < P.hb - 0.5; b += 0.3) for (let a = -P.ha + 0.5; a < P.ha - 0.4; a += 0.3) floor.push([a, b]);
+  for (let b = -P.hb + 1.4; b < P.hb - 0.6; b += 0.3) for (let a = -P.ha + 0.6; a < P.ha - 0.5; a += 0.3) floor.push([a, b]);
   floor.sort((x, y) => Math.hypot(x[0], x[1]) - Math.hypot(y[0], y[1]));
-  // One must be able to step up to it and strike.
   floor.find(([a, b]) => {
-    if (!P.add('pell', a, b, 0.5, 0.5, 1.75, 0.6)) return false;
-    const reach = P.reach();
-    if ([[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].some(([da, db]) => reach(a + da, b + db))) return true;
+    if (!P.add('pell', a, b, 0.5, 0.5, 1.75, 0.7)) return false;
+    // One must be able to step up to it and strike; its master stands beside it, facing the door.
+    const reach = P.reach(), at = [[0.8, -0.3], [-0.8, -0.3], [0, -0.8]].find(([da, db]) => reach(a + da, b + db));
+    if (at) { P.spot('drill', a + at[0], b + at[1], FACE_NB); return true; }
     P.fixtures.pop();
     return false;
   });
+  const walls: [number, number, number, number][] = [];
+  for (let t = P.hb - 1.0; t >= -P.hb + 2.0; t -= 0.3) for (const s of [-1, 1]) walls.push([s * (P.ha - 0.2), t, 0.3, 1.5]);
+  for (let t = -P.ha + 1.0; t <= P.ha - 1.0; t += 0.3) walls.push([t, P.hb - 0.2, 1.5, 0.3]);
+  let racks = 0;
+  for (const [a, b, w, d] of walls) if (racks < 3 && P.add('rack', a, b, w, d, 1.8, 0.6)) racks++;
+  // Windows all round: a low rack under a sill (blades only).
+  if (!racks) walls.find(([a, b, w, d]) => P.add('rack', a, b, w, d, 0.85, 0.4));
+  // Those who come to watch (or wait their turn) sit by the front wall, beside the way in.
+  for (const s of [-1, 1]) {
+    const a = s * (P.ha - 0.95);
+    if (P.add('bench', a, -P.hb + 0.25, 1.4, 0.4, 0.45, 0.2)) { P.spot('sit', a - 0.35, -P.hb + 0.25, FACE_B); P.spot('sit', a + 0.35, -P.hb + 0.25, FACE_B); break; }
+  }
 }
 
 /** Inside colours. */
@@ -837,18 +849,20 @@ function fixture(o: Out, f: InteriorFixture, H: number): void {
       // Two uprights, a bar low and one high; blades and spears leaning in it, a round shield hung at one end.
       const along = f.w > f.d, len = along ? f.w : f.d, at = (t: number): [number, number] => (along ? [f.a + t, f.b] : [f.a, f.b + t]);
       for (const t of [-len / 2 + 0.05, len / 2 - 0.05]) { const [pa, pb] = at(t); o.box(pa - 0.05, pa + 0.05, 0, f.h, pb - 0.05, pb + 0.05, BuildingMat.Oak, DARK); }
-      for (const y of [0.35, 1.15]) {
+      const tall = f.h > 1.5;
+      for (const y of [0.3, tall ? 1.15 : f.h - 0.06]) {
         const [p0a, p0b] = at(-len / 2), [p1a, p1b] = at(len / 2);
         o.box(Math.min(p0a, p1a) - (along ? 0 : 0.04), Math.max(p0a, p1a) + (along ? 0 : 0.04), y, y + 0.06, Math.min(p0b, p1b) - (along ? 0.04 : 0), Math.max(p0b, p1b) + (along ? 0.04 : 0), BuildingMat.Oak, TIMBER);
       }
       for (let i = 0; i < 5; i++) {
-        const [pa, pb] = at(-len / 2 + 0.25 + i * 0.2), spear = i % 2 === 1, top = spear ? f.h + 0.1 : 1.05;
+        const [pa, pb] = at(-len / 2 + 0.25 + i * 0.2), spear = tall && i % 2 === 1, top = spear ? f.h + 0.1 : tall ? 1.05 : f.h + 0.1;
         if (spear) o.box(pa - 0.02, pa + 0.02, 0, top - 0.2, pb - 0.02, pb + 0.02, BuildingMat.Oak, LIGHT_WOOD);
         o.box(pa - 0.025, pa + 0.025, spear ? top - 0.2 : 0.1, top, pb - (spear ? 0.025 : 0.035), pb + (spear ? 0.025 : 0.035), BuildingMat.Slate, STEEL);
         if (!spear) o.box(pa - 0.06, pa + 0.06, top, top + 0.03, pb - 0.06, pb + 0.06, BuildingMat.Slate, IRON);
       }
-      const [sa, sb] = at(len / 2 - 0.3), out = 0.07;
-      o.box(sa - (along ? 0.25 : out), sa + (along ? 0.25 : out), 1.25, 1.75, sb - (along ? out : 0.25), sb + (along ? out : 0.25), BuildingMat.Oak, SHIELD);
+      // The shield hangs on the upper bar, facing into the room (the wall is behind the rack's back half).
+      const [sa, sb] = at(len / 2 - 0.3), inward: [number, number] = along ? [0, f.b > 0 ? -1 : 1] : [f.a > 0 ? -1 : 1, 0];
+      roundShield(o, [sa + inward[0] * 0.06, tall ? 1.5 : f.h + 0.2, sb + inward[1] * 0.06], inward, 0.28, SHIELD);
       break;
     }
     case 'pell':

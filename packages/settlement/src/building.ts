@@ -110,6 +110,28 @@ export class Out {
   }
 }
 
+/**
+ * A round shield (a hall's sign, one on a weapon rack): a painted disc `r` across facing `n` (along a or b,
+ * in the frame), its back at `c`, with an iron rim and boss.
+ */
+export function roundShield(o: Out, c: [number, number, number], n: [number, number], r: number, face: RGB): void {
+  const SEG = 12, th = 0.04, iron: RGB = [72, 72, 76];
+  const ta = Math.abs(n[0]) > 0.5 ? 0 : 1, tb = 1 - ta, nn = [n[0], 0, n[1]];
+  const at = (k: number, rr: number, d: number) => {
+    const t = (k / SEG) * 2 * Math.PI, x = Math.cos(t) * rr, y = Math.sin(t) * rr;
+    return [c[0] + ta * x + n[0] * d, c[1] + y, c[2] + tb * x + n[1] * d];
+  };
+  const mid = [c[0] + n[0] * th, c[1], c[2] + n[1] * th], uv = [[0.5, 0.5], [1, 0.5], [0.5, 1]];
+  for (let k = 0; k < SEG; k++) {
+    o.tri([mid, at(k, r * 0.88, th), at(k + 1, r * 0.88, th)], nn, uv, BuildingMat.Oak, face);
+    o.quad([at(k, r * 0.88, th), at(k + 1, r * 0.88, th), at(k + 1, r, th), at(k, r, th)], nn, [[0, 0], [1, 0], [1, 1], [0, 1]], BuildingMat.Slate, iron);
+    const t = ((k + 0.5) / SEG) * 2 * Math.PI, rn = [ta * Math.cos(t), Math.sin(t), tb * Math.cos(t)];
+    o.quad([at(k, r, 0), at(k + 1, r, 0), at(k + 1, r, th), at(k, r, th)], rn, [[0, 0], [1, 0], [1, 1], [0, 1]], BuildingMat.Slate, iron);
+  }
+  const b = 0.06;
+  o.box(mid[0] - b + n[0] * b, mid[0] + b + n[0] * b, c[1] - b, c[1] + b, mid[2] - b + n[1] * b, mid[2] + b + n[1] * b, BuildingMat.Slate, iron);
+}
+
 /** UV in metres for a planar face with normal n: the two axes in its plane. */
 function planeUV(q: number[], n: number[]): number[] {
   if (Math.abs(n[1]) > 0.5) return [q[0], q[2]];
@@ -260,7 +282,8 @@ function chimneyOf(b: TownBuilding, r: Rng): HouseChimney | null {
 }
 
 /** `open`: the door stands open (the inside is drawn too, by `interiorMesh`): no door leaf in the doorway. */
-export function buildingMesh(b: TownBuilding, origin: [number, number, number], detail = true, opts: { open?: boolean } = {}): BuildingMesh {
+/** `open`: drawn to be walked into (interior.ts). `sign`: a round shield of this colour over the door (a game's guild hall). */
+export function buildingMesh(b: TownBuilding, origin: [number, number, number], detail = true, opts: { open?: boolean; sign?: RGB } = {}): BuildingMesh {
   const S = houseShape(b);
   // The small things (shutters, paint, braces) from a stream of their own: the near and far versions draw
   // different ones, and the shape must not move with them.
@@ -271,6 +294,7 @@ export function buildingMesh(b: TownBuilding, origin: [number, number, number], 
   const open = !!opts.open;
   if (b.kind === 'temple') temple(out, b, S, r, detail, open);
   else house(out, b, S, r, detail, open);
+  if (opts.sign) doorSign(out, S, opts.sign);
   return {
     position: Float32Array.from(out.pos), normal: Float32Array.from(out.nrm), uv: Float32Array.from(out.uv),
     mat: Uint8Array.from(out.mat), tint: Uint8Array.from(out.tint), index: Uint32Array.from(out.idx),
@@ -360,6 +384,17 @@ function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, 
   });
   roof(o, b, -hu, hu, S.front, S.back, S.top, L, detail);
   chimney(o, b, S, detail);
+}
+
+/** A shield over the front door, on the wall (none without a door). */
+function doorSign(o: Out, S: HouseShape, face: RGB): void {
+  const st = S.storeys[0], w = st.walls.find((x) => x.id === 0), q = w?.opens.find((x) => x.door);
+  if (!w || !q) return;
+  const len = Math.hypot(w.a1 - w.a0, w.b1 - w.b0), s = (q.s0 + q.s1) / 2;
+  const a = w.a0 + ((w.a1 - w.a0) / len) * s, bb = w.b0 + ((w.b1 - w.b0) / len) * s;
+  // Up against the lintel, below the storey's top (the jetty above would hide it).
+  const y = Math.min(st.y0 + q.t1 + 0.42, st.y1 - 0.4);
+  roundShield(o, [a, y, bb - 0.02], [0, -1], 0.36, face);
 }
 
 /** Where the door goes along the front wall (s from a0): the middle, where the plan put it. */
