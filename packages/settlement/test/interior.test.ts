@@ -284,6 +284,21 @@ test('interior: a hatch\'s lid drawn apart leaves a shaft with a ladder under th
   assert.equal(under(whole).n, 0);
   const shaft = under(apart);
   assert.ok(shaft.n > 40 && shaft.deep <= -HATCH_SHAFT + 1e-3 && shaft.deep > -HATCH_SHAFT - 0.05, `a shaft with its ladder (${shaft.n} vertices, ${shaft.deep.toFixed(2)} m)`);
+  // Drawn open with that hole, the plinth's top leaves the hatch open (no face over its middle at the floor).
+  const outside = buildingMesh(b, at, true, { open: true, hole: { a0: f.a - f.w / 2, a1: f.a + f.w / 2, b0: f.b - f.d / 2, b1: f.b + f.d / 2 } });
+  const mid = [b.cx + ux * f.a + b.vx * f.b, b.cz + uz * f.a + b.vz * f.b];
+  const covers = (m: typeof whole) => {
+    for (let t = 0; t < m.index.length; t += 3) {
+      const v = [0, 1, 2].map((i) => m.index[t + i] * 3), P = v.map((i) => [m.position[i] + at[0], m.position[i + 1], m.position[i + 2] + at[2]]);
+      if (P.some((q) => Math.abs(q[1] - b.floorY) > 0.01)) continue;
+      const s = (p: number[], q: number[], r: number[]) => (q[0] - p[0]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[0] - p[0]);
+      const c = [mid[0], 0, mid[1]], d = [s(P[0], P[1], c), s(P[1], P[2], c), s(P[2], P[0], c)];
+      if (d.every((x) => x >= 0) || d.every((x) => x <= 0)) return true;
+    }
+    return false;
+  };
+  assert.ok(covers(buildingMesh(b, at, true, { open: true })), 'the plinth tops the floor');
+  assert.ok(!covers(outside), 'the plinth leaves the hatch open');
   // The ladder's side has room to stand before it; the hinge is another side.
   const { ladder, hinge } = hatchSides(p, f);
   assert.ok(!interiorBlocked(p, f.a + ladder[0] * (f.w / 2 + 0.5), f.b + ladder[1] * (f.d / 2 + 0.5), 0.3, f.storey, true));

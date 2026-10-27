@@ -865,7 +865,7 @@ const HATCH_STAND = 0.5, HATCH_LEAN = 0.35;
 /** A hatch's shaft under the floor (m deep); its ladder's rungs this far apart, this far inside the hatch's edge. */
 export const HATCH_SHAFT = 2.4, HATCH_RUNG = 0.3, HATCH_RUNG_IN = 0.12;
 /** The shaft's sides: earth and old boards, dim. */
-const SHAFT: RGB = [70, 60, 50];
+const SHAFT: RGB = [120, 104, 88], SHAFT_BANDS = 4;
 
 /** A hatch's way down: the side its ladder stands on and the side its lid hinges on (unit a, b in the room's frame). */
 export interface HatchSides { readonly ladder: readonly [number, number]; readonly hinge: readonly [number, number] }
@@ -889,11 +889,16 @@ export function hatchSides(plan: InteriorPlan, f: InteriorFixture): HatchSides {
 function hatchShaft(o: Out, f: InteriorFixture, sides: HatchSides): void {
   const a0 = f.a - f.w / 2, a1 = f.a + f.w / 2, b0 = f.b - f.d / 2, b1 = f.b + f.d / 2, y0 = -HATCH_SHAFT;
   const uv = (p: number[][], n: number[]) => p.map((q) => planeUV(q, n));
-  const side = (p: number[][], n: number[]) => o.quad(p, n, uv(p, n), BuildingMat.Oak, SHAFT);
-  side([[a0, y0, b0], [a1, y0, b0], [a1, 0, b0], [a0, 0, b0]], [0, 0, 1]);
-  side([[a0, y0, b1], [a1, y0, b1], [a1, 0, b1], [a0, 0, b1]], [0, 0, -1]);
-  side([[a0, y0, b0], [a0, y0, b1], [a0, 0, b1], [a0, 0, b0]], [1, 0, 0]);
-  side([[a1, y0, b0], [a1, y0, b1], [a1, 0, b1], [a1, 0, b0]], [-1, 0, 0]);
+  // The sides in bands, darker the deeper: the room's light hardly reaches the bottom.
+  for (let k = 0; k < SHAFT_BANDS; k++) {
+    const t0 = -(k / SHAFT_BANDS) * HATCH_SHAFT, t1 = -((k + 1) / SHAFT_BANDS) * HATCH_SHAFT, f = (1 - k / SHAFT_BANDS) ** 2;
+    const c: RGB = [Math.round(SHAFT[0] * f), Math.round(SHAFT[1] * f), Math.round(SHAFT[2] * f)];
+    const side = (p: number[][], n: number[]) => o.quad(p, n, uv(p, n), BuildingMat.Oak, c);
+    side([[a0, t1, b0], [a1, t1, b0], [a1, t0, b0], [a0, t0, b0]], [0, 0, 1]);
+    side([[a0, t1, b1], [a1, t1, b1], [a1, t0, b1], [a0, t0, b1]], [0, 0, -1]);
+    side([[a0, t1, b0], [a0, t1, b1], [a0, t0, b1], [a0, t0, b0]], [1, 0, 0]);
+    side([[a1, t1, b0], [a1, t1, b1], [a1, t0, b1], [a1, t0, b0]], [-1, 0, 0]);
+  }
   o.quad([[a0, y0, b0], [a1, y0, b0], [a1, y0, b1], [a0, y0, b1]], [0, 1, 0], [[a0, b0], [a1, b0], [a1, b1], [a0, b1]], BuildingMat.Slate, HOLE);
   // The ladder: the rungs' line HATCH_RUNG_IN inside the edge, two rails and a rung each HATCH_RUNG from the floor down.
   const [la, lb] = sides.ladder, out = hatchEdge(f, sides.ladder) - HATCH_RUNG_IN, across = hatchEdge(f, [lb, la]);

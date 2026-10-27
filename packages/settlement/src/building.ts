@@ -133,6 +133,29 @@ export function roundShield(o: Out, c: [number, number, number], n: [number, num
   o.box(mid[0] - b + n[0] * b, mid[0] + b + n[0] * b, c[1] - b, c[1] + b, mid[2] - b + n[1] * b, mid[2] + b + n[1] * b, rimMat, rim);
 }
 
+/** A hole in a building's ground floor (a hatch's), in its frame (along u and v from its middle). */
+export interface FloorHole { readonly a0: number; readonly a1: number; readonly b0: number; readonly b1: number }
+
+/** A box from y0 up to the floor (y 0), its top open over `h` (the shaft under a hatch shows through). */
+function holedTop(o: Out, a0: number, a1: number, y0: number, b0: number, b1: number, h: FloorHole, m: BuildingMat, c: RGB): void {
+  const sides: [number[][], number[]][] = [
+    [[[a0, y0, b0], [a1, y0, b0], [a1, 0, b0], [a0, 0, b0]], [0, 0, -1]],
+    [[[a1, y0, b1], [a0, y0, b1], [a0, 0, b1], [a1, 0, b1]], [0, 0, 1]],
+    [[[a0, y0, b1], [a0, y0, b0], [a0, 0, b0], [a0, 0, b1]], [-1, 0, 0]],
+    [[[a1, y0, b0], [a1, y0, b1], [a1, 0, b1], [a1, 0, b0]], [1, 0, 0]],
+  ];
+  for (const [p, n] of sides) o.quad(p, n, p.map((q) => planeUV(q, n)), m, c);
+  const top = (x0: number, x1: number, z0: number, z1: number) => {
+    if (x1 - x0 < 1e-6 || z1 - z0 < 1e-6) return;
+    const p = [[x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1]];
+    o.quad(p, [0, 1, 0], p.map((q) => [q[0], q[2]]), m, c);
+  };
+  top(a0, a1, b0, h.b0);
+  top(a0, a1, h.b1, b1);
+  top(a0, h.a0, h.b0, h.b1);
+  top(h.a1, a1, h.b0, h.b1);
+}
+
 /** UV in metres for a planar face with normal n: the two axes in its plane. */
 export function planeUV(q: number[], n: number[]): number[] {
   if (Math.abs(n[1]) > 0.5) return [q[0], q[2]];
@@ -288,7 +311,7 @@ function chimneyOf(b: TownBuilding, r: Rng): HouseChimney | null {
 
 /** `open`: the door stands open (the inside is drawn too, by `interiorMesh`): no door leaf in the doorway. */
 /** `open`: drawn to be walked into (interior.ts). `sign`: a round shield of this colour over the door (a game's guild hall). */
-export function buildingMesh(b: TownBuilding, origin: [number, number, number], detail = true, opts: { open?: boolean; sign?: RGB } = {}): BuildingMesh {
+export function buildingMesh(b: TownBuilding, origin: [number, number, number], detail = true, opts: { open?: boolean; sign?: RGB; hole?: FloorHole } = {}): BuildingMesh {
   const S = houseShape(b);
   // The small things (shutters, paint, braces) from a stream of their own: the near and far versions draw
   // different ones, and the shape must not move with them.
@@ -298,7 +321,7 @@ export function buildingMesh(b: TownBuilding, origin: [number, number, number], 
   const out = new Out(frame);
   const open = !!opts.open;
   if (b.kind === 'temple') temple(out, b, S, r, detail, open);
-  else house(out, b, S, r, detail, open);
+  else house(out, b, S, r, detail, open, open ? opts.hole ?? null : null);
   if (opts.sign) doorSign(out, b, S, opts.sign);
   return {
     position: Float32Array.from(out.pos), normal: Float32Array.from(out.nrm), uv: Float32Array.from(out.uv),
@@ -368,12 +391,13 @@ function farWall(c: RGB, L: Look, timbered: boolean): RGB {
   return [0, 1, 2].map((i) => Math.round((c[i] * (1 - k) + L.timber[i] * k) * dim)) as RGB;
 }
 
-function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, open: boolean): void {
+function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, open: boolean, hole: FloorHole | null): void {
   const { hu, hv } = b, L = S.look;
   const plinthDown = b.floorY - b.groundY + 0.3;
   // The plinth: rubble from below the lowest ground to the floor. Opened, its top drops under the
   // room's floor boards (interior.ts FLOOR), or the two fight for the same depth.
-  o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : 0.05, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
+  if (!hole) o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : 0.05, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
+  else holedTop(o, -hu - 0.06, hu + 0.06, -plinthDown, -hv - 0.06, hv + 0.06, hole, BuildingMat.Rubble, L.stone);
   // Steps up to the door.
   if (detail) drawEntrance(o, b, L);
   S.storeys.forEach((st, f) => {
