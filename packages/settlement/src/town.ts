@@ -15,8 +15,8 @@ import { perimeterLots, type Lot, type LotRules } from './lots';
 import { organicCuts } from './streets';
 import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
-/** How big a settlement is: a few farms round a green, a village with its temple and inn, a market town, a capital. */
-export type SettlementSize = 'hamlet' | 'village' | 'town' | 'capital';
+/** How big a settlement is: an inn and a stable by the road (a waystation), a few farms round a green, a village with its temple and inn, a market town, a capital. */
+export type SettlementSize = 'waystation' | 'hamlet' | 'village' | 'town' | 'capital';
 
 /** What a size of settlement has. */
 export interface SizeRules {
@@ -44,9 +44,12 @@ export interface SizeRules {
   readonly smithy: boolean;
   readonly stable: boolean;
   readonly crafts: number;
+  /** No plots: its few buildings stand by the road through it, facing each other (a waystation). */
+  readonly byRoad?: boolean;
 }
 
 export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
+  waystation: { radius: [20, 26], roads: [2, 2], market: 0.3, stalls: false, lanes: null, inner: 0.78, spread: 1, temple: false, graves: 0, inn: true, hall: false, bakery: false, smithy: false, stable: true, crafts: 0, byRoad: true },
   hamlet: { radius: [38, 52], roads: [1, 2], market: 0.55, stalls: false, lanes: null, inner: 0.78, spread: 1, temple: false, graves: 0, inn: false, hall: false, bakery: false, smithy: false, stable: false, crafts: 0 },
   village: { radius: [62, 85], roads: [2, 3], market: 0.75, stalls: true, lanes: [70, 120], inner: 0.42, spread: 1, temple: true, graves: 10, inn: true, hall: false, bakery: false, smithy: true, stable: false, crafts: 2 },
   town: { radius: [115, 160], roads: [3, 4], market: 1, stalls: true, lanes: [48, 90], inner: 0, spread: 1, temple: true, graves: 18, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 8 },
@@ -201,7 +204,7 @@ export function planTown(site: TownSite): TownPlan {
   const market = marketPlace(rng.fork('market'), cx, cz, S.market);
 
   // 2. The roads out, following the land.
-  const dirs = site.roads ?? roadDirections(rng.fork('roads'), S.roads);
+  const dirs = site.roads ?? (S.byRoad ? throughRoad(rng.fork('roads')) : roadDirections(rng.fork('roads'), S.roads));
   // Out through the town and on through the fields.
   const farmland = site.farmland ?? true;
   const roadLength = R * 1.5 + (farmland ? farmlandReach(R) * 1.25 + 20 : 0);
@@ -242,7 +245,7 @@ export function planTown(site: TownSite): TownPlan {
   };
   const dist = (x: number, z: number) => Math.max(S.inner, (Math.hypot(x - cx, z - cz) / R) * S.spread);
   let templeGrounds: Shape | null = null;
-  const plots: Shape[] = [...blocks];
+  const plots: Shape[] = S.byRoad ? [] : [...blocks];
   const near = (b: Shape) => { let m = Infinity; for (let i = 0; i < b.outer.length; i += 2) m = Math.min(m, dist(b.outer[i], b.outer[i + 1])); return m; };
   const crr = rng.fork('temple');
   for (const blk of blocks.filter((b) => S.temple && near(b) < Math.max(0.4, S.inner + 0.15) && shapeArea(b) > 900).sort((a, b) => near(a) - near(b))) {
@@ -262,12 +265,13 @@ export function planTown(site: TownSite): TownPlan {
     yards.push(...ys);
   }
 
-  // 6. A house on every plot that holds one.
+  // 6. A house on every plot that holds one (by the road: one on each side of it, facing it).
   const br = rng.fork('houses');
   lots.forEach((lot, li) => {
     const b = houseOn(lot, li, buildings.length, dist, site, br, buildings);
     if (b) buildings.push(b);
   });
+  if (S.byRoad) buildings.push(...byTheRoad(roads[0], buildings.length, site, br));
 
   // 7. Trades: the inn on the market, a bakery near it, a smithy and a stable on the roads out,
   // a mill by the water, crafts along the roads.
@@ -401,6 +405,36 @@ function marketPlace(r: Rng, cx: number, cz: number, scale: number): Poly {
     out.push(cx + Math.cos(a) * rr, cz + Math.sin(a) * rr);
   }
   return ensureCCW(out);
+}
+
+/** One road through: out both ways, nearly straight. */
+function throughRoad(r: Rng): number[] {
+  const d = r.range(0, Math.PI * 2);
+  return [d, d + Math.PI + r.range(-0.2, 0.2)];
+}
+
+/**
+ * Buildings by the road through a waystation: a big one on one side (the inn, two storeys) and a long low
+ * one across from it a little along (the stable), each its front to the road.
+ */
+function byTheRoad(road: number[], id: number, site: TownSite, r: Rng): TownBuilding[] {
+  const [ax, az] = [road[0], road[1]];
+  const k = Math.min(road.length - 2, 4);
+  const L = Math.hypot(road[k] - ax, road[k + 1] - az) || 1;
+  const ux = (road[k] - ax) / L, uz = (road[k + 1] - az) / L;
+  const out: TownBuilding[] = [];
+  const sides = r.chance(0.5) ? [1, -1] : [-1, 1];
+  const sizes: [number, number, number][] = [[r.range(6, 7.5), r.range(4.5, 5.5), r.range(-2, 2)], [r.range(6.5, 8), r.range(3.5, 4.2), r.range(4, 8)]];
+  sizes.forEach(([hu, hv, along], i) => {
+    // v away from the road: the side's normal.
+    const vx = -uz * sides[i], vz = ux * sides[i];
+    const off = ROAD_W / 2 + r.range(1.5, 2.5) + hv;
+    const cx = ax + ux * along + vx * off, cz = az + uz * along + vz * off;
+    const b = makeBuilding(id + i, 'house', cx, cz, ux, uz, vx, vz, hu, hv, false, false, false, i, site, r);
+    b.floors = i === 0 ? 2 : 1;
+    out.push(b);
+  });
+  return out;
 }
 
 function roadDirections(r: Rng, [few, more]: readonly [number, number]): number[] {
