@@ -158,6 +158,21 @@ test('interior: a hatch down to a cellar lies on free floor one can walk to, in 
   }
 });
 
+test('interior: a hall (a home where fighting is taught) has a weapon rack and a practice post one can walk to; a plain home none', () => {
+  const homes = town.buildings.filter((b) => b.kind === 'house' || b.kind === 'cottage');
+  let both = 0;
+  for (const b of homes) {
+    assert.ok(!planInterior(b).fixtures.some((f) => f.kind === 'rack' || f.kind === 'pell'), `plain ${b.kind} #${b.id}`);
+    const p = planInterior(b, { hall: true }), reach = reachable(p, 0);
+    const rack = p.fixtures.find((f) => f.kind === 'rack'), pell = p.fixtures.find((f) => f.kind === 'pell');
+    if (rack && pell) both++;
+    if (pell) assert.ok([0.5, 0.7].some((d) => [0, 1, 2, 3].some((k) => reach(pell.a + d * Math.cos(k * Math.PI / 2), pell.b + d * Math.sin(k * Math.PI / 2)))), `${b.kind} #${b.id}: walk up to the pell`);
+    for (const s of p.spots) if (s.storey === 0) assert.ok([0, 0.4, 0.7, 1.0].some((d) => Array.from({ length: 16 }, (_, k) => (k / 16) * 2 * Math.PI).some((t) => reach(s.a + d * Math.cos(t), s.b + d * Math.sin(t)))), `${b.kind} #${b.id}: ${s.kind} still reached`);
+    assert.ok(interiorMesh(p, b, [b.cx, 0, b.cz]).position.length > 0);
+  }
+  assert.ok(both >= homes.length * 0.8, `${both} of ${homes.length} halls have both`);
+});
+
 test('chimney: every stack stands on the roof, within the walls, and rises past the ridge', () => {
   let n = 0;
   for (const b of town.buildings) {

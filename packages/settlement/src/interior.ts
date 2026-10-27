@@ -17,6 +17,8 @@ import type { TownBuilding } from './town';
 export type InteriorFixtureKind =
   | 'table' | 'bench' | 'counter' | 'barrel' | 'hearth' | 'bed' | 'chest' | 'shelf'
   | 'forge' | 'anvil' | 'tub' | 'workbench' | 'woodpile' | 'oven' | 'basin'
+  /** A hall's weapon rack against a wall (blades, spears, a shield); a practice post (pell) on the floor. */
+  | 'rack' | 'pell'
   /** A trapdoor in the floor (to a cellar): walked over, not round. */
   | 'hatch'
   /** A flight of stairs up to the next storey (walked on); the hole it comes up through (open floor). */
@@ -105,7 +107,11 @@ const WELL_FROM = 0;
 const FACE_A = 0, FACE_B = Math.PI / 2, FACE_NA = Math.PI, FACE_NB = -Math.PI / 2;
 
 /** `hatch`: a trapdoor down to a cellar, on free floor one can walk to. */
-export function planInterior(b: TownBuilding, opts: { hatch?: boolean } = {}): InteriorPlan {
+/**
+ * `hatch`: a trapdoor down to a cellar. `hall`: a home that is also a hall where fighting is taught (a game's
+ * guild house): a weapon rack and a practice post besides the household's bed and table.
+ */
+export function planInterior(b: TownBuilding, opts: { hatch?: boolean; hall?: boolean } = {}): InteriorPlan {
   const S = houseShape(b);
   const ha = Math.max(1.6, b.hu - WALL);
   const door = S.storeys[0].walls.find((w) => w.id === 0)!.opens.find((q) => q.door);
@@ -147,6 +153,7 @@ export function planInterior(b: TownBuilding, opts: { hatch?: boolean } = {}): I
           case 'barn': case 'stable': break;
           default: home(P, r, b.kind === 'workshop' || b.kind === 'mill' || b.trade !== '');
         }
+        if (opts.hall) hall(P);
         if (opts.hatch) P.hatch();
       } else bedroom(P, r, b.kind === 'inn');
       if (!stairFirst) climb();
@@ -498,6 +505,25 @@ function home(P: Planner, r: Rng, work: boolean): void {
   P.add('shelf', -side * (P.ha - 0.22), -P.hb + 2.0, 0.35, 1.2, 1.7, 0.1);
 }
 
+/** A hall's rack on a free stretch of side or back wall, and its pell on free floor nearest the room's middle. */
+function hall(P: Planner): void {
+  const walls: [number, number, number, number][] = [];
+  for (let t = -P.hb + 2.2; t <= P.hb - 1.0; t += 0.3) for (const s of [-1, 1]) walls.push([s * (P.ha - 0.2), t, 0.3, 1.5]);
+  for (let t = -P.ha + 1.0; t <= P.ha - 1.0; t += 0.3) walls.push([t, P.hb - 0.2, 1.5, 0.3]);
+  walls.find(([a, b, w, d]) => P.add('rack', a, b, w, d, 1.8, 0.3));
+  const floor: [number, number][] = [];
+  for (let b = -P.hb + 0.6; b < P.hb - 0.5; b += 0.3) for (let a = -P.ha + 0.5; a < P.ha - 0.4; a += 0.3) floor.push([a, b]);
+  floor.sort((x, y) => Math.hypot(x[0], x[1]) - Math.hypot(y[0], y[1]));
+  // One must be able to step up to it and strike.
+  floor.find(([a, b]) => {
+    if (!P.add('pell', a, b, 0.5, 0.5, 1.75, 0.6)) return false;
+    const reach = P.reach();
+    if ([[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].some(([da, db]) => reach(a + da, b + db))) return true;
+    P.fixtures.pop();
+    return false;
+  });
+}
+
 /** Inside colours. */
 const LIME: RGB = [236, 228, 210];
 const SOOT: RGB = [150, 140, 128];
@@ -510,6 +536,9 @@ const TIMBER: RGB = [255, 240, 225];
 const DARK: RGB = [180, 160, 145];
 const LIGHT_WOOD: RGB = [255, 250, 245];
 const IRON: RGB = [70, 70, 74];
+const STEEL: RGB = [150, 152, 158];
+/** A painted round shield (madder red) on a hall's rack. */
+const SHIELD: RGB = [150, 50, 36];
 const LINEN: RGB = [214, 204, 180];
 const STONE: RGB = [196, 188, 176];
 
@@ -803,6 +832,30 @@ function fixture(o: Out, f: InteriorFixture, H: number): void {
       o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, LIGHT_WOOD);
       for (const t of [-0.25, 0.25]) o.box(a0 + 0.06, a1 - 0.06, f.h, f.h + 0.025, f.b + t * f.d - 0.05, f.b + t * f.d + 0.05, BuildingMat.Oak, TIMBER);
       o.box(f.a - 0.1, f.a + 0.1, f.h, f.h + 0.03, f.b - 0.1, f.b + 0.1, BuildingMat.Slate, [120, 120, 126]);
+      break;
+    case 'rack': {
+      // Two uprights, a bar low and one high; blades and spears leaning in it, a round shield hung at one end.
+      const along = f.w > f.d, len = along ? f.w : f.d, at = (t: number): [number, number] => (along ? [f.a + t, f.b] : [f.a, f.b + t]);
+      for (const t of [-len / 2 + 0.05, len / 2 - 0.05]) { const [pa, pb] = at(t); o.box(pa - 0.05, pa + 0.05, 0, f.h, pb - 0.05, pb + 0.05, BuildingMat.Oak, DARK); }
+      for (const y of [0.35, 1.15]) {
+        const [p0a, p0b] = at(-len / 2), [p1a, p1b] = at(len / 2);
+        o.box(Math.min(p0a, p1a) - (along ? 0 : 0.04), Math.max(p0a, p1a) + (along ? 0 : 0.04), y, y + 0.06, Math.min(p0b, p1b) - (along ? 0.04 : 0), Math.max(p0b, p1b) + (along ? 0.04 : 0), BuildingMat.Oak, TIMBER);
+      }
+      for (let i = 0; i < 5; i++) {
+        const [pa, pb] = at(-len / 2 + 0.25 + i * 0.2), spear = i % 2 === 1, top = spear ? f.h + 0.1 : 1.05;
+        if (spear) o.box(pa - 0.02, pa + 0.02, 0, top - 0.2, pb - 0.02, pb + 0.02, BuildingMat.Oak, LIGHT_WOOD);
+        o.box(pa - 0.025, pa + 0.025, spear ? top - 0.2 : 0.1, top, pb - (spear ? 0.025 : 0.035), pb + (spear ? 0.025 : 0.035), BuildingMat.Slate, STEEL);
+        if (!spear) o.box(pa - 0.06, pa + 0.06, top, top + 0.03, pb - 0.06, pb + 0.06, BuildingMat.Slate, IRON);
+      }
+      const [sa, sb] = at(len / 2 - 0.3), out = 0.07;
+      o.box(sa - (along ? 0.25 : out), sa + (along ? 0.25 : out), 1.25, 1.75, sb - (along ? out : 0.25), sb + (along ? out : 0.25), BuildingMat.Oak, SHIELD);
+      break;
+    }
+    case 'pell':
+      // A post of rough timber on a block, scarred where it is struck.
+      o.box(a0, a1, 0, 0.12, b0, b1, BuildingMat.Oak, DARK);
+      o.box(f.a - 0.1, f.a + 0.1, 0.12, f.h, f.b - 0.1, f.b + 0.1, BuildingMat.Oak, LIGHT_WOOD);
+      o.box(f.a - 0.12, f.a + 0.12, 1.1, 1.3, f.b - 0.12, f.b + 0.12, BuildingMat.Plaster, LINEN);
       break;
     case 'basin':
       o.box(f.a - 0.3, f.a + 0.3, 0, f.h - 0.2, f.b - 0.3, f.b + 0.3, BuildingMat.Ashlar, STONE);
