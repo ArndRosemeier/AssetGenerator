@@ -294,7 +294,7 @@ export function buildingMesh(b: TownBuilding, origin: [number, number, number], 
   const open = !!opts.open;
   if (b.kind === 'temple') temple(out, b, S, r, detail, open);
   else house(out, b, S, r, detail, open);
-  if (opts.sign) doorSign(out, S, opts.sign);
+  if (opts.sign) doorSign(out, b, S, opts.sign);
   return {
     position: Float32Array.from(out.pos), normal: Float32Array.from(out.nrm), uv: Float32Array.from(out.uv),
     mat: Uint8Array.from(out.mat), tint: Uint8Array.from(out.tint), index: Uint32Array.from(out.idx),
@@ -386,28 +386,66 @@ function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, 
   chimney(o, b, S, detail);
 }
 
+/** Where a building's door sign goes (building frame): flat on the front wall, or hung from a bracket where no wall is free. */
+export interface SignPlace {
+  readonly a: number; readonly y: number; readonly b: number;
+  readonly r: number;
+  /** Flat on the wall facing the street; else hung from a bracket, painted both sides. */
+  readonly flat: boolean;
+}
+
 /**
- * A guild's sign: a round shield hung from an iron bracket on the front wall beside the door, out past the
- * eaves, painted both sides so it is seen from up and down the street; a brass rim catches the light in shade.
+ * Where the sign of `b` goes, the same rule for every house: a round shield flat on the front wall beside
+ * the door, clear of the door, the windows and their shutters, under the roof's underside (a low thatch
+ * comes down to the ground floor's top) or the storey's top beam; smaller if need be; where the front has
+ * no such place, hung from a short bracket beside the door, under the eave. Null without a front door.
  */
-function doorSign(o: Out, S: HouseShape, face: RGB): void {
+export function signPlace(b: TownBuilding, S: HouseShape): SignPlace | null {
   const st = S.storeys[0], w = st.walls.find((x) => x.id === 0), q = w?.opens.find((x) => x.door);
-  if (!w || !q) return;
+  if (!w || !q) return null;
   const len = Math.hypot(w.a1 - w.a0, w.b1 - w.b0), da = (w.a1 - w.a0) / len, db = (w.b1 - w.b0) / len;
-  // Beside the door on the side with more wall, clear of the door frame.
+  const at = (s: number) => [w.a0 + da * s, w.b0 + db * s] as const;
+  // The free wall's top: under the roof where it comes down onto this storey's front, else under the beam.
+  const eaves = S.storeys.length === 1 && b.ridgeAlongU;
+  const thick = b.cover === 'thatch' ? 0.38 : 0.14;
+  const top = eaves ? Math.min(st.y1, S.top) - thick - 0.06 : st.y1 - 0.12;
+  // Windows widened by their shutters (each half the window's width) and a hand's breadth.
+  const keep = w.opens.filter((o) => !o.door).map((o) => ({ s0: o.s0 - (o.s1 - o.s0) / 2 - 0.08, s1: o.s1 + (o.s1 - o.s0) / 2 + 0.08, t0: o.t0 - 0.08, t1: o.t1 + 0.08 }));
+  for (const r of [0.36, 0.3, 0.25]) {
+    const y = Math.min(top - r, st.y0 + 2.0);
+    if (y - r < st.y0 + 0.9) continue;
+    for (let d = 0; d < 2.0; d += 0.1) {
+      for (const s of [q.s1 + 0.12 + r + d, q.s0 - 0.12 - r - d]) {
+        if (s - r < 0.25 || s + r > len - 0.25) continue;
+        if (keep.some((o) => s + r > o.s0 && s - r < o.s1 && y + r > st.y0 + o.t0 && y - r < st.y0 + o.t1)) continue;
+        const [pa, pb] = at(s);
+        return { a: pa, y, b: pb, r, flat: true };
+      }
+    }
+  }
+  // No free wall: a short bracket beside the door, its arm under the eave where the eave comes down.
   const right = len - q.s1 >= q.s0, s = right ? Math.min(len - 0.3, q.s1 + 0.45) : Math.max(0.3, q.s0 - 0.45);
-  const a = w.a0 + da * s, bb = w.b0 + db * s;
-  const top = Math.max(st.y0 + 2.2, Math.min(st.y0 + q.t1 + 0.1, st.y1 - 0.25)), out = 0.95, r = 0.36;
+  const [pa, pb] = at(s), r = 0.28;
+  return { a: pa, y: Math.max(st.y0 + 1.3, Math.min(st.y0 + 2.1, top - 0.1 - (eaves ? 0.6 * b.pitch : 0))) - r - 0.08, b: pb, r, flat: false };
+}
+
+/** A guild's sign on the front wall (`signPlace`), with a brass rim that catches the light in shade. */
+function doorSign(o: Out, b: TownBuilding, S: HouseShape, face: RGB): void {
+  const p = signPlace(b, S);
+  if (!p) return;
   const iron: RGB = [52, 50, 48], brass: RGB = [196, 160, 86];
-  // The bracket: an arm out from the wall, a stay under it.
-  o.box(a - 0.03, a + 0.03, top - 0.05, top, bb - out, bb, BuildingMat.Slate, iron, true);
-  o.box(a - 0.025, a + 0.025, top - 0.5, top - 0.05, bb - 0.05, bb, BuildingMat.Slate, iron, true);
-  for (let k = 0; k < 6; k++) { const t = (k + 0.5) / 6; o.box(a - 0.02, a + 0.02, top - 0.5 + t * 0.45 - 0.03, top - 0.5 + t * 0.45 + 0.03, bb - t * out * 0.8 - 0.03, bb - t * out * 0.8 + 0.03, BuildingMat.Slate, iron); }
-  // Two rings and the shield hanging from the arm's end, painted on both faces.
-  const cb = bb - out + r + 0.05, cy = top - 0.08 - r;
-  for (const d of [-0.18, 0.18]) o.box(a - 0.015, a + 0.015, cy + r - 0.02, top - 0.05, cb + d - 0.015, cb + d + 0.015, BuildingMat.Slate, iron);
-  roundShield(o, [a + 0.005, cy, cb], [1, 0], r, face, brass);
-  roundShield(o, [a - 0.005, cy, cb], [-1, 0], r, face, brass);
+  if (p.flat) {
+    // A peg in the wall, the shield on it facing the street.
+    roundShield(o, [p.a, p.y, p.b - 0.06], [0, -1], p.r, face, brass);
+    return;
+  }
+  const out = 2 * p.r + 0.2, armY = p.y + p.r + 0.08;
+  o.box(p.a - 0.03, p.a + 0.03, armY, armY + 0.05, p.b - out, p.b, BuildingMat.Slate, iron, true);
+  o.box(p.a - 0.025, p.a + 0.025, armY - 0.4, armY + 0.05, p.b - 0.05, p.b, BuildingMat.Slate, iron, true);
+  const cb = p.b - out / 2 - 0.05;
+  for (const d of [-0.15, 0.15]) o.box(p.a - 0.015, p.a + 0.015, p.y + p.r - 0.02, armY, cb + d - 0.015, cb + d + 0.015, BuildingMat.Slate, iron);
+  roundShield(o, [p.a + 0.005, p.y, cb], [1, 0], p.r, face, brass);
+  roundShield(o, [p.a - 0.005, p.y, cb], [-1, 0], p.r, face, brass);
 }
 
 /** Where the door goes along the front wall (s from a0): the middle, where the plan put it. */
