@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
+import { BUILDING_MAT_COUNT, buildingMesh, hatchLidMesh, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
 
 const towns = [3, 4, 5, 6, 7, 8].map((seed) => planTown({ seed, x: 500, z: 200, height: () => 20 }));
 const town = { buildings: towns.flatMap((t) => t.buildings) };
@@ -263,4 +263,20 @@ test('interior: a way in from the door to every spot on the ground floor, round 
     }
   }
   assert.ok(ways > 50, `${ways} ways`);
+});
+
+test('interior: a hatch\'s lid drawn apart leaves a dark hole in the floor, and its own mesh lies where it was', () => {
+  const b = town.buildings.find((x) => x.kind === 'house')!;
+  const p = planInterior(b, { hatch: true }), at: [number, number, number] = [b.cx, 0, b.cz];
+  const whole = interiorMesh(p, b, at), apart = interiorMesh(p, b, at, { lid: false }), lid = hatchLidMesh(p, b, at)!;
+  assert.ok(lid.index.length > 0 && apart.index.length < whole.index.length, 'the lid left out');
+  // Every lid vertex is within the hatch's rectangle, at most a few centimetres over the floor, and lit as inside.
+  const f = p.fixtures.find((x) => x.kind === 'hatch')!, ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+  for (let i = 0; i < lid.position.length / 3; i++) {
+    const dx = lid.position[i * 3], dz = lid.position[i * 3 + 2], y = lid.position[i * 3 + 1] - b.floorY - p.storeys[0].y;
+    const a = dx * ux + dz * uz, bb = dx * b.vx + dz * b.vz;
+    assert.ok(Math.abs(a - f.a) <= f.w / 2 + 1e-6 && Math.abs(bb - f.b) <= f.d / 2 + 1e-6 && y > -1e-6 && y < 0.1);
+    assert.ok(lid.mat[i] >= INSIDE_LIGHT);
+  }
+  assert.equal(hatchLidMesh(planInterior(b), b, at), null);
 });
