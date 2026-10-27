@@ -864,6 +864,8 @@ const SIDES: readonly [number, number][] = [[0, -1], [1, 0], [-1, 0], [0, 1]];
 const HATCH_STAND = 0.5, HATCH_LEAN = 0.35;
 /** A hatch's shaft under the floor (m deep); its ladder's rungs this far apart, this far inside the hatch's edge. */
 export const HATCH_SHAFT = 2.4, HATCH_RUNG = 0.3, HATCH_RUNG_IN = 0.12;
+/** A hatch's ladder stands this far up out of the hole (m, whole rungs): what one holds getting on and off it. */
+export const HATCH_RAILS_UP = 0.9;
 /** The shaft's sides: earth and old boards, dim. */
 const SHAFT: RGB = [120, 104, 88], SHAFT_BANDS = 4;
 
@@ -900,15 +902,15 @@ function hatchShaft(o: Out, f: InteriorFixture, sides: HatchSides): void {
     side([[a1, t1, b0], [a1, t1, b1], [a1, t0, b1], [a1, t0, b0]], [-1, 0, 0]);
   }
   o.quad([[a0, y0, b0], [a1, y0, b0], [a1, y0, b1], [a0, y0, b1]], [0, 1, 0], [[a0, b0], [a1, b0], [a1, b1], [a0, b1]], BuildingMat.Slate, HOLE);
-  // The ladder: the rungs' line HATCH_RUNG_IN inside the edge, two rails and a rung each HATCH_RUNG from the floor down.
+  // The ladder: the rungs' line HATCH_RUNG_IN inside the edge, two rails and a rung each HATCH_RUNG, from HATCH_RAILS_UP over the floor down.
   const [la, lb] = sides.ladder, out = hatchEdge(f, sides.ladder) - HATCH_RUNG_IN, across = hatchEdge(f, [lb, la]);
   const hw = Math.min(0.3, across - 0.12), ca = f.a + la * out, cb = f.b + lb * out;
   // A box round the rung line: `t0..t1` across it, `d` either side of it, y0..y1.
   const bar = (t0: number, t1: number, d: number, ya: number, yb: number) => la
     ? o.box(ca - d, ca + d, ya, yb, cb + t0, cb + t1, BuildingMat.Oak, DARK, true)
     : o.box(ca + t0, ca + t1, ya, yb, cb - d, cb + d, BuildingMat.Oak, DARK, true);
-  for (const t of [-hw - 0.05, hw]) bar(t, t + 0.05, 0.035, y0, 0.02);
-  for (let k = 0; k * HATCH_RUNG <= HATCH_SHAFT + 1e-6; k++) bar(-hw, hw, 0.02, -k * HATCH_RUNG - 0.035, -k * HATCH_RUNG);
+  for (const t of [-hw - 0.05, hw]) bar(t, t + 0.05, 0.035, y0, HATCH_RAILS_UP + 0.06);
+  for (let k = -Math.round(HATCH_RAILS_UP / HATCH_RUNG); k * HATCH_RUNG <= HATCH_SHAFT + 1e-6; k++) bar(-hw, hw, 0.02, -k * HATCH_RUNG - 0.035, -k * HATCH_RUNG);
 }
 
 /** The dark under an open hatch (near black: the room's lamp hardly shows on it). */
