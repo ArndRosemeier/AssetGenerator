@@ -689,10 +689,11 @@ function splits(a: number, b: number, step: number, cuts: number[] = []): number
  */
 /**
  * `lid: false`: a hatch's lid is left out (the game draws it apart, `hatchLidMesh`, to swing it open): the floor
- * has a hole there, a shaft under it with a ladder down one side (`hatchSides`), dark below.
+ * has a hole there, a shaft under it with a ladder down one side (`hatchSides`), dark below. `doors: false`: the
+ * door's leaves standing open inside are left out (the game draws them apart, `doorLeaves`, to swing them).
  */
-export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number], opts: { lid?: boolean } = {}): BuildingMesh {
-  const lid = opts.lid !== false;
+export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number], opts: { lid?: boolean; doors?: boolean } = {}): BuildingMesh {
+  const lid = opts.lid !== false, doors = opts.doors !== false;
   const S = houseShape(b);
   const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
   const rr = new Rng(b.seed ^ 0x51de);
@@ -723,7 +724,7 @@ export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [numbe
     const sh = S.storeys[k];
     for (const w of sh.walls) innerWall(o, w.a0, w.b0, w.a1, w.b1, w.opens, sh.y0 - st.y, H, room, wallMat, wallTint);
     for (const s of plan.stairs) if (s.storey === k) stair(o, s);
-    for (const f of plan.fixtures) if (f.storey === k) {
+    for (const f of plan.fixtures) if (f.storey === k && (doors || f.kind !== 'door')) {
       if (f.kind === 'hatch' && !lid) hatchShaft(o, f, hatchSides(plan, f));
       else fixture(o, f, H);
     }
@@ -806,6 +807,47 @@ function merge(parts: readonly BuildingMesh[]): BuildingMesh {
     v += p.position.length / 3; k += p.index.length;
   }
   return out;
+}
+
+/** A door leaf drawn apart (`doorLeaves`): shut in its doorway, its hinge (as the mesh's coordinates) and how it opens. */
+export interface DoorLeaf {
+  readonly mesh: BuildingMesh;
+  /** A point on the hinge's line (it runs straight up). */
+  readonly hinge: [number, number, number];
+  /** The turn about +y (rad) that swings it wide open, into the house. */
+  readonly open: number;
+}
+
+/**
+ * The front door's leaves, shut in the doorway as the outside draws its door (`buildingMesh`: its paint outside,
+ * the planks inside lit as the room), each turning on its hinge at a jamb (`origin` as for `interiorMesh`). A game
+ * draws the house with `{ open: true }` and `interiorMesh(..., { doors: false })` and swings these.
+ */
+export function doorLeaves(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number]): DoorLeaf[] {
+  const S = houseShape(b), sh = S.storeys[0], front = sh.walls.find((w) => w.id === 0);
+  const q = front?.opens.find((x) => x.door);
+  if (!front || !q) return [];
+  const ux = Math.cos(b.angle), uz = Math.sin(b.angle);
+  const frame = new Frame({ cx: b.cx, cz: b.cz, ux, uz, vx: b.vx, vz: b.vz, y: b.floorY }, origin);
+  const w = plan.doorW, leaves = w > 0.8 ? [-1, 1] : [-1], lw = (2 * w) / leaves.length;
+  // The leaf's outside where the outside draws its door (12 cm into the doorway), 5 cm of planks behind it.
+  const b0 = front.b0 + 0.12, b1 = b0 + 0.05, y0 = sh.y0 + q.t0, y1 = sh.y0 + q.t1 - 0.01;
+  const inward = frame.dir(0, 0, 1);
+  return leaves.map((s) => {
+    const a0 = Math.min(s * w, s * (w - lw)), a1 = Math.max(s * w, s * (w - lw));
+    const outside = new Out(frame), inside = new Out(frame);
+    outside.quad([[a0, y0, b0], [a1, y0, b0], [a1, y1, b0], [a0, y1, b0]], [0, 0, -1], [[a0, y0], [a1, y0], [a1, y1], [a0, y1]], BuildingMat.Oak, S.look.door);
+    inside.quad([[a0, y0, b1], [a1, y0, b1], [a1, y1, b1], [a0, y1, b1]], [0, 0, 1], [[a0, y0], [a1, y0], [a1, y1], [a0, y1]], BuildingMat.Oak, DARK);
+    for (const a of [a0, a1]) inside.quad([[a, y0, b0], [a, y0, b1], [a, y1, b1], [a, y1, b0]], [a === a0 ? -1 : 1, 0, 0], [[b0, y0], [b1, y0], [b1, y1], [b0, y1]], BuildingMat.Oak, DARK);
+    inside.quad([[a0, y1, b0], [a1, y1, b0], [a1, y1, b1], [a0, y1, b1]], [0, 1, 0], [[a0, b0], [a1, b0], [a1, b1], [a0, b1]], BuildingMat.Oak, DARK);
+    const lit = toMesh(inside);
+    daylight(lit, b, origin, plan.storeys[0], sh, true);
+    const hinge = frame.point(s * w, 0, (b0 + b1) / 2);
+    // From the hinge the leaf runs towards the doorway's middle; opened it points into the house.
+    const d = frame.dir(-s, 0, 0), turned = [d[2], -d[0]];
+    const open = (turned[0] * inward[0] + turned[1] * inward[2] > 0 ? 1 : -1) * (Math.PI / 2);
+    return { mesh: merge([toMesh(outside), lit]), hinge, open };
+  });
 }
 
 /** A hatch's lid: planks a shade lighter than the floor (it lies in a dark corner), two battens and an iron ring. */
