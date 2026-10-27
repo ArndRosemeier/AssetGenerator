@@ -195,6 +195,88 @@ export function reachable(p: InteriorPlan, storey = 0): (a: number, b: number) =
   return reachGrid(st.a0, st.a1, st.b0, st.b1, st.entry, (a, b, r) => interiorBlocked(p, a, b, r, storey, true));
 }
 
+/**
+ * A person's way (radius `r`) across a storey from `from` to `to`, round the fixtures: a breadth-first search on a
+ * 0.2 m grid, pulled straight wherever the floor between two turns is clear. Either end may be where one cannot
+ * stand (a seat on a bench, out through the doorway): the way then leaves it for the nearest free floor, and comes to
+ * it from the free floor nearest it, within `reach` metres. Flat a, b pairs from `from` to `to` (the ends exact);
+ * null when no free floor joins them.
+ */
+export function roomPath(p: InteriorPlan, from: readonly [number, number], to: readonly [number, number], storey = 0, r = 0.3, reach = 1.2): number[] | null {
+  const st = p.storeys[storey], s = 0.2;
+  // A little room out past the doorway on the ground floor (one walks in and out through it).
+  const a0 = st.a0, b0 = st.b0 - (storey === 0 ? 0.6 : 0);
+  const na = Math.ceil((st.a1 - a0) / s), nb = Math.ceil((st.b1 - b0) / s);
+  const at = (i: number, j: number): [number, number] => [a0 + (i + 0.5) * s, b0 + (j + 0.5) * s];
+  const known = new Int8Array(na * nb);
+  const free = (i: number, j: number): boolean => {
+    const k = j * na + i;
+    if (!known[k]) { const [a, b] = at(i, j); known[k] = interiorBlocked(p, a, b, r, storey, true) ? -1 : 1; }
+    return known[k] > 0;
+  };
+  const cellOf = (a: number, b: number): [number, number] => [Math.floor((a - a0) / s), Math.floor((b - b0) / s)];
+  // The start: the free cell nearest `from` (or the next nearest, when that one is shut in, between a bench and the wall).
+  const [fi, fj] = cellOf(from[0], from[1]), span = Math.ceil(reach / s);
+  const starts: [number, number][] = [];
+  for (let j = Math.max(0, fj - span); j <= Math.min(nb - 1, fj + span); j++) {
+    for (let i = Math.max(0, fi - span); i <= Math.min(na - 1, fi + span); i++) {
+      const [a, b] = at(i, j), d = Math.hypot(a - from[0], b - from[1]);
+      if (d <= reach && free(i, j)) starts.push([d, j * na + i]);
+    }
+  }
+  starts.sort((x, y) => x[0] - y[0]);
+  const parent = new Int32Array(na * nb).fill(-1);
+  let start = -1, end = -1, best = Infinity;
+  for (const [, c0] of starts) {
+    if (parent[c0] >= 0) continue;
+    start = c0;
+    parent[c0] = c0;
+    const q = [c0];
+    best = Infinity;
+    for (let h = 0; h < q.length; h++) {
+      const c = q[h], i = c % na, j = (c - i) / na;
+      const [a, b] = at(i, j), d = Math.hypot(a - to[0], b - to[1]);
+      if (d < best) { best = d; end = c; }
+      if (d < s * 0.75) break;
+      for (const [di, dj] of NEIGHBOURS) {
+        const ii = i + di, jj = j + dj;
+        if (ii < 0 || jj < 0 || ii >= na || jj >= nb || parent[jj * na + ii] >= 0 || !free(ii, jj)) continue;
+        // Diagonally only past two free cells (no cutting a corner).
+        if (di && dj && (!free(i + di, j) || !free(i, j + dj))) continue;
+        parent[jj * na + ii] = c;
+        q.push(jj * na + ii);
+      }
+    }
+    if (best <= reach) break;
+  }
+  if (best > reach) return null;
+  const cells: [number, number][] = [];
+  for (let c = end; ; c = parent[c]) {
+    const i = c % na;
+    cells.push(at(i, (c - i) / na));
+    if (c === start) break;
+  }
+  cells.reverse();
+  // Pulled straight: from each turn on to the farthest one in clear sight.
+  const clear = (u: readonly [number, number], v: readonly [number, number]): boolean => {
+    const n = Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]) / 0.04);
+    for (let k = 1; k < n; k++) if (interiorBlocked(p, u[0] + ((v[0] - u[0]) * k) / n, u[1] + ((v[1] - u[1]) * k) / n, r, storey, true)) return false;
+    return true;
+  };
+  const out = [from[0], from[1], cells[0][0], cells[0][1]];
+  for (let i = 0; i < cells.length - 1;) {
+    let k = cells.length - 1;
+    while (k > i + 1 && !clear(cells[i], cells[k])) k--;
+    out.push(cells[k][0], cells[k][1]);
+    if (k === cells.length - 1) break;
+    i = k;
+  }
+  out.push(to[0], to[1]);
+  return out;
+}
+
+const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
+
 function reachGrid(a0: number, a1: number, b0: number, b1: number, entry: readonly [number, number], blocked: (a: number, b: number, r: number) => boolean): (a: number, b: number) => boolean {
   const s = 0.2, r = 0.3, na = Math.ceil((a1 - a0) / s), nb = Math.ceil((b1 - b0) / s);
   const seen = new Uint8Array(na * nb), q: number[] = [];
