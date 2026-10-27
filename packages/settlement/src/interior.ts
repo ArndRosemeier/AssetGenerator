@@ -11,7 +11,7 @@
  * in the front wall (b = -hb) at a = 0.
  */
 import { Rng } from '@futuremagic/core';
-import { BuildingMat, Frame, houseShape, Out, roundShield, WALL_THICK, type BuildingMesh, type HouseShape, type RGB } from './building';
+import { BuildingMat, Frame, houseShape, Out, planeUV, roundShield, WALL_THICK, type BuildingMesh, type HouseShape, type RGB } from './building';
 import type { TownBuilding } from './town';
 
 export type InteriorFixtureKind =
@@ -689,7 +689,7 @@ function splits(a: number, b: number, step: number, cuts: number[] = []): number
  */
 /**
  * `lid: false`: a hatch's lid is left out (the game draws it apart, `hatchLidMesh`, to swing it open): the floor
- * has a hole there, dark below.
+ * has a hole there, a shaft under it with a ladder down one side (`hatchSides`), dark below.
  */
 export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [number, number, number], opts: { lid?: boolean } = {}): BuildingMesh {
   const lid = opts.lid !== false;
@@ -723,7 +723,10 @@ export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [numbe
     const sh = S.storeys[k];
     for (const w of sh.walls) innerWall(o, w.a0, w.b0, w.a1, w.b1, w.opens, sh.y0 - st.y, H, room, wallMat, wallTint);
     for (const s of plan.stairs) if (s.storey === k) stair(o, s);
-    for (const f of plan.fixtures) if (f.storey === k) fixture(o, f, H, lid);
+    for (const f of plan.fixtures) if (f.storey === k) {
+      if (f.kind === 'hatch' && !lid) hatchShaft(o, f, hatchSides(plan, f));
+      else fixture(o, f, H);
+    }
     const m = toMesh(o);
     daylight(m, b, origin, st, S.storeys[k], k === 0);
     parts.push(m);
@@ -811,6 +814,54 @@ function hatchLid(o: Out, f: InteriorFixture): void {
   o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Oak, LIGHT_WOOD);
   for (const t of [-0.25, 0.25]) o.box(a0 + 0.06, a1 - 0.06, f.h, f.h + 0.025, f.b + t * f.d - 0.05, f.b + t * f.d + 0.05, BuildingMat.Oak, TIMBER);
   o.box(f.a - 0.1, f.a + 0.1, f.h, f.h + 0.03, f.b - 0.1, f.b + 0.1, BuildingMat.Slate, [120, 120, 126]);
+}
+
+/** The sides tried for a hatch's ladder, in turn (unit a, b in the room's frame). */
+const SIDES: readonly [number, number][] = [[0, -1], [1, 0], [-1, 0], [0, 1]];
+/** Room to stand before a hatch's ladder (m out from its edge), and kept clear past its hinge for the open lid leaning back. */
+const HATCH_STAND = 0.5, HATCH_LEAN = 0.35;
+/** A hatch's shaft under the floor (m deep); its ladder's rungs this far apart, this far inside the hatch's edge. */
+export const HATCH_SHAFT = 2.4, HATCH_RUNG = 0.3, HATCH_RUNG_IN = 0.12;
+/** The shaft's sides: earth and old boards, dim. */
+const SHAFT: RGB = [70, 60, 50];
+
+/** A hatch's way down: the side its ladder stands on and the side its lid hinges on (unit a, b in the room's frame). */
+export interface HatchSides { readonly ladder: readonly [number, number]; readonly hinge: readonly [number, number] }
+
+/** Half the hatch `f` across, towards side `s`. */
+const hatchEdge = (f: InteriorFixture, s: readonly [number, number]): number => Math.abs(s[0]) * f.w / 2 + Math.abs(s[1]) * f.d / 2;
+
+/**
+ * The hatch `f`'s ladder side: the first with room to stand before it; its lid's hinge: across from the ladder,
+ * else beside it, a side the lid leaning back does not run into (a hearth, a wall).
+ */
+export function hatchSides(plan: InteriorPlan, f: InteriorFixture): HatchSides {
+  const ladder = SIDES.find(([da, db]) => !interiorBlocked(plan, f.a + da * (HATCH_STAND + f.w / 2), f.b + db * (HATCH_STAND + f.d / 2), 0.3, f.storey, true)) ?? SIDES[0];
+  const [da, db] = ladder;
+  const room = (s: readonly [number, number]) => !interiorBlocked(plan, f.a + s[0] * (hatchEdge(f, s) + HATCH_LEAN), f.b + s[1] * (hatchEdge(f, s) + HATCH_LEAN), 0.12, f.storey, true);
+  const hinge = ([[-da, -db], [db, -da], [-db, da]] as [number, number][]).find(room) ?? [-da, -db];
+  return { ladder, hinge };
+}
+
+/** An open hatch: the shaft under it, its ladder down the ladder's side (rungs from the floor down), dark at the bottom. */
+function hatchShaft(o: Out, f: InteriorFixture, sides: HatchSides): void {
+  const a0 = f.a - f.w / 2, a1 = f.a + f.w / 2, b0 = f.b - f.d / 2, b1 = f.b + f.d / 2, y0 = -HATCH_SHAFT;
+  const uv = (p: number[][], n: number[]) => p.map((q) => planeUV(q, n));
+  const side = (p: number[][], n: number[]) => o.quad(p, n, uv(p, n), BuildingMat.Oak, SHAFT);
+  side([[a0, y0, b0], [a1, y0, b0], [a1, 0, b0], [a0, 0, b0]], [0, 0, 1]);
+  side([[a0, y0, b1], [a1, y0, b1], [a1, 0, b1], [a0, 0, b1]], [0, 0, -1]);
+  side([[a0, y0, b0], [a0, y0, b1], [a0, 0, b1], [a0, 0, b0]], [1, 0, 0]);
+  side([[a1, y0, b0], [a1, y0, b1], [a1, 0, b1], [a1, 0, b0]], [-1, 0, 0]);
+  o.quad([[a0, y0, b0], [a1, y0, b0], [a1, y0, b1], [a0, y0, b1]], [0, 1, 0], [[a0, b0], [a1, b0], [a1, b1], [a0, b1]], BuildingMat.Slate, HOLE);
+  // The ladder: the rungs' line HATCH_RUNG_IN inside the edge, two rails and a rung each HATCH_RUNG from the floor down.
+  const [la, lb] = sides.ladder, out = hatchEdge(f, sides.ladder) - HATCH_RUNG_IN, across = hatchEdge(f, [lb, la]);
+  const hw = Math.min(0.3, across - 0.12), ca = f.a + la * out, cb = f.b + lb * out;
+  // A box round the rung line: `t0..t1` across it, `d` either side of it, y0..y1.
+  const bar = (t0: number, t1: number, d: number, ya: number, yb: number) => la
+    ? o.box(ca - d, ca + d, ya, yb, cb + t0, cb + t1, BuildingMat.Oak, DARK, true)
+    : o.box(ca + t0, ca + t1, ya, yb, cb - d, cb + d, BuildingMat.Oak, DARK, true);
+  for (const t of [-hw - 0.05, hw]) bar(t, t + 0.05, 0.035, y0, 0.02);
+  for (let k = 0; k * HATCH_RUNG <= HATCH_SHAFT + 1e-6; k++) bar(-hw, hw, 0.02, -k * HATCH_RUNG - 0.035, -k * HATCH_RUNG);
 }
 
 /** The dark under an open hatch (near black: the room's lamp hardly shows on it). */
@@ -903,7 +954,7 @@ export function interiorSolids(plan: InteriorPlan): InteriorBox[] {
   return out;
 }
 
-function fixture(o: Out, f: InteriorFixture, H: number, lid = true): void {
+function fixture(o: Out, f: InteriorFixture, H: number): void {
   const a0 = f.a - f.w / 2, a1 = f.a + f.w / 2, b0 = f.b - f.d / 2, b1 = f.b + f.d / 2;
   const legs = (top: number, t: number, m: BuildingMat, c: RGB) => {
     for (const [a, b] of [[a0 + t, b0 + t], [a1 - t, b0 + t], [a0 + t, b1 - t], [a1 - t, b1 - t]]) o.box(a - t, a + t, 0, top, b - t, b + t, m, c);
@@ -958,9 +1009,8 @@ function fixture(o: Out, f: InteriorFixture, H: number, lid = true): void {
       o.box(a0, a1, 0.55, f.h, b0, b1, BuildingMat.Slate, IRON);
       break;
     case 'hatch':
-      if (lid) hatchLid(o, f);
-      // The lid drawn apart: the hole it shuts, dark below the floor.
-      else o.quad([[a0, 0, b0], [a1, 0, b0], [a1, 0, b1], [a0, 0, b1]], [0, 1, 0], [[a0, b0], [a1, b0], [a1, b1], [a0, b1]], BuildingMat.Slate, HOLE);
+      // (The lid drawn apart: interiorMesh draws the shaft instead, hatchShaft.)
+      hatchLid(o, f);
       break;
     case 'rack': {
       // Two uprights, a bar low and one high; blades and spears leaning in it, a round shield hung at one end.

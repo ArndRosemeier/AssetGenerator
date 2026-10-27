@@ -134,7 +134,7 @@ export function roundShield(o: Out, c: [number, number, number], n: [number, num
 }
 
 /** UV in metres for a planar face with normal n: the two axes in its plane. */
-function planeUV(q: number[], n: number[]): number[] {
+export function planeUV(q: number[], n: number[]): number[] {
   if (Math.abs(n[1]) > 0.5) return [q[0], q[2]];
   if (Math.abs(n[0]) > 0.5) return [q[2], q[1]];
   return [q[0], q[1]];

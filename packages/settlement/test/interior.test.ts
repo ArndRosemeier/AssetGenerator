@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, hatchLidMesh, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
+import { BUILDING_MAT_COUNT, buildingMesh, HATCH_SHAFT, hatchLidMesh, hatchSides, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
 
 const towns = [3, 4, 5, 6, 7, 8].map((seed) => planTown({ seed, x: 500, z: 200, height: () => 20 }));
 const town = { buildings: towns.flatMap((t) => t.buildings) };
@@ -265,13 +265,30 @@ test('interior: a way in from the door to every spot on the ground floor, round 
   assert.ok(ways > 50, `${ways} ways`);
 });
 
-test('interior: a hatch\'s lid drawn apart leaves a dark hole in the floor, and its own mesh lies where it was', () => {
+test('interior: a hatch\'s lid drawn apart leaves a shaft with a ladder under the floor, and its own mesh lies where it was', () => {
   const b = town.buildings.find((x) => x.kind === 'house')!;
   const p = planInterior(b, { hatch: true }), at: [number, number, number] = [b.cx, 0, b.cz];
   const whole = interiorMesh(p, b, at), apart = interiorMesh(p, b, at, { lid: false }), lid = hatchLidMesh(p, b, at)!;
-  assert.ok(lid.index.length > 0 && apart.index.length < whole.index.length, 'the lid left out');
+  const f = p.fixtures.find((x) => x.kind === 'hatch')!, ux = Math.cos(b.angle), uz = Math.sin(b.angle), floor = b.floorY + p.storeys[0].y;
+  // The shaft: under the floor only within the hatch's rectangle, down to its depth (the whole house has nothing there).
+  const under = (m: typeof whole) => {
+    let n = 0, deep = 0;
+    for (let i = 0; i < m.position.length / 3; i++) {
+      const dx = m.position[i * 3], dz = m.position[i * 3 + 2], y = m.position[i * 3 + 1] - floor;
+      if (y > -0.05) continue;
+      const a = dx * ux + dz * uz, bb = dx * b.vx + dz * b.vz;
+      if (Math.abs(a - f.a) <= f.w / 2 + 1e-6 && Math.abs(bb - f.b) <= f.d / 2 + 1e-6) { n++; deep = Math.min(deep, y); }
+    }
+    return { n, deep };
+  };
+  assert.equal(under(whole).n, 0);
+  const shaft = under(apart);
+  assert.ok(shaft.n > 40 && shaft.deep <= -HATCH_SHAFT + 1e-3 && shaft.deep > -HATCH_SHAFT - 0.05, `a shaft with its ladder (${shaft.n} vertices, ${shaft.deep.toFixed(2)} m)`);
+  // The ladder's side has room to stand before it; the hinge is another side.
+  const { ladder, hinge } = hatchSides(p, f);
+  assert.ok(!interiorBlocked(p, f.a + ladder[0] * (f.w / 2 + 0.5), f.b + ladder[1] * (f.d / 2 + 0.5), 0.3, f.storey, true));
+  assert.ok(hinge[0] !== ladder[0] || hinge[1] !== ladder[1]);
   // Every lid vertex is within the hatch's rectangle, at most a few centimetres over the floor, and lit as inside.
-  const f = p.fixtures.find((x) => x.kind === 'hatch')!, ux = Math.cos(b.angle), uz = Math.sin(b.angle);
   for (let i = 0; i < lid.position.length / 3; i++) {
     const dx = lid.position[i * 3], dz = lid.position[i * 3 + 2], y = lid.position[i * 3 + 1] - b.floorY - p.storeys[0].y;
     const a = dx * ux + dz * uz, bb = dx * b.vx + dz * b.vz;
