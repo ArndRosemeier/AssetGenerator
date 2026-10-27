@@ -68,3 +68,34 @@ export function listLayout(counts: readonly number[], lists: readonly number[]):
   });
   return { base, cap, total };
 }
+
+/**
+ * Which level lists can hold an instance while the camera stays within `slack` metres of `cam`: a list is
+ * in use when some instance of its kind has its sphere centre (the distance the cull measures) within
+ * [near - slack, far + slack). The view is not tested (shadow casters outside it are drawn too). The GPU
+ * path hides the parts of the lists not in use, so they cost no draw call: a town in a clearing had 40 of
+ * its 70 tree draws empty, each a draw in the view and another in the sun's shadow map.
+ * `local[k]` is kind k's local sphere, `ranges[l]` list l's levels, `listsOf[k]` the levels of kind k.
+ */
+export function listsInUse(
+  rec: ArrayLike<number>, count: number, local: readonly (readonly [number, number, number, number])[],
+  ranges: readonly LodRange[], listsOf: readonly number[], cam: readonly [number, number, number], horizontal: boolean, slack: number,
+): boolean[] {
+  const first: number[] = [];
+  let l = 0;
+  for (const n of listsOf) { first.push(l); l += n; }
+  const used: boolean[] = ranges.map(() => false);
+  let left = ranges.length;
+  for (let i = 0; i < count && left > 0; i++) {
+    const o = i * RECORD, k = rec[o + KIND];
+    if (!(k >= 0 && k < listsOf.length)) continue;
+    const [x, y, z] = recordSphere(rec, o, local[k]);
+    const d = viewDistance(cam, x, y, z, horizontal);
+    for (let j = first[k], end = first[k] + listsOf[k]; j < end; j++) {
+      if (used[j]) continue;
+      const r = ranges[j];
+      if (d >= (r.near ?? 0) - slack && d < r.far + slack) { used[j] = true; left--; }
+    }
+  }
+  return used;
+}

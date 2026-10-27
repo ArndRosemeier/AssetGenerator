@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BoxGeometry, Matrix4, MeshBasicNodeMaterial, PerspectiveCamera, Vector3 } from 'three/webgpu';
-import { CpuInstanceDraws, RECORD, KIND, DITHER, inLod, listLayout, recordSphere, sphereVisible } from '../src/index';
+import { CpuInstanceDraws, RECORD, KIND, DITHER, inLod, listLayout, listsInUse, recordSphere, sphereVisible } from '../src/index';
 
 test('a level holds from near up to far, and dithers out over its fade', () => {
   const l = { near: 10, far: 100, fade: [60, 100] as const };
@@ -92,4 +92,19 @@ test('the CPU path draws relative to a floating origin, and writes again when it
   origin.set(298240, 0, -299520);
   draws.update(cam);
   assert.deepEqual(drawn(), [1290.5, 20, 9.75], 'the origin stepped: written again without the camera moving');
+});
+
+test('a level list is in use only while an instance of its kind is within its range (give or take the slack)', () => {
+  // Kind 0: levels [0, 50) and [50, 500); kind 1: one level [0, 500); kind 2: none placed.
+  const ranges = [{ far: 50 }, { near: 50, far: 500 }, { far: 500 }, { far: 500 }];
+  const local: [number, number, number, number][] = [[0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]];
+  const rec = new Float32Array(RECORD * 2);
+  const put = (i: number, x: number, kind: number) => { rec.set(new Matrix4().setPosition(x, 0, 0).elements, i * RECORD); rec[i * RECORD + KIND] = kind; };
+  put(0, 100, 0); put(1, 30, 1);
+  assert.deepEqual(listsInUse(rec, 2, local, ranges, [2, 1, 1], [0, 0, 0], true, 8), [false, true, true, false]);
+  // Within the slack of the near level's edge: in use.
+  put(0, 55, 0);
+  assert.deepEqual(listsInUse(rec, 2, local, ranges, [2, 1, 1], [0, 0, 0], true, 8), [true, true, true, false]);
+  // Only `count` records count.
+  assert.deepEqual(listsInUse(rec, 1, local, ranges, [2, 1, 1], [0, 0, 0], true, 8), [true, true, false, false]);
 });
