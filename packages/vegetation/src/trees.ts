@@ -775,30 +775,66 @@ const BARK_FAR: [number, number, number][] = [
   [0.45, 0.3, 0.22], [0.47, 0.42, 0.35], [0.4, 0.29, 0.22], [0.38, 0.35, 0.31],
 ];
 
-function farTrunk(fb: FarBuilder, base: V3, top: V3, r: number, barkIdx: number, sides = 4) {
-  const col = BARK_FAR[barkIdx];
+/**
+ * A tapered prism of bark from `base` to `top` (radius `r` to `rTop`), its colour shaded by `shade` at each
+ * end (1 in the open, lower where the crown covers it) and swaying `w` at each end.
+ */
+function farTrunk(fb: FarBuilder, base: V3, top: V3, r: number, barkIdx: number, sides = 4, rTop = r * 0.6, shade: [number, number] = [1, 1], w: [number, number] = [0, 0.3]) {
+  const bark = BARK_FAR[barkIdx];
+  const tint = (k: number): [number, number, number] => [bark[0] * k, bark[1] * k, bark[2] * k];
+  const cols = [tint(shade[0]), tint(shade[1])];
+  const axis = v3().subVectors(top, base).normalize();
+  // Two directions across the axis (the prism's sides stay square to a leaning limb).
+  const a = Math.abs(axis.y) < 0.9 ? v3(0, 1, 0) : v3(1, 0, 0);
+  const u = v3().crossVectors(axis, a).normalize(), v = v3().crossVectors(u, axis);
   const p = v3(), n = v3();
   for (let i = 0; i < sides; i++) {
     const a0 = (i / sides) * Math.PI * 2 + 0.4, a1 = ((i + 1) / sides) * Math.PI * 2 + 0.4;
-    const q = (a: number, c: V3, rr: number, out: V3) => out.set(c.x + Math.cos(a) * rr, c.y, c.z + Math.sin(a) * rr);
+    const q = (ang: number, c: V3, rr: number) => c.clone().addScaledVector(u, Math.cos(ang) * rr).addScaledVector(v, Math.sin(ang) * rr);
     const am = (a0 + a1) / 2;
-    n.set(Math.cos(am), 0, Math.sin(am));
-    const quad = [q(a0, base, r, v3()), q(a1, base, r, v3()), q(a1, top, r * 0.6, v3()), q(a0, top, r * 0.6, v3())];
+    n.copy(u).multiplyScalar(Math.cos(am)).addScaledVector(v, Math.sin(am));
+    const quad = [q(a0, base, r), q(a1, base, r), q(a1, top, rTop), q(a0, top, rTop)];
     for (const k of [0, 2, 1, 0, 3, 2]) {
       p.copy(quad[k]);
-      fb.push(p, n, 0, 0, col, col, k >= 2 ? 0.3 : 0);
+      const end = k >= 2 ? 1 : 0;
+      fb.push(p, n, 0, 0, cols[end], cols[end], w[end]);
     }
   }
 }
+
+/** How many of the trunk's biggest limbs a far hull shows, and how thick (of the trunk) a limb must be to count. */
+const FAR_LIMBS = 4, FAR_LIMB_MIN = 0.3;
 
 function buildFar(cfg: SpeciesCfg, sk: TreeSkeleton): THREE.BufferGeometry {
   const fb = new FarBuilder();
   const env = sk.env;
   const trunk = sk.branches[0];
-  const tTop = trunk.pts[trunk.pts.length - 1].clone();
-  const tTopY = Math.min(tTop.y, env.base + (env.top - env.base) * 0.35);
-  tTop.y = tTopY;
-  farTrunk(fb, v3(0, -0.1, 0), tTop, cfg.trunkR * 1.1, cfg.bark);
+  // The trunk reaches into the middle of the crown, so its end never shows below the hull's dissolved rim
+  // (it stopped a third of the way in, and below the crown for pines: far woods read as bare posts).
+  const fork = v3(), mid = v3(), tan = v3();
+  const y0 = trunk.pts[0].y;
+  const at = (y: number, out: V3) => {
+    // The point of the trunk at height y (its tip if it ends lower), and the radius there.
+    const tt = clamp((y - y0) / Math.max(1e-3, trunk.pts[trunk.pts.length - 1].y - y0), 0, 1);
+    return sampleBranch(trunk, tt, out, tan);
+  };
+  const rFork = at(env.base, fork);
+  at(env.cy, mid);
+  mid.y = Math.max(mid.y, env.cy);
+  const r0 = cfg.trunkR * 1.1;
+  // Darker at the foot (as the near bark is) and up into the crown's shade: seen from afar a trunk stands in the wood's shadow.
+  farTrunk(fb, v3(0, -0.1, 0), fork, r0, cfg.bark, 5, Math.max(rFork, r0 * 0.55), [0.8, 0.6], [0, 0.2]);
+  farTrunk(fb, fork, mid, Math.max(rFork, r0 * 0.55), cfg.bark, 4, r0 * 0.25, [0.6, 0.45], [0.2, 0.4]);
+  // The main limbs, part way out into the crown, so a far tree forks like the near one instead of standing as a post.
+  const limbs = sk.branches
+    .filter((b) => b.level === 1 && b.rad[0] >= cfg.trunkR * FAR_LIMB_MIN)
+    .sort((a, b) => b.rad[0] - a.rad[0])
+    .slice(0, FAR_LIMBS);
+  for (const b of limbs) {
+    const end = v3();
+    sampleBranch(b, 0.6, end, tan);
+    farTrunk(fb, b.pts[0], end, b.rad[0] * 1.1, cfg.bark, 3, b.rad[0] * 0.4, [0.6, 0.45], [0.2, 0.5]);
+  }
   const ico = new THREE.IcosahedronGeometry(1, 1);
   const pa = ico.getAttribute('position');
   const c = v3(env.cx, env.cy, env.cz);
