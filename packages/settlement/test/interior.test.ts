@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, doorLeaves, HATCH_RAILS_UP, HATCH_SHAFT, hatchLidMesh, hatchSides, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
+import { BUILDING_MAT_COUNT, buildingMesh, doorLeaves, HATCH_RAILS_UP, HATCH_SHAFT, hatchLadderTopMesh, hatchLidMesh, hatchSides, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
 
 const towns = [3, 4, 5, 6, 7, 8].map((seed) => planTown({ seed, x: 500, z: 200, height: () => 20 }));
 const town = { buildings: towns.flatMap((t) => t.buildings) };
@@ -282,13 +282,21 @@ test('interior: a hatch\'s lid drawn apart leaves a shaft with a ladder under th
     return { n, deep };
   };
   assert.equal(under(whole).n, 0);
-  // The ladder stands up out of the hole, to hold on to.
-  let top = -Infinity;
-  for (let i = 0; i < apart.position.length / 3; i++) {
-    const dx = apart.position[i * 3], dz = apart.position[i * 3 + 2], a = dx * ux + dz * uz, bb = dx * b.vx + dz * b.vz;
-    if (Math.abs(a - f.a) < f.w / 2 && Math.abs(bb - f.b) < f.d / 2) top = Math.max(top, apart.position[i * 3 + 1] - floor);
-  }
-  assert.ok(top >= HATCH_RAILS_UP, `the ladder's top ${top.toFixed(2)} m over the floor`);
+  // Nothing stands up out of the hole in the house's mesh (a shut lid would not cover it); the ladder's top, drawn
+  // apart, does, to hold on to, and goes no deeper than it is lowered to hide it.
+  const span = (m: typeof whole) => {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < m.position.length / 3; i++) {
+      const dx = m.position[i * 3], dz = m.position[i * 3 + 2], a = dx * ux + dz * uz, bb = dx * b.vx + dz * b.vz;
+      const y = m.position[i * 3 + 1] - floor;
+      // (Under the room's ceiling.)
+      if (y < 1.5 && Math.abs(a - f.a) < f.w / 2 && Math.abs(bb - f.b) < f.d / 2) { lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    }
+    return { lo, hi };
+  };
+  assert.ok(span(apart).hi < 0.05, 'nothing over the shut hatch');
+  const ladderTop = span(hatchLadderTopMesh(p, b, at)!);
+  assert.ok(ladderTop.hi >= HATCH_RAILS_UP && ladderTop.lo >= -0.11, `the ladder's top ${ladderTop.lo.toFixed(2)}..${ladderTop.hi.toFixed(2)} m`);
   const shaft = under(apart);
   assert.ok(shaft.n > 40 && shaft.deep <= -HATCH_SHAFT + 1e-3 && shaft.deep > -HATCH_SHAFT - 0.05, `a shaft with its ladder (${shaft.n} vertices, ${shaft.deep.toFixed(2)} m)`);
   // Drawn open with that hole, the plinth's top leaves the hatch open (no face over its middle at the floor).
