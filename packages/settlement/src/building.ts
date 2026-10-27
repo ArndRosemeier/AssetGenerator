@@ -114,8 +114,8 @@ export class Out {
  * A round shield (a hall's sign, one on a weapon rack): a painted disc `r` across facing `n` (along a or b,
  * in the frame), its back at `c`, with an iron rim and boss.
  */
-export function roundShield(o: Out, c: [number, number, number], n: [number, number], r: number, face: RGB): void {
-  const SEG = 12, th = 0.04, iron: RGB = [72, 72, 76];
+export function roundShield(o: Out, c: [number, number, number], n: [number, number], r: number, face: RGB, rim: RGB = [72, 72, 76]): void {
+  const SEG = 12, th = 0.04;
   const ta = Math.abs(n[0]) > 0.5 ? 0 : 1, tb = 1 - ta, nn = [n[0], 0, n[1]];
   const at = (k: number, rr: number, d: number) => {
     const t = (k / SEG) * 2 * Math.PI, x = Math.cos(t) * rr, y = Math.sin(t) * rr;
@@ -123,13 +123,13 @@ export function roundShield(o: Out, c: [number, number, number], n: [number, num
   };
   const mid = [c[0] + n[0] * th, c[1], c[2] + n[1] * th], uv = [[0.5, 0.5], [1, 0.5], [0.5, 1]];
   for (let k = 0; k < SEG; k++) {
-    o.tri([mid, at(k, r * 0.88, th), at(k + 1, r * 0.88, th)], nn, uv, BuildingMat.Oak, face);
-    o.quad([at(k, r * 0.88, th), at(k + 1, r * 0.88, th), at(k + 1, r, th), at(k, r, th)], nn, [[0, 0], [1, 0], [1, 1], [0, 1]], BuildingMat.Slate, iron);
+    o.tri([mid, at(k, r * 0.86, th), at(k + 1, r * 0.86, th)], nn, uv, BuildingMat.Oak, face);
+    o.quad([at(k, r * 0.86, th), at(k + 1, r * 0.86, th), at(k + 1, r, th), at(k, r, th)], nn, [[0, 0], [1, 0], [1, 1], [0, 1]], BuildingMat.Slate, rim);
     const t = ((k + 0.5) / SEG) * 2 * Math.PI, rn = [ta * Math.cos(t), Math.sin(t), tb * Math.cos(t)];
-    o.quad([at(k, r, 0), at(k + 1, r, 0), at(k + 1, r, th), at(k, r, th)], rn, [[0, 0], [1, 0], [1, 1], [0, 1]], BuildingMat.Slate, iron);
+    o.quad([at(k, r, 0), at(k + 1, r, 0), at(k + 1, r, th), at(k, r, th)], rn, [[0, 0], [1, 0], [1, 1], [0, 1]], BuildingMat.Slate, rim);
   }
   const b = 0.06;
-  o.box(mid[0] - b + n[0] * b, mid[0] + b + n[0] * b, c[1] - b, c[1] + b, mid[2] - b + n[1] * b, mid[2] + b + n[1] * b, BuildingMat.Slate, iron);
+  o.box(mid[0] - b + n[0] * b, mid[0] + b + n[0] * b, c[1] - b, c[1] + b, mid[2] - b + n[1] * b, mid[2] + b + n[1] * b, BuildingMat.Slate, rim);
 }
 
 /** UV in metres for a planar face with normal n: the two axes in its plane. */
@@ -386,15 +386,28 @@ function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, 
   chimney(o, b, S, detail);
 }
 
-/** A shield over the front door, on the wall (none without a door). */
+/**
+ * A guild's sign: a round shield hung from an iron bracket on the front wall beside the door, out past the
+ * eaves, painted both sides so it is seen from up and down the street; a brass rim catches the light in shade.
+ */
 function doorSign(o: Out, S: HouseShape, face: RGB): void {
   const st = S.storeys[0], w = st.walls.find((x) => x.id === 0), q = w?.opens.find((x) => x.door);
   if (!w || !q) return;
-  const len = Math.hypot(w.a1 - w.a0, w.b1 - w.b0), s = (q.s0 + q.s1) / 2;
-  const a = w.a0 + ((w.a1 - w.a0) / len) * s, bb = w.b0 + ((w.b1 - w.b0) / len) * s;
-  // Up against the lintel, below the storey's top (the jetty above would hide it).
-  const y = Math.min(st.y0 + q.t1 + 0.42, st.y1 - 0.4);
-  roundShield(o, [a, y, bb - 0.02], [0, -1], 0.36, face);
+  const len = Math.hypot(w.a1 - w.a0, w.b1 - w.b0), da = (w.a1 - w.a0) / len, db = (w.b1 - w.b0) / len;
+  // Beside the door on the side with more wall, clear of the door frame.
+  const right = len - q.s1 >= q.s0, s = right ? Math.min(len - 0.3, q.s1 + 0.45) : Math.max(0.3, q.s0 - 0.45);
+  const a = w.a0 + da * s, bb = w.b0 + db * s;
+  const top = Math.max(st.y0 + 2.2, Math.min(st.y0 + q.t1 + 0.1, st.y1 - 0.25)), out = 0.95, r = 0.36;
+  const iron: RGB = [52, 50, 48], brass: RGB = [196, 160, 86];
+  // The bracket: an arm out from the wall, a stay under it.
+  o.box(a - 0.03, a + 0.03, top - 0.05, top, bb - out, bb, BuildingMat.Slate, iron, true);
+  o.box(a - 0.025, a + 0.025, top - 0.5, top - 0.05, bb - 0.05, bb, BuildingMat.Slate, iron, true);
+  for (let k = 0; k < 6; k++) { const t = (k + 0.5) / 6; o.box(a - 0.02, a + 0.02, top - 0.5 + t * 0.45 - 0.03, top - 0.5 + t * 0.45 + 0.03, bb - t * out * 0.8 - 0.03, bb - t * out * 0.8 + 0.03, BuildingMat.Slate, iron); }
+  // Two rings and the shield hanging from the arm's end, painted on both faces.
+  const cb = bb - out + r + 0.05, cy = top - 0.08 - r;
+  for (const d of [-0.18, 0.18]) o.box(a - 0.015, a + 0.015, cy + r - 0.02, top - 0.05, cb + d - 0.015, cb + d + 0.015, BuildingMat.Slate, iron);
+  roundShield(o, [a + 0.005, cy, cb], [1, 0], r, face, brass);
+  roundShield(o, [a - 0.005, cy, cb], [-1, 0], r, face, brass);
 }
 
 /** Where the door goes along the front wall (s from a0): the middle, where the plan put it. */
