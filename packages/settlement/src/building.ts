@@ -398,7 +398,7 @@ export interface SignPlace {
 /**
  * Where the sign of `b` goes, the same rule for every house: a round shield flat on the front wall beside
  * the door, clear of the door, the windows and their shutters, under the roof's underside (a low thatch
- * comes down to the ground floor's top) or the storey's top beam; smaller if need be; where the front has
+ * comes down to the ground floor's top) or the storey's top beam; smaller if need be (down to 0.22 m); where the front has
  * no such place, hung from a short bracket beside the door, under the eave. Null without a front door.
  */
 export function signPlace(b: TownBuilding, S: HouseShape): SignPlace | null {
@@ -409,12 +409,15 @@ export function signPlace(b: TownBuilding, S: HouseShape): SignPlace | null {
   // The free wall's top: under the roof where it comes down onto this storey's front, else under the beam.
   const eaves = S.storeys.length === 1 && b.ridgeAlongU;
   const thick = b.cover === 'thatch' ? 0.38 : 0.14;
-  const top = eaves ? Math.min(st.y1, S.top) - thick - 0.06 : st.y1 - 0.12;
+  // Where the roof comes down over the front, under its edge out past the wall (seen from the street the
+  // eave hides what is above that), not just under it at the wall.
+  const top = eaves ? Math.min(st.y1, S.top) - eaveOf(b) * b.pitch - thick - 0.05 : st.y1 - 0.12;
   // Windows widened by their shutters (each half the window's width) and a hand's breadth.
   const keep = w.opens.filter((o) => !o.door).map((o) => ({ s0: o.s0 - (o.s1 - o.s0) / 2 - 0.08, s1: o.s1 + (o.s1 - o.s0) / 2 + 0.08, t0: o.t0 - 0.08, t1: o.t1 + 0.08 }));
-  for (const r of [0.36, 0.3, 0.25]) {
-    const y = Math.min(top - r, st.y0 + 2.0);
-    if (y - r < st.y0 + 0.9) continue;
+  for (const r of [0.36, 0.3, 0.25, 0.22]) {
+    // At about head height beside the door (higher only shows its rim under a low eave).
+    const y = Math.min(top - r, st.y0 + 1.75);
+    if (y - r < st.y0 + 0.8) continue;
     for (let d = 0; d < 2.0; d += 0.1) {
       for (const s of [q.s1 + 0.12 + r + d, q.s0 - 0.12 - r - d]) {
         if (s - r < 0.25 || s + r > len - 0.25) continue;
