@@ -343,7 +343,7 @@ const vnoise3 = Fn(([x]) => {
 }, { x: 'vec3', return: 'float' });
 
 /** Over this distance (m) a far hull's trunk darkens into the wood's shade (hulls start a few tens of metres out). */
-const FAR_SHADE = [50, 150] as const;
+const FAR_SHADE = [40, 100] as const;
 
 export function createFarTreeNodeMaterial(U: VegUniforms): THREE.MeshStandardNodeMaterial {
   const mat = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
