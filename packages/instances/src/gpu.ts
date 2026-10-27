@@ -21,11 +21,13 @@ import {
 } from 'three/webgpu';
 import { Fn, If, Loop, atomicAdd, atomicLoad, atomicStore, dot, instanceIndex, length, max, min, smoothstep, storage, uint, uniform, uniformArray, vec3, vec4 } from 'three/tsl';
 import { instancedFrom } from './geometry';
-import { KIND, RECORD, listLayout } from './select';
+import { KIND, RECORD, listLayout, listsInUse, type LodRange } from './select';
 import type { DrawKind, DrawOptions, InstanceDraws } from './types';
 
 /** vec4s per record. */
 const R4 = RECORD / 4;
+/** The lists in use are found again once the camera has moved this far (m); a list counts within twice this of its range. */
+const RECHECK = 4;
 /** Fade bounds that never fade (smoothstep needs start < end). */
 const NO_FADE = [1e30, 2e30];
 
@@ -51,7 +53,7 @@ export function gpuInstancesSupported(renderer: WebGPURenderer): boolean {
   return !!b?.isWebGPUBackend && !!b.device?.features?.has('indirect-first-instance');
 }
 
-interface Draw { geometry: InstancedBufferGeometry; list: number }
+interface Draw { geometry: InstancedBufferGeometry; list: number; mesh: Mesh }
 
 export class GpuInstanceDraws implements InstanceDraws {
   readonly group = new Group();
@@ -76,6 +78,12 @@ export class GpuInstanceDraws implements InstanceDraws {
   private readonly pv = new Matrix4();
   private readonly listsOfKind: number[];
   private readonly nLists: number;
+  /** Per kind its local sphere, per list its levels (for `listsInUse`). */
+  private readonly spheres: [number, number, number, number][];
+  private readonly ranges: LodRange[] = [];
+  /** Where the lists in use were last found (NaN: find them on the next update). */
+  private readonly checkedAt = new Vector3(NaN, NaN, NaN);
+  private readonly eye = new Vector3();
 
   constructor(private readonly renderer: WebGPURenderer, private readonly kinds: DrawKind[], private readonly opts: DrawOptions = {}) {
     this.listsOfKind = kinds.map((k) => k.lods.length);
@@ -83,10 +91,13 @@ export class GpuInstanceDraws implements InstanceDraws {
     const kt = new Float32Array(kinds.length * 8);
     const lt = new Float32Array(Math.max(1, this.nLists) * 8);
     let list = 0;
+    this.spheres = [];
     kinds.forEach((k, ki) => {
       const s = kindSphere(k);
+      this.spheres.push([s.center.x, s.center.y, s.center.z, s.radius]);
       kt.set([s.center.x, s.center.y, s.center.z, s.radius, list, k.lods.length, 0, 0], ki * 8);
       for (const l of k.lods) {
+        this.ranges.push(l);
         const fade = l.fade ?? NO_FADE;
         lt.set([l.near ?? 0, l.far, fade[0], fade[1], 0, 0, 0, 0], list * 8);
         for (const part of l.parts) {
@@ -99,7 +110,7 @@ export class GpuInstanceDraws implements InstanceDraws {
           mesh.renderOrder = part.renderOrder ?? 0;
     if (part.name) mesh.name = part.name;
           this.group.add(mesh);
-          this.draws.push({ geometry, list });
+          this.draws.push({ geometry, list, mesh });
         }
         list++;
       }
@@ -234,6 +245,20 @@ export class GpuInstanceDraws implements InstanceDraws {
     this.input.addUpdateRange(0, Math.max(1, count * RECORD));
     this.input.needsUpdate = true;
     this.count = count;
+    this.checkedAt.set(NaN, NaN, NaN);
+  }
+
+  /**
+   * Hides the parts of the level lists no instance can be in near `eye` (world space), shows the others: an
+   * empty indirect draw still costs a draw call on the CPU, in the view and in every shadow map.
+   */
+  private skipEmpty(eye: Vector3): void {
+    const c = this.checkedAt, horizontal = !!this.opts.horizontal;
+    const moved = horizontal ? Math.hypot(eye.x - c.x, eye.z - c.z) : eye.distanceTo(c);
+    if (moved < RECHECK) return; // NaN (not checked yet) is never below
+    c.copy(eye);
+    const used = listsInUse(this.input.array as Float32Array, this.count, this.spheres, this.ranges, this.listsOfKind, [eye.x, eye.y, eye.z], horizontal, RECHECK * 2);
+    for (const d of this.draws) d.mesh.visible = used[d.list];
   }
 
   update(camera: Camera): void {
@@ -247,6 +272,7 @@ export class GpuInstanceDraws implements InstanceDraws {
     if (o) this.uOrigin.value.copy(o);
     if (o) for (const p of this.planes) p.w += p.x * o.x + p.y * o.y + p.z * o.z;
     camera.getWorldPosition(this.uCam.value);
+    this.skipEmpty(this.eye.copy(this.uCam.value));
     if (o) this.uCam.value.sub(o);
     const sh = this.opts.shadow;
     if (sh) this.uSweep.value.copy(sh.dir).multiplyScalar(sh.reach);
@@ -268,7 +294,10 @@ export class GpuInstanceDraws implements InstanceDraws {
 
   async prepare(compile: (group: Group) => Promise<void>): Promise<void> {
     await this.ready();
-    // Drawn indirectly with instanceCount 1 throughout, so every part already builds.
+    // Drawn indirectly with instanceCount 1 throughout, so every part already builds (shown meanwhile: one
+    // hidden as empty must have its shaders when instances come near).
+    for (const d of this.draws) d.mesh.visible = true;
+    this.checkedAt.set(NaN, NaN, NaN);
     await compile(this.group);
   }
 
