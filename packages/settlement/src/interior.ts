@@ -599,9 +599,10 @@ function hall(P: Planner): void {
   floor.sort((x, y) => Math.hypot(x[0], x[1] - P.hb * 0.15) - Math.hypot(y[0], y[1] - P.hb * 0.15));
   floor.find(([a, b]) => {
     if (!P.add('pell', a, b, 0.5, 0.5, 1.75, 0.7)) return false;
-    // One must be able to step up to it and strike; its master stands behind it (away from the door), facing
-    // the door, so one coming in sees the post and the master past it.
-    const reach = P.reach(), at = [[0, 0.8], [0.8, 0.3], [-0.8, 0.3], [0.8, -0.3], [-0.8, -0.3]].find(([da, db]) => reach(a + da, b + db));
+    // One must be able to step up to it and strike; its master stands behind it and to one side (away from the
+    // door, off the line from the door through the post), facing the door: one coming in sees post and master.
+    const reach = P.reach(), side = a > 0 ? -1 : 1;
+    const at = [[side * 0.9, 0.5], [-side * 0.9, 0.5], [side * 0.9, -0.2], [-side * 0.9, -0.2], [0, 0.8]].find(([da, db]) => reach(a + da, b + db));
     if (at) { P.spot('drill', a + at[0], b + at[1], FACE_NB); return true; }
     P.fixtures.pop();
     return false;
