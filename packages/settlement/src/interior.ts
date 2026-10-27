@@ -11,7 +11,7 @@
  * in the front wall (b = -hb) at a = 0.
  */
 import { Rng } from '@futuremagic/core';
-import { BuildingMat, Frame, houseShape, Out, planeUV, roundShield, WALL_THICK, type BuildingMesh, type HouseShape, type RGB } from './building';
+import { BuildingMat, doorFace, Frame, houseShape, Out, planeUV, roundShield, WALL_THICK, type BuildingMesh, type HouseShape, type RGB } from './building';
 import type { TownBuilding } from './town';
 
 export type InteriorFixtureKind =
@@ -836,7 +836,8 @@ export function doorLeaves(plan: InteriorPlan, b: TownBuilding, origin: [number,
   return leaves.map((s) => {
     const a0 = Math.min(s * w, s * (w - lw)), a1 = Math.max(s * w, s * (w - lw));
     const outside = new Out(frame), inside = new Out(frame);
-    outside.quad([[a0, y0, b0], [a1, y0, b0], [a1, y1, b0], [a0, y1, b0]], [0, 0, -1], [[a0, y0], [a1, y0], [a1, y1], [a0, y1]], BuildingMat.Oak, S.look.door);
+    const face = doorFace(S.look);
+    outside.quad([[a0, y0, b0], [a1, y0, b0], [a1, y1, b0], [a0, y1, b0]], [0, 0, -1], [[a0, y0], [a1, y0], [a1, y1], [a0, y1]], face.mat, face.tint);
     inside.quad([[a0, y0, b1], [a1, y0, b1], [a1, y1, b1], [a0, y1, b1]], [0, 0, 1], [[a0, y0], [a1, y0], [a1, y1], [a0, y1]], BuildingMat.Oak, DARK);
     for (const a of [a0, a1]) inside.quad([[a, y0, b0], [a, y0, b1], [a, y1, b1], [a, y1, b0]], [a === a0 ? -1 : 1, 0, 0], [[b0, y0], [b1, y0], [b1, y1], [b0, y1]], BuildingMat.Oak, DARK);
     inside.quad([[a0, y1, b0], [a1, y1, b0], [a1, y1, b1], [a0, y1, b1]], [0, 1, 0], [[a0, b0], [a1, b0], [a1, b1], [a0, b1]], BuildingMat.Oak, DARK);

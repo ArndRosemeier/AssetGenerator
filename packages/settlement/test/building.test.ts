@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingEntrance, buildingMesh, planTown } from '../src/index';
+import { BUILDING_MAT_COUNT, BuildingMat, buildingEntrance, buildingMesh, doorFace, houseShape, planTown } from '../src/index';
 
 const town = planTown({ seed: 3, x: 500, z: 200, height: (x, z) => 20 + 3 * Math.sin(x / 60) + 2 * Math.cos(z / 45) });
 
@@ -56,4 +56,19 @@ test('building entrance: steps climb evenly from the ground to the door, the tem
     else assert.equal(posts.length, 0);
   }
   assert.ok(stepped > 0, 'some buildings stand high enough for steps');
+});
+
+test('front doors read as doors from the street: paint on the plain layer, bare wood lifted onto the oak', () => {
+  let painted = 0, bare = 0;
+  for (const b of town.buildings) {
+    const L = houseShape(b).look, f = doorFace(L);
+    if (L.doorPainted) { painted++; assert.equal(f.mat, BuildingMat.Plaster); }
+    else {
+      bare++;
+      assert.equal(f.mat, BuildingMat.Oak);
+      // The oak layer is dark oak already: a bare door's tint sits near its own colour, not far under it.
+      assert.ok(Math.max(...f.tint) >= 160, `bare door tint ${f.tint}`);
+    }
+  }
+  assert.ok(painted > 0 && bare > 0);
 });
