@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite } from '../src/index';
+import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh } from '../src/index';
 
 /** Gently rolling ground, a river along z = 140 to the south-east of the market. */
 const site = (seed: number, river = false): TownSite => ({
@@ -104,6 +104,27 @@ test('settlement: a capital has a wall with a gate on every road, a seat of rule
     const n = (k: string) => t.buildings.filter((b) => b.kind === k).length;
     assert.ok(n('inn') >= 2 && n('smithy') >= 2 && n('bakery') >= 2 && n('workshop') >= 12, `${n('inn')} inns, ${n('smithy')} smithies, ${n('bakery')} bakeries, ${n('workshop')} workshops`);
   }
+  // Walkers come in through the gates only; the wall and towers stop them, and it is drawn.
+  const t = planTown({ ...site(3), size: 'capital' }), w = t.wall!;
+  for (const g of w.gates) {
+    const ux = Math.cos(g.angle), uz = Math.sin(g.angle), sx = -uz, sz = ux;
+    for (const d of [-4, 0, 4]) assert.ok(!wallBlocks(w, g.x + ux * d, g.z + uz * d, 0.4), 'through the gate');
+    assert.ok(wallBlocks(w, g.x + sx * (g.half + w.towerHalf), g.z + sz * (g.half + w.towerHalf), 0.4), 'not through its towers');
+  }
+  const n2 = w.ring.length >> 1;
+  for (let i = 0; i < n2; i += 7) {
+    const x = w.ring[i * 2], z = w.ring[i * 2 + 1];
+    if (w.gates.some((g) => Math.hypot(g.x - x, g.z - z) < g.half + w.towerHalf + 1)) continue;
+    assert.ok(wallBlocks(w, x, z, 0.4), 'the wall is solid');
+  }
+  assert.ok(!wallBlocks(w, t.centre[0], t.centre[1], 0.4), 'the market is free');
+  assert.equal(w.ringY.length, n2);
+  const near = wallMesh(w, [0, 0, 0]), far = wallMesh(w, [0, 0, 0], false);
+  assert.ok(far.index.length > 0 && near.index.length > far.index.length, 'merlons near only');
+  assert.equal(near.position.length / 3, near.tint.length / 3);
+  assert.ok(near.position.every(Number.isFinite));
+  const half = wallMesh(w, [0, 0, 0], true, (x) => x < t.centre[0]);
+  assert.ok(half.index.length > 0 && half.index.length < near.index.length, 'picked by cell');
   // A town keeps no wall and no seat (and plans just as before).
   const town = planTown(site(3));
   assert.ok(!town.wall && !town.quarters && !town.buildings.some((b) => b.trade === 'ruler'));

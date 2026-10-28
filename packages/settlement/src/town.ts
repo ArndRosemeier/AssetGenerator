@@ -242,7 +242,7 @@ export function planTown(site: TownSite): TownPlan {
   // 3. The outline: round, but grown along the roads, and stopping short of water.
   const outline = townOutline(new Noise(deriveSeed(seed, 'outline')), cx, cz, R, dirs, wet);
   // A capital's wall, a little outside its edge, a gate on each road.
-  const wall = S.wall ? townWall(outline, roads, S.wall, ROAD_W) : undefined;
+  const wall = S.wall ? townWall(outline, roads, S.wall, ROAD_W, site.height) : undefined;
 
   // 4. The ground between: the outline less roads, market and edge track, split by lanes.
   const streets: TownStreet[] = roads.map((pts) => ({ kind: 'road' as const, pts, width: ROAD_W }));
