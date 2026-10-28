@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { floatOf } from '@futuremagic/core';
 import assert from 'node:assert/strict';
 import { BENCH_SEAT, Footprints, buildingEntrance, buildingMesh, distToPoly, fixtureBlocks, fixtureClear, fixtureMesh, fixtureStand, planTown, pointInPoly, wayRound, type FixtureKind } from '../src/index';
 
@@ -15,7 +16,8 @@ test('fixtures: every kind a town plans is drawn on its ground, near and far, an
     assert.ok(m.index.length > 0 && far.index.length > 0 && far.index.length <= m.index.length, `${k} drawn`);
     let lo = Infinity;
     for (let i = 1; i < m.position.length; i += 3) lo = Math.min(lo, m.position[i]);
-    assert.ok(Math.abs(lo - h(f.x, f.z)) < 0.05, `${k} stands on the ground (${(lo - h(f.x, f.z)).toFixed(2)})`);
+    assert.ok(lo <= h(f.x, f.z) + 1e-3 && lo > h(f.x, f.z) - 0.5, `${k} stands on the ground (${(lo - h(f.x, f.z)).toFixed(2)})`);
+    if (k !== 'garden') assert.ok(floatOf(h, m.position) <= 0, `no edge of the ${k} floats (${floatOf(h, m.position).toFixed(3)})`);
   }
   const well = t.fixtures.find((f) => f.kind === 'well')!, bench = t.fixtures.find((f) => f.kind === 'bench')!;
   assert.ok(fixtureBlocks(well, well.x, well.z, 0.3) && !fixtureBlocks(well, well.x + 3, well.z, 0.3));

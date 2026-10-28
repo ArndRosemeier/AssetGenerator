@@ -6,7 +6,7 @@
  * user looks), on the ground `height` gives. `detail` false gives the far version (fewer sides, no small
  * things on top). `fixtureBlocks` says what a walker runs into. Pure.
  */
-import { Rng } from '@futuremagic/core';
+import { Rng, seat } from '@futuremagic/core';
 import { BuildingMat, Frame, Out, type BuildingMesh, type RGB } from './building';
 import type { Poly } from './geom2';
 import type { Fixture, FixtureKind } from './town';
@@ -31,6 +31,17 @@ const CLOTHS: RGB[] = [[196, 72, 58], [64, 104, 156], [214, 172, 72], [92, 140, 
 const WARES: RGB[] = [[196, 60, 44], [120, 168, 84], [236, 206, 120], [190, 136, 76], [126, 120, 170], [178, 104, 72]];
 
 /** How far round its middle a fixture stops a walker (m, a box: along its yaw, across it). None: walked through or over. */
+/** How deep below the lowest ground under its foot a fixture is set (m): little, so a bench's seat stays where a sitter's hips go. */
+const SINK = 0.02;
+/**
+ * Set at its middle's height, not seated: what lies on the ground as the ground lies (dug beds, a field's work
+ * spot), and a bench, whose seat must stay BENCH_SEAT over its middle (where a sitter's hips go): its legs run
+ * down into the ground instead (LEG_DOWN), so on a slope none of them floats.
+ */
+const LIES: ReadonlySet<FixtureKind> = new Set(['garden', 'field', 'paddock', 'bench']);
+/** How far a bench's legs reach below its middle's ground (m): enough for a slope of one in two. */
+const LEG_DOWN = 0.45;
+
 const SOLID: Partial<Record<FixtureKind, readonly [number, number]>> = {
   well: [0.85, 0.85], stall: [0.5, 1.25], table: [0.42, 0.82], barrel: [0.32, 0.32], forge: [0.6, 0.65], anvil: [0.3, 0.2],
   quench: [0.28, 0.48], oven: [0.65, 0.65], workbench: [0.32, 0.92], trough: [0.28, 0.92], woodpile: [0.35, 0.85],
@@ -80,7 +91,8 @@ export function fixtureClear(f: Fixture, polys: readonly Poly[], inside: (p: Pol
 
 /**
  * The fixtures among `list` that `pick` takes (by their x, z; default all) as one mesh, positions relative to
- * `origin`, each on the ground `height` gives.
+ * `origin`, each set on the ground `height` gives: lowered to the lowest ground under its foot (core `seat`), so
+ * on a slope no edge floats.
  */
 export function fixtureMesh(list: readonly Fixture[], height: (x: number, z: number) => number, origin: [number, number, number], detail = true, pick: (x: number, z: number) => boolean = () => true): BuildingMesh {
   const all = { pos: [] as number[], nrm: [] as number[], uv: [] as number[], mat: [] as number[], tint: [] as number[], idx: [] as number[] };
@@ -90,6 +102,7 @@ export function fixtureMesh(list: readonly Fixture[], height: (x: number, z: num
     // a along the way its user looks, b across (to the left of it), y up from the ground.
     const o = new Out(new Frame({ cx: f.x, cz: f.z, ux: c, uz: s, vx: -s, vz: c, y: height(f.x, f.z) }, origin));
     draw(o, f, new Rng(f.id * 7919 + 17), detail);
+    if (!LIES.has(f.kind)) seat((x, z) => height(x + origin[0], z + origin[2]) - origin[1], o.pos, 0, o.pos.length, SINK);
     const base = all.pos.length / 3;
     all.pos.push(...o.pos); all.nrm.push(...o.nrm); all.uv.push(...o.uv); all.mat.push(...o.mat); all.tint.push(...o.tint);
     for (const i of o.idx) all.idx.push(i + base);
@@ -106,7 +119,7 @@ function draw(o: Out, f: Fixture, r: Rng, detail: boolean): void {
     case 'bench':
       // The sitters sit on it facing its yaw, side by side across it.
       slab(o, -0.17, 0.17, BENCH_SEAT - 0.06, BENCH_SEAT, -0.9, 0.9, TIMBER);
-      for (const b of [-0.75, 0.75]) o.box(-0.13, 0.13, 0, BENCH_SEAT - 0.06, b - 0.04, b + 0.04, BuildingMat.Oak, DARK);
+      for (const b of [-0.75, 0.75]) o.box(-0.13, 0.13, -LEG_DOWN, BENCH_SEAT - 0.06, b - 0.04, b + 0.04, BuildingMat.Oak, DARK);
       break;
     case 'table':
       slab(o, -0.4, 0.4, 0.72, 0.78, -0.8, 0.8, TIMBER);
