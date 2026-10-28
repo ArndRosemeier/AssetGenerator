@@ -13,6 +13,7 @@ import { difference, intersection, shapeArea, shapesToPolys, strokePolylines, un
 import { chaikin, distSqPointSeg, ensureCCW, minAreaRect, pointInPoly, polyArea, polyBounds, polyCentroid, type Poly } from './geom2';
 import { perimeterLots, type Lot, type LotRules } from './lots';
 import { organicCuts } from './streets';
+import { townWall, type TownWall, type WallRules } from './walls';
 import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
 /** How big a settlement is: an inn and a stable by the road (a waystation), a few farms round a green, a village with its temple and inn, a market town, a capital. */
@@ -46,6 +47,16 @@ export interface SizeRules {
   readonly crafts: number;
   /** No plots: its few buildings stand by the road through it, facing each other (a waystation). */
   readonly byRoad?: boolean;
+  /** A wall round it, a gate for each road (walls.ts); its fields begin outside the wall. */
+  readonly wall?: WallRules;
+  /** A seat of rule: a great stone hall in its own walled grounds near the market (the ruler's). */
+  readonly seat?: boolean;
+  /** More than one inn, smithy or bakery (default one each, as the rules above say). */
+  readonly inns?: number;
+  readonly smithies?: number;
+  readonly bakeries?: number;
+  /** Quarters: each stretch between two roads is one, named by what stands in it (`TownPlan.quarters`). */
+  readonly quarters?: boolean;
 }
 
 export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
@@ -53,7 +64,10 @@ export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
   hamlet: { radius: [38, 52], roads: [1, 2], market: 0.55, stalls: false, lanes: null, inner: 0.78, spread: 1, temple: false, graves: 0, inn: false, hall: false, bakery: false, smithy: false, stable: false, crafts: 0 },
   village: { radius: [62, 85], roads: [2, 3], market: 0.75, stalls: true, lanes: [70, 120], inner: 0.42, spread: 1, temple: true, graves: 10, inn: true, hall: false, bakery: false, smithy: true, stable: false, crafts: 2 },
   town: { radius: [115, 160], roads: [3, 4], market: 1, stalls: true, lanes: [48, 90], inner: 0, spread: 1, temple: true, graves: 18, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 8 },
-  capital: { radius: [240, 300], roads: [5, 6], market: 1.5, stalls: true, lanes: [44, 80], inner: 0, spread: 0.8, temple: true, graves: 30, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 8 },
+  capital: {
+    radius: [240, 300], roads: [5, 6], market: 1.5, stalls: true, lanes: [44, 80], inner: 0, spread: 0.8, temple: true, graves: 30, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 16,
+    wall: { out: 10, height: 8, every: 55 }, seat: true, inns: 3, smithies: 3, bakeries: 3, quarters: true,
+  },
 };
 
 /** Where a town goes and what the land there is like. */
@@ -159,6 +173,15 @@ export interface Fixture {
   building: number;
 }
 
+/** What a quarter of a town is (a capital's): round the seat of rule, the temple, the crafts, or just homes. */
+export type QuarterKind = 'seat' | 'temple' | 'crafts' | 'common';
+
+/** A quarter: one stretch of the town between two roads out. */
+export interface Quarter {
+  kind: QuarterKind;
+  outline: Poly;
+}
+
 export interface TownPlan {
   seed: number;
   centre: [number, number];
@@ -174,6 +197,12 @@ export interface TownPlan {
   yards: Shape[];
   /** The temple's grounds and burial ground, if any. */
   templeGrounds: Shape | null;
+  /** The seat of rule's walled grounds (a capital's), if any. */
+  seatGrounds?: Shape | null;
+  /** Its wall, gates and towers (a capital's), if any. */
+  wall?: TownWall;
+  /** Its quarters (a capital's), if any. */
+  quarters?: Quarter[];
   buildings: TownBuilding[];
   fixtures: Fixture[];
   /** The farmland's outer edge (farmland.ts; the outline itself when there is none). */
@@ -212,6 +241,8 @@ export function planTown(site: TownSite): TownPlan {
 
   // 3. The outline: round, but grown along the roads, and stopping short of water.
   const outline = townOutline(new Noise(deriveSeed(seed, 'outline')), cx, cz, R, dirs, wet);
+  // A capital's wall, a little outside its edge, a gate on each road.
+  const wall = S.wall ? townWall(outline, roads, S.wall, ROAD_W, site.height) : undefined;
 
   // 4. The ground between: the outline less roads, market and edge track, split by lanes.
   const streets: TownStreet[] = roads.map((pts) => ({ kind: 'road' as const, pts, width: ROAD_W }));
@@ -257,6 +288,18 @@ export function planTown(site: TownSite): TownPlan {
     plots.splice(plots.indexOf(blk), 1, ...difference([blk.outer], [yard.outer]).filter((s) => shapeArea(s) > 150));
     break;
   }
+  // A capital's seat of rule takes walled grounds of its own near the market too (not the temple's block).
+  let seatGrounds: Shape | null = null;
+  const srr = rng.fork('seat');
+  for (const blk of S.seat ? plots.filter((b) => near(b) < 0.45 && shapeArea(b) > 1600).sort((a, b) => near(a) - near(b)) : []) {
+    const yard = groundsIn(blk, cx, cz, srr, 1.3);
+    const b = yard && seatOn(yard, buildings.length, site, srr);
+    if (!yard || !b) continue;
+    buildings.push(b);
+    seatGrounds = yard;
+    plots.splice(plots.indexOf(blk), 1, ...difference([blk.outer], [yard.outer]).filter((s) => shapeArea(s) > 150));
+    break;
+  }
   const zoneRules = (d: number): LotRules => d < 0.42 ? { width: [6, 10], depth: [12, 17] } : d < 0.78 ? { width: [8, 13], depth: [13, 19] } : { width: [12, 19], depth: [16, 25] };
   const lotRng = rng.fork('lots');
   for (const blk of plots) {
@@ -286,11 +329,25 @@ export function planTown(site: TownSite): TownPlan {
   if (hall) { hall.floors = 2; hall.wall = 'timber'; hall.household = 2; }
   if (S.bakery) take(homes().filter((b) => dist(b.cx, b.cz) < 0.5).sort((a, b) => nearMarket(a) - nearMarket(b))[1], 'bakery', 'baker');
   if (S.smithy) take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.45).sort((a, b) => dist(b.cx, b.cz) - dist(a.cx, a.cz))[0], 'smithy', 'smith');
+  // A capital has more of each, spread over the town: the next, apart from those there are.
+  const apart = (kind: BuildingKind, m: number) => (b: TownBuilding) => buildings.every((o) => o.kind !== kind || Math.hypot(o.cx - b.cx, o.cz - b.cz) >= m);
+  for (let i = 1; i < (S.inns ?? 1); i++) {
+    const b = take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) < 0.8 && apart('inn', 90)(b)).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0], 'inn', 'innkeeper');
+    if (b) { b.floors = Math.max(b.floors, 2); b.household = 4; }
+  }
+  for (let i = 1; i < (S.bakeries ?? 1); i++) take(homes().filter((b) => dist(b.cx, b.cz) < 0.7 && apart('bakery', 80)(b)).sort((a, b) => nearMarket(a) - nearMarket(b))[0], 'bakery', 'baker');
+  for (let i = 1; i < (S.smithies ?? 1); i++) take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.45 && apart('smithy', 120)(b)).sort((a, b) => dist(b.cx, b.cz) - dist(a.cx, a.cz))[0], 'smithy', 'smith');
   if (S.stable) take(homes().filter((b) => onRoad(b) < 6 && dist(b.cx, b.cz) > 0.6).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0], 'stable', 'carter');
   const mill = homes().filter((b) => waterNear(b, wet, 22)).sort((a, b) => dist(b.cx, b.cz) - dist(a.cx, a.cz))[0];
   if (mill) take(mill, 'mill', 'miller');
-  const crafts = ['weaver', 'cobbler', 'carpenter', 'cooper', 'potter', 'tailor', 'chandler', 'butcher'].slice(0, S.crafts);
-  if (crafts.length) for (const b of tr.shuffle(homes().filter((b) => onRoad(b) < 6 || nearMarket(b) < 8))) {
+  const crafts = ['weaver', 'cobbler', 'carpenter', 'cooper', 'potter', 'tailor', 'chandler', 'butcher', 'tanner', 'dyer', 'glazier', 'fletcher', 'bowyer', 'armourer', 'jeweller', 'bookbinder'].slice(0, S.crafts);
+  // Quarters (a capital's): the crafts take the crafts quarter first.
+  const quarters = S.quarters ? quartersOf(sectors, buildings) : undefined;
+  const craftsQ = quarters?.find((q) => q.kind === 'crafts');
+  const inCrafts = (b: TownBuilding) => !!craftsQ && pointInPoly(craftsQ.outline, b.cx, b.cz);
+  const shops = tr.shuffle(homes().filter((b) => onRoad(b) < 6 || nearMarket(b) < 8 || inCrafts(b)));
+  if (craftsQ) shops.sort((a, b) => Number(inCrafts(b)) - Number(inCrafts(a)));
+  if (crafts.length) for (const b of shops) {
     if (!crafts.length || !tr.chance(0.55)) continue;
     take(b, 'workshop', crafts.shift()!);
   }
@@ -376,7 +433,7 @@ export function planTown(site: TownSite): TownPlan {
   // 9. The fields, farmsteads and paddocks round it.
   const people = buildings.reduce((n, b) => n + b.household, 0);
   const land = farmland
-    ? planFarmland({ site, rng: rng.fork('farmland'), cx, cz, outline, roads, radius: R, people, buildings, streets, fix: (k, x, z, yaw, b) => fix(k, x, z, yaw, b), wet, roadWidth: ROAD_W })
+    ? planFarmland({ site, rng: rng.fork('farmland'), cx, cz, outline: wall?.ring ?? outline, roads, radius: R, people, buildings, streets, fix: (k, x, z, yaw, b) => fix(k, x, z, yaw, b), wet, roadWidth: ROAD_W })
     : { edge: outline, furlongs: [], fields: [], paddocks: [], farms: [], props: [] };
   // The roads end a little beyond the fields (the world's road network takes over from there).
   if (farmland) for (const st of streets) {
@@ -388,6 +445,7 @@ export function planTown(site: TownSite): TownPlan {
 
   return {
     seed, centre: [cx, cz], radius: R, market, outline, streets, blocks, lots, yards, templeGrounds, buildings, fixtures,
+    ...(S.seat ? { seatGrounds } : {}), ...(wall ? { wall } : {}), ...(quarters ? { quarters } : {}),
     farmEdge: land.edge, furlongs: land.furlongs, fields: land.fields, paddocks: land.paddocks, farms: land.farms, props: land.props,
   };
 }
@@ -552,8 +610,8 @@ export function makeBuilding(id: number, kind: BuildingKind, cx: number, cz: num
   };
 }
 
-/** The temple grounds: a walled plot of about 40 × 28 m in the block's corner nearest the market. */
-function groundsIn(blk: Shape, cx: number, cz: number, r: Rng): Shape | null {
+/** The temple grounds: a walled plot of about 40 × 28 m (times `scale`) in the block's corner nearest the market. */
+function groundsIn(blk: Shape, cx: number, cz: number, r: Rng, scale = 1): Shape | null {
   let ax = 0, az = 0, best = Infinity;
   for (let i = 0; i < blk.outer.length; i += 2) {
     const d = Math.hypot(blk.outer[i] - cx, blk.outer[i + 1] - cz);
@@ -562,13 +620,56 @@ function groundsIn(blk: Shape, cx: number, cz: number, r: Rng): Shape | null {
   const [bx, bz] = polyCentroid(blk.outer);
   const L = Math.hypot(bx - ax, bz - az) || 1;
   const o = minAreaRect(blk.outer);
-  const long = r.range(36, 44), short = r.range(26, 30);
+  const long = r.range(36, 44) * scale, short = r.range(26, 30) * scale;
   const px = ax + ((bx - ax) / L) * Math.min(L, long * 0.55), pz = az + ((bz - az) / L) * Math.min(L, long * 0.55);
   const ux = o.ux, uz = o.uz, vx = -uz, vz = ux;
   const [hu, hv] = o.hu >= o.hv ? [long / 2, short / 2] : [short / 2, long / 2];
   const sq = rect(px - ux * hu - vx * hv, pz - uz * hu - vz * hv, ux, uz, vx, vz, hu * 2, hv * 2);
   const pieces = intersection([ensureCCW(sq)], [blk.outer]).sort((a, b) => shapeArea(b) - shapeArea(a));
-  return pieces.length && shapeArea(pieces[0]) > 600 ? pieces[0] : null;
+  return pieces.length && shapeArea(pieces[0]) > 600 * scale * scale ? pieces[0] : null;
+}
+
+/**
+ * The seat of rule (a capital's): a great hall of stone in the middle of its grounds, three storeys under a
+ * slate roof, its door to the grounds' gate side; the ruler's household lives there.
+ */
+function seatOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding | null {
+  const o = minAreaRect(blk.outer);
+  const longU = o.hu >= o.hv;
+  const lx = longU ? o.ux : -o.uz, lz = longU ? o.uz : o.ux;
+  const halfLong = Math.max(o.hu, o.hv), halfShort = Math.min(o.hu, o.hv);
+  // Long side across the grounds: u along the long axis, the door on a long side.
+  const hu = Math.min(11, halfLong * 0.55), hv = Math.min(7.5, halfShort * 0.5);
+  if (hv < 5 || hu < 7) return null;
+  const ux = lx, uz = lz, vx = -uz, vz = ux;
+  const b = makeBuilding(id, 'hall', o.cx, o.cz, ux, uz, vx, vz, hu, hv, false, true, false, -1, site, r);
+  const area = intersection([b.poly], [blk.outer]).reduce((s, x) => s + shapeArea(x), 0);
+  if (area < hu * hv * 4 * 0.95) return null;
+  b.trade = 'ruler';
+  b.floors = 3;
+  b.floorH = r.range(3.4, 3.8);
+  b.wall = 'stone';
+  b.cover = 'slate';
+  b.roof = 'hip';
+  b.ridgeAlongU = true;
+  b.pitch = r.range(0.7, 0.85);
+  b.household = 6;
+  b.seed = deriveSeed(site.seed, 'seat');
+  return b;
+}
+
+/**
+ * The quarters (a capital's): each stretch between two roads out is one: the one with the seat of rule in
+ * it is the seat's, the temple's is the temple's, the biggest of the others the crafts', the rest homes.
+ */
+function quartersOf(sectors: readonly Shape[], buildings: readonly TownBuilding[]): Quarter[] {
+  const holds = (s: Shape, kind: BuildingKind, trade?: string) => buildings.some((b) => b.kind === kind && (!trade || b.trade === trade) && pointInPoly(s.outer, b.cx, b.cz));
+  const out = sectors.filter((s) => shapeArea(s) > 2000).map((s): Quarter & { area: number } => ({
+    kind: holds(s, 'hall', 'ruler') ? 'seat' : holds(s, 'temple') ? 'temple' : 'common', outline: s.outer, area: shapeArea(s),
+  }));
+  const crafts = out.filter((q) => q.kind === 'common').sort((a, b) => b.area - a.area)[0];
+  if (crafts) crafts.kind = 'crafts';
+  return out.map(({ kind, outline }) => ({ kind, outline }));
 }
 
 /**

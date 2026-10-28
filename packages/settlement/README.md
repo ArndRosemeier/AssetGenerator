@@ -13,7 +13,12 @@ Planning settlements on the ground plane (x, z), pure TypeScript: runs in worker
   the same town. `size` picks one of `SETTLEMENT_SIZES` (default `town`): a `hamlet` (a few cottages and
   farmsteads round a green with its well; no lanes, temple or inn), a `village` (temple, inn, smithy, a
   couple of crafts, a few stalls), a `town`, and a `capital` (about 250 m across, five or six roads out,
-  a taller core; planned in about half a second).
+  a taller core; planned in under a second). A capital also has a wall (`plan.wall`, `walls.ts`
+  `townWall`: a ring a little outside its edge, a gate where each road goes through, towers along it;
+  its fields begin outside it), a seat of rule (a great three-storey stone hall, trade `ruler`, in its
+  own grounds `plan.seatGrounds` near the market), quarters (`plan.quarters`: each stretch between two
+  roads, `seat`, `temple`, `crafts` or `common`; the crafts go to the crafts quarter first), three inns,
+  smithies and bakeries spread over it, and sixteen crafts. Smaller sizes plan exactly as before.
 * `building`: `houseShape(b)`, a building's storeys (jettied out over the street), every window and door
   and the chimney, rolled once from its seed; `buildingMesh(b, origin, detail, { open })` draws it from
   outside (`open`: its door stands open, for drawing it hollow).

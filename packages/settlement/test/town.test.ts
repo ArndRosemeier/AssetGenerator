@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite } from '../src/index';
+import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh } from '../src/index';
 
 /** Gently rolling ground, a river along z = 140 to the south-east of the market. */
 const site = (seed: number, river = false): TownSite => ({
@@ -80,6 +80,57 @@ test('settlement: one planner makes every size, from a hamlet round its green to
   assert.ok(capital.t.radius >= 240 && capital.t.buildings.length > 500 && ms < 2000, `capital: ${capital.t.buildings.length} buildings in ${ms.toFixed(0)} ms`);
   assert.ok(capital.t.streets.filter((s) => s.kind === 'road').length >= 5);
 });
+
+test('settlement: a capital has a wall with a gate on every road, a seat of rule, quarters and more of each trade', () => {
+  for (const seed of [3, 4]) {
+    const t = planTown({ ...site(seed), size: 'capital' }), w = t.wall!;
+    const roads = t.streets.filter((s) => s.kind === 'road');
+    assert.ok(w && w.gates.length === roads.length, `seed ${seed}: ${w?.gates.length} gates for ${roads.length} roads`);
+    assert.ok(w.towers.length >= w.gates.length * 2 + 6, `${w.towers.length} towers`);
+    // The whole town is inside the wall, the farms outside it.
+    const farmIds = new Set(t.farms.flatMap((f) => [f.house, f.barn, f.stable]));
+    for (const b of t.buildings) {
+      const inside = pointInPoly(w.ring, b.cx, b.cz), farm = farmIds.has(b.id);
+      assert.equal(inside, !farm, `seed ${seed}: ${b.kind} ${b.id} ${inside ? 'inside' : 'outside'} the wall`);
+    }
+    for (const f of t.fields) assert.ok(!pointInPoly(w.ring, f.poly[0], f.poly[1]), 'no field inside the wall');
+    // Its gates stand on the roads, its towers on the ring.
+    for (const g of w.gates) assert.ok(Math.min(...roads.map((r) => nearest(r.pts, g.x, g.z))) < 1, 'a gate on its road');
+    // The seat of rule: a great stone hall in its own grounds near the market.
+    const seat = t.buildings.find((b) => b.trade === 'ruler')!;
+    assert.ok(seat && seat.wall === 'stone' && seat.floors === 3 && seat.hu * seat.hv > 60, 'a seat of rule');
+    assert.ok(t.seatGrounds && pointInPoly(t.seatGrounds.outer, seat.cx, seat.cz));
+    assert.deepEqual(['crafts', 'seat', 'temple'].filter((k) => t.quarters!.some((q) => q.kind === k)), ['crafts', 'seat', 'temple']);
+    const n = (k: string) => t.buildings.filter((b) => b.kind === k).length;
+    assert.ok(n('inn') >= 2 && n('smithy') >= 2 && n('bakery') >= 2 && n('workshop') >= 12, `${n('inn')} inns, ${n('smithy')} smithies, ${n('bakery')} bakeries, ${n('workshop')} workshops`);
+  }
+  // Walkers come in through the gates only; the wall and towers stop them, and it is drawn.
+  const t = planTown({ ...site(3), size: 'capital' }), w = t.wall!;
+  for (const g of w.gates) {
+    const ux = Math.cos(g.angle), uz = Math.sin(g.angle), sx = -uz, sz = ux;
+    for (const d of [-4, 0, 4]) assert.ok(!wallBlocks(w, g.x + ux * d, g.z + uz * d, 0.4), 'through the gate');
+    assert.ok(wallBlocks(w, g.x + sx * (g.half + w.towerHalf), g.z + sz * (g.half + w.towerHalf), 0.4), 'not through its towers');
+  }
+  const n2 = w.ring.length >> 1;
+  for (let i = 0; i < n2; i += 7) {
+    const x = w.ring[i * 2], z = w.ring[i * 2 + 1];
+    if (w.gates.some((g) => Math.hypot(g.x - x, g.z - z) < g.half + w.towerHalf + 1)) continue;
+    assert.ok(wallBlocks(w, x, z, 0.4), 'the wall is solid');
+  }
+  assert.ok(!wallBlocks(w, t.centre[0], t.centre[1], 0.4), 'the market is free');
+  assert.equal(w.ringY.length, n2);
+  const near = wallMesh(w, [0, 0, 0]), far = wallMesh(w, [0, 0, 0], false);
+  assert.ok(far.index.length > 0 && near.index.length > far.index.length, 'merlons near only');
+  assert.equal(near.position.length / 3, near.tint.length / 3);
+  assert.ok(near.position.every(Number.isFinite));
+  const half = wallMesh(w, [0, 0, 0], true, (x) => x < t.centre[0]);
+  assert.ok(half.index.length > 0 && half.index.length < near.index.length, 'picked by cell');
+  // A town keeps no wall and no seat (and plans just as before).
+  const town = planTown(site(3));
+  assert.ok(!town.wall && !town.quarters && !town.buildings.some((b) => b.trade === 'ruler'));
+});
+
+const nearest = (pts: number[], x: number, z: number) => { let m = Infinity; for (let i = 0; i < pts.length; i += 2) m = Math.min(m, Math.hypot(pts[i] - x, pts[i + 1] - z)); return m; };
 
 test('settlement: a waystation is an inn and a stable facing each other across the road through it', () => {
   for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
