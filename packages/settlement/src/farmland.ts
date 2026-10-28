@@ -8,7 +8,7 @@
  * Which animals graze a paddock is not decided here: a paddock only says how many (the game picks the
  * kind). Pure, runs in workers and tests.
  */
-import { Noise, type Rng, deriveSeed } from '@futuremagic/core';
+import { Noise, type Rng, deriveSeed, seatHeight } from '@futuremagic/core';
 import { difference, intersection, offset, shapeArea, shapesToPolys, strokePolylines } from './clip';
 import { closestOnPolyline, ensureCCW, minAreaRect, pointInPoly, polyBounds, polyCentroid, type Poly } from './geom2';
 import { organicCuts } from './streets';
@@ -516,7 +516,9 @@ function fencePosts(poly: Poly, gx: number, gz: number, gate: number, height: (x
 }
 
 function haystack(x: number, z: number, site: TownSite, r: Rng): TownProp {
-  return { kind: 'haystack', x, y: site.height(x, z), z, r: r.range(1.5, 2.1), h: r.range(2.4, 3.2), seed: Math.floor(r.float() * 2 ** 31) };
+  // Set on the lowest ground under its round foot, so its downhill side does not float.
+  const rad = r.range(1.5, 2.1), h = r.range(2.4, 3.2);
+  return { kind: 'haystack', x, y: seatHeight(site.height, x, z, rad, rad, 0, 0.1), z, r: rad, h, seed: Math.floor(r.float() * 2 ** 31) };
 }
 
 // ---------------------------------------------------------------- helpers
