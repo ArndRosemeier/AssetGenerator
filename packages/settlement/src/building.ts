@@ -337,6 +337,7 @@ export function buildingMesh(b: TownBuilding, origin: [number, number, number], 
   const open = !!opts.open;
   if (b.kind === 'temple') temple(out, b, S, r, detail, open);
   else house(out, b, S, r, detail, open, open ? opts.hole ?? null : null);
+  if (b.trade === 'ruler') seatOfRule(out, b, S, detail);
   if (opts.sign) doorSign(out, b, S, opts.sign);
   return {
     position: Float32Array.from(out.pos), normal: Float32Array.from(out.nrm), uv: Float32Array.from(out.uv),
@@ -380,6 +381,11 @@ export function buildingEntrance(b: TownBuilding): Entrance {
     const posts = cols.map((a) => ({ u0: a - 0.25, u1: a + 0.25, v0: f0 + 0.1, v1: f0 + 0.6, top, mat: BuildingMat.Ashlar }));
     return { floors: [floor, ...stepsUp(b, f0 - 0.5, 0.25, Math.min(w, 1.6))], posts };
   }
+  if (b.trade === 'ruler') {
+    // A broad landing before the door, up a flight as wide; a tower at each front corner (solid).
+    const landing: EntranceBox = { u0: -3.2, u1: 3.2, v0: -b.hv - 2.4, v1: -b.hv, top: 0, mat: BuildingMat.Ashlar };
+    return { floors: [landing, ...stepsUp(b, -b.hv - 2.4, 0, 3.2)], posts: rulerTowers(b).map((t) => ({ u0: t.a - TOWER_HALF, u1: t.a + TOWER_HALF, v0: t.b - TOWER_HALF, v1: t.b + TOWER_HALF, top: t.top, mat: BuildingMat.Ashlar })) };
+  }
   return { floors: stepsUp(b, -b.hv - 0.06, 0, 0.7), posts: [] };
 }
 
@@ -387,6 +393,48 @@ export function buildingEntrance(b: TownBuilding): Entrance {
 function porch(b: TownBuilding, detail = true): { w: number; f0: number; f1: number; top: number; cols: number[] } {
   const w = Math.min(b.hu - 0.4, 3.6), d = 2.2, n = detail ? 4 : 2;
   return { w, f0: -b.hv - d, f1: -b.hv, top: b.floorH - 0.6, cols: Array.from({ length: n }, (_, i) => -w + 0.3 + ((2 * w - 0.6) * i) / (n - 1)) };
+}
+
+/** A seat of rule's corner towers: half their side (m). */
+const TOWER_HALF = 2.1;
+
+/** Where a seat of rule's towers stand (its front corners, a little out) and how high they rise over its floor. */
+function rulerTowers(b: TownBuilding): { a: number; b: number; top: number }[] {
+  const top = b.floors * b.floorH + 6.5;
+  return [-1, 1].map((s) => ({ a: s * (b.hu - 0.6), b: -b.hv + 0.6, top }));
+}
+
+/**
+ * What makes a great hall a seat of rule: a square tower at each front corner, higher than its roof, with
+ * merlons round the top and a slate cap; banners in the realm's colours hung either side of the door.
+ */
+function seatOfRule(o: Out, b: TownBuilding, S: HouseShape, detail: boolean): void {
+  const stone = S.look.stone, down = b.floorY - b.groundY + 0.3, h = TOWER_HALF;
+  for (const t of rulerTowers(b)) {
+    o.box(t.a - h, t.a + h, -down, t.top, t.b - h, t.b + h, BuildingMat.Ashlar, stone);
+    // A ring of merlons, then a low pointed cap of slate inside them.
+    if (detail) for (let k = 0; k < 4; k++) for (let i = 0; i < 3; i++) {
+      const s = -h + 0.35 + i * 1.4, w = 0.45;
+      const [a0, a1, b0, b1] = k === 0 ? [s, s + w * 2, -h, -h + 0.5] : k === 1 ? [s, s + w * 2, h - 0.5, h] : k === 2 ? [-h, -h + 0.5, s, s + w * 2] : [h - 0.5, h, s, s + w * 2];
+      o.box(t.a + a0, t.a + a1, t.top, t.top + 0.9, t.b + b0, t.b + b1, BuildingMat.Ashlar, stone);
+    }
+    const capH = 3.2, y = t.top;
+    for (const [p, n] of [
+      [[[t.a - h + 0.3, y, t.b - h + 0.3], [t.a + h - 0.3, y, t.b - h + 0.3], [t.a, y + capH, t.b]], [0, h, -capH]],
+      [[[t.a + h - 0.3, y, t.b - h + 0.3], [t.a + h - 0.3, y, t.b + h - 0.3], [t.a, y + capH, t.b]], [capH, h, 0]],
+      [[[t.a + h - 0.3, y, t.b + h - 0.3], [t.a - h + 0.3, y, t.b + h - 0.3], [t.a, y + capH, t.b]], [0, h, capH]],
+      [[[t.a - h + 0.3, y, t.b + h - 0.3], [t.a - h + 0.3, y, t.b - h + 0.3], [t.a, y + capH, t.b]], [-capH, h, 0]],
+    ] as [number[][], number[]][]) o.tri(p, n, p.map((q) => [q[0] + q[2], q[1]]), BuildingMat.Slate, [96, 100, 112]);
+    // Arrow slits on its front, one a storey.
+    if (detail) for (let y0 = 3; y0 < t.top - 2; y0 += 3.4) o.box(t.a - 0.12, t.a + 0.12, y0, y0 + 1.1, t.b - h - 0.02, t.b - h + 0.05, BuildingMat.Slate, [34, 30, 28]);
+  }
+  // Banners: long cloths down the front wall either side of the door, the realm's red with a gold band.
+  if (detail) for (const s of [-1, 1]) {
+    const a = s * 2.6, y1 = b.floors * b.floorH - 0.6, y0 = Math.max(1.6, y1 - 4.2), f = -b.hv - 0.08;
+    o.quad([[a - 0.55, y0, f], [a + 0.55, y0, f], [a + 0.55, y1, f], [a - 0.55, y1, f]], [0, 0, -1], [[0, 0], [1.1, 0], [1.1, y1 - y0], [0, y1 - y0]], BuildingMat.Plaster, [168, 40, 40]);
+    o.quad([[a - 0.55, y1 - 0.9, f - 0.01], [a + 0.55, y1 - 0.9, f - 0.01], [a + 0.55, y1 - 0.6, f - 0.01], [a - 0.55, y1 - 0.6, f - 0.01]], [0, 0, -1], [[0, 0], [1.1, 0], [1.1, 0.3], [0, 0.3]], BuildingMat.Plaster, [222, 184, 92]);
+    o.box(a - 0.7, a + 0.7, y1, y1 + 0.08, f - 0.08, f + 0.02, BuildingMat.Oak, [84, 62, 48]);
+  }
 }
 
 /** Draws the entrance's boxes down to below the lowest ground. */
