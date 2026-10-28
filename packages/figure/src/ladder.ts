@@ -31,6 +31,11 @@ export interface Ladder {
   rim: boolean;
   /** Rung spacing (m, default RUNG). */
   rung?: number;
+  /**
+   * How far the rungs lean back into the wall per metre up (0: upright, the default): a rock face that is not
+   * quite sheer, its holds (the rungs) on it.
+   */
+  lean?: number;
 }
 
 /** The usual rung spacing (m). */
@@ -175,6 +180,24 @@ export class LadderClimb {
     this.pose = fn && this.active ? { fn, w: this.overW } : null;
     this.limbs = this.active ? g : null;
     if (!this.walking) this.vel[0] = this.vel[1] = this.vel[2] = 0;
+  }
+
+  /**
+   * Hang on `l` with the feet `h` over its base, going up (or down): this frame's pose and holds, for a climb
+   * the game steers itself (a rock face climbed as the keys say) rather than one played out (`play`). Each
+   * frame may pass another ladder (the face under the climber as it moves along).
+   */
+  cling(l: Ladder, h: number, up: boolean, body: Climber): void {
+    this.stop();
+    this.k = body.height / 1.8;
+    this.hipW = body.hipHeight || 0.52 * body.height;
+    const g = this.goals;
+    for (const key of ['L', 'R', 'footL', 'footR'] as const) { g[key]!.w = 0; g[key]!.flat = null; }
+    this.climbAt(l, h, up);
+    this.pose = this.poseFn ? { fn: this.poseFn, w: this.overW } : null;
+    this.limbs = g;
+    this.walking = false;
+    this.vel[0] = this.vel[1] = this.vel[2] = 0;
   }
 
   /** Let go at once (the climb is over or abandoned). */
@@ -378,7 +401,8 @@ export class LadderClimb {
 
   /** A point of the ladder's frame: `a` metres into the wall from the rungs, `s` to the right of a climber facing it, at height y. */
   private at(l: Ladder, a: number, s: number, y: number, out: Vector3): Vector3 {
-    // Facing the wall (nx, nz), the right is (-nz, nx).
+    // Facing the wall (nx, nz), the right is (-nz, nx); a leaning face is further in the higher up.
+    if (l.lean) a += l.lean * (y - this.base(l));
     return out.set(l.x + l.nx * a - l.nz * s, y, l.z + l.nz * a + l.nx * s);
   }
 

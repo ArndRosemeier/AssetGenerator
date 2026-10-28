@@ -69,3 +69,17 @@ test('ladder: a walk can end facing the hole; holding still reports its progress
   assert.ok(seen.length > 20 && seen[seen.length - 1] > 0.999, `${seen.length} ${seen[seen.length - 1]}`);
   assert.ok(Math.abs(Math.cos(c.yaw - faceYaw(SHAFT)) - 1) < 1e-6, 'turned to the wall');
 });
+
+test('ladder: clinging to a leaning rock face, steered frame by frame: hands and feet on it, higher holds further in', () => {
+  const c = new LadderClimb();
+  const face: Ladder = { x: 0, z: 0, nx: 0, nz: -1, lo: 0, hi: 30, floor: 0, halfWidth: 0.35, rim: false, lean: 0.25 };
+  const body = { height: 1.8, hipHeight: 0.93 };
+  c.cling(face, 1, true, body);
+  assert.ok(c.pose && c.limbs, 'posed');
+  const low = c.limbs!.footR!.p.z, hand = c.limbs!.L!.p.z;
+  assert.ok(hand < low - 0.2, `the hand (z ${hand.toFixed(2)}) further into the face than the foot (${low.toFixed(2)})`);
+  c.cling(face, 11, true, body);
+  assert.ok(c.limbs!.footR!.p.z < low - 2, 'ten metres up, the holds are further in');
+  assert.ok(c.pos.y > 10, 'the body is up there');
+  assert.ok(!c.active, 'nothing played meanwhile');
+});
