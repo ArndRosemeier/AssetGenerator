@@ -77,3 +77,22 @@ test('fixtures: a way round the houses, never through one', () => {
   // A clear way stays as it is.
   assert.deepEqual(wayRound([fx, fz, fx - b.vx * 2, fz - b.vz * 2], foot), [fx, fz, fx - b.vx * 2, fz - b.vz * 2]);
 });
+
+test('fixtures: a long way through a house (a walk out to someone far off) is gone round in pieces, quickly', () => {
+  const t = planTown(site(3));
+  const foot = new Footprints(t.buildings.map((b) => b.poly));
+  const b = t.buildings.find((x) => x.kind === 'house' && x.attached) ?? t.buildings[0];
+  const [fx, fz] = b.door, bx = b.cx + b.vx * (b.hv + 600), bz = b.cz + b.vz * (b.hv + 600);
+  // One grid over the whole 600 m took a fifth of a second (seconds for longer ways, on the main thread).
+  const t0 = performance.now(), way = wayRound([fx, fz, bx, bz], foot), ms = performance.now() - t0;
+  assert.ok(ms < 100, `${ms.toFixed(0)} ms`);
+  assert.deepEqual(way.slice(0, 2), [fx, fz]);
+  assert.deepEqual(way.slice(-2), [bx, bz]);
+  for (let k = 2; k < way.length; k += 2) {
+    const n = Math.ceil(Math.hypot(way[k] - way[k - 2], way[k + 1] - way[k - 1]) / 0.1);
+    for (let i = 0; i <= n; i++) {
+      const x = way[k - 2] + ((way[k] - way[k - 2]) * i) / n, z = way[k - 1] + ((way[k + 1] - way[k - 1]) * i) / n;
+      assert.ok(!foot.polys.some((p) => pointInPoly(p, x, z)), `step ${k / 2} keeps out of the houses`);
+    }
+  }
+});
