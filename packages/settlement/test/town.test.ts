@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh, gateLeaves } from '../src/index';
+import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh, gateLeaves, sizeRules, SETTLEMENT_SIZES, SIZE_SCALE } from '../src/index';
 
 /** Gently rolling ground, a river along z = 140 to the south-east of the market. */
 const site = (seed: number, river = false): TownSite => ({
@@ -165,6 +165,27 @@ test('settlement: a capital gate has an arch over its road and two oak leaves th
   const core = t.buildings.filter((b) => b.kind === 'house' && Math.hypot(b.cx - t.centre[0], b.cz - t.centre[1]) < 70);
   assert.ok(core.length > 20 && core.filter((b) => b.floors >= 3).length > core.length * 0.6, `${core.filter((b) => b.floors >= 3).length} of ${core.length} tall`);
   assert.ok(planTown(site(3)).buildings.every((b) => b.floors <= 3 || b.kind === 'temple'), 'a town keeps its heights');
+});
+
+test('settlement: one planner, any size: the named sizes are points on one scale, sizes between and past them blend and grow', () => {
+  // At each name, its own rules exactly.
+  for (const [i, k] of SIZE_SCALE.entries()) assert.equal(sizeRules(i), SETTLEMENT_SIZES[k]);
+  assert.equal(sizeRules('village'), SETTLEMENT_SIZES.village);
+  // Between a town and a capital: in between, and the town grows smoothly towards a city.
+  const m = sizeRules(3.5);
+  assert.ok(m.radius[0] > SETTLEMENT_SIZES.town.radius[0] && m.radius[1] < SETTLEMENT_SIZES.capital.radius[1]);
+  assert.ok(m.crafts > SETTLEMENT_SIZES.town.crafts && m.crafts < SETTLEMENT_SIZES.capital.crafts);
+  const sizes = [3, 3.5, 4, 4.6].map((size) => planTown({ ...site(3), size }));
+  const n = sizes.map((t) => t.buildings.length);
+  assert.ok(n[0] < n[1] && n[1] < n[2] && n[2] < n[3], `buildings by size: ${n.join(', ')}`);
+  // Past a capital: still walled, a gate on every road, more inns, taller round its market.
+  const big = sizes[3], roads = big.streets.filter((s) => s.kind === 'road').length;
+  assert.ok(big.wall && big.wall.gates.length === roads && roads >= SETTLEMENT_SIZES.capital.roads[0], `${big.wall?.gates.length} gates, ${roads} roads`);
+  assert.ok(big.buildings.filter((b) => b.kind === 'inn').length > sizes[2].buildings.filter((b) => b.kind === 'inn').length, 'more inns');
+  assert.ok(Math.max(...big.buildings.map((b) => b.floors)) >= 4);
+  // Below a hamlet's size: a waystation; and every size plans the same twice.
+  assert.equal(sizeRules(-1), SETTLEMENT_SIZES.waystation);
+  assert.deepEqual(planTown({ ...site(4), size: 2.4 }).buildings.length, planTown({ ...site(4), size: 2.4 }).buildings.length);
 });
 
 const nearest = (pts: number[], x: number, z: number) => { let m = Infinity; for (let i = 0; i < pts.length; i += 2) m = Math.min(m, Math.hypot(pts[i] - x, pts[i + 1] - z)); return m; };
