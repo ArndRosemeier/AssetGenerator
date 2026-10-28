@@ -15,6 +15,7 @@ import { chaikin, distSqPointSeg, ensureCCW, minAreaRect, pointInPoly, polyArea,
 import { perimeterLots, type Lot, type LotRules } from './lots';
 import { organicCuts } from './streets';
 import { townWall, type TownWall, type WallRules } from './walls';
+import { fixtureClear } from './fixtures';
 import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
 /** How big a settlement is: an inn and a stable by the road (a waystation), a few farms round a green, a village with its temple and inn, a market town, a capital. */
@@ -290,6 +291,11 @@ const ROAD_W = 6;
 const LANE_W = 4;
 const TRACK_W = 3;
 
+/** How far a fixture may be moved off a wall (m), in steps of; first straight away from the nearest wall, then aslant, then along it. */
+const NUDGE_MAX = 2.5;
+const NUDGE_STEP = 0.25;
+const NUDGE_TURNS = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
+
 export function planTown(site: TownSite): TownPlan {
   const seed = deriveSeed(site.seed, 'town');
   const rng = new Rng(seed);
@@ -342,7 +348,26 @@ export function planTown(site: TownSite): TownPlan {
   const fix = (kind: FixtureKind, x: number, z: number, yaw: number, building = -1) => {
     if (wet(x, z)) return;
     for (const b of buildings) if (pointInPoly(b.poly, x, z)) return;
-    fixtures.push({ id: fixtures.length, kind, x, z, yaw, building });
+    // It and its users keep off the walls (a drinker at the inn's table stood in its front wall): moved off the
+    // nearest wall as little as will do, else left out.
+    const polys = buildings.filter((b) => Math.hypot(b.cx - x, b.cz - z) < Math.hypot(b.hu, b.hv) + 6).map((b) => b.poly);
+    const f: Fixture = { id: fixtures.length, kind, x, z, yaw, building };
+    const near = polys.reduce<{ p: Poly | null; d: number }>((m, p) => { const d = distToPoly(p, x, z); return d < m.d ? { p, d } : m; }, { p: null, d: Infinity });
+    let ox = 1, oz = 0;
+    if (near.p) {
+      const e = 0.05, gx = distToPoly(near.p, x + e, z) - distToPoly(near.p, x - e, z), gz = distToPoly(near.p, x, z + e) - distToPoly(near.p, x, z - e), g = Math.hypot(gx, gz);
+      if (g > 1e-6) { ox = gx / g; oz = gz / g; }
+    }
+    for (let d = 0; d <= NUDGE_MAX + 1e-6; d += NUDGE_STEP) {
+      for (const turn of d ? NUDGE_TURNS : [0]) {
+        const c = Math.cos(turn), s = Math.sin(turn);
+        f.x = x + (ox * c - oz * s) * d;
+        f.z = z + (ox * s + oz * c) * d;
+        if (wet(f.x, f.z) || !fixtureClear(f, polys, pointInPoly, distToPoly)) continue;
+        fixtures.push(f);
+        return;
+      }
+    }
   };
   const dist = (x: number, z: number) => Math.max(S.inner, (Math.hypot(x - cx, z - cz) / R) * S.spread);
   let templeGrounds: Shape | null = null;

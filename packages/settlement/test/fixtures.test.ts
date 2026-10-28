@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BENCH_SEAT, buildingEntrance, buildingMesh, fixtureBlocks, fixtureMesh, planTown, type FixtureKind } from '../src/index';
+import { BENCH_SEAT, Footprints, buildingEntrance, buildingMesh, distToPoly, fixtureBlocks, fixtureClear, fixtureMesh, fixtureStand, planTown, pointInPoly, wayRound, type FixtureKind } from '../src/index';
 
 const site = (seed: number) => ({ seed, x: 0, z: 0, radius: 120, height: (x: number, z: number) => 10 + Math.sin(x * 0.02) * 2 + Math.cos(z * 0.03) });
 
@@ -39,4 +39,39 @@ test('fixtures: the seat of rule has towers at its front corners (solid) and a b
   assert.ok(e.floors[0].u1 - e.floors[0].u0 > 6, 'a broad landing');
   const plain = { ...seat, trade: 'x' };
   assert.ok(buildingMesh(seat, [0, 0, 0]).index.length > buildingMesh(plain, [0, 0, 0]).index.length);
+});
+
+test('fixtures: none stands in a wall, nor its users (the inn table drinkers stood in its front wall)', () => {
+  for (const size of ['hamlet', 'town', 'capital'] as const) for (const seed of [1, 2, 3]) {
+    const t = planTown({ ...site(seed), size });
+    const polys = t.buildings.map((b) => b.poly);
+    for (const f of t.fixtures) assert.ok(fixtureClear(f, polys, pointInPoly, distToPoly), `${size} ${seed}: the ${f.kind} at ${f.x.toFixed(1)}, ${f.z.toFixed(1)} keeps off the walls`);
+    const inn = t.buildings.find((b) => b.kind === 'inn');
+    if (inn) assert.equal(t.fixtures.filter((f) => f.kind === 'table' && f.building === inn.id).length, 2, `${size} ${seed}: the inn keeps both its tables (moved off the wall)`);
+    for (const f of t.fixtures) {
+      const [x, z] = fixtureStand(f);
+      for (const p of polys) assert.ok(!pointInPoly(p, x, z) && distToPoly(p, x, z) >= 0.45, `${size} ${seed}: one at the ${f.kind} stands clear`);
+    }
+  }
+});
+
+test('fixtures: a way round the houses, never through one', () => {
+  const t = planTown(site(3));
+  const foot = new Footprints(t.buildings.map((b) => b.poly));
+  // From the front of one row to the back of it: straight through the houses.
+  const b = t.buildings.find((x) => x.kind === 'house' && x.attached) ?? t.buildings[0];
+  const [fx, fz] = b.door, bx = b.cx + b.vx * (b.hv + 2), bz = b.cz + b.vz * (b.hv + 2);
+  const way = wayRound([fx, fz, bx, bz], foot);
+  assert.deepEqual(way.slice(0, 2), [fx, fz]);
+  assert.deepEqual(way.slice(-2), [bx, bz]);
+  assert.ok(way.length > 4, 'it turns');
+  for (let k = 2; k < way.length; k += 2) {
+    const n = Math.ceil(Math.hypot(way[k] - way[k - 2], way[k + 1] - way[k - 1]) / 0.1);
+    for (let i = 0; i <= n; i++) {
+      const x = way[k - 2] + ((way[k] - way[k - 2]) * i) / n, z = way[k - 1] + ((way[k + 1] - way[k - 1]) * i) / n;
+      assert.ok(!foot.polys.some((p) => pointInPoly(p, x, z)), `step ${k / 2} keeps out of the houses`);
+    }
+  }
+  // A clear way stays as it is.
+  assert.deepEqual(wayRound([fx, fz, fx - b.vx * 2, fz - b.vz * 2], foot), [fx, fz, fx - b.vx * 2, fz - b.vz * 2]);
 });

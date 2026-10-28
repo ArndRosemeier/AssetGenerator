@@ -13,6 +13,7 @@
 import { Rng } from '@futuremagic/core';
 import { BuildingMat, doorFace, Frame, houseShape, Out, planeUV, roundShield, WALL_THICK, type BuildingMesh, type HouseShape, type RGB } from './building';
 import type { TownBuilding } from './town';
+import { pulledStraight } from './wayRound';
 
 export type InteriorFixtureKind =
   | 'table' | 'bench' | 'counter' | 'barrel' | 'hearth' | 'bed' | 'chest' | 'shelf'
@@ -263,14 +264,7 @@ export function roomPath(p: InteriorPlan, from: readonly [number, number], to: r
     for (let k = 1; k < n; k++) if (interiorBlocked(p, u[0] + ((v[0] - u[0]) * k) / n, u[1] + ((v[1] - u[1]) * k) / n, r, storey, true)) return false;
     return true;
   };
-  const out = [from[0], from[1], cells[0][0], cells[0][1]];
-  for (let i = 0; i < cells.length - 1;) {
-    let k = cells.length - 1;
-    while (k > i + 1 && !clear(cells[i], cells[k])) k--;
-    out.push(cells[k][0], cells[k][1]);
-    if (k === cells.length - 1) break;
-    i = k;
-  }
+  const out = [from[0], from[1], ...pulledStraight(cells, clear)];
   out.push(to[0], to[1]);
   return out;
 }

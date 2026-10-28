@@ -8,6 +8,7 @@
  */
 import { Rng } from '@futuremagic/core';
 import { BuildingMat, Frame, Out, type BuildingMesh, type RGB } from './building';
+import type { Poly } from './geom2';
 import type { Fixture, FixtureKind } from './town';
 
 /** A bench's seat, metres above the ground (a sitter's hips go there). */
@@ -45,6 +46,36 @@ export function fixtureBlocks(f: Fixture, x: number, z: number, r: number): bool
   const c = Math.cos(f.yaw), n = Math.sin(f.yaw);
   if (f.kind === 'washline') return [-1.5, 1.5].some((b) => Math.hypot(dx + n * b, dz - c * b) < 0.08 + r);
   return Math.abs(dx * c + dz * n) < s[0] + r && Math.abs(-dx * n + dz * c) < s[1] + r;
+}
+
+/** Where a fixture's user stands (x, z) and the way they face: a step before it, facing it (a stall's buyer in front, facing the seller); on a bench, on it. */
+export function fixtureStand(f: Fixture): [number, number, number] {
+  const dir = f.kind === 'stall' ? f.yaw + Math.PI : f.yaw;
+  const back = f.kind === 'stall' ? 1.4 : f.kind === 'bench' ? 0 : 0.9;
+  return [f.x - Math.cos(dir) * back, f.z - Math.sin(dir) * back, dir];
+}
+
+/** A body's room round where a fixture's user stands (m), and how far to each side a second or third user stands (side by side). */
+const STAND_R = 0.45;
+const SIDE = 0.75;
+const SIDE_R = 0.35;
+/** A fixture's own clearance off a wall (m). */
+const WALL_GAP = 0.15;
+
+/**
+ * Whether a fixture and the people using it stay out of every footprint in `polys` (the town's buildings): its
+ * solid box with a little gap, where its user stands with room for a body, and the places beside that for a
+ * second and third user. `inside(poly, x, z)` and `dist(poly, x, z)`: the geometry (the town planner's).
+ */
+export function fixtureClear(f: Fixture, polys: readonly Poly[], inside: (p: Poly, x: number, z: number) => boolean, dist: (p: Poly, x: number, z: number) => number): boolean {
+  const c = Math.cos(f.yaw), n = Math.sin(f.yaw), s = SOLID[f.kind];
+  const pts: [number, number, number][] = [];
+  if (s) for (const i of [-1, 0, 1]) for (const j of [-1, 0, 1]) pts.push([f.x + c * s[0] * i - n * s[1] * j, f.z + n * s[0] * i + c * s[1] * j, WALL_GAP]);
+  else pts.push([f.x, f.z, WALL_GAP]);
+  const [sx, sz, dir] = fixtureStand(f), ac = -Math.sin(dir), an = Math.cos(dir);
+  pts.push([sx, sz, STAND_R]);
+  for (const k of [-SIDE, -SIDE / 2, SIDE / 2, SIDE]) pts.push([sx + ac * k, sz + an * k, SIDE_R]);
+  return polys.every((p) => pts.every(([x, z, r]) => !inside(p, x, z) && dist(p, x, z) >= r));
 }
 
 /**
