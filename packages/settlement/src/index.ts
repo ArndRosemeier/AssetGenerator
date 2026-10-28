@@ -9,3 +9,4 @@ export * from './building';
 export * from './interior';
 export * from './route';
 export * from './walls';
+export * from './fixtures';

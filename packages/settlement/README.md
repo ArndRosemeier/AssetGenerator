@@ -21,7 +21,13 @@ Planning settlements on the ground plane (x, z), pure TypeScript: runs in worker
   smithies and bakeries spread over it, and sixteen crafts. Smaller sizes plan exactly as before.
 * `building`: `houseShape(b)`, a building's storeys (jettied out over the street), every window and door
   and the chimney, rolled once from its seed; `buildingMesh(b, origin, detail, { open })` draws it from
-  outside (`open`: its door stands open, for drawing it hollow).
+  outside (`open`: its door stands open, for drawing it hollow). A seat of rule has a tower at each front
+  corner, banners by its door and a broad landing before it. `wallMesh` / `wallBlocks` draw a capital's
+  wall and let walkers through its gates only.
+* `fixtures`: `fixtureMesh(fixtures, height, origin, detail, pick)` draws a town's fixtures out of doors
+  (stalls with awnings, the well, benches with their seat at `BENCH_SEAT`, tables, barrels, anvils, ovens,
+  workbenches, troughs, woodpiles, gardens, washing lines, hen coops, graves, the offering stone) on the
+  ground; `fixtureBlocks` says which a walker runs into.
 * `interior`: `planInterior(b)` furnishes every storey of that same shape (stairs up, the hearth under the
   chimney, furniture and the spots people use), `interiorMesh` draws the inside faces with the windows open
   through them and a daylight level per vertex (`INSIDE_LIGHT`), `interiorSolids` gives the boxes a walker
