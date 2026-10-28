@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh, gateLeaves, sizeRules, SETTLEMENT_SIZES, SIZE_SCALE } from '../src/index';
+import { townWall, intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh, gateLeaves, sizeRules, SETTLEMENT_SIZES, SIZE_SCALE } from '../src/index';
 
 /** Gently rolling ground, a river along z = 140 to the south-east of the market. */
 const site = (seed: number, river = false): TownSite => ({
@@ -85,7 +85,8 @@ test('settlement: a capital has a wall with a gate on every road, a seat of rule
   for (const seed of [3, 4]) {
     const t = planTown({ ...site(seed), size: 'capital' }), w = t.wall!;
     const roads = t.streets.filter((s) => s.kind === 'road');
-    assert.ok(w && w.gates.length === roads.length, `seed ${seed}: ${w?.gates.length} gates for ${roads.length} roads`);
+    // (Roads leaving side by side share a gate.)
+    assert.ok(w && w.gates.length >= 4 && w.gates.length <= roads.length, `seed ${seed}: ${w?.gates.length} gates for ${roads.length} roads`);
     assert.ok(w.towers.length >= w.gates.length * 2 + 6, `${w.towers.length} towers`);
     // The whole town is inside the wall, the farms outside it.
     const farmIds = new Set(t.farms.flatMap((f) => [f.house, f.barn, f.stable]));
@@ -205,5 +206,18 @@ test('settlement: a waystation is an inn and a stable facing each other across t
     const [inn, stable] = [t.buildings.find((b) => b.kind === 'inn')!, t.buildings.find((b) => b.kind === 'stable')!];
     assert.ok(inn.household > 0 && inn.floors >= 2);
     assert.ok(!intersection([inn.poly], [stable.poly]).some((x) => shapeArea(x) > 0.01), 'they do not overlap');
+  }
+});
+
+test('settlement: two roads leaving side by side go out through one gate, whose towers stand clear of it', () => {
+  // A square town 200 m across; two roads leave it east 6 m apart, one west.
+  const outline = [-100, -100, 100, -100, 100, 100, -100, 100];
+  const roads = [[0, 0, 300, 0], [0, 6, 300, 6], [0, 0, -300, 0]];
+  const w = townWall(outline, roads, { out: 10, height: 8, every: 40 }, 5, () => 0);
+  assert.equal(w.gates.length, 2);
+  for (const g of w.gates) for (const k of [-1, 1]) {
+    const sx = -Math.sin(g.angle), sz = Math.cos(g.angle);
+    assert.ok(!wallBlocks(w, g.x, g.z, 0.4), 'the gate is open');
+    assert.ok(wallBlocks(w, g.x + sx * (g.half + w.towerHalf) * k, g.z + sz * (g.half + w.towerHalf) * k, 0.4), 'its towers stand');
   }
 });

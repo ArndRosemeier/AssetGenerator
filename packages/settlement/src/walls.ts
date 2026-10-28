@@ -61,11 +61,12 @@ export function townWall(outline: Poly, roads: readonly number[][], rules: WallR
   // A smooth, even line: the offset's corners rounded off, no tiny steps.
   const ring = ensureCCW(evenRing(chaikin([...grown, grown[0], grown[1]], 1).slice(0, -2), 6));
   const gates: TownGate[] = [];
+  const towerHalf = 3, towers: TownTower[] = [], half = roadWidth / 2 + 1;
   roads.forEach((road, ri) => {
     const hit = crossing(ring, road);
-    if (hit) gates.push({ ...hit, half: roadWidth / 2 + 1, road: ri, y: height(hit.x, hit.z) });
+    // Two roads leaving side by side go out through one gate (else each gate's towers would stand in the other).
+    if (hit && !gates.some((g) => Math.hypot(g.x - hit.x, g.z - hit.z) < 2 * (half + 2 * towerHalf))) gates.push({ ...hit, half, road: ri, y: height(hit.x, hit.z) });
   });
-  const towerHalf = 3, towers: TownTower[] = [];
   const lowest = (x: number, z: number) => Math.min(height(x, z), height(x + towerHalf, z + towerHalf), height(x - towerHalf, z + towerHalf), height(x + towerHalf, z - towerHalf), height(x - towerHalf, z - towerHalf));
   // Each gate between two towers, square to the road.
   for (const g of gates) {
