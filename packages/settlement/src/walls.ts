@@ -215,8 +215,15 @@ function gateSpan(o: Out, w: TownWall, g: TownGate, c: RGB, detail: boolean): vo
   if (detail) for (const side of [1, -1]) merlons(o, g.x, g.z, across + (side > 0 ? 0 : Math.PI), -A.a, A.a, b, top, c);
 }
 
-/** Oak planks, darkened by the weather, and the iron that binds them. */
-const GATE_OAK: RGB = [118, 84, 58], IRON: RGB = [58, 58, 62];
+/**
+ * Oak planks and the iron that binds them. The oak layer is dark oak already (as a house's bare door, doorFace):
+ * its tint lifts it, else the leaves read as black slabs at night. The iron bands stand proud of the planks.
+ */
+const GATE_OAK: RGB = [226, 191, 158], IRON: RGB = [150, 150, 158];
+/** A plank's width, the seam between two, and its shade (m). */
+const PLANK = 0.34, SEAM = 0.025, SEAM_OAK: RGB = [120, 96, 76];
+/** An iron band's height, and how far it stands out of the leaf's faces (m). */
+const BAND = 0.16, BAND_OUT = 0.04;
 /** A leaf's thickness, and the gap between the two leaves and to the arch (m). */
 const LEAF = 0.14, LEAF_GAP = 0.03;
 
@@ -242,9 +249,13 @@ export function gateLeaves(w: TownWall, g: TownGate, origin: [number, number, nu
       const t = archY(A, s) - LEAF_GAP;
       o.quad([[s, g.y, d0], [s, g.y, d1], [s, t, d1], [s, t, d0]], [Math.sign(s) * (s === at(0) ? 1 : -1), 0, 0], [[d0, g.y], [d1, g.y], [d1, t], [d0, t]], BuildingMat.Oak, GATE_OAK);
     }
-    // Three iron bands across both faces, the top one under the arch's spring.
+    // The planks' seams, dark lines down both faces.
     const lo = Math.min(at(0), at(PIECES)), hi = Math.max(at(0), at(PIECES));
-    for (const y of [g.y + 0.7, g.y + 1.9, A.spring - 0.3]) o.box(lo + 0.05, hi - 0.05, y, y + 0.12, d0 - 0.02, d1 + 0.02, BuildingMat.Slate, IRON);
+    for (let s = lo + PLANK; s < hi - PLANK / 2; s += PLANK) {
+      o.box(s - SEAM / 2, s + SEAM / 2, g.y + 0.05, archY(A, s) - LEAF_GAP - 0.05, d0 - 0.008, d1 + 0.008, BuildingMat.Oak, SEAM_OAK);
+    }
+    // Three iron bands across both faces, the top one under the arch's spring.
+    for (const y of [g.y + 0.7, g.y + 1.9, A.spring - 0.3]) o.box(lo + 0.05, hi - 0.05, y, y + BAND, d0 - BAND_OUT, d1 + BAND_OUT, BuildingMat.Slate, IRON);
     const hinge = F.point(side * hingeS, g.y, (d0 + d1) / 2);
     // From the hinge the leaf runs towards the middle; opened it turns into the town, flat against the gatehouse.
     const dir = F.dir(-side, 0, 0), turned = [dir[2], -dir[0]];
