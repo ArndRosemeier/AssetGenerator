@@ -1,12 +1,14 @@
 /**
  * A town wall (a capital's): a ring of stone round the town a little outside its edge track, a gate where
- * each road goes through it (a gatehouse with a tower each side), and towers along it between. The plan
+ * each road goes through it (a gatehouse with a tower each side, an arch over the road, two oak leaves:
+ * `gateLeaves`), and towers along it between. The plan
  * (`townWall`: where the ring runs, the ground under it, where the gates and towers stand, how high), its
  * meshes in the building format (`wallMesh`, drawn with the buildings' shader) and what it blocks
  * (`wallBlocks`: a walker goes through the gates only). Pure.
  */
 import { hash2f } from '@futuremagic/core';
 import { BuildingMat, Frame, Out, type BuildingMesh, type RGB } from './building';
+import type { DoorLeaf } from './interior';
 import { offset, shapesToPolys } from './clip';
 import { chaikin, distSqPointSeg, ensureCCW, pointInPoly, polyArea, polyPerimeter, segIntersect, type Poly } from './geom2';
 
@@ -169,16 +171,89 @@ function tower(o: Out, w: TownWall, t: TownTower, c: RGB, detail: boolean): void
   for (let k = 0; k < 4; k++) merlons(o, t.x, t.z, t.angle + (k * Math.PI) / 2, -h, h, h, top, c);
 }
 
-/** A gatehouse's span: the wall carried over the road between its two towers, the gateway open below. */
+/** A gateway's arch: its half span (to the towers' faces and a little into them), and its spring and rise over the road, m. */
+interface Arch { a: number; spring: number; rise: number }
+const archOf = (g: TownGate): Arch => { const a = g.half + 0.2, rise = Math.min(a, 3.2); return { a, spring: g.y + GATEWAY + 0.6 - rise, rise }; };
+/** The arch's underside `s` metres across the road from its middle (half an ellipse from tower to tower). */
+const archY = (A: Arch, s: number): number => A.spring + A.rise * Math.sqrt(Math.max(0, 1 - (s / A.a) ** 2));
+/** Pieces the arch is drawn in, and the width of the ring of darker voussoirs round it (m). */
+const ARCH_SEG = 12, VOUSSOIR = 0.7;
+
+/** A gate's own frame: a across the road (from tower to tower), b along it (+b into the town), y as the world's. */
+function gateFrame(g: TownGate, origin: [number, number, number]): Frame {
+  const across = g.angle + Math.PI / 2, ux = Math.cos(across), uz = Math.sin(across);
+  return new Frame({ cx: g.x, cz: g.z, ux, uz, vx: -uz, vz: ux, y: 0 }, origin);
+}
+
+/** A gatehouse's span: the wall carried over the road between its two towers, an arch over the gateway below. */
 function gateSpan(o: Out, w: TownWall, g: TownGate, c: RGB, detail: boolean): void {
-  // Across the road (a) from tower to tower, along it (b) the wall's depth and a little more.
-  const across = g.angle + Math.PI / 2, a = g.half + 0.2, b = w.thick / 2 + 0.6, top = g.y + w.height + 1.2;
-  turnedBox(o, g.x, g.z, across, -a, a, -b, b, g.y + GATEWAY, top, c);
-  // The gateway's underside (seen from the road below).
-  const ux = Math.cos(across), uz = Math.sin(across), vx = -uz, vz = ux, y = g.y + GATEWAY;
-  const P = (s: number, d: number) => [g.x + ux * s + vx * d, y, g.z + uz * s + vz * d];
-  o.quad([P(-a, -b), P(a, -b), P(a, b), P(-a, b)], [0, -1, 0], [[-a, -b], [a, -b], [a, b], [-a, b]], BuildingMat.Ashlar, c);
-  if (detail) for (const side of [1, -1]) merlons(o, g.x, g.z, across + (side > 0 ? 0 : Math.PI), -a, a, b, top, c);
+  const A = archOf(g), b = w.thick / 2 + 0.6, top = g.y + w.height + 1.2;
+  // World positions (the Out subtracts the origin), and directions, in the gate's frame.
+  const F = gateFrame(g, [0, 0, 0]);
+  const P = (s: number, y: number, d: number) => F.point(s, y, d), D = (s: number, d: number) => F.dir(s, 0, d);
+  const ring = c.map((k) => Math.round(k * 0.84)) as RGB;
+  const outer: Arch = { a: A.a + VOUSSOIR, spring: A.spring, rise: A.rise + VOUSSOIR };
+  for (let k = 0; k < ARCH_SEG; k++) {
+    const s0 = -A.a + (2 * A.a * k) / ARCH_SEG, s1 = s0 + (2 * A.a) / ARCH_SEG, y0 = archY(A, s0), y1 = archY(A, s1);
+    // The faces, outside (-b) and in (+b), from the arch up to the top.
+    for (const side of [-1, 1]) {
+      const d = side * b;
+      o.quad([P(s0, y0, d), P(s1, y1, d), P(s1, top, d), P(s0, top, d)], D(0, side), [[s0, y0], [s1, y1], [s1, top], [s0, top]], BuildingMat.Ashlar, c);
+      // The voussoirs: a ring of darker stone round the arch, a hand proud of the face.
+      if (detail) {
+        const e = d + side * 0.04, z0 = archY(outer, s0), z1 = archY(outer, s1);
+        o.quad([P(s0, y0, e), P(s1, y1, e), P(s1, z1, e), P(s0, z0, e)], D(0, side), [[s0, y0], [s1, y1], [s1, z1], [s0, z0]], BuildingMat.Ashlar, ring);
+      }
+    }
+    // The arch's underside, facing in towards its middle.
+    const sm = (s0 + s1) / 2, ym = archY(A, sm) - A.spring, nu = -sm / (A.a * A.a), ny = -ym / (A.rise * A.rise), nl = Math.hypot(nu, ny) || 1;
+    const h = F.dir(nu, 0, 0), k2 = Math.abs(nu) / nl;
+    o.quad([P(s0, y0, -b), P(s1, y1, -b), P(s1, y1, b), P(s0, y0, b)], [h[0] * k2, ny / nl, h[2] * k2], [[s0, -b], [s1, -b], [s1, b], [s0, b]], BuildingMat.Ashlar, ring);
+  }
+  o.quad([P(-A.a, top, -b), P(A.a, top, -b), P(A.a, top, b), P(-A.a, top, b)], [0, 1, 0], [[-A.a, -b], [A.a, -b], [A.a, b], [-A.a, b]], BuildingMat.Ashlar, c);
+  const across = g.angle + Math.PI / 2;
+  if (detail) for (const side of [1, -1]) merlons(o, g.x, g.z, across + (side > 0 ? 0 : Math.PI), -A.a, A.a, b, top, c);
+}
+
+/** Oak planks, darkened by the weather, and the iron that binds them. */
+const GATE_OAK: RGB = [118, 84, 58], IRON: RGB = [58, 58, 62];
+/** A leaf's thickness, and the gap between the two leaves and to the arch (m). */
+const LEAF = 0.14, LEAF_GAP = 0.03;
+
+/**
+ * A gate's two leaves (`origin` as for `wallMesh`): oak with iron bands, hung inside the arch at its sides, shut;
+ * each turns on its hinge (a game swings them: open by day, shut at night, opened for whoever comes).
+ */
+export function gateLeaves(w: TownWall, g: TownGate, origin: [number, number, number]): DoorLeaf[] {
+  const A = archOf(g), F = gateFrame(g, origin), d0 = w.thick / 2 + 0.6 + 0.04, d1 = d0 + LEAF, inward = F.dir(0, 0, 1);
+  const hingeS = g.half - 0.15, PIECES = 4;
+  return [1, -1].map((side) => {
+    const o = new Out(F);
+    // From the hinge (s = side · hingeS) to the middle; each piece's top under the arch.
+    const at = (k: number) => side * (hingeS - ((hingeS - LEAF_GAP) * k) / PIECES);
+    for (let k = 0; k < PIECES; k++) {
+      const s0 = at(k), s1 = at(k + 1), y0 = g.y, t0 = archY(A, s0) - LEAF_GAP, t1 = archY(A, s1) - LEAF_GAP;
+      for (const [d, n] of [[d0, -1], [d1, 1]] as const) o.quad([[s0, y0, d], [s1, y0, d], [s1, t1, d], [s0, t0, d]], [0, 0, n], [[s0, y0], [s1, y0], [s1, t1], [s0, t0]], BuildingMat.Oak, GATE_OAK);
+      const sg = Math.sign(s1 - s0);
+      o.quad([[s0, t0, d0], [s1, t1, d0], [s1, t1, d1], [s0, t0, d1]], [-(t1 - t0) * sg, (s1 - s0) * sg, 0], [[s0, d0], [s1, d0], [s1, d1], [s0, d1]], BuildingMat.Oak, GATE_OAK);
+    }
+    // Its edges: at the hinge and where the leaves meet.
+    for (const s of [at(0), at(PIECES)]) {
+      const t = archY(A, s) - LEAF_GAP;
+      o.quad([[s, g.y, d0], [s, g.y, d1], [s, t, d1], [s, t, d0]], [Math.sign(s) * (s === at(0) ? 1 : -1), 0, 0], [[d0, g.y], [d1, g.y], [d1, t], [d0, t]], BuildingMat.Oak, GATE_OAK);
+    }
+    // Three iron bands across both faces, the top one under the arch's spring.
+    const lo = Math.min(at(0), at(PIECES)), hi = Math.max(at(0), at(PIECES));
+    for (const y of [g.y + 0.7, g.y + 1.9, A.spring - 0.3]) o.box(lo + 0.05, hi - 0.05, y, y + 0.12, d0 - 0.02, d1 + 0.02, BuildingMat.Slate, IRON);
+    const hinge = F.point(side * hingeS, g.y, (d0 + d1) / 2);
+    // From the hinge the leaf runs towards the middle; opened it turns into the town, flat against the gatehouse.
+    const dir = F.dir(-side, 0, 0), turned = [dir[2], -dir[0]];
+    const open = (turned[0] * inward[0] + turned[1] * inward[2] > 0 ? 1 : -1) * (Math.PI / 2);
+    return {
+      mesh: { position: Float32Array.from(o.pos), normal: Float32Array.from(o.nrm), uv: Float32Array.from(o.uv), mat: Uint8Array.from(o.mat), tint: Uint8Array.from(o.tint), index: Uint32Array.from(o.idx) },
+      hinge, open,
+    };
+  });
 }
 
 /** Whether a point is inside the wall's ring (the town's side). */

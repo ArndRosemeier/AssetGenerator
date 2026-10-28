@@ -18,12 +18,14 @@ Planning settlements on the ground plane (x, z), pure TypeScript: runs in worker
   its fields begin outside it), a seat of rule (a great three-storey stone hall, trade `ruler`, in its
   own grounds `plan.seatGrounds` near the market), quarters (`plan.quarters`: each stretch between two
   roads, `seat`, `temple`, `crafts` or `common`; the crafts go to the crafts quarter first), three inns,
-  smithies and bakeries spread over it, and sixteen crafts. Smaller sizes plan exactly as before.
+  smithies and bakeries spread over it, sixteen crafts, and houses three and four storeys high wall to wall
+  round its market (`tall`). Smaller sizes plan exactly as before.
 * `building`: `houseShape(b)`, a building's storeys (jettied out over the street), every window and door
   and the chimney, rolled once from its seed; `buildingMesh(b, origin, detail, { open })` draws it from
   outside (`open`: its door stands open, for drawing it hollow). A seat of rule has a tower at each front
   corner, banners by its door and a broad landing before it. `wallMesh` / `wallBlocks` draw a capital's
-  wall and let walkers through its gates only.
+  wall (an arch over each gateway) and let walkers through its gates only; `gateLeaves(wall, gate, origin)`
+  gives a gate's two oak leaves apart, each with its hinge and the turn that swings it open into the town.
 * `fixtures`: `fixtureMesh(fixtures, height, origin, detail, pick)` draws a town's fixtures out of doors
   (stalls with awnings, the well, benches with their seat at `BENCH_SEAT`, tables, barrels, anvils, ovens,
   workbenches, troughs, woodpiles, gardens, washing lines, hen coops, graves, the offering stone) on the

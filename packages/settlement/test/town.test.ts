@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh } from '../src/index';
+import { intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh, gateLeaves } from '../src/index';
 
 /** Gently rolling ground, a river along z = 140 to the south-east of the market. */
 const site = (seed: number, river = false): TownSite => ({
@@ -128,6 +128,43 @@ test('settlement: a capital has a wall with a gate on every road, a seat of rule
   // A town keeps no wall and no seat (and plans just as before).
   const town = planTown(site(3));
   assert.ok(!town.wall && !town.quarters && !town.buildings.some((b) => b.trade === 'ruler'));
+});
+
+test('settlement: a capital gate has an arch over its road and two oak leaves that swing into the town; its houses are tall', () => {
+  const t = planTown({ ...site(3), size: 'capital' }), w = t.wall!;
+  for (const g of w.gates) {
+    // The gate's frame: s across the road, d along it (+d into the town).
+    const sx = -Math.sin(g.angle), sz = Math.cos(g.angle), ix = -Math.cos(g.angle), iz = -Math.sin(g.angle);
+    const local = (x: number, z: number) => [(x - g.x) * sx + (z - g.z) * sz, (x - g.x) * ix + (z - g.z) * iz];
+    // Nothing of the gatehouse hangs low over the road: a cart's height free across it, more in the middle.
+    const m = wallMesh(w, [0, 0, 0], true, (x, z) => Math.hypot(x - g.x, z - g.z) < 1);
+    assert.ok(m.index.length > 0, 'the span is drawn');
+    for (let i = 0; i < m.position.length; i += 3) {
+      const [s, d] = local(m.position[i], m.position[i + 2]), y = m.position[i + 1] - g.y;
+      if (Math.abs(d) < w.thick / 2 + 0.5 && Math.abs(s) < g.half - 1) assert.ok(y > 3.8 + (Math.abs(s) < 1.5 ? 1.5 : 0), `low arch: ${y.toFixed(2)} m at ${s.toFixed(1)}`);
+    }
+    // Two leaves, shut across the gateway; opened, each lies along its side, inside the town.
+    const leaves = gateLeaves(w, g, [0, 0, 0]);
+    assert.equal(leaves.length, 2);
+    for (const l of leaves) {
+      assert.ok(Math.abs(Math.abs(l.open) - Math.PI / 2) < 1e-9);
+      const c = Math.cos(l.open), sn = Math.sin(l.open), [hx, , hz] = l.hinge;
+      let shutS = 0, openD = Infinity, openS = 0;
+      for (let i = 0; i < l.mesh.position.length; i += 3) {
+        const x = l.mesh.position[i] - hx, z = l.mesh.position[i + 2] - hz;
+        shutS = Math.max(shutS, Math.abs(local(l.mesh.position[i], l.mesh.position[i + 2])[0]));
+        // Turned about +y as three.js does: (x, z) -> (x cos + z sin, -x sin + z cos).
+        const ox = x * c + z * sn + hx, oz = -x * sn + z * c + hz, [s, d] = local(ox, oz);
+        openD = Math.min(openD, d); openS = Math.max(openS, Math.abs(s));
+      }
+      assert.ok(shutS <= g.half, 'shut in the gateway');
+      assert.ok(openD > w.thick / 2 && openS <= g.half, `opened into the town (${openD.toFixed(2)} in, ${openS.toFixed(2)} across)`);
+    }
+  }
+  // Round the market the houses stand three and four storeys high, wall to wall.
+  const core = t.buildings.filter((b) => b.kind === 'house' && Math.hypot(b.cx - t.centre[0], b.cz - t.centre[1]) < 70);
+  assert.ok(core.length > 20 && core.filter((b) => b.floors >= 3).length > core.length * 0.6, `${core.filter((b) => b.floors >= 3).length} of ${core.length} tall`);
+  assert.ok(planTown(site(3)).buildings.every((b) => b.floors <= 3 || b.kind === 'temple'), 'a town keeps its heights');
 });
 
 const nearest = (pts: number[], x: number, z: number) => { let m = Infinity; for (let i = 0; i < pts.length; i += 2) m = Math.min(m, Math.hypot(pts[i] - x, pts[i + 1] - z)); return m; };

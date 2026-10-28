@@ -57,6 +57,11 @@ export interface SizeRules {
   readonly bakeries?: number;
   /** Quarters: each stretch between two roads is one, named by what stands in it (`TownPlan.quarters`). */
   readonly quarters?: boolean;
+  /**
+   * Taller and closer (a capital's): storeys of the houses round the market and of those between it and the
+   * edge (default 2-3 and 1-2), and the width of a house round the market, m (default 11; narrower: more to a street).
+   */
+  readonly tall?: { readonly core: readonly [number, number]; readonly mid: readonly [number, number]; readonly front: number };
 }
 
 export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
@@ -67,6 +72,7 @@ export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
   capital: {
     radius: [240, 300], roads: [5, 6], market: 1.5, stalls: true, lanes: [44, 80], inner: 0, spread: 0.8, temple: true, graves: 30, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 16,
     wall: { out: 10, height: 8, every: 55 }, seat: true, inns: 3, smithies: 3, bakeries: 3, quarters: true,
+    tall: { core: [3, 4], mid: [2, 3], front: 8 },
   },
 };
 
@@ -571,7 +577,8 @@ function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) 
   const attached = core ? r.chance(0.85) : !edge && r.chance(0.4);
   const gap = attached ? 0.05 : edge ? r.range(1.5, 3.5) : r.range(0.8, 1.8);
   const setback = core ? 0.3 : edge ? r.range(1.5, 4) : r.range(0.4, 1.5);
-  let w = Math.min(L - 2 * gap, edge ? r.range(8, 12) : core ? 11 : r.range(8, 12));
+  const tall = SETTLEMENT_SIZES[site.size ?? 'town'].tall;
+  let w = Math.min(L - 2 * gap, edge ? r.range(8, 12) : core ? tall?.front ?? 11 : r.range(8, 12));
   let dep = edge ? r.range(6, 8) : core ? r.range(9, 12) : r.range(7.5, 10);
   const lotArea = Math.abs(polyArea(lot.poly));
   for (let tries = 0; tries < 5; tries++) {
@@ -595,7 +602,8 @@ export function makeBuilding(id: number, kind: BuildingKind, cx: number, cz: num
   const { lo, hi } = groundUnder(poly, site.height);
   const wall: WallKind = edge ? r.weighted(['plaster', 'stone', 'timber'] as const, (k) => ({ plaster: 3, stone: 1.5, timber: 1 })[k]) : r.weighted(['timber', 'plaster', 'stone'] as const, (k) => ({ timber: core ? 4 : 2.5, plaster: 1.5, stone: core ? 1 : 0.6 })[k]);
   const cover: RoofCover = edge ? (r.chance(0.8) ? 'thatch' : 'shingle') : core ? r.weighted(['tile', 'shingle', 'slate'] as const, (k) => ({ tile: 3, shingle: 1.5, slate: 1 })[k]) : r.weighted(['shingle', 'thatch', 'tile'] as const, (k) => ({ shingle: 2, thatch: 1.5, tile: 1.5 })[k]);
-  const floors = edge ? 1 : core ? r.int(2, 3) : r.int(1, 2);
+  const tall = SETTLEMENT_SIZES[site.size ?? 'town'].tall;
+  const floors = edge ? 1 : core ? r.int(...(tall?.core ?? [2, 3])) : r.int(...(tall?.mid ?? [1, 2]));
   return {
     id, kind, trade: '', cx, cz, hu, hv, angle: Math.atan2(uz, ux), vx, vz, poly,
     floors, floorH: r.range(2.6, 2.9), wall,
