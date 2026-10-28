@@ -81,6 +81,36 @@ test('settlement: one planner makes every size, from a hamlet round its green to
   assert.ok(capital.t.streets.filter((s) => s.kind === 'road').length >= 5);
 });
 
+test('settlement: a capital has a wall with a gate on every road, a seat of rule, quarters and more of each trade', () => {
+  for (const seed of [3, 4]) {
+    const t = planTown({ ...site(seed), size: 'capital' }), w = t.wall!;
+    const roads = t.streets.filter((s) => s.kind === 'road');
+    assert.ok(w && w.gates.length === roads.length, `seed ${seed}: ${w?.gates.length} gates for ${roads.length} roads`);
+    assert.ok(w.towers.length >= w.gates.length * 2 + 6, `${w.towers.length} towers`);
+    // The whole town is inside the wall, the farms outside it.
+    const farmIds = new Set(t.farms.flatMap((f) => [f.house, f.barn, f.stable]));
+    for (const b of t.buildings) {
+      const inside = pointInPoly(w.ring, b.cx, b.cz), farm = farmIds.has(b.id);
+      assert.equal(inside, !farm, `seed ${seed}: ${b.kind} ${b.id} ${inside ? 'inside' : 'outside'} the wall`);
+    }
+    for (const f of t.fields) assert.ok(!pointInPoly(w.ring, f.poly[0], f.poly[1]), 'no field inside the wall');
+    // Its gates stand on the roads, its towers on the ring.
+    for (const g of w.gates) assert.ok(Math.min(...roads.map((r) => nearest(r.pts, g.x, g.z))) < 1, 'a gate on its road');
+    // The seat of rule: a great stone hall in its own grounds near the market.
+    const seat = t.buildings.find((b) => b.trade === 'ruler')!;
+    assert.ok(seat && seat.wall === 'stone' && seat.floors === 3 && seat.hu * seat.hv > 60, 'a seat of rule');
+    assert.ok(t.seatGrounds && pointInPoly(t.seatGrounds.outer, seat.cx, seat.cz));
+    assert.deepEqual(['crafts', 'seat', 'temple'].filter((k) => t.quarters!.some((q) => q.kind === k)), ['crafts', 'seat', 'temple']);
+    const n = (k: string) => t.buildings.filter((b) => b.kind === k).length;
+    assert.ok(n('inn') >= 2 && n('smithy') >= 2 && n('bakery') >= 2 && n('workshop') >= 12, `${n('inn')} inns, ${n('smithy')} smithies, ${n('bakery')} bakeries, ${n('workshop')} workshops`);
+  }
+  // A town keeps no wall and no seat (and plans just as before).
+  const town = planTown(site(3));
+  assert.ok(!town.wall && !town.quarters && !town.buildings.some((b) => b.trade === 'ruler'));
+});
+
+const nearest = (pts: number[], x: number, z: number) => { let m = Infinity; for (let i = 0; i < pts.length; i += 2) m = Math.min(m, Math.hypot(pts[i] - x, pts[i + 1] - z)); return m; };
+
 test('settlement: a waystation is an inn and a stable facing each other across the road through it', () => {
   for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
     const t = planTown({ ...site(seed), size: 'waystation', farmland: false });
