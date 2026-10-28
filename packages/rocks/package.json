@@ -1,0 +1,14 @@
+{
+  "name": "@futuremagic/rocks",
+  "version": "0.1.0",
+  "description": "Rocks for the land: boulders, blocks, slabs and spires as seeded meshes (positions, normals, occlusion colours), in levels of detail. Pure, runs in workers; draw them instanced (@futuremagic/instances).",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@futuremagic/core": "*"
+  },
+  "license": "MIT"
+}

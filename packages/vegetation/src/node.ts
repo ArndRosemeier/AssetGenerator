@@ -21,6 +21,7 @@ import {
 import { mat4, positionLocal, normalLocal, transformNormal, uniform } from 'three/tsl';
 import { BARK_STRIPS, srgbToLinear } from './trees';
 import { AUTUMN, vegetationTextures } from './textures';
+import { geometryInstancing } from '@futuremagic/instances/node';
 
 /**
  * A uniform node that follows a shared `{ value }` object (vegetationUniforms). One node per object, so
@@ -31,23 +32,6 @@ function shared(u: { value: number }): ReturnType<typeof uniform> {
   let n = follow.get(u);
   if (!n) follow.set(u, (n = uniform(u.value).onRenderUpdate(() => u.value)));
   return n;
-}
-
-/** Instancing from geometry attributes iM0..iM3 (a mat4 per instance) and an optional iColor. */
-function geometryInstancing(mat: THREE.NodeMaterial): void {
-  const pos = mat.setupPosition, dif = mat.setupDiffuseColor;
-  mat.setupPosition = function (builder) {
-    if (builder.hasGeometryAttribute('iM0')) {
-      const M = mat4(attribute('iM0', 'vec4'), attribute('iM1', 'vec4'), attribute('iM2', 'vec4'), attribute('iM3', 'vec4'));
-      positionLocal.assign(M.mul(vec4(positionLocal, 1.0)).xyz);
-      if (builder.hasGeometryAttribute('normal')) normalLocal.assign(transformNormal(normalLocal, M));
-    }
-    return pos.call(this, builder);
-  };
-  mat.setupDiffuseColor = function (builder) {
-    dif.call(this, builder);
-    if (builder.hasGeometryAttribute('iColor')) diffuseColor.assign(vec4(diffuseColor.rgb.mul(attribute('iColor', 'vec3')), diffuseColor.a));
-  };
 }
 
 /**
