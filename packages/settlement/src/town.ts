@@ -4,7 +4,8 @@
  * between, plots that face the streets, houses by trade and zone (tall timber-framed houses round the
  * market, cottages with gardens at the edge), a temple with its burial ground, a moot hall and an inn on the market, a
  * smithy on a road out, and the fixtures people use (well, stalls, anvil, woodpiles, gardens). One planner makes
- * every size, from a hamlet of a few cottages round a green to a capital (`SETTLEMENT_SIZES`).
+ * every size, from a hamlet of a few cottages round a green to a capital and past it (`sizeRules`: any size on one
+ * scale, the named sizes whole numbers on it).
  *
  * Pure: no three.js, runs in workers and tests. The same site gives the same town.
  */
@@ -76,14 +77,77 @@ export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
   },
 };
 
+/** The named sizes in order: each is a whole number on the size scale (`sizeRules`). */
+export const SIZE_SCALE: readonly SettlementSize[] = ['waystation', 'hamlet', 'village', 'town', 'capital'];
+
+/** A size on the scale (a name or a number), as a number. */
+export const sizeScale = (size: SettlementSize | number | undefined): number => (typeof size === 'number' ? Math.max(0, size) : SIZE_SCALE.indexOf(size ?? 'town'));
+
+const TALL_DEFAULT = { core: [2, 3] as const, mid: [1, 2] as const, front: 11 };
+const rules = new Map<number, SizeRules>();
+
+/**
+ * What a settlement of any size has. At a whole number it is that named size's rules (SETTLEMENT_SIZES) exactly;
+ * between two, each rule is blended: amounts and ranges in between, what one has and the other lacks (a temple, a
+ * wall) from the nearer. Past a capital it grows on: wider, more roads out, more inns, smithies and bakeries, taller
+ * houses round the market. One planner for every size.
+ */
+export function sizeRules(size: SettlementSize | number | undefined): SizeRules {
+  const x = sizeScale(size);
+  let r = rules.get(x);
+  if (r) return r;
+  const top = SIZE_SCALE.length - 1, lo = Math.min(top, Math.floor(x)), t = Math.min(1, x - lo);
+  const A = SETTLEMENT_SIZES[SIZE_SCALE[lo]];
+  if (x > top) r = beyond(SETTLEMENT_SIZES.capital, x - top);
+  else if (t === 0) r = A;
+  else r = blend(A, SETTLEMENT_SIZES[SIZE_SCALE[lo + 1]], t);
+  rules.set(x, r);
+  return r;
+}
+
+const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+const pair = (a: readonly [number, number], b: readonly [number, number], t: number, whole = false): [number, number] => {
+  const f = (k: 0 | 1) => (whole ? Math.round(mix(a[k], b[k], t)) : mix(a[k], b[k], t));
+  return [f(0), f(1)];
+};
+
+function blend(A: SizeRules, B: SizeRules, t: number): SizeRules {
+  const near = <T>(a: T, b: T): T => (t < 0.5 ? a : b);
+  const ta = A.tall ?? TALL_DEFAULT, tb = B.tall ?? TALL_DEFAULT;
+  return {
+    radius: pair(A.radius, B.radius, t), roads: pair(A.roads, B.roads, t, true), market: mix(A.market, B.market, t),
+    stalls: near(A.stalls, B.stalls), lanes: A.lanes && B.lanes ? pair(A.lanes, B.lanes, t) : near(A.lanes, B.lanes),
+    inner: mix(A.inner, B.inner, t), spread: mix(A.spread, B.spread, t), temple: near(A.temple, B.temple),
+    graves: Math.round(mix(A.graves, B.graves, t)), inn: near(A.inn, B.inn), hall: near(A.hall, B.hall), bakery: near(A.bakery, B.bakery),
+    smithy: near(A.smithy, B.smithy), stable: near(A.stable, B.stable), crafts: Math.round(mix(A.crafts, B.crafts, t)),
+    byRoad: near(A.byRoad, B.byRoad), wall: near(A.wall, B.wall), seat: near(A.seat, B.seat), quarters: near(A.quarters, B.quarters),
+    inns: Math.round(mix(A.inns ?? 1, B.inns ?? 1, t)), smithies: Math.round(mix(A.smithies ?? 1, B.smithies ?? 1, t)), bakeries: Math.round(mix(A.bakeries ?? 1, B.bakeries ?? 1, t)),
+    ...(A.tall || B.tall ? { tall: { core: pair(ta.core, tb.core, t, true), mid: pair(ta.mid, tb.mid, t, true), front: mix(ta.front, tb.front, t) } } : {}),
+  };
+}
+
+/** A capital grown `e` steps on (e > 0): wider, more of everything, taller round the market (at most six storeys). */
+function beyond(C: SizeRules, e: number): SizeRules {
+  const grow = 1 + 0.5 * e, tall = C.tall ?? TALL_DEFAULT, up = Math.round(e);
+  return {
+    ...C,
+    radius: [C.radius[0] * grow, C.radius[1] * grow], roads: [C.roads[0] + up, C.roads[1] + up], market: C.market * (1 + 0.35 * e),
+    graves: Math.round(C.graves * grow), inns: Math.round((C.inns ?? 1) * grow), smithies: Math.round((C.smithies ?? 1) * grow), bakeries: Math.round((C.bakeries ?? 1) * grow),
+    tall: { core: [Math.min(5, tall.core[0] + up), Math.min(6, tall.core[1] + up)], mid: [Math.min(4, tall.mid[0] + up), Math.min(5, tall.mid[1] + up)], front: Math.max(6.5, tall.front - e) },
+  };
+}
+
 /** Where a town goes and what the land there is like. */
 export interface TownSite {
   seed: number;
   /** The market place's middle, world metres. */
   x: number;
   z: number;
-  /** How big (default: a small town). */
-  size?: SettlementSize;
+  /**
+   * How big (default: a small town): one of the named sizes, or any size on their scale (`sizeRules`: waystation
+   * 0, hamlet 1, village 2, town 3, capital 4; 3.5 is between a town and a capital, 5 bigger than a capital).
+   */
+  size?: SettlementSize | number;
   /** Typical outline radius, m (default: rolled for the size; a small town 115-160). */
   radius?: number;
   /** Ground height. */
@@ -229,7 +293,7 @@ const TRACK_W = 3;
 export function planTown(site: TownSite): TownPlan {
   const seed = deriveSeed(site.seed, 'town');
   const rng = new Rng(seed);
-  const S = SETTLEMENT_SIZES[site.size ?? 'town'];
+  const S = sizeRules(site.size);
   const R = site.radius ?? rng.range(S.radius[0], S.radius[1]);
   const cx = site.x, cz = site.z;
   const water = site.water ?? (() => 0);
@@ -577,7 +641,7 @@ function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) 
   const attached = core ? r.chance(0.85) : !edge && r.chance(0.4);
   const gap = attached ? 0.05 : edge ? r.range(1.5, 3.5) : r.range(0.8, 1.8);
   const setback = core ? 0.3 : edge ? r.range(1.5, 4) : r.range(0.4, 1.5);
-  const tall = SETTLEMENT_SIZES[site.size ?? 'town'].tall;
+  const tall = sizeRules(site.size).tall;
   let w = Math.min(L - 2 * gap, edge ? r.range(8, 12) : core ? tall?.front ?? 11 : r.range(8, 12));
   let dep = edge ? r.range(6, 8) : core ? r.range(9, 12) : r.range(7.5, 10);
   const lotArea = Math.abs(polyArea(lot.poly));
@@ -602,7 +666,7 @@ export function makeBuilding(id: number, kind: BuildingKind, cx: number, cz: num
   const { lo, hi } = groundUnder(poly, site.height);
   const wall: WallKind = edge ? r.weighted(['plaster', 'stone', 'timber'] as const, (k) => ({ plaster: 3, stone: 1.5, timber: 1 })[k]) : r.weighted(['timber', 'plaster', 'stone'] as const, (k) => ({ timber: core ? 4 : 2.5, plaster: 1.5, stone: core ? 1 : 0.6 })[k]);
   const cover: RoofCover = edge ? (r.chance(0.8) ? 'thatch' : 'shingle') : core ? r.weighted(['tile', 'shingle', 'slate'] as const, (k) => ({ tile: 3, shingle: 1.5, slate: 1 })[k]) : r.weighted(['shingle', 'thatch', 'tile'] as const, (k) => ({ shingle: 2, thatch: 1.5, tile: 1.5 })[k]);
-  const tall = SETTLEMENT_SIZES[site.size ?? 'town'].tall;
+  const tall = sizeRules(site.size).tall;
   const floors = edge ? 1 : core ? r.int(...(tall?.core ?? [2, 3])) : r.int(...(tall?.mid ?? [1, 2]));
   return {
     id, kind, trade: '', cx, cz, hu, hv, angle: Math.atan2(uz, ux), vx, vz, poly,
