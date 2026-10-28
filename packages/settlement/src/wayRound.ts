@@ -11,6 +11,13 @@ const STEP = 0.5;
 const REACH = [10, 28];
 /** How far from where it should start or end a way may begin or end (from a point too near a wall), m. */
 const NEAR_END = 1.5;
+/**
+ * A blocked stretch longer than this (m) is cut into pieces this long first, and only the blocked pieces get a
+ * grid: one grid over a whole long stretch (a walk from the street out to the hero hundreds of metres off) took
+ * seconds on the main thread. A grid bigger than GRID_MAX cells is not searched (the stretch stays as it was).
+ */
+const PIECE = 16;
+const GRID_MAX = 160_000;
 
 /** Footprints by where they are (a grid of CELL metres), with the ways round them found so far. */
 export class Footprints {
@@ -71,22 +78,37 @@ export function wayRound(way: readonly number[], foot: Footprints, r = 0.35): nu
   for (let k = 2; k + 1 < pts.length; k += 2) {
     const ax = pts[k - 2], az = pts[k - 1], bx = pts[k], bz = pts[k + 1];
     const near = foot.near(ax, az, bx, bz, r);
-    if (near.length && !clear(ax, az, bx, bz, near, r)) {
-      const key = [ax, az, bx, bz].map((v) => Math.round(v * 10)).join(',');
-      let round = foot.found.get(key);
-      if (round === undefined) {
-        round = null;
-        for (const m of REACH) {
-          if ((round = gridWay(ax, az, bx, bz, m, foot.near(ax, az, bx, bz, m + r), r))) break;
-        }
-        if (foot.found.size >= FOUND_MAX) foot.found.clear();
-        foot.found.set(key, round);
-      }
-      if (round) out.push(...round.slice(2, -2));
+    if (!near.length || clear(ax, az, bx, bz, near, r)) { out.push(bx, bz); continue; }
+    // A long blocked stretch: in pieces (their cuts off the walls), each blocked one gone round on its own small grid.
+    const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / PIECE);
+    let px = ax, pz = az;
+    for (let i = 1; i <= n; i++) {
+      const qx = ax + ((bx - ax) * i) / n, qz = az + ((bz - az) * i) / n;
+      if (i < n && foot.blocked(qx, qz, r)) continue;
+      roundPiece(out, px, pz, qx, qz, foot, r);
+      px = qx; pz = qz;
     }
-    out.push(bx, bz);
   }
   return out;
+}
+
+/** The stretch a-b onto `out` (a is there already): b, after the way round what blocks it, if one is found. */
+function roundPiece(out: number[], ax: number, az: number, bx: number, bz: number, foot: Footprints, r: number): void {
+  const near = foot.near(ax, az, bx, bz, r);
+  if (near.length && !clear(ax, az, bx, bz, near, r)) {
+    const key = [ax, az, bx, bz].map((v) => Math.round(v * 10)).join(',');
+    let round = foot.found.get(key);
+    if (round === undefined) {
+      round = null;
+      for (const m of REACH) {
+        if ((round = gridWay(ax, az, bx, bz, m, foot.near(ax, az, bx, bz, m + r), r))) break;
+      }
+      if (foot.found.size >= FOUND_MAX) foot.found.clear();
+      foot.found.set(key, round);
+    }
+    if (round) out.push(...round.slice(2, -2));
+  }
+  out.push(bx, bz);
 }
 
 /** Whether the stretch a-b runs into the footprint or nearer than `r` to its walls. `r` 0: only through it (an edge crossed). */
@@ -114,6 +136,7 @@ function clear(ax: number, az: number, bx: number, bz: number, near: readonly Po
 function gridWay(ax: number, az: number, bx: number, bz: number, m: number, by: readonly Poly[], r: number): number[] | null {
   const x0 = Math.min(ax, bx) - m, z0 = Math.min(az, bz) - m;
   const nx = Math.ceil((Math.max(ax, bx) + m - x0) / STEP), nz = Math.ceil((Math.max(az, bz) + m - z0) / STEP);
+  if (nx * nz > GRID_MAX) return null;
   const at = (c: number): [number, number] => { const i = c % nx; return [x0 + (i + 0.5) * STEP, z0 + ((c - i) / nx + 0.5) * STEP]; };
   // Blocked cells: each footprint marks those in its bounds (and r round them) that are in it or near its walls.
   const shut = new Uint8Array(nx * nz);
