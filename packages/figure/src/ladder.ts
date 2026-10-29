@@ -36,6 +36,11 @@ export interface Ladder {
    * quite sheer, its holds (the rungs) on it.
    */
   lean?: number;
+  /**
+   * How high over the feet the hands take hold, metres for a climber 1.8 m tall (scaled with the climber;
+   * default 1.2: a ladder's rungs at the chest). A rock face is climbed with the hands over the head (about 1.9).
+   */
+  reach?: number;
 }
 
 /** The usual rung spacing (m). */
@@ -295,7 +300,7 @@ export class LadderClimb {
    */
   private climbAt(l: Ladder, h: number, up: boolean): void {
     const k = this.k, g = this.goals, base = this.base(l), rung = l.rung ?? RUNG, STEP = 2 * rung;
-    const handOff = Math.round((1.2 * k) / rung) * rung;
+    const handOff = Math.round(((l.reach ?? 1.2) * k) / rung) * rung;
     let minFoot = Infinity;
     const limbs: [keyof LimbGoals, number, number, boolean][] = [
       ['footR', 0, 1, false], ['footL', 0.5, -1, false], ['L', 0, -1, true], ['R', 0.5, 1, true],
