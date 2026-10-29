@@ -100,6 +100,11 @@ const FLOOR = 0.05;
 const CEILING = 0.17;
 /** Stairs: width, and a step's depth; the rise is the storey's height over a whole number of steps of about RISER. */
 const STAIR_W = 0.9;
+/**
+ * The walkway between a taproom's tables and what stands next to them (m): a body (about 0.65 m across) passes
+ * a seated guest's back with room to spare. Narrow taprooms keep at least `AISLE_NARROW`, still wide enough to pass.
+ */
+export const AISLE = 1.0, AISLE_NARROW = 0.8;
 const TREAD = 0.22;
 const RISER = 0.21;
 /** The stair's hole starts this share of the flight up. 0: over the whole flight, since storeys are low
@@ -311,6 +316,8 @@ class Planner {
   windows: (Rect & { sill: number })[] = [];
   /** Set while a stair may stand before a window after all (no other place for it). */
   private anyWindow = false;
+  /** The walkway kept round tables and benches by whatever is placed after them (a taproom's stairs). */
+  aisle = 0;
   constructor(readonly ha: number, readonly hb: number, readonly ground: boolean, readonly entry: readonly [number, number]) {}
 
   /** The windows of this storey (the shape's walls; `cb` the storey's middle along b, `y0` its walls' foot under the floor). */
@@ -333,7 +340,10 @@ class Planner {
     // The way in: 1.6 m wide, 1.8 m deep from the door; or a metre round the top of the stairs.
     if (this.ground && Math.abs(a) < 0.8 + w / 2 && b - d / 2 < -this.hb + 1.8) return false;
     if (!this.ground && Math.abs(a - this.entry[0]) < 0.5 + w / 2 && Math.abs(b - this.entry[1]) < 0.5 + d / 2) return false;
-    return this.fixtures.every((f) => Math.abs(f.a - a) >= (f.w + w) / 2 + gap || Math.abs(f.b - b) >= (f.d + d) / 2 + gap);
+    return this.fixtures.every((f) => {
+      const g = f.kind === 'bench' || f.kind === 'table' ? Math.max(gap, this.aisle) : gap;
+      return Math.abs(f.a - a) >= (f.w + w) / 2 + g || Math.abs(f.b - b) >= (f.d + d) / 2 + g;
+    });
   }
 
   add(kind: Block['kind'], a: number, b: number, w: number, d: number, h: number, gap = 0.5): boolean {
@@ -515,8 +525,11 @@ function tavern(P: Planner, r: Rng): void {
   P.spot('drink', ca - cw / 4, P.hb - 2.55, FACE_B);
   P.spot('drink', ca + cw / 4, P.hb - 2.55, FACE_B);
   void r;
-  // As many tables as fit; in a narrow taproom smaller ones, closer together.
-  if (!P.tables('drink', 6) && !P.tables('drink', 3, 1.2, 0.3)) P.tables('drink', 2, 0.8, 0.2);
+  // As many tables as fit with a walkway round each (a game's taproom is crossed by the hero, the keeper and the
+  // guests: `AISLE` between benches and whatever stands next); in a narrow taproom fewer, smaller ones.
+  if (!P.tables('drink', 6, 1.6, AISLE) && !P.tables('drink', 3, 1.2, AISLE_NARROW)) P.tables('drink', 2, 0.8, AISLE_NARROW);
+  // The stairs (placed after the tables) keep the walkway too.
+  P.aisle = AISLE_NARROW;
 }
 
 function smithy(P: Planner, fa: number): void {
