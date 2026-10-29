@@ -20,7 +20,7 @@ export interface PlacedRoom {
   readonly w: number;
   readonly d: number;
   readonly level: number;
-  readonly height: 1 | 2;
+  readonly height: number;
 }
 
 export interface PathCell {
@@ -71,6 +71,13 @@ export interface LayoutOptions {
   readonly maxPath?: number;
   /** Whole layouts tried before giving up (default 30). */
   readonly attempts?: number;
+  /**
+   * Free cells between a room and the one it is placed next to, fewest and most (default 0 to 1, and up to 3
+   * when the near spots are taken): a natural cave's chambers lie far apart along long ways.
+   */
+  readonly gap?: readonly [number, number];
+  /** What a turn costs a passage, in cells (default 0.6: passages run straight like built ones; less: they wander). */
+  readonly turn?: number;
 }
 
 const SIZES: Record<Room['size'], readonly [number, number]> = { nook: [2, 2], small: [2, 3], medium: [3, 4], large: [4, 6] };
@@ -133,13 +140,14 @@ export class LayoutGrid {
 
 /** Storeys a link may open into a room on: a drop enters a tall room over its ledge, a grate may look in from above. */
 function doorLevels(room: PlacedRoom, link: Link, end: 'a' | 'b'): number[] {
-  if (link.kind === 'drop' && end === 'b') return room.height === 2 ? [room.level + 1] : [];
-  if (link.kind === 'grate' && room.height === 2) return [room.level, room.level + 1];
+  if (link.kind === 'drop' && end === 'b') return room.height >= 2 ? [room.level + 1] : [];
+  if (link.kind === 'grate' && room.height >= 2) return [room.level, room.level + 1];
   return [room.level];
 }
 
 function tryLayout(g: DungeonGraph, rng: Rng, opts: LayoutOptions): Omit<DungeonLayout, 'tries'> | null {
-  const R = opts.radius ?? 24, run = opts.stairRun ?? 2, maxPath = opts.maxPath ?? 8;
+  const R = opts.radius ?? 24, run = opts.stairRun ?? 2, maxPath = opts.maxPath ?? 8, turnCost = opts.turn ?? 0.6;
+  const [gap0, gap1] = opts.gap ?? [0, 1];
   const sizeOf = opts.size ?? defaultRoomSize;
   const grid = new LayoutGrid();
   const placed: (PlacedRoom | undefined)[] = new Array(g.rooms.length);
@@ -188,7 +196,7 @@ function tryLayout(g: DungeonGraph, rng: Rng, opts: LayoutOptions): Omit<Dungeon
       links.push({ link, path: [], doors: [da, db] });
       return true;
     }
-    const found = route(grid, A, la, B, lb, run, inBounds, limit, rng, lo, hi);
+    const found = route(grid, A, la, B, lb, run, inBounds, limit, rng, lo, hi, turnCost);
     if (!found) return false;
     links.push({ link, path: found.path, doors: [found.from, found.to] });
     grid.addPath(found.path, links.length - 1);
@@ -225,7 +233,7 @@ function tryLayout(g: DungeonGraph, rng: Rng, opts: LayoutOptions): Omit<Dungeon
     const minGap = levelGap > 0 ? run + 2 : 0;
     const spots: { x: number; z: number; gap: number; score: number }[] = [];
     for (let t = 0; t < 60 && spots.length < 8; t++) {
-      const side = rng.int(0, 3), gap = minGap + rng.int(0, t < 20 ? 1 : 3);
+      const side = rng.int(0, 3), gap = minGap + gap0 + rng.int(0, t < 20 ? gap1 - gap0 : gap1 - gap0 + 2);
       let x: number, z: number;
       if (side === 0) { x = parent.x + parent.w + gap; z = parent.z + rng.int(-(d - 1), parent.d - 1); }
       else if (side === 2) { x = parent.x - gap - w; z = parent.z + rng.int(-(d - 1), parent.d - 1); }
@@ -262,7 +270,7 @@ function unplace(grid: LayoutGrid, placed: (PlacedRoom | undefined)[], room: Roo
  * so passages run straight like built ones). Stairs: `run` cells free on both storeys, then a landing.
  */
 function route(grid: LayoutGrid, A: PlacedRoom, la: number[], B: PlacedRoom, lb: number[], run: number,
-  inBounds: (x: number, z: number) => boolean, limit: number, rng: Rng, lo: number, hi: number): { path: PathCell[]; from: Door; to: Door } | null {
+  inBounds: (x: number, z: number) => boolean, limit: number, rng: Rng, lo: number, hi: number, turnCost: number): { path: PathCell[]; from: Door; to: Door } | null {
   type Node = { x: number; z: number; l: number; dir: number; g: number; prev: number; stair?: number; door?: Door };
   const nodes: Node[] = [];
   const best = new Map<string, number>();
@@ -319,7 +327,7 @@ function route(grid: LayoutGrid, A: PlacedRoom, la: number[], B: PlacedRoom, lb:
     }
     for (let k = 0; k < 4; k++) {
       if (k === (n.dir + 2) % 4) continue;
-      const turn = k === n.dir ? 0 : 0.6;
+      const turn = k === n.dir ? 0 : turnCost;
       const nx = n.x + DIRS[k][0], nz = n.z + DIRS[k][1];
       if (free(nx, nz, n.l)) push({ x: nx, z: nz, l: n.l, dir: k, g: n.g + 1 + turn, prev: i });
       // Stairs down or up: run cells free on both storeys, then a landing on the other.
