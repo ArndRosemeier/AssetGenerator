@@ -264,15 +264,20 @@ export function roomPath(p: InteriorPlan, from: readonly [number, number], to: r
   }
   cells.reverse();
   // Pulled straight: from each turn on to the farthest one in clear sight.
+  // Checked a little wider than the body (SIGHT_SLACK): sampled every 4 cm, a leg could otherwise graze a sharp
+  // corner (the door's jamb) between two samples.
   const clear = (u: readonly [number, number], v: readonly [number, number]): boolean => {
     const n = Math.ceil(Math.hypot(v[0] - u[0], v[1] - u[1]) / 0.04);
-    for (let k = 1; k < n; k++) if (interiorBlocked(p, u[0] + ((v[0] - u[0]) * k) / n, u[1] + ((v[1] - u[1]) * k) / n, r, storey, true)) return false;
+    for (let k = 1; k < n; k++) if (interiorBlocked(p, u[0] + ((v[0] - u[0]) * k) / n, u[1] + ((v[1] - u[1]) * k) / n, r + SIGHT_SLACK, storey, true)) return false;
     return true;
   };
   const out = [from[0], from[1], ...pulledStraight(cells, clear)];
   out.push(to[0], to[1]);
   return out;
 }
+
+/** How much wider than the body a pulled-straight leg of a room path keeps clear (m). */
+const SIGHT_SLACK = 0.03;
 
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
 
