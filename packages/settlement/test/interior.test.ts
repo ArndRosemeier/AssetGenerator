@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILDING_MAT_COUNT, buildingMesh, doorLeaves, HATCH_RAILS_UP, HATCH_SHAFT, hatchLadderTopMesh, hatchLidMesh, hatchSides, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
+import { AISLE_NARROW, BUILDING_MAT_COUNT, buildingMesh, doorLeaves, HATCH_RAILS_UP, HATCH_SHAFT, hatchLadderTopMesh, hatchLidMesh, hatchSides, signPlace, chimneyStack, roofAt, houseShape, INSIDE_LIGHT, interiorBlocked, interiorMesh, interiorSolids, planInterior, planTown, reachable, roomPath, storeyAt, WALL_THICK } from '../src/index';
 
 const towns = [3, 4, 5, 6, 7, 8].map((seed) => planTown({ seed, x: 500, z: 200, height: () => 20 }));
 const town = { buildings: towns.flatMap((t) => t.buildings) };
@@ -359,4 +359,22 @@ test('interior: the front door\'s leaves drawn apart shut the doorway, and opene
     }
   }
   assert.ok(seen > 10);
+});
+
+test('interior: a taproom has a walkway round every table (no bench closer than AISLE_NARROW to anything but its own table)', () => {
+  let inns = 0;
+  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) for (const size of ['village', 'town'] as const) {
+    for (const b of planTown({ seed, x: 500, z: 200, height: () => 20, size }).buildings.filter((x) => x.kind === 'inn')) {
+      const p = planInterior(b), down = p.fixtures.filter((f) => f.storey === 0 && f.kind !== 'door' && f.kind !== 'hatch');
+      inns++;
+      for (const f of down.filter((x) => x.kind === 'bench')) for (const g of down) {
+        if (g === f) continue;
+        const gap = Math.max(Math.abs(f.a - g.a) - (f.w + g.w) / 2, Math.abs(f.b - g.b) - (f.d + g.d) / 2);
+        // Its own table stands 0.13 m off it.
+        if (g.kind === 'table' && gap < 0.2) continue;
+        assert.ok(gap >= AISLE_NARROW - 1e-6, `inn #${b.id} (${size} ${seed}): a bench ${gap.toFixed(2)} m from a ${g.kind}`);
+      }
+    }
+  }
+  assert.ok(inns >= 8, `${inns} inns checked`);
 });
