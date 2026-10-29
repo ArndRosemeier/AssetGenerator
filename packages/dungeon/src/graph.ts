@@ -28,8 +28,11 @@ export interface Room {
   readonly tags: string[];
   /** Storey: 0 the entrance's, -1 one below, ... */
   level: number;
-  /** Storeys the room spans upwards from `level` (2: a tall hall, entered from above over a ledge). */
-  height: 1 | 2;
+  /**
+   * Storeys the room spans upwards from `level` (2: a tall hall, entered from above over a ledge; more: a
+   * cavern, which the game may make by raising a room after the graph is built).
+   */
+  height: number;
   size: RoomSize;
 }
 
@@ -59,7 +62,7 @@ export class GraphBuilder {
   readonly links: Link[] = [];
   private nextLink = 0;
 
-  room(level: number, size: RoomSize, tags: string[] = [], height: 1 | 2 = 1): number {
+  room(level: number, size: RoomSize, tags: string[] = [], height = 1): number {
     const id = this.rooms.length;
     this.rooms.push({ id, tags: [...tags], level, height, size });
     return id;

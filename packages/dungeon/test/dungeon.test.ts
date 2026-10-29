@@ -84,3 +84,26 @@ test('dungeon: the library holds 18 distinct patterns', () => {
   assert.equal(new Set(ALL).size, ALL.length);
   assert.ok(ALL.length >= 18, `${ALL.length} patterns`);
 });
+
+test('dungeon: caverns many storeys high, far apart along long winding ways', () => {
+  let tall = 0, longer = 0;
+  for (let s = 0; s < 12; s++) {
+    const g = cyclicGraph({ ...spec, minLevel: 0 }, 300 + s);
+    // The game raises a room into a cavern after the graph is built.
+    const cavern = g.rooms.find((r) => r.id === g.goal)!;
+    cavern.height = 6;
+    const near = layoutDungeon(g, s, { radius: 40, maxPath: 16 });
+    const far = layoutDungeon(g, s, { radius: 40, maxPath: 16, gap: [3, 6], turn: 0.2 });
+    if (!near || !far) continue;
+    const C = far.rooms[cavern.id];
+    assert.equal(C.height, 6);
+    const grid = new LayoutGrid(far);
+    for (let l = C.level; l < C.level + 6; l++) assert.equal(grid.owner(C.x, C.z, l), C.id, `the cavern owns storey ${l}`);
+    for (const pl of far.links) if (pl.link.kind === 'drop' && pl.link.b === C.id) assert.equal(pl.doors[1].level, C.level + 1, 'a drop enters the cavern over its lowest ledge');
+    tall++;
+    const length = (L: NonNullable<typeof far>) => L.links.reduce((n, pl) => n + pl.path.length, 0);
+    if (length(far) > length(near)) longer++;
+  }
+  assert.ok(tall >= 9, `caverns laid out in ${tall}/12`);
+  assert.ok(longer >= tall - 1, `ways longer with a gap in ${longer}/${tall}`);
+});
