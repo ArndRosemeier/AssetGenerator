@@ -41,6 +41,11 @@ export interface Ladder {
    * default 1.2: a ladder's rungs at the chest). A rock face is climbed with the hands over the head (about 1.9).
    */
   reach?: number;
+  /**
+   * How far out from the rungs' line the body hangs, metres for a climber 1.8 m tall (default 0.36). Hands
+   * over the head (reach) need the body nearer the holds, about 0.2.
+   */
+  hang?: number;
 }
 
 /** The usual rung spacing (m). */
@@ -327,7 +332,7 @@ export class LadderClimb {
       goal.w = 1;
     }
     g.curlW = 1;
-    this.placeHips(l, -0.36 * k, base + minFoot + 0.8 * k);
+    this.placeHips(l, -(l.hang ?? 0.36) * k, base + minFoot + 0.8 * k);
     this.yaw = faceYaw(l);
     const look = up ? 0.3 : -0.35;
     this.poseFn = (p) => {

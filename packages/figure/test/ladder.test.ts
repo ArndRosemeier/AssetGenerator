@@ -94,6 +94,10 @@ test('ladder: on a rock face the hands take hold over the head (reach), on a lad
   const over = Math.max(c.limbs!.L!.p.y, c.limbs!.R!.p.y) - c.pos.y;
   assert.ok(chest < 1.6, `ladder holds ${chest.toFixed(2)} m over the feet`);
   assert.ok(over > 1.85, `rock holds ${over.toFixed(2)} m over the feet: over the head`);
+  // Hanging nearer the holds (hang), the body stands closer to the face.
+  const far = c.pos.z;
+  c.cling({ ...face, reach: 1.9, hang: 0.2 }, 3, true, body);
+  assert.ok(Math.abs(c.pos.z - far) > 0.14, `${far.toFixed(2)} -> ${c.pos.z.toFixed(2)}`);
   // A small climber reaches as high for their size.
   c.cling({ ...face, reach: 1.9 }, 3, true, { height: 0.93, hipHeight: 0.45 });
   assert.ok(Math.max(c.limbs!.L!.p.y, c.limbs!.R!.p.y) - c.pos.y > 0.9);
