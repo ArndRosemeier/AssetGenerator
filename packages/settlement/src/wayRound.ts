@@ -83,7 +83,8 @@ export function wayRound(way: readonly number[], foot: Footprints, r = 0.35): nu
     const L = Math.hypot(bx - ax, bz - az), n = Math.ceil(L / PIECE);
     let px = ax, pz = az;
     for (let i = 1; i <= n; i++) {
-      const qx = ax + ((bx - ax) * i) / n, qz = az + ((bz - az) * i) / n;
+      // The last piece ends on b itself (not a sum a hair off it).
+      const qx = i === n ? bx : ax + ((bx - ax) * i) / n, qz = i === n ? bz : az + ((bz - az) * i) / n;
       if (i < n && foot.blocked(qx, qz, r)) continue;
       roundPiece(out, px, pz, qx, qz, foot, r);
       px = qx; pz = qz;

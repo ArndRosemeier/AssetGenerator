@@ -12,7 +12,7 @@ import { Noise, type Rng, deriveSeed, seatHeight } from '@futuremagic/core';
 import { difference, intersection, offset, shapeArea, shapesToPolys, strokePolylines } from './clip';
 import { closestOnPolyline, ensureCCW, minAreaRect, pointInPoly, polyBounds, polyCentroid, type Poly } from './geom2';
 import { organicCuts } from './streets';
-import { makeBuilding, rect, tooSteep, type FixtureKind, type TownBuilding, type TownSite, type TownStreet } from './town';
+import { HOUSE_SCALE, makeBuilding, rect, tooSteep, type FixtureKind, type TownBuilding, type TownSite, type TownStreet } from './town';
 
 /** What grows on a field. */
 export type CropKind = 'wheat' | 'rye' | 'barley' | 'oats' | 'beans' | 'flax' | 'cabbage' | 'ploughed' | 'fallow' | 'meadow' | 'pasture';
@@ -357,11 +357,13 @@ function layFarm(st: FarmSite, road: number[], input: FarmlandInput, r: Rng): Fa
   const off = input.roadWidth / 2 + r.range(4, 9);
   const ox = road[k] + vx * off, oz = road[k + 1] + vz * off;
   const flip = r.chance(0.5) ? 1 : -1;
-  const hhu = r.range(4.6, 6), hhv = r.range(3.4, 4.4);
-  const bhu = r.range(6.5, 8.5), bhv = r.range(4.2, 5.4);
-  const shu = r.range(3.6, 4.6), shv = r.range(2.8, 3.4);
+  // The farm's buildings and yard are as big as the town's houses (HOUSE_SCALE); the paddock stays a paddock.
+  const K = HOUSE_SCALE;
+  const hhu = r.range(4.6, 6) * K, hhv = r.range(3.4, 4.4) * K;
+  const bhu = r.range(6.5, 8.5) * K, bhv = r.range(4.2, 5.4) * K;
+  const shu = r.range(3.6, 4.6) * K, shv = r.range(2.8, 3.4) * K;
   // The yard is wide enough that the track up its middle passes the house.
-  const yw = 2 * hhu + r.range(3, 5), yd = r.range(15, 19);
+  const yw = 2 * hhu + r.range(3, 5), yd = r.range(15, 19) * K;
   // The house at the front facing the road, the barn across the back facing the yard, the stable at the side.
   const house: Box = { u: -flip * (yw - hhu), v: hhv + 1, hu: hhu, hv: hhv, du: 0, dv: -1 };
   const barn: Box = { u: flip * r.range(-1.5, 1.5), v: yd + bhv, hu: bhu, hv: bhv, du: 0, dv: -1 };

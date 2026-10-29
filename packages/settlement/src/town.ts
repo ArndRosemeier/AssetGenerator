@@ -66,6 +66,15 @@ export interface SizeRules {
   readonly tall?: { readonly core: readonly [number, number]; readonly mid: readonly [number, number]; readonly front: number };
 }
 
+/**
+ * How big the houses are against real ones, and with them their plots, the lanes between and a settlement's
+ * radius (1: true to life). A game's rooms want more floor than real ones (a body passes the tables, the camera
+ * fits), so their footprints are drawn this much bigger; change this one number to resize every settlement.
+ * Storeys keep their real height (the stairs fit in a room's length), and furniture its real size.
+ */
+export const HOUSE_SCALE = 1.2;
+const K = HOUSE_SCALE;
+
 export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
   waystation: { radius: [20, 26], roads: [2, 2], market: 0.3, stalls: false, lanes: null, inner: 0.78, spread: 1, temple: false, graves: 0, inn: true, hall: false, bakery: false, smithy: false, stable: true, crafts: 0, byRoad: true },
   hamlet: { radius: [38, 52], roads: [1, 2], market: 0.55, stalls: false, lanes: null, inner: 0.78, spread: 1, temple: false, graves: 0, inn: false, hall: false, bakery: false, smithy: false, stable: false, crafts: 0 },
@@ -300,7 +309,8 @@ export function planTown(site: TownSite): TownPlan {
   const seed = deriveSeed(site.seed, 'town');
   const rng = new Rng(seed);
   const S = sizeRules(site.size);
-  const R = site.radius ?? rng.range(S.radius[0], S.radius[1]);
+  // Callers that give a radius scale it themselves (by HOUSE_SCALE).
+  const R = site.radius ?? rng.range(S.radius[0], S.radius[1]) * K;
   const cx = site.x, cz = site.z;
   const water = site.water ?? (() => 0);
   const wet = (x: number, z: number) => water(x, z) > 0;
@@ -328,8 +338,8 @@ export function planTown(site: TownSite): TownPlan {
   const lanes: number[][] = [];
   const lr = rng.fork('lanes');
   if (S.lanes) for (const s of sectors) {
-    if (shapeArea(s) < 400) continue;
-    for (const ch of organicCuts(s.outer, [S.lanes[0], S.lanes[1]], lr, 14).cuts) lanes.push(crooked(ch, lr));
+    if (shapeArea(s) < 400 * K * K) continue;
+    for (const ch of organicCuts(s.outer, [S.lanes[0] * K, S.lanes[1] * K], lr, 14 * K).cuts) lanes.push(crooked(ch, lr));
   }
   for (const pts of lanes) streets.push({ kind: 'lane', pts, width: LANE_W });
   const ring = [...outline, outline[0], outline[1]];
@@ -338,7 +348,7 @@ export function planTown(site: TownSite): TownPlan {
     ...shapesToPolys(strokePolylines([ring], TRACK_W / 2, 'round', 'butt')),
   ]);
   const blocks: Shape[] = [];
-  for (const s of sectors) for (const b of difference([s.outer], shapesToPolys(cut))) if (shapeArea(b) > 150) blocks.push(b);
+  for (const s of sectors) for (const b of difference([s.outer], shapesToPolys(cut))) if (shapeArea(b) > 150 * K * K) blocks.push(b);
 
   // 5. The temple takes a walled plot near the market; the rest is cut into plots.
   const lots: Lot[] = [];
@@ -374,28 +384,29 @@ export function planTown(site: TownSite): TownPlan {
   const plots: Shape[] = S.byRoad ? [] : [...blocks];
   const near = (b: Shape) => { let m = Infinity; for (let i = 0; i < b.outer.length; i += 2) m = Math.min(m, dist(b.outer[i], b.outer[i + 1])); return m; };
   const crr = rng.fork('temple');
-  for (const blk of blocks.filter((b) => S.temple && near(b) < Math.max(0.4, S.inner + 0.15) && shapeArea(b) > 900).sort((a, b) => near(a) - near(b))) {
-    const yard = groundsIn(blk, cx, cz, crr);
+  for (const blk of blocks.filter((b) => S.temple && near(b) < Math.max(0.4, S.inner + 0.15) && shapeArea(b) > 900 * K * K).sort((a, b) => near(a) - near(b))) {
+    const yard = groundsIn(blk, cx, cz, crr, K);
     const b = yard && templeOn(yard, buildings.length, site, crr);
     if (!yard || !b) continue;
     buildings.push(b);
     templeGrounds = yard;
-    plots.splice(plots.indexOf(blk), 1, ...difference([blk.outer], [yard.outer]).filter((s) => shapeArea(s) > 150));
+    plots.splice(plots.indexOf(blk), 1, ...difference([blk.outer], [yard.outer]).filter((s) => shapeArea(s) > 150 * K * K));
     break;
   }
   // A capital's seat of rule takes walled grounds of its own near the market too (not the temple's block).
   let seatGrounds: Shape | null = null;
   const srr = rng.fork('seat');
-  for (const blk of S.seat ? plots.filter((b) => near(b) < 0.45 && shapeArea(b) > 1600).sort((a, b) => near(a) - near(b)) : []) {
-    const yard = groundsIn(blk, cx, cz, srr, 1.3);
+  for (const blk of S.seat ? plots.filter((b) => near(b) < 0.45 && shapeArea(b) > 1600 * K * K).sort((a, b) => near(a) - near(b)) : []) {
+    const yard = groundsIn(blk, cx, cz, srr, 1.3 * K);
     const b = yard && seatOn(yard, buildings.length, site, srr);
     if (!yard || !b) continue;
     buildings.push(b);
     seatGrounds = yard;
-    plots.splice(plots.indexOf(blk), 1, ...difference([blk.outer], [yard.outer]).filter((s) => shapeArea(s) > 150));
+    plots.splice(plots.indexOf(blk), 1, ...difference([blk.outer], [yard.outer]).filter((s) => shapeArea(s) > 150 * K * K));
     break;
   }
-  const zoneRules = (d: number): LotRules => d < 0.42 ? { width: [6, 10], depth: [12, 17] } : d < 0.78 ? { width: [8, 13], depth: [13, 19] } : { width: [12, 19], depth: [16, 25] };
+  const zone = (d: number): LotRules => d < 0.42 ? { width: [6, 10], depth: [12, 17] } : d < 0.78 ? { width: [8, 13], depth: [13, 19] } : { width: [12, 19], depth: [16, 25] };
+  const zoneRules = (d: number): LotRules => { const z = zone(d); return { width: [z.width[0] * K, z.width[1] * K], depth: [z.depth[0] * K, z.depth[1] * K] }; };
   const lotRng = rng.fork('lots');
   for (const blk of plots) {
     const { lots: ls, yards: ys } = perimeterLots(blk, zoneRules(dist(...polyCentroid(blk.outer))), lotRng);
@@ -577,7 +588,7 @@ function byTheRoad(road: number[], id: number, site: TownSite, r: Rng): TownBuil
   const ux = (road[k] - ax) / L, uz = (road[k + 1] - az) / L;
   const out: TownBuilding[] = [];
   const sides = r.chance(0.5) ? [1, -1] : [-1, 1];
-  const sizes: [number, number, number][] = [[r.range(6, 7.5), r.range(4.5, 5.5), r.range(-2, 2)], [r.range(6.5, 8), r.range(3.5, 4.2), r.range(4, 8)]];
+  const sizes: [number, number, number][] = [[r.range(6, 7.5) * K, r.range(4.5, 5.5) * K, r.range(-2, 2) * K], [r.range(6.5, 8) * K, r.range(3.5, 4.2) * K, r.range(4, 8) * K]];
   sizes.forEach(([hu, hv, along], i) => {
     // v away from the road: the side's normal.
     const vx = -uz * sides[i], vz = ux * sides[i];
@@ -673,7 +684,7 @@ function crooked(ch: number[], r: Rng): number[] {
 function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) => number, site: TownSite, r: Rng, placed: readonly TownBuilding[]): TownBuilding | null {
   const [ax, az, bx, bz] = lot.front;
   const L = Math.hypot(bx - ax, bz - az);
-  if (L < 4.5) return null;
+  if (L < 4.5 * K) return null;
   const ux = (bx - ax) / L, uz = (bz - az) / L;
   // v: into the plot (towards its middle).
   const [lcx, lcz] = polyCentroid(lot.poly);
@@ -685,11 +696,11 @@ function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) 
   const gap = attached ? 0.05 : edge ? r.range(1.5, 3.5) : r.range(0.8, 1.8);
   const setback = core ? 0.3 : edge ? r.range(1.5, 4) : r.range(0.4, 1.5);
   const tall = sizeRules(site.size).tall;
-  let w = Math.min(L - 2 * gap, edge ? r.range(8, 12) : core ? tall?.front ?? 11 : r.range(8, 12));
-  let dep = edge ? r.range(6, 8) : core ? r.range(9, 12) : r.range(7.5, 10);
+  let w = Math.min(L - 2 * gap, K * (edge ? r.range(8, 12) : core ? tall?.front ?? 11 : r.range(8, 12)));
+  let dep = K * (edge ? r.range(6, 8) : core ? r.range(9, 12) : r.range(7.5, 10));
   const lotArea = Math.abs(polyArea(lot.poly));
   for (let tries = 0; tries < 5; tries++) {
-    if (w < 4.5 || dep < 5) return null;
+    if (w < 4.5 * K || dep < 5 * K) return null;
     const t0 = (L - w) / 2;
     const poly = rect(ax + ux * t0 + vx * setback, az + uz * t0 + vz * setback, ux, uz, vx, vz, w, dep);
     const inside = intersection([poly], [lot.poly]).reduce((s, x) => s + shapeArea(x), 0);
@@ -756,8 +767,8 @@ function seatOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding | 
   const lx = longU ? o.ux : -o.uz, lz = longU ? o.uz : o.ux;
   const halfLong = Math.max(o.hu, o.hv), halfShort = Math.min(o.hu, o.hv);
   // Long side across the grounds: u along the long axis, the door on a long side.
-  const hu = Math.min(11, halfLong * 0.55), hv = Math.min(7.5, halfShort * 0.5);
-  if (hv < 5 || hu < 7) return null;
+  const hu = Math.min(11 * K, halfLong * 0.55), hv = Math.min(7.5 * K, halfShort * 0.5);
+  if (hv < 5 * K || hu < 7 * K) return null;
   const ux = lx, uz = lz, vx = -uz, vz = ux;
   const b = makeBuilding(id, 'hall', o.cx, o.cz, ux, uz, vx, vz, hu, hv, false, true, false, -1, site, r);
   const area = intersection([b.poly], [blk.outer]).reduce((s, x) => s + shapeArea(x), 0);
@@ -800,11 +811,11 @@ function templeOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding 
   const lx = longU ? o.ux : -o.uz, lz = longU ? o.uz : o.ux;
   const halfLong = Math.max(o.hu, o.hv), halfShort = Math.min(o.hu, o.hv);
   // A square-ish hall; the porch takes about 2.5 m in front of it.
-  const hu = Math.min(6, halfShort * 0.42), hv = Math.min(hu * 1.15, halfLong * 0.5 - 1.5);
-  if (hv < 4 || hu < 4) return null;
+  const hu = Math.min(6 * K, halfShort * 0.42), hv = Math.min(hu * 1.15, halfLong * 0.5 - 1.5 * K);
+  if (hv < 4 * K || hu < 4 * K) return null;
   // u runs across the hall, v along it; the door is at the -v end, the sanctuary in the middle.
   const vx = lx, vz = lz, ux = vz, uz = -vx;
-  const ccx = o.cx + vx * 1.2, ccz = o.cz + vz * 1.2;
+  const ccx = o.cx + vx * 1.2 * K, ccz = o.cz + vz * 1.2 * K;
   const b = makeBuilding(id, 'temple', ccx, ccz, ux, uz, vx, vz, hu, hv, false, false, false, -1, site, r);
   const area = intersection([b.poly], [blk.outer]).reduce((s, x) => s + shapeArea(x), 0);
   if (area < hu * hv * 4 * 0.95) return null;
