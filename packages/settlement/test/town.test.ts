@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { townWall, intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh, gateLeaves, sizeRules, SETTLEMENT_SIZES, SIZE_SCALE } from '../src/index';
+import { townWall, intersection, planTown, pointInPoly, shapeArea, strokePolylines, shapesToPolys, type SettlementSize, type TownSite, wallBlocks, wallMesh, gateLeaves, sizeRules, SETTLEMENT_SIZES, SIZE_SCALE, tooSteep, riseUnder } from '../src/index';
 
 /** Gently rolling ground, a river along z = 140 to the south-east of the market. */
 const site = (seed: number, river = false): TownSite => ({
@@ -219,5 +219,19 @@ test('settlement: two roads leaving side by side go out through one gate, whose 
     const sx = -Math.sin(g.angle), sz = Math.cos(g.angle);
     assert.ok(!wallBlocks(w, g.x, g.z, 0.4), 'the gate is open');
     assert.ok(wallBlocks(w, g.x + sx * (g.half + w.towerHalf) * k, g.z + sz * (g.half + w.towerHalf) * k, 0.4), 'its towers stand');
+  }
+});
+
+test('settlement: no building climbs a cliff or a steep hillside; the town stops at the cliff foot, at every size', () => {
+  // Level ground with a cliff 40 m high starting 30 m east of the market, and a steep hill to the north.
+  const cliff = (x: number, z: number) => 40 + 40 * Math.min(1, Math.max(0, (x - 1030) / 8)) + Math.max(0, (-560 - z) * 0.6);
+  for (const size of ['hamlet', 'village', 'town', 'capital'] as const) for (const seed of [1, 2]) {
+    const town = planTown({ ...site(seed), size, height: cliff });
+    assert.ok(town.buildings.length > 2, `${size} ${seed}: ${town.buildings.length} buildings`);
+    for (const b of town.buildings) {
+      assert.ok(!tooSteep(b.poly, cliff), `${size} ${seed}: ${b.kind} ${b.id} at ${b.cx.toFixed(0)},${b.cz.toFixed(0)} stands on ${riseUnder(b.poly, cliff).toFixed(1)} m of rise`);
+    }
+    // The outline keeps off the cliff top.
+    for (let i = 0; i < town.outline.length; i += 2) assert.ok(cliff(town.outline[i], town.outline[i + 1]) < 50, `${size} ${seed}: the edge climbs to ${cliff(town.outline[i], town.outline[i + 1]).toFixed(0)} m`);
   }
 });

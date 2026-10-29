@@ -316,7 +316,7 @@ export function planTown(site: TownSite): TownPlan {
   const roads = dirs.map((d, i) => traceRoad(site, rng.fork('road', i), cx, cz, d, roadLength));
 
   // 3. The outline: round, but grown along the roads, and stopping short of water.
-  const outline = townOutline(new Noise(deriveSeed(seed, 'outline')), cx, cz, R, dirs, wet);
+  const outline = townOutline(new Noise(deriveSeed(seed, 'outline')), cx, cz, R, dirs, wet, site.height);
   // A capital's wall, a little outside its edge, a gate on each road.
   const wall = S.wall ? townWall(outline, roads, S.wall, ROAD_W, site.height) : undefined;
 
@@ -622,15 +622,33 @@ function traceRoad(site: TownSite, r: Rng, cx: number, cz: number, dir: number, 
   return chaikin(pts, 2);
 }
 
-/** The town's outline: 64 rays, round with noise, longer along the roads, cut short before water. */
-function townOutline(n: Noise, cx: number, cz: number, R: number, dirs: number[], wet: (x: number, z: number) => boolean): Poly {
+/**
+ * Ground steeper than this (rise per metre, over CLIFF_RUN m) ends the town: the foot of a cliff, a scarp or a
+ * steep hillside (a town keeps to the valley floor and does not climb the wall of a mesa).
+ */
+const CLIFF = 0.45;
+const CLIFF_RUN = 8;
+
+/** Is the ground this steep here, whichever way it falls (a ray crossing a slope aslant must still stop)? */
+function steepAt(height: (x: number, z: number) => number, x: number, z: number): boolean {
+  const h = CLIFF_RUN / 2;
+  const gx = height(x + h, z) - height(x - h, z), gz = height(x, z + h) - height(x, z - h);
+  return Math.hypot(gx, gz) > CLIFF * CLIFF_RUN;
+}
+
+/** The town's outline: 64 rays, round with noise, longer along the roads, cut short before water and steep ground. */
+function townOutline(n: Noise, cx: number, cz: number, R: number, dirs: number[], wet: (x: number, z: number) => boolean, height: (x: number, z: number) => number): Poly {
   const out: Poly = [];
   for (let i = 0; i < 64; i++) {
     const a = (i / 64) * Math.PI * 2;
     let along = 0;
     for (const d of dirs) along = Math.max(along, Math.pow(Math.max(0, Math.cos(angleDiff(a, d))), 10));
     let rr = R * (0.82 + 0.22 * n.fbm2(Math.cos(a) * 1.4, Math.sin(a) * 1.4, 3)) + R * 0.45 * along;
-    for (let t = 20; t < rr; t += 4) if (wet(cx + Math.cos(a) * t, cz + Math.sin(a) * t)) { rr = Math.max(20, t - 8); break; }
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for (let t = 20; t < rr; t += 4) {
+      const x = cx + ca * t, z = cz + sa * t;
+      if (wet(x, z) || steepAt(height, x + ca * CLIFF_RUN, z + sa * CLIFF_RUN)) { rr = Math.max(20, t - 8); break; }
+    }
     out.push(cx + Math.cos(a) * rr, cz + Math.sin(a) * rr);
   }
   return ensureCCW(out);
@@ -677,6 +695,8 @@ function houseOn(lot: Lot, li: number, id: number, dist: (x: number, z: number) 
     const inside = intersection([poly], [lot.poly]).reduce((s, x) => s + shapeArea(x), 0);
     const clash = placed.some((o) => Math.abs(o.cx - poly[0]) < 30 && Math.abs(o.cz - poly[1]) < 30 && intersection([poly], [o.poly]).some((x) => shapeArea(x) > 0.02));
     if (inside >= w * dep * 0.99 && w * dep < lotArea * 0.9 && !clash) {
+      // A hillside or a cliff foot under it: the plot stays empty (a smaller house would not stand better).
+      if (tooSteep(poly, site.height)) return null;
       const ccx = ax + ux * (t0 + w / 2) + vx * (setback + dep / 2), ccz = az + uz * (t0 + w / 2) + vz * (setback + dep / 2);
       return makeBuilding(id, edge ? 'cottage' : 'house', ccx, ccz, ux, uz, vx, vz, w / 2, dep / 2, attached, core, edge, li, site, r);
     }
@@ -742,6 +762,7 @@ function seatOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding | 
   const b = makeBuilding(id, 'hall', o.cx, o.cz, ux, uz, vx, vz, hu, hv, false, true, false, -1, site, r);
   const area = intersection([b.poly], [blk.outer]).reduce((s, x) => s + shapeArea(x), 0);
   if (area < hu * hv * 4 * 0.95) return null;
+  if (tooSteep(b.poly, site.height)) return null;
   b.trade = 'ruler';
   b.floors = 3;
   b.floorH = r.range(3.4, 3.8);
@@ -787,6 +808,7 @@ function templeOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding 
   const b = makeBuilding(id, 'temple', ccx, ccz, ux, uz, vx, vz, hu, hv, false, false, false, -1, site, r);
   const area = intersection([b.poly], [blk.outer]).reduce((s, x) => s + shapeArea(x), 0);
   if (area < hu * hv * 4 * 0.95) return null;
+  if (tooSteep(b.poly, site.height)) return null;
   b.trade = 'keeper';
   b.floors = 1;
   b.floorH = r.range(5.5, 6.5);
@@ -808,6 +830,40 @@ function templeOn(blk: Shape, id: number, site: TownSite, r: Rng): TownBuilding 
 /** A rectangle from corner (ax, az), `w` along u and `d` along v. */
 export function rect(ax: number, az: number, ux: number, uz: number, vx: number, vz: number, w: number, d: number): Poly {
   return [ax, az, ax + ux * w, az + uz * w, ax + ux * w + vx * d, az + uz * w + vz * d, ax + vx * d, az + vz * d];
+}
+
+/**
+ * How much the ground rises under a footprint (m): its corners, the middles of its sides, its centre and the
+ * points halfway from the centre to each corner and side, so a cliff foot that passes between the corners
+ * shows too.
+ */
+export function riseUnder(poly: Poly, height: (x: number, z: number) => number): number {
+  const [cx, cz] = polyCentroid(poly);
+  const n = poly.length >> 1;
+  let lo = height(cx, cz), hi = lo;
+  const at = (x: number, z: number) => { const h = height(x, z); if (h < lo) lo = h; if (h > hi) hi = h; };
+  for (let i = 0; i < n; i++) {
+    const x = poly[i * 2], z = poly[i * 2 + 1], j = (i + 1) % n;
+    const mx = (x + poly[j * 2]) / 2, mz = (z + poly[j * 2 + 1]) / 2;
+    at(x, z); at(mx, mz); at((x + cx) / 2, (z + cz) / 2); at((mx + cx) / 2, (mz + cz) / 2);
+  }
+  return hi - lo;
+}
+
+/**
+ * The most the ground may rise under a building (m): a plinth takes up a slope, a cliff foot or a hillside
+ * it may not. A metre in five across the building, never less than 2.5 m (a small house on a gentle slope).
+ */
+export function steepFor(poly: Poly): number {
+  let d = 0;
+  const n = poly.length >> 1;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) d = Math.max(d, Math.hypot(poly[i * 2] - poly[j * 2], poly[i * 2 + 1] - poly[j * 2 + 1]));
+  return Math.max(2.5, d * 0.2);
+}
+
+/** Too steep to build on: the ground under the footprint rises more than a plinth takes up. */
+export function tooSteep(poly: Poly, height: (x: number, z: number) => number): boolean {
+  return riseUnder(poly, height) > steepFor(poly);
 }
 
 function groundUnder(poly: Poly, height: (x: number, z: number) => number): { lo: number; hi: number } {
