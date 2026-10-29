@@ -12,7 +12,7 @@ import { Noise, type Rng, deriveSeed, seatHeight } from '@futuremagic/core';
 import { difference, intersection, offset, shapeArea, shapesToPolys, strokePolylines } from './clip';
 import { closestOnPolyline, ensureCCW, minAreaRect, pointInPoly, polyBounds, polyCentroid, type Poly } from './geom2';
 import { organicCuts } from './streets';
-import { makeBuilding, rect, type FixtureKind, type TownBuilding, type TownSite, type TownStreet } from './town';
+import { makeBuilding, rect, tooSteep, type FixtureKind, type TownBuilding, type TownSite, type TownStreet } from './town';
 
 /** What grows on a field. */
 export type CropKind = 'wheat' | 'rye' | 'barley' | 'oats' | 'beans' | 'flax' | 'cabbage' | 'ploughed' | 'fallow' | 'meadow' | 'pasture';
@@ -407,6 +407,8 @@ function farmFits(l: FarmLay, input: FarmlandInput, town: Poly[], inEdge: (x: nu
     lo = Math.min(lo, h); hi = Math.max(hi, h);
   }
   if (hi - lo > Math.max(3, 0.12 * Math.hypot(x1 - x0, z1 - z0))) return false;
+  // The barn and the stable on ground their plinths take up, as any house in the town (tooSteep).
+  for (const b of [l.barn, l.stable]) if (tooSteep(boxPoly(l, b), input.site.height)) return false;
   // The house and the ground before its door nearly level: its steps climb a metre at most.
   const h = l.house, hb = boxPoly(l, { ...h, v: h.v - 1.5, hv: h.hv + 1.5 });
   let hlo = Infinity, hhi = -Infinity;
