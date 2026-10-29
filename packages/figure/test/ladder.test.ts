@@ -83,3 +83,22 @@ test('ladder: clinging to a leaning rock face, steered frame by frame: hands and
   assert.ok(c.pos.y > 10, 'the body is up there');
   assert.ok(!c.active, 'nothing played meanwhile');
 });
+
+test('ladder: on a rock face the hands take hold over the head (reach), on a ladder at the chest', () => {
+  const c = new LadderClimb();
+  const body = { height: 1.8, hipHeight: 0.93 };
+  const face: Ladder = { x: 0, z: 0, nx: 0, nz: -1, lo: 0, hi: 30, floor: 0, halfWidth: 0.35, rim: false };
+  c.cling(face, 3, true, body);
+  const chest = Math.max(c.limbs!.L!.p.y, c.limbs!.R!.p.y) - c.pos.y;
+  c.cling({ ...face, reach: 1.9 }, 3, true, body);
+  const over = Math.max(c.limbs!.L!.p.y, c.limbs!.R!.p.y) - c.pos.y;
+  assert.ok(chest < 1.6, `ladder holds ${chest.toFixed(2)} m over the feet`);
+  assert.ok(over > 1.85, `rock holds ${over.toFixed(2)} m over the feet: over the head`);
+  // Hanging nearer the holds (hang), the body stands closer to the face.
+  const far = c.pos.z;
+  c.cling({ ...face, reach: 1.9, hang: 0.2 }, 3, true, body);
+  assert.ok(Math.abs(c.pos.z - far) > 0.14, `${far.toFixed(2)} -> ${c.pos.z.toFixed(2)}`);
+  // A small climber reaches as high for their size.
+  c.cling({ ...face, reach: 1.9 }, 3, true, { height: 0.93, hipHeight: 0.45 });
+  assert.ok(Math.max(c.limbs!.L!.p.y, c.limbs!.R!.p.y) - c.pos.y > 0.9);
+});
