@@ -158,13 +158,18 @@ test('interior: a hatch down to a cellar lies on free floor one can walk to, in 
   }
 });
 
-test('interior: a hall (where fighting is taught) has weapon racks, a practice post with its master\'s place, a bench, and no bed or family table downstairs', () => {
+test('interior: a hall (where fighting is taught) has weapon racks, a practice post with its master\'s place, a bench, no family table, and its master\'s bed only with no storey above', () => {
   const homes = town.buildings.filter((b) => b.kind === 'house' || b.kind === 'cottage');
-  let full = 0, far = 0;
+  let full = 0, far = 0, low = 0;
   for (const b of homes) {
     assert.ok(!planInterior(b).fixtures.some((f) => f.kind === 'rack' || f.kind === 'pell'), `plain ${b.kind} #${b.id}`);
     const p = planInterior(b, { hall: true }), reach = reachable(p, 0), down = p.fixtures.filter((f) => f.storey === 0);
-    assert.ok(!down.some((f) => f.kind === 'bed' || f.kind === 'table'), `${b.kind} #${b.id}: no bed or table in the hall`);
+    assert.ok(!down.some((f) => f.kind === 'table'), `${b.kind} #${b.id}: no table in the hall`);
+    // One storey: the master sleeps in the hall (in bed, found there at night); else upstairs.
+    const one = p.storeys.length === 1, beds = p.spots.filter((s) => s.kind === 'sleep');
+    if (one) low++;
+    assert.equal(down.filter((f) => f.kind === 'bed').length, one ? 1 : 0, `${b.kind} #${b.id}: ${one ? 'a bed in the hall' : 'no bed in the hall'}`);
+    if (one) assert.equal(beds.length, 1, `${b.kind} #${b.id}: the master's bed`);
     const racks = down.filter((f) => f.kind === 'rack').length, pell = down.find((f) => f.kind === 'pell'), drill = p.spots.find((s) => s.kind === 'drill');
     assert.ok(racks >= 1 && pell && drill, `${b.kind} #${b.id}: ${racks} racks, pell ${!!pell}, master ${!!drill}`);
     if (racks >= 2) full++;
@@ -178,6 +183,7 @@ test('interior: a hall (where fighting is taught) has weapon racks, a practice p
     assert.ok(interiorMesh(p, b, [b.cx, 0, b.cz]).position.length > 0);
   }
   assert.ok(full >= homes.length * 0.7, `${full} of ${homes.length} halls have two racks or more`);
+  assert.ok(low > 5, `${low} halls of one storey`);
   assert.ok(far >= homes.length * 0.9, `${far} of ${homes.length} masters stand 1.8 m or more in from the door, clear of the post`);
 });
 
