@@ -40,8 +40,12 @@ export interface ShipPlan {
   aft: Castle | null;
   fore: Castle | null;
   masts: Mast[];
-  /** The hatch down to the hold, on the main deck (a0..a1 along, half across); null on a boat. */
+  /** The cargo hatch to the hold, on the main deck (a0..a1 along, half across), its grating walked over; null on a boat. */
   hatch: { a0: number; a1: number; half: number } | null;
+  /** The lower deck under the main deck (from a0 to a1 along, its floor y), down the companionway; null on a boat. */
+  hold: { a0: number; a1: number; y: number } | null;
+  /** The companionway: an open hatch in the main deck (a0..a1 along, b0..b1 across), a ladder down its fore side; null on a boat. */
+  companion: { a0: number; a1: number; b0: number; b1: number } | null;
   /** The gangway: an opening in the rail on both sides amidships (a0..a1 along), where a plank comes aboard; null on a boat. */
   gangway: { a0: number; a1: number } | null;
   /** Hull colours: planking, the painted strake under the rail. */
@@ -49,6 +53,8 @@ export interface ShipPlan {
   strake: RGB;
 }
 
+/** The lower deck lies this far under the main deck (m). */
+const HOLD_DOWN = 2.2;
 const SHIP_MIN = 20, SHIP_MAX = 34, BOAT_MIN = 6.5, BOAT_MAX = 9.5;
 /** A ship's hull and rail are drawn in this many panels along its length; the gangway is two of them from this one. */
 const SHIP_PANELS = 28, GANGWAY = 17;
@@ -73,12 +79,16 @@ export function planShip(seed: number, kind: ShipKind, length?: number): ShipPla
   } else {
     masts.push({ a: half * 0.25, foot: deckY, top: deckY + L * 0.8, yards: [{ y: deckY + L * 0.72, half: B * 0.75 }] });
   }
-  const hatch = kind === 'ship' ? { a0: -half * 0.25, a1: -half * 0.08, half: B * 0.16 } : null;
+  // The cargo hatch forward of the main mast, over the cargo; the companionway to starboard before the sterncastle,
+  // clear of its door, down to the passengers' cabins.
+  const hatch = kind === 'ship' ? { a0: half * 0.15, a1: half * 0.32, half: B * 0.16 } : null;
+  const hold = kind === 'ship' ? { a0: aft!.a1 + 0.1, a1: fore!.a0 - 0.1, y: deckY - HOLD_DOWN } : null;
+  const companion = kind === 'ship' ? { a0: aft!.a1 + 0.5, a1: aft!.a1 + 1.5, b0: -1.95, b1: -1.05 } : null;
   // Two of the rail's panels (the mesh draws it in SHIP_PANELS along the length) forward of the main mast's shrouds.
   const gangway = kind === 'ship' ? { a0: (-1 + (2 * GANGWAY) / SHIP_PANELS) * half, a1: (-1 + (2 * (GANGWAY + 2)) / SHIP_PANELS) * half } : null;
   const hull = r.pick<RGB>([[92, 66, 44], [78, 58, 42], [104, 78, 52]]);
   const strake = r.pick<RGB>([[120, 42, 34], [36, 58, 92], [44, 76, 52], [160, 128, 60]]);
-  return { kind, seed, length: L, beam: B, draft, deckY, railY, aft, fore, masts, hatch, gangway, hull, strake };
+  return { kind, seed, length: L, beam: B, draft, deckY, railY, aft, fore, masts, hatch, hold, companion, gangway, hull, strake };
 }
 
 /** Half the hull's width at `a` along it and `y` over the waterline (0 outside the hull). */
@@ -90,11 +100,51 @@ export function hullHalf(p: ShipPlan, a: number, y: number): number {
   return halfAtDeck(p, t) * section((y - k) / (s - k));
 }
 
-/** The floor at (a, b) on the ship's decks (null: none there, over the side). The hatch's grating is walked over. */
+/** The top floor at (a, b) on the ship's decks (null: none there, over the side). The hatch's grating is walked over. */
 export function shipFloor(p: ShipPlan, a: number, b: number): number | null {
-  for (const c of [p.aft, p.fore]) if (c && a >= c.a0 && a <= c.a1) return Math.abs(b) <= hullHalf(p, a, c.y) - INNER ? c.y : null;
-  if (p.hatch && a >= p.hatch.a0 && a <= p.hatch.a1 && Math.abs(b) <= p.hatch.half) return p.deckY + GRATING;
-  return Math.abs(b) <= hullHalf(p, a, p.deckY) - INNER ? p.deckY : null;
+  const f = shipFloors(p, a, b);
+  return f.length ? f[f.length - 1] : null;
+}
+
+/**
+ * Every floor at (a, b), lowest first: the lower deck (under the main deck, and under the companionway's open hatch),
+ * the main deck (under a castle, its cabin's floor) or the hatch's grating, a castle's deck.
+ */
+export function shipFloors(p: ShipPlan, a: number, b: number): number[] {
+  const out: number[] = [];
+  const h = p.hold;
+  if (h && a >= h.a0 && a <= h.a1 && Math.abs(b) <= holdHalf(p, a)) out.push(h.y);
+  const c = p.companion;
+  if (c && a > c.a0 && a < c.a1 && b > c.b0 && b < c.b1) return out;
+  if (p.hatch && a >= p.hatch.a0 && a <= p.hatch.a1 && Math.abs(b) <= p.hatch.half) { out.push(p.deckY + GRATING); return out; }
+  if (Math.abs(b) <= hullHalf(p, a, p.deckY) - INNER) out.push(p.deckY);
+  for (const k of [p.aft, p.fore]) if (k && a >= k.a0 && a <= k.a1 && Math.abs(b) <= hullHalf(p, a, k.y) - INNER) out.push(k.y);
+  return out;
+}
+
+/** The lower deck's inner half width at `a` (low down, where the hull narrows it most); 0 outside it. */
+function holdHalf(p: ShipPlan, a: number): number {
+  const h = p.hold;
+  return h && a >= h.a0 - 1e-6 && a <= h.a1 + 1e-6 ? Math.max(0, hullHalf(p, a, h.y + 0.3) - INNER) : 0;
+}
+
+/**
+ * The room a point (a, b, at height h) is in: the lower deck, or the aft or fore castle's cabin (null: none, out on
+ * deck, outside the hull or in its timbers). For keeping a camera in the room its hero is in.
+ */
+export function shipRoom(p: ShipPlan, a: number, b: number, h: number): 'hold' | 'aft' | 'fore' | null {
+  const k = p.hold;
+  if (k && h > k.y - 0.1 && h < p.deckY - 0.1 && a > k.a0 + 0.05 && a < k.a1 - 0.05 && Math.abs(b) < holdHalf(p, a) - 0.05) return 'hold';
+  for (const c of [p.aft, p.fore]) if (c && h > p.deckY - 0.1 && h < c.y - 0.12 && a > c.a0 + 0.05 && a < c.a1 - 0.05 && Math.abs(b) < cabinHalf(p, a) - 0.05) return c === p.aft ? 'aft' : 'fore';
+  return null;
+}
+
+/** Whether (a, b), feet at `y`, is inside the ship where it is walked: on the lower deck, or in a castle's cabin. */
+export function shipInside(p: ShipPlan, a: number, b: number, y: number): boolean {
+  const h = p.hold;
+  if (h && y > h.y - 0.5 && y < p.deckY - 0.5) return Math.abs(b) < holdHalf(p, a);
+  for (const c of [p.aft, p.fore]) if (c && y > p.deckY - 0.5 && y < c.y - 0.5 && a > c.a0 && a < c.a1) return Math.abs(b) < cabinHalf(p, a);
+  return false;
 }
 
 /**
@@ -113,16 +163,22 @@ export interface ShipLadder {
   rung: number;
 }
 
+/** Rungs about 0.3 m apart, a whole number of them over a height `H`. */
+const rungs = (H: number) => H / Math.max(3, Math.round(H / 0.3));
+
 /** The castle doors' half width (m); a castle's ladder stands beside its door. */
 const DOOR = 0.55;
 
-/** The ladders up the castles' fronts (none on a boat). */
+/** The ladders up the castles' fronts, and down the companionway to the lower deck (none on a boat). */
 export function shipLadders(p: ShipPlan): ShipLadder[] {
   const out: ShipLadder[] = [];
   for (const c of [p.aft, p.fore]) if (c) {
     const face = c === p.aft ? c.a1 : c.a0, dir = c === p.aft ? 1 : -1, lean = 0.35;
-    out.push({ a: face + dir * (0.45 + lean), b: DOOR + 0.45, y0: p.deckY, y1: c.y, dir, lean, rung: (c.y - p.deckY) / Math.max(3, Math.round((c.y - p.deckY) / 0.3)) });
+    out.push({ a: face + dir * (0.45 + lean), b: DOOR + 0.45, y0: p.deckY, y1: c.y, dir, lean, rung: rungs(c.y - p.deckY) });
   }
+  // Down the companionway: upright against its fore side, got onto from the deck forward of it.
+  const cw = p.companion, h = p.hold;
+  if (cw && h) out.push({ a: cw.a1 - 0.12, b: (cw.b0 + cw.b1) / 2, y0: h.y, y1: p.deckY, dir: -1, lean: 0, rung: rungs(p.deckY - h.y) });
   return out;
 }
 
@@ -177,6 +233,72 @@ function cabinHalf(p: ShipPlan, a: number): number {
   return Math.max(0, hullHalf(p, a, p.deckY + 0.3) - INNER);
 }
 
+/** A wall standing on the lower deck (a thin box, a0..a1 along, b0..b1 across), from its floor to the deck over it. */
+export interface HoldWall { a0: number; a1: number; b0: number; b1: number }
+
+/** The lower deck's things and walls, and its lanterns (a, b), as planned once per ship. */
+const HOLDS = new WeakMap<ShipPlan, { fixtures: InteriorFixture[]; walls: HoldWall[]; lamps: [number, number][] }>();
+/** Half the passage down the lower deck's middle (m), a passenger's cabin's length, its door's width. */
+const PASSAGE = 0.7, BERTH = 2.2, BERTH_DOOR = 0.8;
+
+/**
+ * The lower deck, down the companionway: by its foot the passengers' cabins either side of a passage down the middle
+ * (each a bunk along the hull, its door onto the passage), forward of them the cargo (crates and barrels along the
+ * sides, the way between them kept free, clear of the masts going down to the keel). Fixtures `h` over its floor
+ * (storey -1); lanterns hung over the passage.
+ */
+export function shipHold(p: ShipPlan): { fixtures: InteriorFixture[]; walls: HoldWall[]; lamps: [number, number][] } {
+  let out = HOLDS.get(p);
+  if (out) return out;
+  const fixtures: InteriorFixture[] = [], walls: HoldWall[] = [], lamps: [number, number][] = [];
+  out = { fixtures, walls, lamps };
+  HOLDS.set(p, out);
+  const h = p.hold;
+  if (!h) return out;
+  const r = new Rng(p.seed * 7919 + 5);
+  const room = (a0: number, a1: number) => Math.min(holdHalf(p, a0), holdHalf(p, (a0 + a1) / 2), holdHalf(p, a1));
+  const put = (kind: InteriorFixture['kind'], a: number, b: number, w: number, d: number, hh: number) => fixtures.push({ kind, storey: -1, a, b, w, d, h: hh });
+  const masts = p.masts.filter((m) => m.foot === p.deckY);
+  const clearOfMasts = (a0: number, a1: number) => masts.every((m) => m.a < a0 - 0.5 || m.a > a1 + 0.5);
+  // The landing at the companionway's foot, then the cabins, two a side, while the hull is wide enough for them.
+  let a = h.a0 + 2.0;
+  lamps.push([h.a0 + 1.2, 0]);
+  for (let k = 0; k < 2; k++) {
+    const a1 = a + BERTH;
+    if (a1 > h.a1 - 1 || room(a, a1) < PASSAGE + 1.6 || !clearOfMasts(a, a1)) break;
+    for (const s of [1, -1]) {
+      const w = room(a, a1);
+      // Its walls: across the hull at each end, and along the passage, its door at the aft end.
+      for (const e of k === 0 ? [a, a1] : [a1]) walls.push({ a0: e - 0.03, a1: e + 0.03, b0: Math.min(s * PASSAGE, s * (w + 0.1)), b1: Math.max(s * PASSAGE, s * (w + 0.1)) });
+      walls.push({ a0: a + 0.15 + BERTH_DOOR, a1, b0: s * PASSAGE - 0.03, b1: s * PASSAGE + 0.03 });
+      if (k === 0) walls.push({ a0: a, a1: a + 0.15, b0: s * PASSAGE - 0.03, b1: s * PASSAGE + 0.03 });
+      put('bed', a1 - 0.1 - 0.95, s * (w - 0.42), 1.9, 0.8, 0.5);
+      if (w - 0.82 - PASSAGE > 1.0) put('chest', a1 - 0.4, s * (PASSAGE + 0.3), 0.5, 0.45, 0.45);
+    }
+    lamps.push([a + BERTH / 2, 0]);
+    a = a1;
+  }
+  // The cargo, forward: crates and barrels along both sides, a row or two, the middle kept free.
+  a += 0.4;
+  let lampAt = a + 1.5;
+  while (a < h.a1 - 0.8) {
+    const crate = r.chance(0.55), w = crate ? 0.8 : 0.6, a1 = a + w;
+    if (!clearOfMasts(a, a1) || a1 > h.a1 - 0.2) { a += 0.3; continue; }
+    for (const s of [1, -1]) {
+      const kind = r.chance(0.5) === crate ? 'chest' : 'barrel', d = kind === 'chest' ? 0.8 : 0.6, tall = kind === 'chest' ? 0.75 : 0.85;
+      let b = room(a, a1) - d / 2 - 0.05;
+      for (let row = 0; row < 2 && b - d / 2 >= 0.95; row++) {
+        if (row === 1 && r.chance(0.4)) break;
+        put(kind, a + w / 2, s * b, w, d, tall);
+        b -= d + 0.08;
+      }
+    }
+    if (a > lampAt) { lamps.push([a, 0]); lampAt = a + 3.5; }
+    a = a1 + 0.12;
+  }
+  return out;
+}
+
 /** The deck's floor at `a` along the ship: a castle's or the main deck. */
 function deckAt(p: ShipPlan, a: number): number {
   for (const c of [p.aft, p.fore]) if (c && a >= c.a0 - 1e-6 && a <= c.a1 + 1e-6) return c.y;
@@ -194,12 +316,17 @@ export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number
   const t = (a / p.length) * 2, f = deckAt(p, a), w = Math.max(hullHalf(p, a, f), hullHalf(p, Math.sign(a) * Math.max(0, Math.abs(a) - r), f));
   // In a castle's cabin, or at its front from the main deck: through its doorway only.
   for (const c of [p.aft, p.fore]) if (c && y > p.deckY - 0.5 && y < c.y - 0.5 && a + r > c.a0 && a - r < c.a1) return cabinWall(p, c, a, b, r, y);
+  // On the lower deck, inside the hull.
+  if (p.hold && y > p.hold.y - 0.5 && y < p.deckY - 0.5 && Math.abs(b) < holdHalf(p, a)) return holdWall(p, a, b, r, y);
   if (y < f - 0.5) {
     // Below the deck: the hull itself, as wide as it is up at the head (it flares out from the keel to the deck).
     const mid = Math.min(f - 0.1, y + 1.7), wm = Math.max(hullHalf(p, a, mid), hullHalf(p, Math.sign(a) * Math.max(0, Math.abs(a) - r), mid));
     return wm > 0 && Math.abs(b) < wm + r && y + 1.7 > keelAt(p, Math.max(-1, Math.min(1, t)));
   }
   for (const m of p.masts) if (y + 1 > m.foot && Math.hypot(a - m.a, b) < r + (p.kind === 'ship' ? 0.26 : 0.1)) return true;
+  // The rail round the companionway's open hatch, on all but its fore side (where its ladder goes down).
+  const cw = p.companion;
+  if (cw && y < p.deckY + 0.9 && y > p.deckY - 0.3) for (const [a0, a1, b0, b1] of companionRails(cw)) if (a + r > a0 && a - r < a1 && b + r > b0 && b - r < b1) return true;
   // Over the rail (jumped): clear of it.
   if (Math.abs(t) < 1 && y > sheerAt(p, t) + 0.05) return false;
   // The transom across the stern, above its deck.
@@ -221,9 +348,21 @@ function cabinWall(p: ShipPlan, c: Castle, a: number, b: number, r: number, y: n
   if (a - r < -p.length / 2 + 0.12) return true;
   if (Math.abs(b) > Math.min(cabinHalf(p, a - r), cabinHalf(p, a), cabinHalf(p, a + r)) - r) return true;
   for (const f of shipFixtures(p)) {
-    if (y > p.deckY + f.h - 0.1) continue;
+    if (f.storey !== 0 || y > p.deckY + f.h - 0.1) continue;
     if (Math.abs(a - f.a) < f.w / 2 + r && Math.abs(b - f.b) < f.d / 2 + r) return true;
   }
+  return false;
+}
+
+/** The lower deck to a body of radius `r` at (a, b), its feet at `y`: the hull's sides, its ends, the masts going down to the keel, the cabins' walls and what stands there. */
+function holdWall(p: ShipPlan, a: number, b: number, r: number, y: number): boolean {
+  const h = p.hold!;
+  if (a - r < h.a0 || a + r > h.a1) return true;
+  if (Math.abs(b) > Math.min(holdHalf(p, a - r), holdHalf(p, a), holdHalf(p, a + r)) - r) return true;
+  for (const m of p.masts) if (m.foot === p.deckY && Math.hypot(a - m.a, b) < r + 0.26) return true;
+  const H = shipHold(p);
+  for (const w of H.walls) if (a + r > w.a0 && a - r < w.a1 && b + r > w.b0 && b - r < w.b1) return true;
+  for (const f of H.fixtures) if (y < h.y + f.h - 0.1 && Math.abs(a - f.a) < f.w / 2 + r && Math.abs(b - f.b) < f.d / 2 + r) return true;
   return false;
 }
 
@@ -313,23 +452,33 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     const cap = [[a0, s0 + 0.06, side * (w0 + INNER + 0.04)], [a1, s1 + 0.06, side * (w1 + INNER + 0.04)], [a1, s1 + 0.06, side * (w1 - 0.04)], [a0, s0 + 0.06, side * (w0 - 0.04)]];
     o.quad(cap, [0, 1, 0], cap.map((v) => [v[0], v[2]]), BuildingMat.Oak, DECK_DARK);
   }
-  // Decks: the main deck between the castles (round the hatch), the castles' decks over them.
-  const deckStrip = (a0: number, a1: number, fy: number, hole?: { a0: number; a1: number; half: number }, down = false) => {
-    const n = Math.max(1, Math.ceil((a1 - a0) / 1.2));
-    for (let i = 0; i < n; i++) {
-      const b0 = a0 + ((a1 - a0) * i) / n, b1 = a0 + ((a1 - a0) * (i + 1)) / n;
-      const w0 = Math.max(0, hullHalf(p, b0, fy) - INNER), w1 = Math.max(0, hullHalf(p, b1, fy) - INNER);
+  // Decks: the main deck between the castles (round the hatch and the companionway), the castles' decks over them.
+  const deckStrip = (a0: number, a1: number, fy: number, holes: readonly Hole[] = [], down = false, ww = fy) => {
+    const n = Math.max(1, Math.ceil((a1 - a0) / 1.2)), cuts = new Set<number>();
+    for (let i = 0; i <= n; i++) cuts.add(a0 + ((a1 - a0) * i) / n);
+    for (const h of holes) for (const e of [h.a0, h.a1]) if (e > a0 && e < a1) cuts.add(e);
+    const at = [...cuts].sort((q, w) => q - w);
+    for (let i = 0; i + 1 < at.length; i++) {
+      const b0 = at[i], b1 = at[i + 1];
+      const w0 = Math.max(0, hullHalf(p, b0, ww) - INNER), w1 = Math.max(0, hullHalf(p, b1, ww) - INNER);
       if (w0 + w1 < 0.1) continue;
       const strip = (z0a: number, z0b: number, z1a: number, z1b: number) => {
+        if (z1a - z0a < 1e-3 && z1b - z0b < 1e-3) return;
         const q = [[b0, fy, z0a], [b1, fy, z0b], [b1, fy, z1b], [b0, fy, z1a]];
         o.quad(q, [0, down ? -1 : 1, 0], q.map((v) => [v[0], v[2]]), BuildingMat.Oak, down ? DECK_DARK : DECK);
       };
-      if (hole && b1 > hole.a0 && b0 < hole.a1) { strip(-w0, -w1, -hole.half, -hole.half); strip(hole.half, hole.half, w0, w1); }
-      else strip(-w0, -w1, w0, w1);
+      // Across it, the deck less the holes over this stretch (each from b0 to b1).
+      const gaps = holes.filter((h) => h.a0 <= b0 + 1e-6 && h.a1 >= b1 - 1e-6).sort((q, w) => q.b0 - w.b0);
+      let fromA = -w0, fromB = -w1;
+      for (const g of gaps) { strip(fromA, fromB, Math.max(fromA, g.b0), Math.max(fromB, g.b0)); fromA = Math.min(w0, g.b1); fromB = Math.min(w1, g.b1); }
+      strip(fromA, fromB, w0, w1);
     }
   };
   const mainA0 = p.aft ? p.aft.a1 : -half, mainA1 = p.fore ? p.fore.a0 : half;
-  deckStrip(mainA0, mainA1, p.deckY, p.hatch ?? undefined);
+  const holes: Hole[] = [];
+  if (p.hatch) holes.push({ a0: p.hatch.a0, a1: p.hatch.a1, b0: -p.hatch.half, b1: p.hatch.half });
+  if (p.companion) holes.push(p.companion);
+  deckStrip(mainA0, mainA1, p.deckY, holes);
   const ladders = shipLadders(p), outsCabins: Out[] = [];
   for (const c of [p.aft, p.fore]) if (c) {
     deckStrip(c.a0 + 0.05, c.a1, c.y);
@@ -348,9 +497,23 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     if (detail) cabin(o, p, c, x, z, ux, uz, y, origin, outsCabins);
     // A rail along the castle's front edge, and a ladder up beside the door.
     for (const s of [1, -1]) beam(o, [face, c.y + 0.9, s * (door + 0.9)], [face, c.y + 0.9, s * (w - 0.05)], 0.04, DECK_DARK);
-    if (detail) ladder(o, ladders[c === p.aft ? 0 : ladders.length - 1]);
+    if (detail) ladder(o, ladders[c === p.aft ? 0 : 1]);
     // Its underside: the cabin's ceiling below it.
-    deckStrip(c.a0 + 0.05, c.a1, c.y - 0.08, undefined, true);
+    deckStrip(c.a0 + 0.05, c.a1, c.y - 0.08, [], true);
+  }
+  // The lower deck under the main deck, its ceiling the main deck's underside; the companionway down to it.
+  if (detail && p.hold) {
+    deckStrip(mainA0, mainA1, p.deckY - 0.06, holes, true, p.deckY);
+    lowerDeck(o, p, x, z, ux, uz, y, origin, outsCabins);
+  }
+  if (detail && p.companion) {
+    const cw = p.companion, ry = p.deckY + 0.9;
+    for (const [a0, a1, b0, b1] of companionRails(cw)) {
+      o.box(a0, a1, p.deckY, p.deckY + 0.12, b0, b1, BuildingMat.Oak, DECK_DARK);
+      o.box(a0, a1, ry - 0.05, ry, b0, b1, BuildingMat.Oak, DECK_DARK, true);
+    }
+    for (const [pa, pb] of [[cw.a0, cw.b0], [cw.a0, cw.b1], [cw.a1, cw.b0], [cw.a1, cw.b1]]) o.box(pa - 0.04, pa + 0.04, p.deckY, ry, pb - 0.04, pb + 0.04, BuildingMat.Oak, DECK_DARK);
+    ladder(o, ladders[2]);
   }
   // The stern: cabin windows across the transom, a lantern over it.
   if (p.aft) {
@@ -396,7 +559,7 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
   const outs = [o, ...outsCabins];
   for (const [mi, m] of p.masts.entries()) {
     const R = (p.kind === 'ship' ? 0.24 : 0.08) * (mi === 0 ? 1 : 0.85);
-    beam(o, [m.a, m.foot - 0.2, 0], [m.a, m.top, 0], R, DECK_DARK);
+    beam(o, [m.a, (p.hold && m.foot === p.deckY ? p.hold.y : m.foot) - 0.2, 0], [m.a, m.top, 0], R, DECK_DARK);
     // The main mast's top: a round platform for the lookout.
     if (mi === 0 && p.kind === 'ship') {
       const ty = m.yards[0].y + 1.2;
@@ -499,6 +662,50 @@ function cabin(o: Out, p: ShipPlan, c: Castle, x: number, z: number, ux: number,
   const la = (c.a0 + c.a1) / 2 + (aft ? 0.6 : -0.6);
   beam(o, [la, ceil, 0], [la, ceil - 0.35, 0], 0.012, IRON, BuildingMat.Slate);
   o.box(la - 0.09, la + 0.09, ceil - 0.62, ceil - 0.35, -0.09, 0.09, BuildingMat.Glass, [238, 196, 120], true);
+  outs.push(fx);
+}
+
+/** The companionway's rails (a0, a1, b0, b1): aft of it and along both its sides. */
+function companionRails(cw: Hole): [number, number, number, number][] {
+  return [[cw.a0 - 0.05, cw.a0, cw.b0 - 0.05, cw.b1 + 0.05], [cw.a0, cw.a1, cw.b0 - 0.05, cw.b0], [cw.a0, cw.a1, cw.b1, cw.b1 + 0.05]];
+}
+
+/** An opening in a deck: a0..a1 along, b0..b1 across. */
+interface Hole { a0: number; a1: number; b0: number; b1: number }
+
+/**
+ * The lower deck: its floor, the hull planked inside, its ends, the beams under the main deck, the cabins' walls, what
+ * stands on it (shipHold) and its lanterns. The fixtures go in an Out of their own, from its floor up.
+ */
+function lowerDeck(o: Out, p: ShipPlan, x: number, z: number, ux: number, uz: number, y: number, origin: [number, number, number], outs: Out[]): void {
+  const h = p.hold!, top = p.deckY - 0.06, n = Math.max(2, Math.ceil((h.a1 - h.a0) / 0.8));
+  const w = (a: number, hh: number) => Math.max(0, hullHalf(p, a, hh) - INNER);
+  const bands = [h.y, h.y + (top - h.y) / 3, h.y + (2 * (top - h.y)) / 3, top];
+  for (let i = 0; i < n; i++) {
+    const b0 = h.a0 + ((h.a1 - h.a0) * i) / n, b1 = h.a0 + ((h.a1 - h.a0) * (i + 1)) / n;
+    const fl = [[b0, h.y, -w(b0, h.y)], [b1, h.y, -w(b1, h.y)], [b1, h.y, w(b1, h.y)], [b0, h.y, w(b0, h.y)]];
+    o.quad(fl, [0, 1, 0], fl.map((v) => [v[0], v[2]]), BuildingMat.Oak, DECK);
+    for (const side of [1, -1]) for (let k = 0; k < 3; k++) {
+      const h0 = bands[k], h1 = bands[k + 1];
+      const q = [[b0, h0, side * w(b0, h0)], [b1, h0, side * w(b1, h0)], [b1, h1, side * w(b1, h1)], [b0, h1, side * w(b0, h1)]];
+      o.quad(q, [0, 0, -side], q.map((v) => [v[0], v[1]]), BuildingMat.Oak, DECK_DARK);
+    }
+  }
+  // Its ends: the bulkheads fore and aft.
+  for (const [a, dir] of [[h.a0, 1], [h.a1, -1]] as const) {
+    const q = [[a, h.y, -w(a, h.y)], [a, h.y, w(a, h.y)], [a, top, w(a, top)], [a, top, -w(a, top)]];
+    o.quad(q, [dir, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK);
+  }
+  // The beams under the main deck, across it.
+  for (let a = h.a0 + 0.55; a < h.a1 - 0.2; a += 1.1) o.box(a - 0.08, a + 0.08, top - 0.16, top, -w(a, top), w(a, top), BuildingMat.Oak, DECK_DARK, true);
+  const H = shipHold(p);
+  for (const wl of H.walls) o.box(wl.a0, wl.a1, h.y, top, wl.b0, wl.b1, BuildingMat.Oak, DECK, true);
+  const fx = new Out(new Frame({ cx: x, cz: z, ux, uz, vx: -uz, vz: ux, y: y + h.y }, origin));
+  for (const f of H.fixtures) drawFixture(fx, f, top - h.y);
+  for (const [la, lb] of H.lamps) {
+    beam(o, [la, top - 0.16, lb], [la, top - 0.45, lb], 0.012, IRON, BuildingMat.Slate);
+    o.box(la - 0.09, la + 0.09, top - 0.72, top - 0.45, lb - 0.09, lb + 0.09, BuildingMat.Glass, [238, 196, 120], true);
+  }
   outs.push(fx);
 }
 
