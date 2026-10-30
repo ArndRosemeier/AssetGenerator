@@ -290,7 +290,7 @@ const clay: Gen = (t) => {
 };
 
 /**
- * Karst: limestone pavement. Pale grey blocks (clints) between deep joints (grikes) that run in two sets, nearly
+ * Karst: limestone pavement. Weathered grey blocks (clints) between deep joints (grikes) that run in two sets, nearly
  * straight, with moss and ferns down in them; the blocks' tops fluted and pitted by rain.
  */
 const limestone: Gen = (t) => {
@@ -306,7 +306,10 @@ const limestone: Gen = (t) => {
     const pit = n2.ridged(u, v, 0.08, 3) * 0.004 + n1.fbm(u, v, 0.35, 3) * 0.008;
     const tone = 0.92 + n3.fbm(u, v, 0.5, 3) * 0.14 + (rnd(6104, idx) - 0.5) * 0.1;
     const moss = grike * smooth(-0.1, 0.3, n1.fbm(u + 0.4, v, 0.7, 3));
-    let r = 0.66 * tone, g = 0.65 * tone, bl = 0.61 * tone;
+    // Weathered limestone is a mid grey (about 0.4), darkened in patches by lichen and rain; fresh white stone
+    // (0.65) read as snow from afar.
+    const weather = smooth(-0.1, 0.45, n1.fbm(u + 0.9, v, 1.1, 3)) * 0.22;
+    let r = 0.43 * tone * (1 - weather), g = 0.42 * tone * (1 - weather), bl = 0.39 * tone * (1 - weather);
     r = mix(r, 0.08, grike * 0.85); g = mix(g, 0.08, grike * 0.85); bl = mix(bl, 0.07, grike * 0.85);
     r = mix(r, 0.16, moss * 0.6); g = mix(g, 0.24, moss * 0.6); bl = mix(bl, 0.08, moss * 0.6);
     t.set(idx, r, g, bl, 0.8 + grike * 0.15, pit - grike * 0.05);
