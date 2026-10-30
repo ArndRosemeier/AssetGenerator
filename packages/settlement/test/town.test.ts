@@ -57,6 +57,38 @@ test('settlement: nothing is built in the water, and a mill stands by it', () =>
   assert.ok(mills >= 2, `mills in ${mills} of 4 towns`);
 });
 
+test('settlement: a narrow brook between the rays: edge, wall, towers, gates, plots and fixtures all keep dry', () => {
+  // A 2.4 m brook winding across the site a little off the middle: the outline's rays step over such water, and the
+  // wall stands outside the edge, so both used to cross it (a capital's gate tower and wall stood in a brook).
+  const brookZ = (x: number) => -500 + 70 + 25 * Math.sin((x - 1000) / 40);
+  const water = (x: number, z: number) => (Math.abs(z - brookZ(x)) < 1.2 ? 0.5 : 0);
+  const wet = (x: number, z: number) => water(x, z) > 0;
+  const near = (x: number, z: number, r: number) => [0, 1, 2, 3, 4, 5, 6, 7].some((a) => wet(x + Math.cos(a * Math.PI / 4) * r, z + Math.sin(a * Math.PI / 4) * r)) || wet(x, z);
+  const along = (p: number[], visit: (x: number, z: number) => void) => {
+    const n = p.length >> 1;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, k = Math.ceil(Math.hypot(p[j * 2] - p[i * 2], p[j * 2 + 1] - p[i * 2 + 1]) / 0.5);
+      for (let s = 0; s < k; s++) visit(p[i * 2] + ((p[j * 2] - p[i * 2]) * s) / k, p[i * 2 + 1] + ((p[j * 2 + 1] - p[i * 2 + 1]) * s) / k);
+    }
+  };
+  for (const [seed, size] of [[3, 'capital'], [4, 'capital'], [1, 'town'], [2, 'village']] as const) {
+    const t = planTown({ ...site(seed), size, water });
+    const tag = `seed ${seed} ${size}`;
+    for (const b of t.buildings) along(b.poly, (x, z) => assert.ok(!wet(x, z), `${tag}: ${b.kind} ${b.id} in the brook`));
+    for (const f of t.fixtures) assert.ok(!near(f.x, f.z, 1.5), `${tag}: ${f.kind} ${f.id} in the brook`);
+    // The town lies on one bank: its market's side.
+    const side = Math.sign(t.centre[1] - brookZ(t.centre[0]));
+    for (const b of t.buildings) if (!t.farms.some((f) => f.house === b.id || f.barn === b.id || f.stable === b.id)) assert.equal(Math.sign(b.cz - brookZ(b.cx)), side, `${tag}: ${b.kind} ${b.id} across the brook`);
+    const w = t.wall;
+    if (size !== 'capital') continue;
+    assert.ok(w && w.gates.length >= 3, `${tag}: a wall with gates`);
+    along(w.ring, (x, z) => assert.ok(!near(x, z, w.thick / 2), `${tag}: the wall in the brook at ${x.toFixed(0)},${z.toFixed(0)}`));
+    for (const tw of w.towers) assert.ok(!near(tw.x, tw.z, w.towerHalf), `${tag}: a tower in the brook`);
+    for (const g of w.gates) assert.ok(!near(g.x, g.z, g.half), `${tag}: a gate in the brook`);
+    assert.ok(t.buildings.length > 250, `${tag}: still a capital (${t.buildings.length} buildings)`);
+  }
+});
+
 test('settlement: one planner makes every size, from a hamlet round its green to a capital', () => {
   const kinds = (size: SettlementSize, seed: number) => {
     const t = planTown({ ...site(seed), size });

@@ -16,6 +16,7 @@ import { perimeterLots, type Lot, type LotRules } from './lots';
 import { organicCuts } from './streets';
 import { townWall, type TownWall, type WallRules } from './walls';
 import { fixtureClear } from './fixtures';
+import { edgeWet, polyWet, wetNear } from './wet';
 import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
 /** How big a settlement is: an inn and a stable by the road (a waystation), a few farms round a green, a village with its temple and inn, a market town, a capital. */
@@ -328,8 +329,10 @@ export function planTown(site: TownSite): TownPlan {
 
   // 3. The outline: round, but grown along the roads, and stopping short of water.
   const outline = townOutline(new Noise(deriveSeed(seed, 'outline')), cx, cz, R, dirs, wet, site.height);
-  // A capital's wall, a little outside its edge, a gate on each road.
-  const wall = S.wall ? townWall(outline, roads, S.wall, ROAD_W, site.height) : undefined;
+  // A capital's wall, a little outside its edge, a gate on each road. Edge, wall, towers and gates stand dry: where a
+  // brook between two rays still crosses them, the town draws back from it (it is built on one bank).
+  const rules = S.wall;
+  const wall = keepDry(outline, cx, cz, wet, rules ? (o) => townWall(o, roads, rules, ROAD_W, site.height) : null, rules?.out) ?? undefined;
 
   // 4. The ground between: the outline less roads, market and edge track, split by lanes.
   const streets: TownStreet[] = roads.map((pts) => ({ kind: 'road' as const, pts, width: ROAD_W }));
@@ -357,7 +360,7 @@ export function planTown(site: TownSite): TownPlan {
   const buildings: TownBuilding[] = [];
   const fixtures: Fixture[] = [];
   const fix = (kind: FixtureKind, x: number, z: number, yaw: number, building = -1) => {
-    if (wet(x, z)) return;
+    if (wetNear(wet, x, z, FIXTURE_REACH)) return;
     for (const b of buildings) if (pointInPoly(b.poly, x, z)) return;
     // It and its users keep off the walls (a drinker at the inn's table stood in its front wall): moved off the
     // nearest wall as little as will do, else left out.
@@ -374,7 +377,7 @@ export function planTown(site: TownSite): TownPlan {
         const c = Math.cos(turn), s = Math.sin(turn);
         f.x = x + (ox * c - oz * s) * d;
         f.z = z + (ox * s + oz * c) * d;
-        if (wet(f.x, f.z) || !fixtureClear(f, polys, pointInPoly, distToPoly)) continue;
+        if (wetNear(wet, f.x, f.z, FIXTURE_REACH) || !fixtureClear(f, polys, pointInPoly, distToPoly)) continue;
         fixtures.push(f);
         return;
       }
@@ -411,7 +414,7 @@ export function planTown(site: TownSite): TownPlan {
   const lotRng = rng.fork('lots');
   for (const blk of plots) {
     const { lots: ls, yards: ys } = perimeterLots(blk, zoneRules(dist(...polyCentroid(blk.outer))), lotRng);
-    for (const l of ls) if (!lotWet(l.poly, wet)) lots.push(l);
+    for (const l of ls) if (!polyWet(l.poly, wet)) lots.push(l);
     yards.push(...ys);
   }
 
@@ -889,10 +892,52 @@ function groundUnder(poly: Poly, height: (x: number, z: number) => number): { lo
   return { lo, hi };
 }
 
-function lotWet(p: Poly, wet: (x: number, z: number) => boolean): boolean {
-  for (let i = 0; i < p.length; i += 2) if (wet(p[i], p[i + 1])) return true;
-  const [x, z] = polyCentroid(p);
-  return wet(x, z);
+/** A fixture keeps this far from water (m): a stall's legs and awning, a bench's seat. */
+const FIXTURE_REACH = 1.8;
+
+/** How far (m) the edge draws back from water it crosses, and a wall beyond it (its `out` added) from water under it. */
+const DRY_BACK = 8;
+/** Rounds of drawing back before the town is taken as it stands. */
+const DRY_ROUNDS = 16;
+
+/**
+ * Keeps a town's edge, and its wall if it has one (`build` makes it from the edge), off the water: the outline's rays
+ * stop at the first water they meet, but a brook can still run between two rays' ends across the edge, or under the
+ * wall that stands outside it. Wherever one does, the points of the outline round that way are drawn back short of the
+ * water, and the wall (`out` m outside the edge) built anew, until both are dry. Changes `outline` in place (each point moved towards the middle,
+ * so it stays counter-clockwise); returns the wall (null without one).
+ */
+function keepDry<W extends TownWall>(outline: Poly, cx: number, cz: number, wet: (x: number, z: number) => boolean, build: ((o: Poly) => W) | null, out = 0): W | null {
+  let wall = build ? build(outline) : null;
+  for (let round = 0; round < DRY_ROUNDS; round++) {
+    const spots: { x: number; z: number; back: number }[] = [];
+    const e = edgeWet(outline, wet);
+    if (e) spots.push({ x: e[0], z: e[1], back: DRY_BACK });
+    if (wall) {
+      const R = wall.ring;
+      for (let i = 0; i < R.length; i += 2) if (wetNear(wet, R[i], R[i + 1], wall.thick / 2 + 1)) { spots.push({ x: R[i], z: R[i + 1], back: out + DRY_BACK }); break; }
+      for (const t of wall.towers) if (wetNear(wet, t.x, t.z, wall.towerHalf * 1.5)) { spots.push({ x: t.x, z: t.z, back: out + wall.towerHalf + DRY_BACK }); break; }
+      for (const g of wall.gates) if (wetNear(wet, g.x, g.z, g.half)) { spots.push({ x: g.x, z: g.z, back: out + DRY_BACK }); break; }
+    }
+    if (!spots.length) break;
+    for (const s of spots) drawBack(outline, cx, cz, s.x, s.z, s.back);
+    if (build) wall = build(outline);
+  }
+  return wall;
+}
+
+/** Draws the outline's points round the way of (x, z) back to `back` m short of it (no nearer the middle than 20 m). */
+function drawBack(outline: Poly, cx: number, cz: number, x: number, z: number, back: number): void {
+  const d = Math.hypot(x - cx, z - cz), a = Math.atan2(z - cz, x - cx);
+  // The rays within a stretch about 30 m either side of the spot, and at least the spot's two neighbours.
+  const width = Math.max((2 * Math.PI) / 32, Math.atan2(30, Math.max(d, 1)));
+  const to = Math.max(20, d - back);
+  for (let i = 0; i < outline.length; i += 2) {
+    const px = outline[i] - cx, pz = outline[i + 1] - cz, r = Math.hypot(px, pz);
+    if (r <= to || Math.abs(angleDiff(Math.atan2(pz, px), a)) > width) continue;
+    outline[i] = cx + (px / r) * to;
+    outline[i + 1] = cz + (pz / r) * to;
+  }
 }
 
 function waterNear(b: TownBuilding, wet: (x: number, z: number) => boolean, reach: number): boolean {

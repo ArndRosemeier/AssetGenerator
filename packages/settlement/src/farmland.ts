@@ -11,6 +11,7 @@
 import { Noise, type Rng, deriveSeed, seatHeight } from '@futuremagic/core';
 import { difference, intersection, offset, shapeArea, shapesToPolys, strokePolylines } from './clip';
 import { closestOnPolyline, ensureCCW, minAreaRect, pointInPoly, polyBounds, polyCentroid, type Poly } from './geom2';
+import { edgeWet, polyWet } from './wet';
 import { organicCuts } from './streets';
 import { HOUSE_SCALE, makeBuilding, rect, tooSteep, type FixtureKind, type TownBuilding, type TownSite, type TownStreet } from './town';
 
@@ -399,6 +400,7 @@ function farmFits(l: FarmLay, input: FarmlandInput, town: Poly[], inEdge: (x: nu
     const w = streetStrokes(st), by = near(w.polys, w.bounds, fb);
     if (by.length && intersection([f], by).length) return false;
   }
+  if (edgeWet(f, input.wet)) return false;
   const [x0, z0, x1, z1] = fb;
   let lo = Infinity, hi = -Infinity;
   for (let i = 0; i <= 4; i++) for (let j = 0; j <= 4; j++) {
@@ -558,11 +560,6 @@ function waterNear(p: Poly, wet: (x: number, z: number) => boolean, reach: numbe
   return false;
 }
 
-function polyWet(p: Poly, wet: (x: number, z: number) => boolean): boolean {
-  for (let i = 0; i < p.length; i += 2) if (wet(p[i], p[i + 1])) return true;
-  const [x, z] = polyCentroid(p);
-  return wet(x, z);
-}
 
 /** Too steep to plough (it is left as meadow): the ground rises more than 1 in 5 across the strip. */
 function steep(p: Poly, height: (x: number, z: number) => number): boolean {
