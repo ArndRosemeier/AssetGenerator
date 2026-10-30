@@ -264,26 +264,33 @@ const heather: Gen = (t) => {
 };
 
 /**
- * Badlands: bare clay crusted by the sun, scored by little rills that run down it side by side, a few stones washed
+ * Badlands: bare clay crusted by the sun, cracked into polygons and crazed into small lumps, a few stones washed
  * out on top. Pale and nearly grey: the land's bands of colour are laid over it by height (the terrain shader).
  */
 const clay: Gen = (t) => {
   const W = t.W;
   const n1 = new TNoise(6001, W), n2 = new TNoise(6002, W), n3 = new TNoise(6003, W);
-  const rills = Math.round(W / 0.22);
+  const big = newCell(), small = newCell();
+  // Weathered mudstone dries into a crust: polygons about 0.8 m across with open cracks between them, each crazed
+  // into small swollen lumps ("popcorn") a few centimetres across. No direction to it: it lies on any slope.
+  const bf = Math.max(2, Math.round(W / 0.8)), sf = Math.max(2, Math.round(W / 0.07));
   t.each((u, v, _x, _y, idx) => {
-    const wu = u + n1.fbm(u, v, 1.2, 3) * 0.06 + n2.fbm(u, v, 0.4, 2) * 0.012;
-    const rill = Math.pow(Math.abs(Math.sin(wu * Math.PI * rills)), 0.35);
+    const wu = u + n1.fbm(u, v, 1.2, 3) * (0.3 / bf), wv = v + n1.fbm(u + 0.5, v, 1.2, 3) * (0.3 / bf);
+    worley(6007, wu * bf, wv * bf, bf, bf, 0.9, big);
+    worley(6008, u * sf, v * sf, sf, sf, 0.9, small);
+    const crack = 1 - smooth(0.0, 0.04, (big.f2 - big.f1) * (W / bf));
+    const seam = 1 - smooth(0.0, 0.2, small.f2 - small.f1);
+    const lump = Math.sqrt(Math.max(0, 1 - small.f1 * small.f1 * 1.6));
     const deep = smooth(-0.2, 0.4, n3.fbm(u, v, 0.8, 3));
-    const h = rill * 0.012 * (0.4 + deep) + n2.fbm(u, v, 0.15, 3) * 0.006 + (rnd(6004, idx) - 0.5) * 0.001;
-    const k = (0.92 + n1.fbm(u, v, 0.6, 3) * 0.16 + (rnd(6005, idx) - 0.5) * 0.08) * (0.82 + 0.18 * rill);
+    const h = lump * 0.006 - seam * 0.002 - crack * 0.02 + n2.fbm(u, v, 0.15, 3) * 0.006 + (rnd(6004, idx) - 0.5) * 0.001;
+    const k = (0.92 + n1.fbm(u, v, 0.6, 3) * 0.16 + (rnd(6009, big.id) - 0.5) * 0.1 + (rnd(6005, idx) - 0.5) * 0.06) * (1 - crack * 0.45 - seam * 0.06) * (0.94 + 0.06 * deep);
     t.set(idx, 0.70 * k, 0.62 * k, 0.54 * k, 0.93, h);
   });
   pebbles(t, 6006, { count: 0.06, rMin: 0.01, rMax: 0.04, height: 0.5, palette: [rgb(150, 136, 118), rgb(110, 100, 90), rgb(170, 150, 120)], fines: rgb(0, 0, 0), finesH: 0, bed: false });
 };
 
 /**
- * Karst: limestone pavement. Pale grey blocks (clints) between deep joints (grikes) that run in two sets, nearly
+ * Karst: limestone pavement. Weathered grey blocks (clints) between deep joints (grikes) that run in two sets, nearly
  * straight, with moss and ferns down in them; the blocks' tops fluted and pitted by rain.
  */
 const limestone: Gen = (t) => {
@@ -299,7 +306,10 @@ const limestone: Gen = (t) => {
     const pit = n2.ridged(u, v, 0.08, 3) * 0.004 + n1.fbm(u, v, 0.35, 3) * 0.008;
     const tone = 0.92 + n3.fbm(u, v, 0.5, 3) * 0.14 + (rnd(6104, idx) - 0.5) * 0.1;
     const moss = grike * smooth(-0.1, 0.3, n1.fbm(u + 0.4, v, 0.7, 3));
-    let r = 0.66 * tone, g = 0.65 * tone, bl = 0.61 * tone;
+    // Weathered limestone is a mid grey (about 0.4), darkened in patches by lichen and rain; fresh white stone
+    // (0.65) read as snow from afar.
+    const weather = smooth(-0.1, 0.45, n1.fbm(u + 0.9, v, 1.1, 3)) * 0.22;
+    let r = 0.43 * tone * (1 - weather), g = 0.42 * tone * (1 - weather), bl = 0.39 * tone * (1 - weather);
     r = mix(r, 0.08, grike * 0.85); g = mix(g, 0.08, grike * 0.85); bl = mix(bl, 0.07, grike * 0.85);
     r = mix(r, 0.16, moss * 0.6); g = mix(g, 0.24, moss * 0.6); bl = mix(bl, 0.08, moss * 0.6);
     t.set(idx, r, g, bl, 0.8 + grike * 0.15, pit - grike * 0.05);
