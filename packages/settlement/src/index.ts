@@ -12,3 +12,4 @@ export * from './walls';
 export * from './fixtures';
 export * from './wayRound';
 export * from './harbour';
+export * from './ship';

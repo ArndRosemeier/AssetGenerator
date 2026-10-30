@@ -3,8 +3,10 @@
  * them. The town planner asks for it when its site names the shore (`TownSite.harbour`); the same planner for every
  * size, a bigger town only gets a longer quay and more piers. Pure.
  */
+import { Rng } from '@futuremagic/core';
 import { ensureCCW, type Poly } from './geom2';
-import { BuildingMat, Frame, Out, type BuildingMesh, type RGB } from './building';
+import { planShip, type ShipPlan } from './ship';
+import { BuildingMat, Frame, Out, mergeOuts, type BuildingMesh, type RGB } from './building';
 
 /** Where a harbour goes: a point on the shore near the town and the way out to sea from it (a unit vector). */
 export interface HarbourSite {
@@ -223,11 +225,44 @@ export function harbourMesh(h: HarbourPlan, height: (x: number, z: number) => nu
       if (detail && k % 2 === 1) for (const b of [-p.half + 0.3, p.half - 0.3]) f.box(a - 0.14, a + 0.14, p.deckY, p.deckY + 0.55, b - 0.14, b + 0.14, BuildingMat.Oak, BOLLARD);
     }
   }
-  const pos: number[] = [], nrm: number[] = [], uv: number[] = [], mat: number[] = [], tint: number[] = [], idx: number[] = [];
-  for (const q of outs) {
-    const base = pos.length / 3;
-    pos.push(...q.pos); nrm.push(...q.nrm); uv.push(...q.uv); mat.push(...q.mat); tint.push(...q.tint);
-    for (const i of q.idx) idx.push(i + base);
+  return mergeOuts(outs);
+}
+
+/** A ship or boat lying in the harbour: its plan, its middle and its heading (a unit vector, bow first). */
+export interface Mooring {
+  plan: ShipPlan;
+  x: number;
+  z: number;
+  ux: number;
+  uz: number;
+}
+
+/**
+ * The ships at the harbour's berths (about two in three taken, each as long as its berth and the water under it
+ * allow) and fishing boats tied along the piers, seeded. Each lies clear of its pier, bow out to sea.
+ */
+export function harbourMoorings(h: HarbourPlan, seed: number): Mooring[] {
+  const r = new Rng(seed * 7919 + 4099), out: Mooring[] = [];
+  for (const [i, b] of h.berths.entries()) {
+    if (!r.chance(0.65)) continue;
+    const p = h.piers[b.pier], ux = Math.cos(b.yaw), uz = Math.sin(b.yaw);
+    // As long as the berth, and no deeper than the water under it (the draft is a ninth of the length).
+    const len = Math.min(b.length, (b.depth - 0.4) / 0.11);
+    if (len < 20) continue;
+    const plan = planShip(seed * 31 + i, 'ship', len);
+    const along = (b.x - p.x0) * ux + (b.z - p.z0) * uz, off = p.half + plan.beam / 2 + 0.6;
+    out.push({ plan, x: p.x0 + ux * along - uz * off * b.side, z: p.z0 + uz * along + ux * off * b.side, ux, uz });
   }
-  return { position: Float32Array.from(pos), normal: Float32Array.from(nrm), uv: Float32Array.from(uv), mat: Uint8Array.from(mat), tint: Uint8Array.from(tint), index: Uint32Array.from(idx) };
+  // Fishing boats tied along the quay's front between the piers, alongside it, bow one way or the other.
+  const n = h.edge.length >> 1;
+  for (let i = 2; i < n - 2; i += 3) {
+    if (!r.chance(0.45)) continue;
+    const ex = h.edge[i * 2], ez = h.edge[i * 2 + 1], ox = h.out[i * 2], oz = h.out[i * 2 + 1];
+    if (h.piers.some((p) => Math.hypot(p.x0 - ex, p.z0 - ez) < 9)) continue;
+    const plan = planShip(seed * 37 + i, 'boat'), dir = r.chance(0.5) ? 1 : -1;
+    const x = ex + ox * (plan.beam / 2 + 0.4), z = ez + oz * (plan.beam / 2 + 0.4);
+    if (out.some((m) => Math.hypot(m.x - x, m.z - z) < (m.plan.length + plan.length) / 2 + 0.5)) continue;
+    out.push({ plan, x, z, ux: -oz * dir, uz: ox * dir });
+  }
+  return out;
 }
