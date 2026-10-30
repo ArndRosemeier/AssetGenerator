@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planShip, shipMesh, shipFloor, hullHalf, shipWall, gangplankMesh, shipLadders } from '../src/index';
+import { planShip, shipMesh, shipFloor, hullHalf, shipWall, gangplankMesh, shipLadders, shipFixtures } from '../src/index';
 
 test('ship: a sailing ship has castles fore and aft, masts with yards, a hatch, and decks to walk on', () => {
   for (const seed of [1, 2, 3, 4]) {
@@ -82,7 +82,7 @@ test('ship: walking its deck: the rail and masts are walls, the gangway open, th
     assert.ok(shipWall(p, 0, 0, r, -1.2) && shipWall(p, 0, w + 0.2, r, -1.2), 'the hull under water');
     assert.ok(!shipWall(p, 0, w + 0.6, r, -1.2) && !shipWall(p, p.length, 0, r, p.deckY), 'clear of it');
     assert.ok(shipWall(p, -p.length / 2 + 0.1, 0, r, p.aft!.y), 'the transom behind the sterncastle');
-    assert.ok(shipWall(p, p.fore!.a0 - r * 0.5, 0, r, p.deckY) && !shipWall(p, p.fore!.a0 - r - 0.05, 0, r, p.deckY), 'the forecastle front, the whole body out of it');
+    assert.ok(shipWall(p, p.fore!.a0 - r * 0.5, 1.2, r, p.deckY) && !shipWall(p, p.fore!.a0 - r - 0.05, 1.2, r, p.deckY), 'the forecastle front, the whole body out of it');
   }
   const plank = gangplankMesh(2.5);
   assert.ok(plank.index.length > 36 && plank.position.every(Number.isFinite));
@@ -105,4 +105,24 @@ test('ship: a ladder up each castle, its foot on the main deck before the castle
     }
   }
   assert.equal(shipLadders(planShip(3, 'boat')).length, 0);
+});
+
+test('ship: the castles\' cabins are walked into through their doors; what stands in them stands inside the hull', () => {
+  for (const L of [21, 26, 33]) {
+    const p = planShip(5, 'ship', L), r = 0.32, y = p.deckY;
+    const things = shipFixtures(p);
+    assert.ok(things.some((f) => f.kind === 'table' && f.a < 0) && things.some((f) => f.kind === 'oven'), 'the captain\'s table, the galley stove');
+    for (const f of things) for (const [da, db] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const a = f.a + (da * f.w) / 2, b = f.b + (db * f.d) / 2;
+      assert.ok(Math.abs(b) < hullHalf(p, a, y + 0.3), `${f.kind} at a ${a.toFixed(2)} b ${b.toFixed(2)} sticks out of the hull`);
+    }
+    for (const c of [p.aft!, p.fore!]) {
+      const face = c === p.aft ? c.a1 : c.a0, dir = c === p.aft ? 1 : -1;
+      // Straight in through the doorway, from a step before it (the foremast stands a little further out) to a metre inside.
+      for (let d = -0.6; d <= 1.0; d += 0.05) assert.ok(!shipWall(p, face - dir * d, 0, r, y), `${L} m: blocked ${d.toFixed(2)} m into the ${c === p.aft ? 'aft' : 'fore'} cabin`);
+      // Beside the doorway the front stops a body; inside, the hull's sides do.
+      assert.ok(shipWall(p, face, 1.2, r, y) && shipWall(p, face, -1.2, r, y));
+      assert.ok(shipWall(p, face - dir * 1, hullHalf(p, face - dir * 1, y), r, y));
+    }
+  }
 });
