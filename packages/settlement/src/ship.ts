@@ -119,6 +119,8 @@ export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number
   for (const m of p.masts) if (y + 1 > m.foot && Math.hypot(a - m.a, b) < r + (p.kind === 'ship' ? 0.26 : 0.1)) return true;
   // Over the rail (jumped): clear of it.
   if (Math.abs(t) < 1 && y > sheerAt(p, t) + 0.05) return false;
+  // The transom across the stern, above its deck.
+  if (a - r < -half && Math.abs(b) < w + r && y < sheerAt(p, -1) + 0.05) return true;
   const g = p.gangway;
   if (gangway && g && a - r * 0.5 >= g.a0 && a + r * 0.5 <= g.a1) return false;
   return Math.abs(b) > w - INNER - r && Math.abs(b) < w + r;
@@ -269,6 +271,9 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     for (const a of [h.a0, h.a1]) o.box(a - 0.1, a + 0.1, p.deckY, cy, -h.half, h.half, BuildingMat.Oak, DECK_DARK);
     const g = [[h.a0, cy - 0.05, -h.half], [h.a1, cy - 0.05, -h.half], [h.a1, cy - 0.05, h.half], [h.a0, cy - 0.05, h.half]];
     o.quad(g, [0, 1, 0], g.map((v) => [v[0] * 3, v[2] * 3]), BuildingMat.Oak, TAR);
+    // Its underside too: the sea under the deck never shows through it.
+    const u = [g[3], g[2], g[1], g[0]];
+    o.quad(u, [0, -1, 0], u.map((v) => [v[0] * 3, v[2] * 3]), BuildingMat.Oak, TAR);
   }
   // The boat's thwarts (its benches) and a rudder; the ship's rudder on the stern post.
   if (p.kind === 'boat') {
