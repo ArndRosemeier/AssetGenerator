@@ -41,12 +41,16 @@ export interface ShipPlan {
   masts: Mast[];
   /** The hatch down to the hold, on the main deck (a0..a1 along, half across); null on a boat. */
   hatch: { a0: number; a1: number; half: number } | null;
+  /** The gangway: an opening in the rail on both sides amidships (a0..a1 along), where a plank comes aboard; null on a boat. */
+  gangway: { a0: number; a1: number } | null;
   /** Hull colours: planking, the painted strake under the rail. */
   hull: RGB;
   strake: RGB;
 }
 
 const SHIP_MIN = 20, SHIP_MAX = 34, BOAT_MIN = 6.5, BOAT_MAX = 9.5;
+/** A ship's hull and rail are drawn in this many panels along its length; the gangway is two of them from this one. */
+const SHIP_PANELS = 28, GANGWAY = 17;
 
 /** A ship (`length` between 20 and 34 m) or a fishing boat (6.5 to 9.5 m), its look from the seed. */
 export function planShip(seed: number, kind: ShipKind, length?: number): ShipPlan {
@@ -69,9 +73,11 @@ export function planShip(seed: number, kind: ShipKind, length?: number): ShipPla
     masts.push({ a: half * 0.25, foot: deckY, top: deckY + L * 0.8, yards: [{ y: deckY + L * 0.72, half: B * 0.75 }] });
   }
   const hatch = kind === 'ship' ? { a0: -half * 0.25, a1: -half * 0.08, half: B * 0.16 } : null;
+  // Two of the rail's panels (the mesh draws it in SHIP_PANELS along the length) forward of the main mast's shrouds.
+  const gangway = kind === 'ship' ? { a0: (-1 + (2 * GANGWAY) / SHIP_PANELS) * half, a1: (-1 + (2 * (GANGWAY + 2)) / SHIP_PANELS) * half } : null;
   const hull = r.pick<RGB>([[92, 66, 44], [78, 58, 42], [104, 78, 52]]);
   const strake = r.pick<RGB>([[120, 42, 34], [36, 58, 92], [44, 76, 52], [160, 128, 60]]);
-  return { kind, seed, length: L, beam: B, draft, deckY, railY, aft, fore, masts, hatch, hull, strake };
+  return { kind, seed, length: L, beam: B, draft, deckY, railY, aft, fore, masts, hatch, gangway, hull, strake };
 }
 
 /** Half the hull's width at `a` along it and `y` over the waterline (0 outside the hull). */
@@ -83,15 +89,43 @@ export function hullHalf(p: ShipPlan, a: number, y: number): number {
   return halfAtDeck(p, t) * section((y - k) / (s - k));
 }
 
-/** The floor at (a, b) on the ship's decks (null: no floor there, over the side or in the hatch). */
+/** The floor at (a, b) on the ship's decks (null: none there, over the side). The hatch's grating is walked over. */
 export function shipFloor(p: ShipPlan, a: number, b: number): number | null {
   for (const c of [p.aft, p.fore]) if (c && a >= c.a0 && a <= c.a1) return Math.abs(b) <= hullHalf(p, a, c.y) - INNER ? c.y : null;
-  if (p.hatch && a >= p.hatch.a0 && a <= p.hatch.a1 && Math.abs(b) <= p.hatch.half) return null;
+  if (p.hatch && a >= p.hatch.a0 && a <= p.hatch.a1 && Math.abs(b) <= p.hatch.half) return p.deckY + GRATING;
   return Math.abs(b) <= hullHalf(p, a, p.deckY) - INNER ? p.deckY : null;
 }
 
-/** The planking's thickness inside the hull (m). */
-const INNER = 0.18;
+/** The deck's floor at `a` along the ship: a castle's or the main deck. */
+function deckAt(p: ShipPlan, a: number): number {
+  for (const c of [p.aft, p.fore]) if (c && a >= c.a0 - 1e-6 && a <= c.a1 + 1e-6) return c.y;
+  return p.deckY;
+}
+
+/**
+ * Whether a body of radius `r` at (a, b), its feet at `y` (all in the ship's frame), touches the ship: its rail and
+ * planking round the deck, its masts, and its hull under the deck (a swimmer goes round it). `gangway`: open there (a
+ * plank laid to it in harbour); at sea it is closed (a bar across it).
+ */
+export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number, gangway = false): boolean {
+  const half = p.length / 2;
+  if (Math.abs(a) > half + r || Math.abs(b) > p.beam / 2 + r) return false;
+  const t = (a / p.length) * 2, f = deckAt(p, a), w = Math.max(hullHalf(p, a, f), hullHalf(p, Math.sign(a) * Math.max(0, Math.abs(a) - r), f));
+  if (y < f - 0.5) {
+    // Below the deck: the hull itself, as wide as it is up at the head (it flares out from the keel to the deck).
+    const mid = Math.min(f - 0.1, y + 1.7), wm = Math.max(hullHalf(p, a, mid), hullHalf(p, Math.sign(a) * Math.max(0, Math.abs(a) - r), mid));
+    return wm > 0 && Math.abs(b) < wm + r && y + 1.7 > keelAt(p, Math.max(-1, Math.min(1, t)));
+  }
+  for (const m of p.masts) if (y + 1 > m.foot && Math.hypot(a - m.a, b) < r + (p.kind === 'ship' ? 0.26 : 0.1)) return true;
+  // Over the rail (jumped): clear of it.
+  if (Math.abs(t) < 1 && y > sheerAt(p, t) + 0.05) return false;
+  const g = p.gangway;
+  if (gangway && g && a - r * 0.5 >= g.a0 && a + r * 0.5 <= g.a1) return false;
+  return Math.abs(b) > w - INNER - r && Math.abs(b) < w + r;
+}
+
+/** The planking's thickness inside the hull (m), and the hatch's grating over the deck. */
+const INNER = 0.18, GRATING = 0.25;
 
 // The hull's lines, in t = a / (length / 2): -1 at the stern's transom, 1 at the stem.
 /** Half the beam at the main deck: full amidships, fine to the stem, a broad transom at the stern. */
@@ -128,15 +162,19 @@ const IRON: RGB = [62, 62, 66], TAR: RGB = [40, 34, 28], GLASS: RGB = [70, 86, 9
  */
 export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: number, y: number, origin: [number, number, number], sails: 'set' | 'furled' = 'furled', detail = true): BuildingMesh {
   const o = new Out(new Frame({ cx: x, cz: z, ux, uz, vx: -uz, vz: ux, y }, origin));
-  const half = p.length / 2, NA = p.kind === 'ship' ? 28 : 16, NU = p.kind === 'ship' ? 9 : 6;
+  const half = p.length / 2, NA = p.kind === 'ship' ? SHIP_PANELS : 16, NU = p.kind === 'ship' ? 9 : 6;
+  const g = p.gangway, port = (i: number) => !!g && ts[i] * half >= g.a0 - 1e-6 && ts[i + 1] * half <= g.a1 + 1e-6;
   const ts = Array.from({ length: NA + 1 }, (_, i) => -1 + (2 * i) / NA);
+  // Where the gangway opens the rail, the hull's skin stops at the deck.
+  const topU = (i: number) => (port(i) ? (p.deckY - keelAt(p, ts[i])) / (sheerAt(p, ts[i]) - keelAt(p, ts[i])) : 1);
   // The hull's skin, port and starboard, in strips from keel to rail; the strake under the rail painted.
   const P = (t: number, u: number, side: number): number[] => {
     const k = keelAt(p, t), s = sheerAt(p, t);
     return [t * half, k + (s - k) * u, side * halfAtDeck(p, t) * section(u)];
   };
   for (const side of [1, -1]) for (let i = 0; i < NA; i++) for (let j = 0; j < NU; j++) {
-    const u0 = j / NU, u1 = (j + 1) / NU;
+    const top = topU(i), u0 = j / NU, u1 = Math.min(top, (j + 1) / NU);
+    if (u0 >= top - 1e-6) continue;
     const q = [P(ts[i], u0, side), P(ts[i + 1], u0, side), P(ts[i + 1], u1, side), P(ts[i], u1, side)];
     const n = faceNormal(q, [0, 0, side]);
     const c = j === NU - 1 ? p.strake : j === NU - 2 && p.kind === 'ship' ? TAR : p.hull;
@@ -154,6 +192,19 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     const s0 = sheerAt(p, ts[i]), s1 = sheerAt(p, ts[i + 1]);
     const w0 = halfAtDeck(p, ts[i]) - INNER, w1 = halfAtDeck(p, ts[i + 1]) - INNER;
     if (w0 <= 0.05 && w1 <= 0.05) continue;
+    if (port(i)) {
+      // The gangway: the deck's edge planked over, the rail's cut ends faced.
+      const e = [[a0, f0, side * w0], [a1, f1, side * w1], [a1, f1, side * (w1 + INNER)], [a0, f0, side * (w0 + INNER)]];
+      o.quad(e, [0, 1, 0], e.map((v) => [v[0], v[2]]), BuildingMat.Oak, DECK_DARK);
+      for (const [k, dir] of [[i, -1], [i + 1, 1]] as const) {
+        const ak = ts[k] * half, sk = sheerAt(p, ts[k]), wk = halfAtDeck(p, ts[k]);
+        const neighbour = dir < 0 ? port(i - 1) : port(i + 1);
+        if (neighbour) continue;
+        const c = [[ak, f0, side * (wk - INNER)], [ak, f0, side * wk], [ak, sk + 0.06, side * wk], [ak, sk + 0.06, side * (wk - INNER)]];
+        o.quad(c, [-dir, 0, 0], c.map((v) => [v[2], v[1]]), BuildingMat.Oak, p.hull);
+      }
+      continue;
+    }
     const q = [[a0, f0, side * w0], [a1, f1, side * w1], [a1, s1, side * w1], [a0, s0, side * w0]];
     o.quad(q, [0, 0, -side], q.map((v) => [v[0], v[1]]), BuildingMat.Oak, p.hull);
     const cap = [[a0, s0 + 0.06, side * (w0 + INNER + 0.04)], [a1, s1 + 0.06, side * (w1 + INNER + 0.04)], [a1, s1 + 0.06, side * (w1 - 0.04)], [a0, s0 + 0.06, side * (w0 - 0.04)]];
@@ -267,6 +318,19 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
   }
   return mergeOuts(outs);
 }
+
+/**
+ * A gangplank `length` long, from its foot at the origin up along +a (its frame: `a` along it, `b` across, `y` up),
+ * its top face at y = 0: planks with cleats across them to tread on. Laid from the quay to a ship's gangway.
+ */
+export function gangplankMesh(length: number): BuildingMesh {
+  const o = new Out(new Frame({ cx: 0, cz: 0, ux: 1, uz: 0, vx: 0, vz: 1, y: 0 }, [0, 0, 0]));
+  o.box(0, length, -0.07, 0, -PLANK, PLANK, BuildingMat.Oak, DECK, true);
+  for (let a = 0.25; a < length - 0.1; a += 0.4) o.box(a - 0.03, a + 0.03, 0, 0.035, -PLANK + 0.04, PLANK - 0.04, BuildingMat.Oak, DECK_DARK);
+  return mergeOuts([o]);
+}
+/** Half a gangplank's width (m). */
+export const PLANK = 0.34;
 
 /** A sail full of wind between its yard (yT, half hT) and the yard or deck below (yB, half hB), bellied forward. */
 function sail(p: ShipPlan, a: number, yT: number, yB: number, hT: number, hB: number, x: number, z: number, ux: number, uz: number, y: number, origin: [number, number, number]): Out {

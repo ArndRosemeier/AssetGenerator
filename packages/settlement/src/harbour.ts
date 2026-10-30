@@ -235,6 +235,9 @@ export interface Mooring {
   z: number;
   ux: number;
   uz: number;
+  /** The side its pier or the quay is on (in its frame: 1 its port side, +b; -1 starboard), and that floor's height. */
+  side: 1 | -1;
+  landY: number;
 }
 
 /**
@@ -251,7 +254,7 @@ export function harbourMoorings(h: HarbourPlan, seed: number): Mooring[] {
     if (len < 20) continue;
     const plan = planShip(seed * 31 + i, 'ship', len);
     const along = (b.x - p.x0) * ux + (b.z - p.z0) * uz, off = p.half + plan.beam / 2 + 0.6;
-    out.push({ plan, x: p.x0 + ux * along - uz * off * b.side, z: p.z0 + uz * along + ux * off * b.side, ux, uz });
+    out.push({ plan, x: p.x0 + ux * along - uz * off * b.side, z: p.z0 + uz * along + ux * off * b.side, ux, uz, side: b.side === 1 ? -1 : 1, landY: p.deckY });
   }
   // Fishing boats tied along the quay's front between the piers, alongside it, bow one way or the other.
   const n = h.edge.length >> 1;
@@ -262,7 +265,7 @@ export function harbourMoorings(h: HarbourPlan, seed: number): Mooring[] {
     const plan = planShip(seed * 37 + i, 'boat'), dir = r.chance(0.5) ? 1 : -1;
     const x = ex + ox * (plan.beam / 2 + 0.4), z = ez + oz * (plan.beam / 2 + 0.4);
     if (out.some((m) => Math.hypot(m.x - x, m.z - z) < (m.plan.length + plan.length) / 2 + 0.5)) continue;
-    out.push({ plan, x, z, ux: -oz * dir, uz: ox * dir });
+    out.push({ plan, x, z, ux: -oz * dir, uz: ox * dir, side: dir === 1 ? 1 : -1, landY: h.quayY });
   }
   return out;
 }
