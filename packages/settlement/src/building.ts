@@ -467,7 +467,10 @@ function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, 
     const y = st.y0;
     if (f > 0 && st.front < S.storeys[f - 1].front) {
       const f0 = S.storeys[f - 1].front, front = st.front;
-      if (detail) for (let a = -hu + 0.3; a < hu - 0.1; a += 0.62) o.box(a - 0.08, a + 0.08, y - 0.18, y, front, f0 + 0.05, BuildingMat.Oak, L.timber, true);
+      // The joists run back to the storey below: to its wall, or to its timber frame's face (over the frame's
+      // head rail their tops would lie in the rail's top and flicker).
+      const back = S.storeys[f - 1].timbered ? f0 - FRAME_D : f0 + 0.05;
+      if (detail) for (let a = -hu + 0.3; a < hu - 0.1; a += 0.62) o.box(a - 0.08, a + 0.08, y - 0.18, y, front, back, BuildingMat.Oak, L.timber, true);
       // The jetty's underside.
       o.quad([[-hu, y - 0.18, front], [hu, y - 0.18, front], [hu, y - 0.18, f0], [-hu, y - 0.18, f0]], [0, -1, 0], [[-hu, front], [hu, front], [hu, f0], [-hu, f0]], BuildingMat.Oak, L.timber);
     }
@@ -649,9 +652,12 @@ function frameBox(o: Out, P: (s: number, t: number, d?: number) => number[], da:
   o.quad([P(s1, t0, 0), P(s1, t1, 0), P(s1, t1, dd), P(s1, t0, dd)], [da, 0, db], [[t0, 0], [t1, 0], [t1, dd], [t0, dd]], m, c);
 }
 
+/** How far timber framing stands out of the plaster, m. */
+const FRAME_D = 0.045;
+
 /** Timber framing over a plastered storey: corner posts, sill and head rails, posts at the openings, braces. */
 function frameWall(o: Out, P: (s: number, t: number, d?: number) => number[], da: number, db: number, na: number, nb: number, len: number, y0: number, y1: number, opens: Opening[], L: Look, r: Rng): void {
-  const w = 0.2, d = 0.045, c = L.timber;
+  const w = 0.2, d = FRAME_D, c = L.timber;
   const box = (s0: number, s1: number, t0: number, t1: number) => frameBox(o, P, da, db, na, nb, s0, s1, t0, t1, d, BuildingMat.Oak, c);
   box(0, len, y0, y0 + w);
   box(0, len, y1 - w, y1);
@@ -689,11 +695,18 @@ function frameWall(o: Out, P: (s: number, t: number, d?: number) => number[], da
 function braceOn(o: Out, P: (s: number, t: number, d?: number) => number[], na: number, nb: number, s0: number, t0: number, s1: number, t1: number, w: number, d: number, c: RGB): void {
   const ds = s1 - s0, dt = t1 - t0, L = Math.hypot(ds, dt) || 1;
   const os = (-dt / L) * (w / 2), ot = (ds / L) * (w / 2);
-  // Ends cut to the rails (horizontal), so the brace meets them flush.
-  const q = [[s0 - os, t0 - ot], [s1 - os, t1 - ot], [s1 + os, t1 + ot], [s0 + os, t0 + ot]].map(([s, t]) => [s, Math.min(Math.max(t, Math.min(t0, t1)), Math.max(t0, t1))]);
-  o.quad(q.map(([s, t]) => P(s, t, d)), [na, 0, nb], q.map(([s, t]) => [(s - s0) * ds / L + (t - t0) * dt / L, -(s - s0) * dt / L + (t - t0) * ds / L]), BuildingMat.Oak, c);
-  for (let i = 0; i < 4; i++) {
-    const [s, t] = q[i], [s2, t2] = q[(i + 1) % 4];
+  // Cut to the panel between its posts and rails, so the brace meets them flush and never lies over their faces
+  // (two faces in one plane flicker).
+  const q = clipToBox([[s0 - os, t0 - ot], [s1 - os, t1 - ot], [s1 + os, t1 + ot], [s0 + os, t0 + ot]], Math.min(s0, s1), Math.max(s0, s1), Math.min(t0, t1), Math.max(t0, t1));
+  if (q.length < 3) return;
+  const uvOf = ([s, t]: number[]) => [(s - s0) * ds / L + (t - t0) * dt / L, -(s - s0) * dt / L + (t - t0) * ds / L];
+  // The face, as a fan of triangles (a quad with its last corner repeated).
+  for (let i = 1; i + 1 < q.length; i++) {
+    const f = [q[0], q[i], q[i + 1], q[i + 1]];
+    o.quad(f.map(([s, t]) => P(s, t, d)), [na, 0, nb], f.map(uvOf), BuildingMat.Oak, c);
+  }
+  for (let i = 0; i < q.length; i++) {
+    const [s, t] = q[i], [s2, t2] = q[(i + 1) % q.length];
     const el = Math.hypot(s2 - s, t2 - t);
     if (el < 1e-4) continue;
     // Side faces: their normal lies in the wall plane; the quad helper turns it to face outwards from the brace.
@@ -702,6 +715,23 @@ function braceOn(o: Out, P: (s: number, t: number, d?: number) => number[], na: 
     const nx = (Ps[0] - P0[0]) * ms + (Pt[0] - P0[0]) * mt, ny = (Ps[1] - P0[1]) * ms + (Pt[1] - P0[1]) * mt, nz = (Ps[2] - P0[2]) * ms + (Pt[2] - P0[2]) * mt;
     o.quad([P(s, t, 0), P(s2, t2, 0), P(s2, t2, d), P(s, t, d)], [nx, ny, nz], [[0, 0], [el, 0], [el, d], [0, d]], BuildingMat.Oak, c);
   }
+}
+
+/** A convex polygon (s, t points) cut to the box s0..s1 × t0..t1. */
+function clipToBox(poly: number[][], s0: number, s1: number, t0: number, t1: number): number[][] {
+  let out = poly;
+  // Each bound: the axis, its value, and which side is kept (+1 above, −1 below).
+  for (const [k, v, keep] of [[0, s0, 1], [0, s1, -1], [1, t0, 1], [1, t1, -1]] as const) {
+    const next: number[][] = [];
+    for (let i = 0; i < out.length; i++) {
+      const a = out[i], b = out[(i + 1) % out.length], da = (a[k] - v) * keep, db = (b[k] - v) * keep;
+      if (da >= 0) next.push(a);
+      if ((da >= 0) !== (db >= 0)) { const f = da / (da - db); next.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]); }
+    }
+    out = next;
+    if (out.length < 3) return [];
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- roofs
@@ -754,10 +784,15 @@ function roof(o: Out, b: TownBuilding, a0: number, a1: number, b0: number, b1: n
           const pts = [toLocal(p + off, h0, q0), toLocal(p + off, h0, q1), toLocal(p + off, h1, q1), toLocal(p + off, h1, q0)];
           o.quad(pts, n, [[q0, h0], [q1, h0], [q1, h1], [q0, h1]], BuildingMat.Oak, L.timber);
         };
+        // A strut, cut to run from the sill's top to the collar's foot (laid over them it would flicker with them).
         const strut = (q0: number, h0: number, q1: number, h1: number) => {
           const dq = q1 - q0, dh = h1 - h0, l = Math.hypot(dq, dh) || 1, wq = (-dh / l) * 0.08, wh = (dq / l) * 0.08;
-          const pts = [toLocal(p + off, h0 - wh, q0 - wq), toLocal(p + off, h1 - wh, q1 - wq), toLocal(p + off, h1 + wh, q1 + wq), toLocal(p + off, h0 + wh, q0 + wq)];
-          o.quad(pts, n, [[0, 0], [l, 0], [l, 0.16], [0, 0.16]], BuildingMat.Oak, L.timber);
+          const cut = clipToBox([[q0 - wq, h0 - wh], [q1 - wq, h1 - wh], [q1 + wq, h1 + wh], [q0 + wq, h0 + wh]], -Q, Q, Math.min(h0, h1), Math.max(h0, h1));
+          const uvOf = ([q, h]: number[]) => [((q - q0) * dq + (h - h0) * dh) / l, ((q - q0) * -dh + (h - h0) * dq) / l + 0.08];
+          for (let i = 1; i + 1 < cut.length; i++) {
+            const f = [cut[0], cut[i], cut[i + 1], cut[i + 1]];
+            o.quad(f.map(([q, h]) => toLocal(p + off, h, q)), n, f.map(uvOf), BuildingMat.Oak, L.timber);
+          }
         };
         // A collar and two struts leaning in under it: the gable's frame (no upright in the middle).
         const collar = y + rise * 0.45, half = Q * 0.55;
