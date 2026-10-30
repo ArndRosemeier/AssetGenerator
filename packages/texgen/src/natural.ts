@@ -108,29 +108,55 @@ const forestFloor: Gen = (t) => {
 
 interface RockOpts { seed: number; base: RGB; warm: RGB; lichen: number; strata: number; }
 
-/** Weathered rock: fractured plates, ridged relief, warm stains, lichen; `strata` adds horizontal bands. */
+/**
+ * Weathered rock in place. The face is broken into slabs, wider than they are tall (beds; `strata` makes them thin
+ * and banded in colour), each a facet of its own tilt, so where two meet the face steps or folds instead of being
+ * drawn round with a dark line (dried mud has plates with gaps; rock has facets with edges). A few fissures wander
+ * across it, open in places and shut in others. Every facet is chipped and grainy and a little lighter or darker
+ * than the next; rain has run dark streaks down it, iron stains it warm here and there, and lichen crusts the facets
+ * that face up. +v is up the face (index.ts); everything wraps with the tile.
+ */
 function rock(t: Tex, o: RockOpts): void {
   const W = t.W;
-  const n1 = new TNoise(o.seed + 1, W), n2 = new TNoise(o.seed + 2, W), n3 = new TNoise(o.seed + 3, W);
-  const cell = newCell(), f = Math.max(2, Math.round(W / 0.9));
+  const n1 = new TNoise(o.seed + 1, W), n2 = new TNoise(o.seed + 2, W), n3 = new TNoise(o.seed + 3, W), n4 = new TNoise(o.seed + 7, W);
+  const cell = newCell();
+  // Slabs about 1.6 m across and 0.7 m high (0.35 m when banded).
+  const fx = Math.max(2, Math.round(W / (o.strata > 0 ? 1.6 : 1.3))), fy = Math.max(2, Math.round(W / (o.strata > 0 ? 0.35 : 0.85)));
   t.each((u, v, _x, _y, idx) => {
-    worley(o.seed + 4, u * f + n1.fbm(u, v, 1.2, 3) * 0.6, v * f + n1.fbm(u + 0.5, v, 1.2, 3) * 0.6, f, f, 1, cell, true);
-    const crack = (1 - smooth(0.0, 0.025, cell.edge)) * 0.6;
-    const plate = ((cell.id & 255) / 255 - 0.5) * 0.05;
-    const band = o.strata > 0 ? Math.sin(v * Math.PI * 2 * Math.round(W / 0.45) + n2.fbm(u, v, 1.2, 3) * 3) * 0.5 + 0.5 : 0;
-    let h = n2.ridged(u, v, 1.6, 5) * 0.12 + n3.fbm(u, v, 0.15, 3) * 0.015 + plate - crack * 0.04 + band * o.strata * 0.05;
-    const tone = 1 + n1.fbm(u, v, 0.7, 4) * 0.18 + plate * 2 + (rnd(o.seed + 5, idx) - 0.5) * 0.12 + band * o.strata * 0.18;
-    const warm = smooth(0.0, 0.6, n3.fbm(u, v, 1.5, 3));
+    const wu = u + n1.fbm(u, v, 1.4, 3) * (0.35 / fx), wv = v + n1.fbm(u + 0.5, v, 1.4, 3) * (0.25 / fy);
+    worley(o.seed + 4, wu * fx, wv * fy, fx, fy, 0.9, cell, true);
+    const id = cell.id;
+    // The facet's own tilt (metres of height per metre across and up), and how far it stands out.
+    const ax = (rnd(o.seed + 17, id) - 0.5) * 0.5, ay = (rnd(o.seed + 18, id) - 0.35) * 0.4;
+    const dx = (wu * fx - cell.px) * (W / fx), dy = (wv * fy - cell.py) * (W / fy);
+    const facet = ax * dx + ay * dy + (rnd(o.seed + 11, id) - 0.5) * 0.06;
+    // Edges: a narrow worn bevel where facets meet (the step itself comes from their different tilts).
+    const edgeM = cell.edge * Math.min(W / fx, W / fy);
+    const worn = smooth(0.0, 0.05, edgeM);
+    // Fissures: the wavering zero lines of a noise, open only in stretches.
+    const fis = n2.fbm(u, v, 2.2, 3);
+    const fissure = (1 - smooth(0.003, 0.014, Math.abs(fis))) * smooth(0.0, 0.35, n3.fbm(u + 0.2, v, 1.7, 2));
+    const band = o.strata > 0 ? Math.sin(v * Math.PI * 2 * Math.round(W / 0.8) + n3.fbm(u, v, 2, 2) * 2) * 0.5 + 0.5 : 0;
+    const chip = n2.ridged(u + rnd(o.seed + 12, id), v, 0.5, 4) * 0.04 + n3.fbm(u, v, 0.14, 3) * 0.01;
+    const bulge = n4.fbm(u + 0.7, v, 2.5, 3) * 0.06;
+    const grain = (rnd(o.seed + 5, idx) - 0.5) * 0.004;
+    let h = facet + bulge + chip + grain - fissure * 0.02 - (1 - worn) * 0.006 + band * o.strata * 0.008;
+    // Tone: facet to facet, broad patches, grain, the beds' bands; dark streaks run down from where water stood.
+    const streak = smooth(0.2, 0.65, n4.fbm(u, v, 0.3, 3, 0.5, 3)) * 0.2;
+    const lit = ay * 0.5; // facets tilted up catch more dust and light
+    const tone = (1 + (rnd(o.seed + 13, id) - 0.5) * 0.14 + lit + n1.fbm(u, v, 1.6, 3) * 0.16 + (rnd(o.seed + 19, idx) - 0.5) * 0.16 + (band - 0.5) * o.strata * 0.22) * (1 - streak);
+    const warm = smooth(0.05, 0.65, n3.fbm(u + 0.4, v, 1.8, 3)) * (0.6 + 0.4 * rnd(o.seed + 14, id));
     let r = mix(o.base[0], o.warm[0], warm) * tone, g = mix(o.base[1], o.warm[1], warm) * tone, b = mix(o.base[2], o.warm[2], warm) * tone;
-    r *= 1 - crack * 0.5; g *= 1 - crack * 0.5; b *= 1 - crack * 0.5;
-    // Lichen: pale grey-green and orange crusts on the exposed tops.
-    const li = smooth(0.35, 0.55, n2.fbm(u + 0.3, v, 0.35, 4)) * o.lichen * smooth(0.03, 0.08, h);
+    const dark = 1 - fissure * 0.4 - (1 - worn) * 0.06;
+    r *= dark; g *= dark; b *= dark;
+    // Lichen: grey-green and orange crusts on facets that face up, never in the fissures.
+    const li = smooth(0.3, 0.55, n2.fbm(u + 0.3, v, 0.45, 4)) * o.lichen * smooth(-0.02, 0.12, ay) * (1 - fissure);
     if (li > 0) {
-      const orange = rnd(o.seed + 6, cell.id) < 0.3;
+      const orange = rnd(o.seed + 6, id) < 0.3;
       r = mix(r, orange ? 0.62 : 0.55, li); g = mix(g, orange ? 0.40 : 0.58, li); b = mix(b, orange ? 0.15 : 0.45, li);
       h += li * 0.002;
     }
-    t.set(idx, r, g, b, 0.82 - crack * 0.1, h);
+    t.set(idx, r, g, b, 0.86 - fissure * 0.08 - li * 0.05, h);
   });
 }
 
