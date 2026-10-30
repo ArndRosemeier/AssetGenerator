@@ -378,3 +378,18 @@ test('interior: a taproom has a walkway round every table (no bench closer than 
   }
   assert.ok(inns >= 8, `${inns} inns checked`);
 });
+
+test('interior: a sleeper faces from the pillow to the foot of the bed, where its chest stands', () => {
+  let beds = 0;
+  for (const b of town.buildings) {
+    const p = planInterior(b);
+    for (const s of p.spots.filter((x) => x.kind === 'sleep')) {
+      const chest = p.fixtures.find((f) => f.kind === 'chest' && f.storey === s.storey && Math.abs(f.a - s.a) < 0.05 && Math.abs(f.b - s.b) < 1.6);
+      if (!chest) continue;
+      beds++;
+      const ahead = (chest.a - s.a) * Math.cos(s.yaw) + (chest.b - s.b) * Math.sin(s.yaw);
+      assert.ok(ahead > 1, `${b.kind} #${b.id}: the bed at ${s.a.toFixed(1)}, ${s.b.toFixed(1)} has its chest behind the pillow`);
+    }
+  }
+  assert.ok(beds > 20, `${beds} beds with a chest`);
+});

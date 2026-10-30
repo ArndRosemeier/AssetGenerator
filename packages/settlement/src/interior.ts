@@ -564,7 +564,8 @@ function bedroom(P: Planner, r: Rng, inn: boolean): void {
       if (put >= n) break;
       if (!P.add('bed', a, b, 1.0, 2.0, 0.55, 0.25)) continue;
       put++;
-      P.spot('sleep', a, b, FACE_NB);
+      // Facing from the pillow to the foot: the head against the wall, the chest at the foot.
+      P.spot('sleep', a, b, b < 0 ? FACE_B : FACE_NB);
       P.add('chest', a, b - Math.sign(b || 1) * 1.3, 0.9, 0.5, 0.5, 0.1);
     }
   }
