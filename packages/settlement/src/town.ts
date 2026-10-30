@@ -16,7 +16,7 @@ import { perimeterLots, type Lot, type LotRules } from './lots';
 import { organicCuts } from './streets';
 import { townWall, type TownWall, type WallRules } from './walls';
 import { fixtureClear } from './fixtures';
-import { planHarbour, QUAY_DEPTH, type HarbourPlan, type HarbourSite } from './harbour';
+import { planHarbour, type HarbourPlan, type HarbourSite } from './harbour';
 import { edgeWet, polyWet, wetNear } from './wet';
 import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
@@ -371,8 +371,10 @@ export function planTown(site: TownSite): TownPlan {
   const yards: Shape[] = [];
   const buildings: TownBuilding[] = [];
   const fixtures: Fixture[] = [];
+  // In the water, unless on the quay (the water under its paving is no matter).
+  const fixWet = (x: number, z: number) => wetNear(wet, x, z, FIXTURE_REACH) && !(harbour && pointInPoly(harbour.quay, x, z));
   const fix = (kind: FixtureKind, x: number, z: number, yaw: number, building = -1) => {
-    if (wetNear(wet, x, z, FIXTURE_REACH)) return;
+    if (fixWet(x, z)) return;
     for (const b of buildings) if (pointInPoly(b.poly, x, z)) return;
     // It and its users keep off the walls (a drinker at the inn's table stood in its front wall): moved off the
     // nearest wall as little as will do, else left out.
@@ -389,7 +391,7 @@ export function planTown(site: TownSite): TownPlan {
         const c = Math.cos(turn), s = Math.sin(turn);
         f.x = x + (ox * c - oz * s) * d;
         f.z = z + (ox * s + oz * c) * d;
-        if (wetNear(wet, f.x, f.z, FIXTURE_REACH) || !fixtureClear(f, polys, pointInPoly, distToPoly)) continue;
+        if (fixWet(f.x, f.z) || !fixtureClear(f, polys, pointInPoly, distToPoly)) continue;
         fixtures.push(f);
         return;
       }
@@ -932,7 +934,7 @@ const QUAY_NEAR = 30;
 function harbourWay(market: Poly, h: HarbourPlan): number[] {
   const [mx, mz] = polyCentroid(market), n = h.edge.length >> 1, i = n >> 1;
   // To the quay's back edge, then a few metres onto it, so the way meets the paving.
-  const qx = h.edge[i * 2] - h.out[i * 2] * (QUAY_DEPTH - 4), qz = h.edge[i * 2 + 1] - h.out[i * 2 + 1] * (QUAY_DEPTH - 4);
+  const qx = h.back[i * 2] + h.out[i * 2] * 4, qz = h.back[i * 2 + 1] + h.out[i * 2 + 1] * 4;
   const L = Math.hypot(qx - mx, qz - mz), k = Math.max(2, Math.round(L / 14)), pts: number[] = [];
   for (let j = 0; j <= k; j++) {
     const t = j / k, bend = Math.sin(t * Math.PI) * Math.min(6, L * 0.05);

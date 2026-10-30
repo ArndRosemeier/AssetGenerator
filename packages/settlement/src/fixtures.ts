@@ -48,7 +48,7 @@ const SOLID: Partial<Record<FixtureKind, readonly [number, number]>> = {
   well: [0.85, 0.85], stall: [0.5, 1.25], table: [0.42, 0.82], barrel: [0.32, 0.32], forge: [0.6, 0.65], anvil: [0.3, 0.2],
   quench: [0.28, 0.48], oven: [0.65, 0.65], workbench: [0.32, 0.92], trough: [0.28, 0.92], woodpile: [0.35, 0.85],
   chickens: [0.45, 0.55], offering: [0.35, 0.35], hayrack: [0.4, 0.9], washline: [0.08, 0.08],
-  crane: [0.9, 0.9], cargo: [0.9, 1.2], nets: [0.12, 1.7], fishstall: [0.5, 1.25],
+  crane: [0.9, 0.9], cargo: [1.1, 1.45], nets: [0.12, 1.7], fishstall: [0.5, 1.25],
 };
 
 /** Does a body of radius `r` at (x, z) run into this fixture? */
@@ -73,7 +73,7 @@ const SIGHT: Partial<Record<FixtureKind, readonly (readonly [number, number, num
   stall: [[-0.4, 0.4, 0, 0.92, -1.2, 1.2], [-1.7, 0.75, 1.85, 2.35, -1.4, 1.4]],
   fishstall: [[-0.4, 0.4, 0, 0.92, -1.2, 1.2], [-1.5, 0.6, 1.75, 2.2, -1.3, 1.3]],
   crane: [[-0.9, 0.9, 0, 1.0, -0.9, 0.9], [0.3, 0.9, 0, 6.6, -0.3, 0.3]],
-  cargo: [[-0.9, 0.9, 0, 1.6, -1.2, 1.2]],
+  cargo: [[-1.1, 1.1, 0, 1.7, -1.45, 1.45]],
   nets: [[-0.12, 0.12, 0, 2.3, -1.7, 1.7]],
   well: [[-0.78, 0.78, 0, 0.75, -0.78, 0.78], [-0.65, 0.65, 2.1, 2.6, -0.95, 0.95]],
   forge: [[-0.55, 0.55, 0, 0.8, -0.6, 0.6], [0.15, 0.55, 0.8, 2.7, -0.45, 0.45]],
@@ -105,7 +105,7 @@ export function fixtureSight(f: Fixture, ground: number, x: number, y: number, z
 export function fixtureStand(f: Fixture): [number, number, number] {
   const stall = f.kind === 'stall' || f.kind === 'fishstall';
   const dir = stall ? f.yaw + Math.PI : f.yaw;
-  const back = stall ? 1.4 : f.kind === 'bench' ? 0 : f.kind === 'crane' ? 1.2 : f.kind === 'cargo' ? 1.4 : 0.9;
+  const back = stall ? 1.4 : f.kind === 'bench' ? 0 : f.kind === 'crane' ? 1.2 : f.kind === 'cargo' ? 1.6 : 0.9;
   return [f.x - Math.cos(dir) * back, f.z - Math.sin(dir) * back, dir];
 }
 
@@ -292,9 +292,10 @@ function draw(o: Out, f: Fixture, r: Rng, detail: boolean): void {
       beam(o, [0.1, 3.6, 0], [2.8, 6.55, 0], 0.09, TIMBER);
       beam(o, [0, 0.22, 0.7], [0, 2.2, 0.12], 0.07, TIMBER);
       beam(o, [0, 0.22, -0.7], [0, 2.2, -0.12], 0.07, TIMBER);
-      o.box(4.42, 4.46, 2.1, 6.7, -0.02, 0.02, BuildingMat.Oak, LINEN);
+      o.box(4.42, 4.46, 2.4, 6.7, -0.02, 0.02, BuildingMat.Oak, LINEN);
+      // The load on the hook, seen from afar too (a bare rope reads as a gallows).
+      o.box(3.9, 5.0, 1.3, 2.4, -0.55, 0.55, BuildingMat.Oak, LIGHT_WOOD);
       if (detail) {
-        o.box(4.05, 4.85, 1.35, 2.1, -0.4, 0.4, BuildingMat.Oak, LIGHT_WOOD);
         prism(o, -0.55, 0, 0.32, 0.7, 1.15, sides, BuildingMat.Oak, TIMBER);
         o.box(-0.62, -0.48, 0.55, 1.3, 0.36, 0.42, BuildingMat.Oak, DARK);
         o.box(-0.62, -0.48, 0.55, 1.3, -0.42, -0.36, BuildingMat.Oak, DARK);
@@ -303,11 +304,11 @@ function draw(o: Out, f: Fixture, r: Rng, detail: boolean): void {
       break;
     }
     case 'cargo': {
-      // Cargo waiting on the quay: crates stacked two high, a barrel or two, sacks.
-      const n = detail ? 5 : 3;
+      // Cargo waiting on the quay: crates in two rows, stacked two high, a barrel or two, sacks.
+      const n = detail ? 9 : 6;
       for (let i = 0; i < n; i++) {
-        const a = r.range(-0.55, 0.55), b = -0.8 + (i % 3) * 0.8 + r.range(-0.08, 0.08), w = r.range(0.3, 0.42), h = r.range(0.5, 0.75);
-        const y = i >= 3 ? 0.72 : 0;
+        const row = i % 2, a = (row ? 0.5 : -0.5) + r.range(-0.1, 0.1), b = -0.9 + (Math.floor(i / 2) % 3) * 0.9 + r.range(-0.08, 0.08), w = r.range(0.32, 0.44), h = r.range(0.5, 0.8);
+        const y = i >= 6 ? 0.82 : 0;
         o.box(a - w, a + w, y, y + h, b - w, b + w, BuildingMat.Oak, r.pick([LIGHT_WOOD, TIMBER, [168, 138, 98] as RGB]));
       }
       if (detail) {
