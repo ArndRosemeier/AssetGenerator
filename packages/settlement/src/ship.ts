@@ -117,6 +117,8 @@ export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number
     return wm > 0 && Math.abs(b) < wm + r && y + 1.7 > keelAt(p, Math.max(-1, Math.min(1, t)));
   }
   for (const m of p.masts) if (y + 1 > m.foot && Math.hypot(a - m.a, b) < r + (p.kind === 'ship' ? 0.26 : 0.1)) return true;
+  // A castle's front (its bulkhead) to a body on the main deck before it: the whole body stays out, not only its middle.
+  for (const c of [p.aft, p.fore]) if (c && y < c.y - 0.5 && a + r > c.a0 && a - r < c.a1 && Math.abs(b) < w + r) return true;
   // Over the rail (jumped): clear of it.
   if (Math.abs(t) < 1 && y > sheerAt(p, t) + 0.05) return false;
   // The transom across the stern, above its deck.
