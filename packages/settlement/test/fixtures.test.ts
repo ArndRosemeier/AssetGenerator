@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { floatOf } from '@futuremagic/core';
 import assert from 'node:assert/strict';
-import { BENCH_SEAT, Footprints, buildingEntrance, buildingMesh, distToPoly, fixtureBlocks, fixtureClear, fixtureMesh, fixtureStand, planTown, pointInPoly, wayRound, type FixtureKind } from '../src/index';
+import { BENCH_SEAT, Footprints, buildingEntrance, buildingMesh, distToPoly, fixtureBlocks, fixtureClear, fixtureMesh, fixtureSight, fixtureStand, planTown, pointInPoly, wayRound, type FixtureKind } from '../src/index';
 
 const site = (seed: number) => ({ seed, x: 0, z: 0, radius: 120, height: (x: number, z: number) => 10 + Math.sin(x * 0.02) * 2 + Math.cos(z * 0.03) });
 
@@ -95,4 +95,17 @@ test('fixtures: a long way through a house (a walk out to someone far off) is go
       assert.ok(!foot.polys.some((p) => pointInPoly(p, x, z)), `step ${k / 2} keeps out of the houses`);
     }
   }
+});
+
+test('fixtures: a stall\'s awning and a well\'s roof stand in the eye\'s way, a bench does not', () => {
+  const t = planTown(site(3)), h = site(3).height;
+  const stall = t.fixtures.find((f) => f.kind === 'stall')!, well = t.fixtures.find((f) => f.kind === 'well')!, bench = t.fixtures.find((f) => f.kind === 'bench')!;
+  const g = (f: { x: number; z: number }) => h(f.x, f.z);
+  // Under the awning's middle (over the buyers' side of the counter) at 2.1 m: in it; 1.5 m up there: clear of it.
+  const ax = stall.x - Math.cos(stall.yaw) * 0.5, az = stall.z - Math.sin(stall.yaw) * 0.5;
+  assert.ok(fixtureSight(stall, g(stall), ax, g(stall) + 2.1, az) < 0, 'in the awning');
+  assert.ok(fixtureSight(stall, g(stall), ax, g(stall) + 1.5, az) > 0.2, 'under it');
+  assert.ok(fixtureSight(stall, g(stall), stall.x, g(stall) + 5, stall.z) > 2.5, 'well over it');
+  assert.ok(fixtureSight(well, g(well), well.x, g(well) + 2.3, well.z) < 0, 'in the well\'s roof');
+  assert.equal(fixtureSight(bench, g(bench), bench.x, g(bench) + 0.5, bench.z), Infinity);
 });

@@ -59,6 +59,41 @@ export function fixtureBlocks(f: Fixture, x: number, z: number, r: number): bool
   return Math.abs(dx * c + dz * n) < s[0] + r && Math.abs(-dx * n + dz * c) < s[1] + r;
 }
 
+/**
+ * What of a fixture stands in the way of the eye, as boxes in its frame (a0, a1 along the way its user looks, y0, y1
+ * up from its ground, b0, b1 across): a stall's counter and its awning, a well's wall and roof, a forge's hood, a hen
+ * coop, a woodpile under its lean-to, an oven, a hayrack. A camera keeps out of them and sees past them (a talk's
+ * view from over a stall ended up on its awning: the walker's boxes stop at the counter). Fixtures the eye sees over
+ * have none.
+ */
+const SIGHT: Partial<Record<FixtureKind, readonly (readonly [number, number, number, number, number, number])[]>> = {
+  stall: [[-0.4, 0.4, 0, 0.92, -1.2, 1.2], [-1.7, 0.75, 1.85, 2.35, -1.4, 1.4]],
+  well: [[-0.78, 0.78, 0, 0.75, -0.78, 0.78], [-0.65, 0.65, 2.1, 2.6, -0.95, 0.95]],
+  forge: [[-0.55, 0.55, 0, 0.8, -0.6, 0.6], [0.15, 0.55, 0.8, 2.7, -0.45, 0.45]],
+  chickens: [[-0.5, 0.5, 0, 1.25, -0.6, 0.6]],
+  woodpile: [[-0.4, 0.45, 0, 1.25, -0.9, 0.9]],
+  oven: [[-0.6, 0.6, 0, 1.15, -0.6, 0.6]],
+  hayrack: [[-0.35, 0.35, 0, 1.45, -0.85, 0.85]],
+};
+
+/**
+ * How far (x, y, z) is from what of fixture `f` blocks the eye (SIGHT), its ground at `ground` (the height the mesh
+ * stands on at its middle); below 0 inside. Infinity for a fixture the eye sees over.
+ */
+export function fixtureSight(f: Fixture, ground: number, x: number, y: number, z: number): number {
+  const boxes = SIGHT[f.kind];
+  if (!boxes) return Infinity;
+  const c = Math.cos(f.yaw), n = Math.sin(f.yaw), dx = x - f.x, dz = z - f.z;
+  const a = dx * c + dz * n, b = -dx * n + dz * c, h = y - ground;
+  let d = Infinity;
+  for (const [a0, a1, y0, y1, b0, b1] of boxes) {
+    const qa = Math.max(a0 - a, a - a1), qy = Math.max(y0 - h, h - y1), qb = Math.max(b0 - b, b - b1);
+    const out = Math.hypot(Math.max(qa, 0), Math.max(qy, 0), Math.max(qb, 0)), inside = Math.min(Math.max(qa, qy, qb), 0);
+    d = Math.min(d, out + inside);
+  }
+  return d;
+}
+
 /** Where a fixture's user stands (x, z) and the way they face: a step before it, facing it (a stall's buyer in front, facing the seller); on a bench, on it. */
 export function fixtureStand(f: Fixture): [number, number, number] {
   const dir = f.kind === 'stall' ? f.yaw + Math.PI : f.yaw;
