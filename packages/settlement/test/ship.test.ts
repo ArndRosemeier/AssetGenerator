@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planShip, shipMesh, shipFloor, hullHalf } from '../src/index';
+import { planShip, shipMesh, shipFloor, hullHalf, shipWall, gangplankMesh } from '../src/index';
 
 test('ship: a sailing ship has castles fore and aft, masts with yards, a hatch, and decks to walk on', () => {
   for (const seed of [1, 2, 3, 4]) {
@@ -13,7 +13,7 @@ test('ship: a sailing ship has castles fore and aft, masts with yards, a hatch, 
     assert.equal(shipFloor(p, -p.length * 0.45, 0), p.aft.y);
     assert.equal(shipFloor(p, p.length * 0.42, 0), p.fore.y);
     assert.equal(shipFloor(p, p.length * 0.15, p.beam), null);
-    assert.equal(shipFloor(p, (p.hatch.a0 + p.hatch.a1) / 2, 0), null);
+    assert.ok(shipFloor(p, (p.hatch.a0 + p.hatch.a1) / 2, 0)! > p.deckY, 'the hatch grating, a step up');
     // The hull is widest amidships and fine at the stem; it reaches below the water.
     assert.ok(hullHalf(p, 0, p.deckY) > hullHalf(p, p.length * 0.45, p.deckY));
     assert.ok(hullHalf(p, 0, -p.draft * 0.5) > 0);
@@ -57,8 +57,30 @@ test('ship: a harbour has ships at its berths and boats along its piers, clear o
       if (m.plan.kind === 'ship') ships++; else boats++;
       assert.ok(water(m.x, m.z) >= m.plan.draft, 'afloat');
       for (const p of t.harbour!.piers) assert.ok(pierDist(p, m.x, m.z) > m.plan.beam / 2, 'clear of the pier');
+      // Its land side: a ship's pier (or a boat's quay) lies just off its side there.
+      if (m.plan.kind === 'ship') {
+        const d = m.plan.beam / 2 + 0.9, px = m.x - m.uz * d * m.side, pz = m.z + m.ux * d * m.side;
+        assert.ok(t.harbour!.piers.some((p) => pierDist(p, px, pz) < p.half), 'its pier off its side');
+      }
     }
     assert.deepEqual(harbourMoorings(t.harbour!, seed), ms);
   }
   assert.ok(ships >= 2 && boats >= 2, `${ships} ships, ${boats} boats`);
+});
+
+test('ship: walking its deck: the rail and masts are walls, the gangway open, the hull solid to a swimmer', () => {
+  for (const seed of [1, 2, 3]) {
+    const p = planShip(seed, 'ship'), r = 0.35, g = p.gangway!, ga = (g.a0 + g.a1) / 2, w = hullHalf(p, ga, p.deckY);
+    assert.ok(g.a1 - g.a0 > 1.5, 'room to come aboard');
+    assert.ok(!shipWall(p, ga, 0, r, p.deckY), 'free on deck');
+    assert.ok(shipWall(p, p.length * 0.1, w - 0.3, r, p.deckY), 'at the rail');
+    assert.ok(!shipWall(p, ga, w - 0.3, r, p.deckY) && !shipWall(p, ga, -(w + 0.2), r, p.deckY), 'through the gangway');
+    assert.equal(shipFloor(p, ga, w - 0.3), p.deckY);
+    const m = p.masts[0];
+    assert.ok(shipWall(p, m.a + 0.3, 0, r, p.deckY), 'the mast');
+    assert.ok(shipWall(p, 0, 0, r, -1.2) && shipWall(p, 0, w + 0.2, r, -1.2), 'the hull under water');
+    assert.ok(!shipWall(p, 0, w + 0.6, r, -1.2) && !shipWall(p, p.length, 0, r, p.deckY), 'clear of it');
+  }
+  const plank = gangplankMesh(2.5);
+  assert.ok(plank.index.length > 36 && plank.position.every(Number.isFinite));
 });
