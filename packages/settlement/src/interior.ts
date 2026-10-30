@@ -1040,6 +1040,9 @@ export function interiorSolids(plan: InteriorPlan): InteriorBox[] {
     if (k === 0) {
       const w = plan.doorW, h = st.y + plan.doorH;
       out.push({ a0: st.a0 - T, a1: -w, y0, y1, b0: st.b0 - T, b1: st.b0 }, { a0: w, a1: st.a1 + T, y0, y1, b0: st.b0 - T, b1: st.b0 }, { a0: -w, a1: w, y0: h, y1, b0: st.b0 - T, b1: st.b0 });
+      // The threshold: the floor runs on through the doorway to the front steps (else the ground there, a step
+      // or more below the floor, stopped one in the doorway).
+      out.push({ a0: -w, a1: w, y0: below, y1: st.y, b0: st.b0 - T, b1: st.b0 });
     } else out.push({ a0: st.a0 - T, a1: st.a1 + T, y0, y1, b0: st.b0 - T, b1: st.b0 });
     if (k + 1 === plan.storeys.length) out.push({ ...room, y0: st.y + st.height, y1: st.y + st.height + T });
     for (const f of plan.fixtures) {

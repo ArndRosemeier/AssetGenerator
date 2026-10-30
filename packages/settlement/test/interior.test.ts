@@ -399,3 +399,13 @@ test('interior: a sleeper faces from the pillow to the foot of the bed, where it
   }
   assert.ok(beds > 20, `${beds} beds with a chest`);
 });
+
+test('interior: the floor runs on through the doorway (a threshold), so one steps from the front steps onto the floor', () => {
+  for (const b of town.buildings.slice(0, 20)) {
+    const p = planInterior(b), g = p.storeys[0], solids = interiorSolids(p);
+    for (const db of [0.05, WALL_THICK / 2, WALL_THICK - 0.02]) {
+      const bb = g.b0 - db;
+      assert.ok(solids.some((q) => q.a0 <= 0 && q.a1 >= 0 && q.b0 <= bb && q.b1 >= bb && Math.abs(q.y1 - g.y) < 1e-6), `${b.kind} #${b.id}: floor in the doorway ${db.toFixed(2)} m out`);
+    }
+  }
+});
