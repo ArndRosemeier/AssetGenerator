@@ -34,9 +34,25 @@ export interface PostOptions {
   floatDepth?: boolean;
 }
 
+/**
+ * Work slotted into a frame (a portal's view, src/portal.ts): `before` runs before the scene is drawn (the
+ * renderer's target as the caller left it), `between` after the scene is drawn into the chain's target and
+ * before bloom and the tone curve, with that target still set: what it draws there is graded with the rest.
+ * A `between` that draws must turn the renderer's autoClear off, or it clears the scene away.
+ */
+export interface PostHooks {
+  before?(): void;
+  between?(): void;
+}
+
 export interface Post {
-  /** Draws one frame through the chain. */
-  draw(): void;
+  /** Draws one frame through the chain (`hooks`: work slotted in, see PostHooks). */
+  draw(hooks?: PostHooks): void;
+  /**
+   * A second target just like the scene's (size, colour and depth formats, samples): a view drawn into it builds
+   * no new pipeline, since three keys pipelines by those formats, not by the target.
+   */
+  twin(): RenderTarget;
   /** Where the scene itself is drawn (compile against it). */
   target(): RenderTarget;
   /** Bloom's knobs, live (uniforms); null without bloom. */
@@ -46,9 +62,13 @@ export interface Post {
 }
 
 export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camera, opts: PostOptions = {}): Post {
-  const depth = new DepthTexture(1, 1);
-  if (opts.floatDepth ?? true) depth.type = FloatType;
-  const rt = new RenderTarget(1, 1, { type: HalfFloatType, depthTexture: depth, samples: opts.samples ?? 0 });
+  const made = () => {
+    const d = new DepthTexture(1, 1);
+    if (opts.floatDepth ?? true) d.type = FloatType;
+    return new RenderTarget(1, 1, { type: HalfFloatType, depthTexture: d, samples: opts.samples ?? 0 });
+  };
+  const rt = made(), depth = rt.depthTexture!;
+  const twins: RenderTarget[] = [];
   let color: Node<'vec4'> = vec4(texture(rt.texture));
   const size = new Vector2();
   const texel = uniform(new Vector2(1, 1));
@@ -85,16 +105,25 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     pipeline.outputColorTransform = false;
   }
   return {
-    draw: () => {
+    draw: (hooks) => {
       renderer.getDrawingBufferSize(size);
       if (rt.width !== size.x || rt.height !== size.y) rt.setSize(size.x, size.y);
+      for (const t of twins) if (t.width !== size.x || t.height !== size.y) t.setSize(size.x, size.y);
+      hooks?.before?.();
       texel.value.set(1 / size.x, 1 / size.y);
       fixProjection();
       const prev = renderer.getRenderTarget();
       renderer.setRenderTarget(rt);
       renderer.render(scene, camera);
+      hooks?.between?.();
       renderer.setRenderTarget(prev);
       pipeline.render();
+    },
+    twin: () => {
+      const t = made();
+      t.setSize(Math.max(1, rt.width), Math.max(1, rt.height));
+      twins.push(t);
+      return t;
     },
     target: () => rt,
     bloom: glow,
