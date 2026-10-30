@@ -123,7 +123,7 @@ export function wallMesh(w: TownWall, origin: [number, number, number], detail =
     const j = (i + 1) % n, ax = R[i * 2], az = R[i * 2 + 1], bx = R[j * 2], bz = R[j * 2 + 1], mx = (ax + bx) / 2, mz = (az + bz) / 2;
     if (!pick(mx, mz) || w.gates.some((g) => Math.hypot(g.x - mx, g.z - mz) < g.half + w.towerHalf)) continue;
     const ya = w.ringY[i], yb = w.ringY[j];
-    stretch(out, w, ax, az, bx, bz, Math.min(ya, yb) - FOOT, (ya + yb) / 2 + w.height, shade(mx, mz), detail);
+    stretch(out, w, i, Math.min(ya, yb) - FOOT, (ya + yb) / 2 + w.height, shade(mx, mz), detail);
   }
   for (const t of w.towers) if (pick(t.x, t.z)) tower(out, w, t, shade(t.x, t.z), detail);
   for (const g of w.gates) if (pick(g.x, g.z)) gateSpan(out, w, g, shade(g.x, g.z), detail);
@@ -156,11 +156,45 @@ function merlons(o: Out, x: number, z: number, angle: number, a0: number, a1: nu
   }
 }
 
-/** One stretch of the ring from a to b: the wall, its walk on top, merlons on the outside (to the right going round). */
-function stretch(o: Out, w: TownWall, ax: number, az: number, bx: number, bz: number, y0: number, y1: number, c: RGB, detail: boolean): void {
+/**
+ * Where the wall's two faces meet at ring point `i`: its inside and outside corner. The stretches either side end
+ * on the line between them (mitred), so they neither overlap (faces in one plane, which flicker) nor gape.
+ */
+function mitre(w: TownWall, i: number): [number[], number[]] {
+  const R = w.ring, n = R.length >> 1, h = (i + n - 1) % n, j = (i + 1) % n;
+  const unit = (x: number, z: number) => { const l = Math.hypot(x, z) || 1; return [x / l, z / l]; };
+  const d0 = unit(R[i * 2] - R[h * 2], R[i * 2 + 1] - R[h * 2 + 1]), d1 = unit(R[j * 2] - R[i * 2], R[j * 2 + 1] - R[i * 2 + 1]);
+  // Left of the way round (inside the ring, which runs counter-clockwise), half-way between the stretches' lefts.
+  const m = unit(-d0[1] - d1[1], d0[0] + d1[0]), cos = m[0] * -d0[1] + m[1] * d0[0];
+  const k = (w.thick / 2) / Math.max(0.35, cos);
+  const x = R[i * 2], z = R[i * 2 + 1];
+  return [[x + m[0] * k, z + m[1] * k], [x - m[0] * k, z - m[1] * k]];
+}
+
+/** One stretch of the ring from point i to the next: the wall, its walk on top, merlons on the outside (to the right going round). */
+function stretch(o: Out, w: TownWall, i: number, y0: number, y1: number, c: RGB, detail: boolean): void {
+  const R = w.ring, j = (i + 1) % (R.length >> 1), ax = R[i * 2], az = R[i * 2 + 1], bx = R[j * 2], bz = R[j * 2 + 1];
   const L = Math.hypot(bx - ax, bz - az), angle = Math.atan2(bz - az, bx - ax), t = w.thick / 2;
-  // The ring runs counter-clockwise: outside is to the right of the way it goes, which is −b in this frame.
-  turnedBox(o, ax, az, angle, -0.15, L + 0.15, -t, t, y0, y1, c);
+  const ux = Math.cos(angle), uz = Math.sin(angle), vx = -uz, vz = ux;
+  const [ai, ao] = mitre(w, i), [bi, bo] = mitre(w, j);
+  const P = (q: number[], y: number) => [q[0], y, q[1]], along = (q: number[]) => (q[0] - ax) * ux + (q[1] - az) * uz;
+  const face = (p: number[], q: number[], n: number[]) => {
+    const s0 = along(p), s1 = along(q);
+    o.quad([P(p, y0), P(q, y0), P(q, y1), P(p, y1)], n, [[s0, y0], [s1, y0], [s1, y1], [s0, y1]], BuildingMat.Ashlar, c);
+  };
+  face(ao, bo, [-vx, 0, -vz]);
+  face(bi, ai, [vx, 0, vz]);
+  // The ends, on the mitres (each meets the next stretch's end, turned the other way).
+  const end = (p: number[], q: number[], out: number) => {
+    const ex = q[0] - p[0], ez = q[1] - p[1], l = Math.hypot(ex, ez) || 1;
+    // Square to the mitre, facing back along the stretch at its start (out −1) and on at its end (+1).
+    const flip = (ez * ux - ex * uz) * out < 0 ? -1 : 1;
+    o.quad([P(p, y0), P(q, y0), P(q, y1), P(p, y1)], [(ez / l) * flip, 0, (-ex / l) * flip], [[0, y0], [l, y0], [l, y1], [0, y1]], BuildingMat.Ashlar, c);
+  };
+  end(ai, ao, -1);
+  end(bo, bi, 1);
+  const top = [ao, bo, bi, ai];
+  o.quad(top.map((q) => P(q, y1)), [0, 1, 0], top.map((q) => [along(q), (q[0] - ax) * vx + (q[1] - az) * vz]), BuildingMat.Ashlar, c);
   if (detail) merlons(o, ax, az, angle + Math.PI, -L, 0, t, y1, c);
 }
 
@@ -169,7 +203,8 @@ function tower(o: Out, w: TownWall, t: TownTower, c: RGB, detail: boolean): void
   const h = w.towerHalf, top = t.y + w.towerH;
   turnedBox(o, t.x, t.z, t.angle, -h, h, -h, h, t.y - FOOT, top, c);
   if (!detail) return;
-  for (let k = 0; k < 4; k++) merlons(o, t.x, t.z, t.angle + (k * Math.PI) / 2, -h, h, h, top, c);
+  // Each side's row stops a merlon's depth short of the corners, so two rows never overlap there.
+  for (let k = 0; k < 4; k++) merlons(o, t.x, t.z, t.angle + (k * Math.PI) / 2, -h + MERLON.d, h - MERLON.d, h, top, c);
 }
 
 /** A gateway's arch: its half span (to the towers' faces and a little into them), and its spring and rise over the road, m. */
