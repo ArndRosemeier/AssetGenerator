@@ -74,7 +74,8 @@ test('ship: walking its deck: the rail and masts are walls, the gangway open, th
     assert.ok(g.a1 - g.a0 > 1.5, 'room to come aboard');
     assert.ok(!shipWall(p, ga, 0, r, p.deckY), 'free on deck');
     assert.ok(shipWall(p, p.length * 0.1, w - 0.3, r, p.deckY), 'at the rail');
-    assert.ok(!shipWall(p, ga, w - 0.3, r, p.deckY) && !shipWall(p, ga, -(w + 0.2), r, p.deckY), 'through the gangway');
+    assert.ok(!shipWall(p, ga, w - 0.3, r, p.deckY, true) && !shipWall(p, ga, -(w + 0.2), r, p.deckY, true), 'through the gangway');
+    assert.ok(shipWall(p, ga, w - 0.3, r, p.deckY), 'the gangway barred at sea');
     assert.equal(shipFloor(p, ga, w - 0.3), p.deckY);
     const m = p.masts[0];
     assert.ok(shipWall(p, m.a + 0.3, 0, r, p.deckY), 'the mast');

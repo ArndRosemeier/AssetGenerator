@@ -104,9 +104,10 @@ function deckAt(p: ShipPlan, a: number): number {
 
 /**
  * Whether a body of radius `r` at (a, b), its feet at `y` (all in the ship's frame), touches the ship: its rail and
- * planking round the deck (open at the gangway), its masts, and its hull under the deck (a swimmer goes round it).
+ * planking round the deck, its masts, and its hull under the deck (a swimmer goes round it). `gangway`: open there (a
+ * plank laid to it in harbour); at sea it is closed (a bar across it).
  */
-export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number): boolean {
+export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number, gangway = false): boolean {
   const half = p.length / 2;
   if (Math.abs(a) > half + r || Math.abs(b) > p.beam / 2 + r) return false;
   const t = (a / p.length) * 2, f = deckAt(p, a), w = Math.max(hullHalf(p, a, f), hullHalf(p, Math.sign(a) * Math.max(0, Math.abs(a) - r), f));
@@ -119,7 +120,7 @@ export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number
   // Over the rail (jumped): clear of it.
   if (Math.abs(t) < 1 && y > sheerAt(p, t) + 0.05) return false;
   const g = p.gangway;
-  if (g && a - r * 0.5 >= g.a0 && a + r * 0.5 <= g.a1) return false;
+  if (gangway && g && a - r * 0.5 >= g.a0 && a + r * 0.5 <= g.a1) return false;
   return Math.abs(b) > w - INNER - r && Math.abs(b) < w + r;
 }
 
