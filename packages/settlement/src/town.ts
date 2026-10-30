@@ -81,9 +81,10 @@ export const SETTLEMENT_SIZES: Readonly<Record<SettlementSize, SizeRules>> = {
   village: { radius: [62, 85], roads: [2, 3], market: 0.75, stalls: true, lanes: [70, 120], inner: 0.42, spread: 1, temple: true, graves: 10, inn: true, hall: false, bakery: false, smithy: true, stable: false, crafts: 2 },
   town: { radius: [115, 160], roads: [3, 4], market: 1, stalls: true, lanes: [48, 90], inner: 0, spread: 1, temple: true, graves: 18, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 8 },
   capital: {
-    radius: [240, 300], roads: [5, 6], market: 1.5, stalls: true, lanes: [44, 80], inner: 0, spread: 0.8, temple: true, graves: 30, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 16,
+    radius: [240, 300], roads: [5, 6], market: 1.5, stalls: true, lanes: [44, 80], inner: 0, spread: 0.65, temple: true, graves: 30, inn: true, hall: true, bakery: true, smithy: true, stable: true, crafts: 16,
     wall: { out: 10, height: 8, every: 55 }, seat: true, inns: 3, smithies: 3, bakeries: 3, quarters: true,
-    tall: { core: [3, 4], mid: [2, 3], front: 8 },
+    // A city's core: houses of four and five storeys shoulder to shoulder round the market and out along the roads.
+    tall: { core: [4, 5], mid: [2, 4], front: 7.5 },
   },
 };
 
