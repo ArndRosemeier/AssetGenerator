@@ -28,6 +28,8 @@ const LINEN: RGB = [236, 230, 214];
 /** Awnings and washing: dyed cloth. */
 const CLOTHS: RGB[] = [[196, 72, 58], [64, 104, 156], [214, 172, 72], [92, 140, 92], [176, 112, 64], [146, 82, 132], [230, 222, 204]];
 /** Wares on a stall's counter: apples, cabbages, cheese, loaves, cloth, pots. */
+/** The catch on a fish stall: silver, blue-grey, a pink one. */
+const FISH: RGB[] = [[190, 196, 202], [128, 146, 160], [170, 180, 168], [206, 150, 140]];
 const WARES: RGB[] = [[196, 60, 44], [120, 168, 84], [236, 206, 120], [190, 136, 76], [126, 120, 170], [178, 104, 72]];
 
 /** How far round its middle a fixture stops a walker (m, a box: along its yaw, across it). None: walked through or over. */
@@ -46,6 +48,7 @@ const SOLID: Partial<Record<FixtureKind, readonly [number, number]>> = {
   well: [0.85, 0.85], stall: [0.5, 1.25], table: [0.42, 0.82], barrel: [0.32, 0.32], forge: [0.6, 0.65], anvil: [0.3, 0.2],
   quench: [0.28, 0.48], oven: [0.65, 0.65], workbench: [0.32, 0.92], trough: [0.28, 0.92], woodpile: [0.35, 0.85],
   chickens: [0.45, 0.55], offering: [0.35, 0.35], hayrack: [0.4, 0.9], washline: [0.08, 0.08],
+  crane: [0.9, 0.9], cargo: [0.9, 1.2], nets: [0.12, 1.7], fishstall: [0.5, 1.25],
 };
 
 /** Does a body of radius `r` at (x, z) run into this fixture? */
@@ -68,6 +71,10 @@ export function fixtureBlocks(f: Fixture, x: number, z: number, r: number): bool
  */
 const SIGHT: Partial<Record<FixtureKind, readonly (readonly [number, number, number, number, number, number])[]>> = {
   stall: [[-0.4, 0.4, 0, 0.92, -1.2, 1.2], [-1.7, 0.75, 1.85, 2.35, -1.4, 1.4]],
+  fishstall: [[-0.4, 0.4, 0, 0.92, -1.2, 1.2], [-1.5, 0.6, 1.75, 2.2, -1.3, 1.3]],
+  crane: [[-0.9, 0.9, 0, 1.0, -0.9, 0.9], [0.3, 0.9, 0, 6.6, -0.3, 0.3]],
+  cargo: [[-0.9, 0.9, 0, 1.6, -1.2, 1.2]],
+  nets: [[-0.12, 0.12, 0, 2.3, -1.7, 1.7]],
   well: [[-0.78, 0.78, 0, 0.75, -0.78, 0.78], [-0.65, 0.65, 2.1, 2.6, -0.95, 0.95]],
   forge: [[-0.55, 0.55, 0, 0.8, -0.6, 0.6], [0.15, 0.55, 0.8, 2.7, -0.45, 0.45]],
   chickens: [[-0.5, 0.5, 0, 1.25, -0.6, 0.6]],
@@ -96,8 +103,9 @@ export function fixtureSight(f: Fixture, ground: number, x: number, y: number, z
 
 /** Where a fixture's user stands (x, z) and the way they face: a step before it, facing it (a stall's buyer in front, facing the seller); on a bench, on it. */
 export function fixtureStand(f: Fixture): [number, number, number] {
-  const dir = f.kind === 'stall' ? f.yaw + Math.PI : f.yaw;
-  const back = f.kind === 'stall' ? 1.4 : f.kind === 'bench' ? 0 : 0.9;
+  const stall = f.kind === 'stall' || f.kind === 'fishstall';
+  const dir = stall ? f.yaw + Math.PI : f.yaw;
+  const back = stall ? 1.4 : f.kind === 'bench' ? 0 : f.kind === 'crane' ? 1.2 : f.kind === 'cargo' ? 1.4 : 0.9;
   return [f.x - Math.cos(dir) * back, f.z - Math.sin(dir) * back, dir];
 }
 
@@ -275,8 +283,88 @@ function draw(o: Out, f: Fixture, r: Rng, detail: boolean): void {
       o.box(-0.35, 0.35, 0, 1.3, -0.85, 0.85, BuildingMat.Oak, DARK);
       o.box(-0.3, 0.3, 0.6, 1.45, -0.8, 0.8, BuildingMat.Thatch, [236, 214, 150]);
       break;
+    case 'crane': {
+      // A harbour crane of timber: a stout post on a cross of sills, a jib reaching out over the water (+a) with its
+      // brace, the rope and a bundle on the hook, and the winch at its foot where the hand works it (−a).
+      for (const [a0, a1, b0, b1] of [[-0.9, 0.9, -0.14, 0.14], [-0.14, 0.14, -0.9, 0.9]]) o.box(a0, a1, 0, 0.22, b0, b1, BuildingMat.Oak, DARK);
+      o.box(-0.18, 0.18, 0.22, 6.5, -0.18, 0.18, BuildingMat.Oak, TIMBER);
+      beam(o, [-0.6, 6.3, 0], [4.6, 6.75, 0], 0.13, DARK);
+      beam(o, [0.1, 3.6, 0], [2.8, 6.55, 0], 0.09, TIMBER);
+      beam(o, [0, 0.22, 0.7], [0, 2.2, 0.12], 0.07, TIMBER);
+      beam(o, [0, 0.22, -0.7], [0, 2.2, -0.12], 0.07, TIMBER);
+      o.box(4.42, 4.46, 2.1, 6.7, -0.02, 0.02, BuildingMat.Oak, LINEN);
+      if (detail) {
+        o.box(4.05, 4.85, 1.35, 2.1, -0.4, 0.4, BuildingMat.Oak, LIGHT_WOOD);
+        prism(o, -0.55, 0, 0.32, 0.7, 1.15, sides, BuildingMat.Oak, TIMBER);
+        o.box(-0.62, -0.48, 0.55, 1.3, 0.36, 0.42, BuildingMat.Oak, DARK);
+        o.box(-0.62, -0.48, 0.55, 1.3, -0.42, -0.36, BuildingMat.Oak, DARK);
+        o.box(-0.95, -0.85, 0.85, 1.0, 0.36, 0.6, BuildingMat.Slate, IRON);
+      }
+      break;
+    }
+    case 'cargo': {
+      // Cargo waiting on the quay: crates stacked two high, a barrel or two, sacks.
+      const n = detail ? 5 : 3;
+      for (let i = 0; i < n; i++) {
+        const a = r.range(-0.55, 0.55), b = -0.8 + (i % 3) * 0.8 + r.range(-0.08, 0.08), w = r.range(0.3, 0.42), h = r.range(0.5, 0.75);
+        const y = i >= 3 ? 0.72 : 0;
+        o.box(a - w, a + w, y, y + h, b - w, b + w, BuildingMat.Oak, r.pick([LIGHT_WOOD, TIMBER, [168, 138, 98] as RGB]));
+      }
+      if (detail) {
+        prism(o, 0.7, 1.0, 0.28, 0, 0.82, sides, BuildingMat.Oak, TIMBER);
+        o.box(-0.85, -0.45, 0, 0.32, 0.75, 1.15, BuildingMat.Thatch, [190, 170, 130]);
+      }
+      break;
+    }
+    case 'nets': {
+      // Fishing nets hung to dry between two posts, floats along the top line.
+      for (const b of [-1.6, 1.6]) o.box(-0.06, 0.06, 0, 2.3, b - 0.06, b + 0.06, BuildingMat.Oak, DARK);
+      o.box(-0.03, 0.03, 2.08, 2.14, -1.6, 1.6, BuildingMat.Oak, DARK);
+      const net: RGB = r.pick([[92, 98, 76], [118, 96, 70], [70, 86, 90]]);
+      const p = [[0, 2.08, -1.5], [0, 2.08, 1.5], [0, 0.35, 1.3], [0, 0.45, -1.35]];
+      o.quad(p, [1, 0, 0], p.map((q) => [q[2], q[1]]), BuildingMat.Thatch, net);
+      o.quad(p, [-1, 0, 0], p.map((q) => [q[2], q[1]]), BuildingMat.Thatch, net);
+      if (detail) for (let i = 0; i < 6; i++) { const b = -1.3 + i * 0.52; o.box(-0.06, 0.06, 1.96, 2.06, b - 0.06, b + 0.06, BuildingMat.Plaster, [206, 150, 70]); }
+      break;
+    }
+    case 'fishstall': {
+      // A fishmonger's counter: the catch laid out on it in a row of trays, a tub below, a plain canvas over it.
+      o.box(-0.4, 0.4, 0, 0.92, -1.2, 1.2, BuildingMat.Oak, TIMBER);
+      for (const [a, b, h] of [[-1.35, -1.2, 2.15], [-1.35, 1.2, 2.15], [0.45, -1.2, 1.85], [0.45, 1.2, 1.85]] as const) o.box(a - 0.05, a + 0.05, 0, h, b - 0.05, b + 0.05, BuildingMat.Oak, DARK);
+      const p = [[-1.5, 2.2, -1.3], [0.6, 1.8, -1.3], [0.6, 1.8, 1.3], [-1.5, 2.2, 1.3]], n = [0.19, 0.98, 0];
+      o.quad(p, n, p.map((q) => [q[0], q[2]]), BuildingMat.Plaster, LINEN);
+      o.quad(p, [-n[0], -n[1], 0], p.map((q) => [q[0], q[2]]), BuildingMat.Plaster, [200, 194, 178]);
+      if (detail) {
+        for (let i = 0; i < 4; i++) {
+          const b = -0.9 + i * 0.6;
+          o.box(-0.32, 0.32, 0.92, 0.98, b - 0.26, b + 0.26, BuildingMat.Oak, DARK);
+          for (let k = 0; k < 3; k++) o.box(-0.24 + k * 0.17, -0.14 + k * 0.17, 0.98, 1.04, b - 0.2, b + 0.2, BuildingMat.Slate, r.pick(FISH));
+        }
+        prism(o, 0.75, -0.7, 0.3, 0, 0.5, sides, BuildingMat.Oak, TIMBER);
+      }
+      break;
+    }
     case 'field': case 'paddock':
       break;
+  }
+}
+
+/** A square beam `t` half thick from p0 to p1 (a, y, b), its sides turned along it. */
+function beam(o: Out, p0: number[], p1: number[], t: number, c: RGB): void {
+  const d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], L = Math.hypot(d[0], d[1], d[2]);
+  const u = d.map((v) => v / L);
+  // Two directions across it: one level where it can be, the other square to both.
+  let s = [-u[2], 0, u[0]];
+  const sl = Math.hypot(s[0], s[2]);
+  s = sl > 1e-3 ? s.map((v) => v / sl) : [1, 0, 0];
+  const w = [u[1] * s[2] - u[2] * s[1], u[2] * s[0] - u[0] * s[2], u[0] * s[1] - u[1] * s[0]];
+  const P = (e: number[], i: number, j: number) => [e[0] + (s[0] * i + w[0] * j) * t, e[1] + (s[1] * i + w[1] * j) * t, e[2] + (s[2] * i + w[2] * j) * t];
+  const corners = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+  for (let k = 0; k < 4; k++) {
+    const [i0, j0] = corners[k], [i1, j1] = corners[(k + 1) % 4];
+    const m = [s[0] * (i0 + i1) + w[0] * (j0 + j1), s[1] * (i0 + i1) + w[1] * (j0 + j1), s[2] * (i0 + i1) + w[2] * (j0 + j1)], ml = Math.hypot(m[0], m[1], m[2]);
+    const nrm = m.map((v) => v / ml);
+    o.quad([P(p0, i0, j0), P(p0, i1, j1), P(p1, i1, j1), P(p1, i0, j0)], nrm, [[0, 0], [t * 2, 0], [t * 2, L], [0, L]], BuildingMat.Oak, c);
   }
 }
 
