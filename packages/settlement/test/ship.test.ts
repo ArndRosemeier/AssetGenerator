@@ -81,6 +81,7 @@ test('ship: walking its deck: the rail and masts are walls, the gangway open, th
     assert.ok(shipWall(p, m.a + 0.3, 0, r, p.deckY), 'the mast');
     assert.ok(shipWall(p, 0, 0, r, -1.2) && shipWall(p, 0, w + 0.2, r, -1.2), 'the hull under water');
     assert.ok(!shipWall(p, 0, w + 0.6, r, -1.2) && !shipWall(p, p.length, 0, r, p.deckY), 'clear of it');
+    assert.ok(shipWall(p, -p.length / 2 + 0.1, 0, r, p.aft!.y), 'the transom behind the sterncastle');
   }
   const plank = gangplankMesh(2.5);
   assert.ok(plank.index.length > 36 && plank.position.every(Number.isFinite));
