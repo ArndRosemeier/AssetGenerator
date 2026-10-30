@@ -6,6 +6,7 @@
  */
 import { Rng } from '@futuremagic/core';
 import { BuildingMat, Frame, Out, beam, mergeOuts, type BuildingMesh, type RGB } from './building';
+import { drawFixture, type InteriorFixture } from './interior';
 
 export type ShipKind = 'ship' | 'boat';
 
@@ -125,6 +126,57 @@ export function shipLadders(p: ShipPlan): ShipLadder[] {
   return out;
 }
 
+/** The castles' cabins' fixtures, as planned once per ship; the walk kept free down a cabin's middle (half of it, m). */
+const AISLE = 0.45;
+const FIXTURES = new WeakMap<ShipPlan, InteriorFixture[]>();
+
+/**
+ * What is in the castles' cabins, on the main deck under them: aft the captain's (his table with the chart on it, his
+ * bunk, his sea chest), forward the crew's and the galley (the stove, a table between benches, a berth, barrels); and
+ * each cabin's door, standing open, swung back against the front to starboard. In the ship's frame, `h` over the main
+ * deck (storey 0).
+ */
+export function shipFixtures(p: ShipPlan): InteriorFixture[] {
+  let out = FIXTURES.get(p);
+  if (out) return out;
+  out = [];
+  const list = out;
+  const put = (kind: InteriorFixture['kind'], a: number, b: number, w: number, d: number, h: number) => list.push({ kind, storey: 0, a, b, w, d, h });
+  for (const c of [p.aft, p.fore]) if (c) {
+    const aft = c === p.aft, face = aft ? c.a1 : c.a0, dir = aft ? 1 : -1, depth = c.a1 - c.a0;
+    /** `d` metres in from the cabin's front; the room across there (inner half width, at hip height), the least over `w` along. */
+    const at = (d: number) => face - dir * d;
+    const room = (d: number, w = 0) => Math.min(cabinHalf(p, at(d - w / 2)), cabinHalf(p, at(d + w / 2)));
+    // Against a side, if it leaves the middle free to walk (an aisle of AISLE either side of the keel line).
+    const byWall = (kind: InteriorFixture['kind'], d: number, w: number, deep: number, h: number, s: 1 | -1) => {
+      const b = room(d, w) - deep / 2 - 0.04;
+      if (b - deep / 2 >= AISLE && d + w / 2 < depth - 0.1) put(kind, at(d), s * b, w, deep, h);
+    };
+    // In the middle, if there is room to walk round it on both sides.
+    const amid = (kind: InteriorFixture['kind'], d: number, w: number, deep: number, h: number, b = 0) => {
+      if (room(d, w) - Math.abs(b) - deep / 2 >= 0.75 && d + w / 2 < depth - 0.3) put(kind, at(d), b, w, deep, h);
+    };
+    put('door', at(0.1), -(DOOR + 0.55), 0.06, 1.1, 1.95);
+    if (aft) {
+      amid('table', depth * 0.45, 1.0, 1.5, 0.78);
+      byWall('bed', depth - 1.25, 1.9, 0.85, 0.55, 1);
+      byWall('chest', 1.5, 0.9, 0.5, 0.55, -1);
+    } else {
+      byWall('oven', 1.0, 0.9, 0.8, 0.9, -1);
+      byWall('bed', 1.1, 1.7, 0.75, 0.5, 1);
+      byWall('barrel', 2.0, 0.55, 0.55, 0.8, -1);
+      amid('table', 2.3, 0.8, 0.6, 0.75);
+    }
+  }
+  FIXTURES.set(p, out);
+  return out;
+}
+
+/** A castle cabin's inner half width at `a` along the ship (low down, where its planking narrows it most). */
+function cabinHalf(p: ShipPlan, a: number): number {
+  return Math.max(0, hullHalf(p, a, p.deckY + 0.3) - INNER);
+}
+
 /** The deck's floor at `a` along the ship: a castle's or the main deck. */
 function deckAt(p: ShipPlan, a: number): number {
   for (const c of [p.aft, p.fore]) if (c && a >= c.a0 - 1e-6 && a <= c.a1 + 1e-6) return c.y;
@@ -140,14 +192,14 @@ export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number
   const half = p.length / 2;
   if (Math.abs(a) > half + r || Math.abs(b) > p.beam / 2 + r) return false;
   const t = (a / p.length) * 2, f = deckAt(p, a), w = Math.max(hullHalf(p, a, f), hullHalf(p, Math.sign(a) * Math.max(0, Math.abs(a) - r), f));
+  // In a castle's cabin, or at its front from the main deck: through its doorway only.
+  for (const c of [p.aft, p.fore]) if (c && y > p.deckY - 0.5 && y < c.y - 0.5 && a + r > c.a0 && a - r < c.a1) return cabinWall(p, c, a, b, r, y);
   if (y < f - 0.5) {
     // Below the deck: the hull itself, as wide as it is up at the head (it flares out from the keel to the deck).
     const mid = Math.min(f - 0.1, y + 1.7), wm = Math.max(hullHalf(p, a, mid), hullHalf(p, Math.sign(a) * Math.max(0, Math.abs(a) - r), mid));
     return wm > 0 && Math.abs(b) < wm + r && y + 1.7 > keelAt(p, Math.max(-1, Math.min(1, t)));
   }
   for (const m of p.masts) if (y + 1 > m.foot && Math.hypot(a - m.a, b) < r + (p.kind === 'ship' ? 0.26 : 0.1)) return true;
-  // A castle's front (its bulkhead) to a body on the main deck before it: the whole body stays out, not only its middle.
-  for (const c of [p.aft, p.fore]) if (c && y < c.y - 0.5 && a + r > c.a0 && a - r < c.a1 && Math.abs(b) < w + r) return true;
   // Over the rail (jumped): clear of it.
   if (Math.abs(t) < 1 && y > sheerAt(p, t) + 0.05) return false;
   // The transom across the stern, above its deck.
@@ -155,6 +207,24 @@ export function shipWall(p: ShipPlan, a: number, b: number, r: number, y: number
   const g = p.gangway;
   if (gangway && g && a - r * 0.5 >= g.a0 && a + r * 0.5 <= g.a1) return false;
   return Math.abs(b) > w - INNER - r && Math.abs(b) < w + r;
+}
+
+/**
+ * A castle's cabin to a body of radius `r` at (a, b), its feet at `y` on the main deck: its front but for the doorway
+ * (the whole body through it), the planking along its sides and the transom, what stands in it.
+ */
+function cabinWall(p: ShipPlan, c: Castle, a: number, b: number, r: number, y: number): boolean {
+  const face = c === p.aft ? c.a1 : c.a0, dir = c === p.aft ? 1 : -1, inside = (face - a) * dir;
+  if (Math.abs(inside) < r) return Math.abs(b) > DOOR - r;
+  // Outside, its middle on the main deck before the front: the deck's own walls (the rail along it).
+  if (inside < 0) return Math.abs(b) > hullHalf(p, a, p.deckY) - INNER - r;
+  if (a - r < -p.length / 2 + 0.12) return true;
+  if (Math.abs(b) > Math.min(cabinHalf(p, a - r), cabinHalf(p, a), cabinHalf(p, a + r)) - r) return true;
+  for (const f of shipFixtures(p)) {
+    if (y > p.deckY + f.h - 0.1) continue;
+    if (Math.abs(a - f.a) < f.w / 2 + r && Math.abs(b - f.b) < f.d / 2 + r) return true;
+  }
+  return false;
 }
 
 /** The planking's thickness inside the hull (m), and the hatch's grating over the deck. */
@@ -187,7 +257,7 @@ function section(u: number): number {
 const smooth = (x: number) => { const c = Math.min(1, Math.max(0, x)); return c * c * (3 - 2 * c); };
 
 const DECK: RGB = [158, 128, 92], DECK_DARK: RGB = [112, 88, 62], ROPE: RGB = [104, 90, 66], LINEN: RGB = [226, 216, 192];
-const IRON: RGB = [62, 62, 66], TAR: RGB = [40, 34, 28], GLASS: RGB = [70, 86, 96];
+const IRON: RGB = [62, 62, 66], TAR: RGB = [40, 34, 28], GLASS: RGB = [70, 86, 96], CHART: RGB = [214, 198, 160];
 
 /**
  * The ship's mesh at (x, z) heading along (ux, uz), its waterline at `y`, relative to `origin`. `sails`: 'set' draws
@@ -260,19 +330,22 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
   };
   const mainA0 = p.aft ? p.aft.a1 : -half, mainA1 = p.fore ? p.fore.a0 : half;
   deckStrip(mainA0, mainA1, p.deckY, p.hatch ?? undefined);
-  const ladders = shipLadders(p);
+  const ladders = shipLadders(p), outsCabins: Out[] = [];
   for (const c of [p.aft, p.fore]) if (c) {
     deckStrip(c.a0 + 0.05, c.a1, c.y);
     // Its front to the main deck: a bulkhead with a door (the captain's cabin aft, the crew's forward).
     const face = c === p.aft ? c.a1 : c.a0, dir = c === p.aft ? 1 : -1, w = hullHalf(p, face, c.y) - INNER;
     const door = DOOR, top = c.y;
-    const wall = (b0: number, b1: number, y0: number, y1: number) => { const q = [[face, y0, b0], [face, y0, b1], [face, y1, b1], [face, y1, b0]]; o.quad(q, [dir, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK); };
+    // (Both its faces: the cabin behind it is walked in. Its door stands open, a fixture of the cabin.)
+    const wall = (b0: number, b1: number, y0: number, y1: number) => {
+      const q = [[face, y0, b0], [face, y0, b1], [face, y1, b1], [face, y1, b0]];
+      o.quad(q, [dir, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK);
+      o.quad(q, [-dir, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK);
+    };
     wall(-w, -door, p.deckY, top);
     wall(door, w, p.deckY, top);
     wall(-door, door, p.deckY + 1.95, top);
-    // The door itself, shut, a little in.
-    const dq = [[face - dir * 0.05, p.deckY, -door], [face - dir * 0.05, p.deckY, door], [face - dir * 0.05, p.deckY + 1.95, door], [face - dir * 0.05, p.deckY + 1.95, -door]];
-    o.quad(dq, [dir, 0, 0], dq.map((v) => [v[2], v[1]]), BuildingMat.Oak, p.hull);
+    if (detail) cabin(o, p, c, x, z, ux, uz, y, origin, outsCabins);
     // A rail along the castle's front edge, and a ladder up beside the door.
     for (const s of [1, -1]) beam(o, [face, c.y + 0.9, s * (door + 0.9)], [face, c.y + 0.9, s * (w - 0.05)], 0.04, DECK_DARK);
     if (detail) ladder(o, ladders[c === p.aft ? 0 : ladders.length - 1]);
@@ -320,7 +393,7 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
   const spritEnd = p.kind === 'ship' ? [half + p.length * 0.22, stemTop + p.length * 0.1, 0] : [half + 0.6, stemTop + 0.15, 0];
   beam(o, [half - (p.kind === 'ship' ? 1.5 : 0.5), stemTop - 0.1, 0], spritEnd, p.kind === 'ship' ? 0.13 : 0.04, DECK_DARK);
   // Masts, yards, sails and rigging.
-  const outs = [o];
+  const outs = [o, ...outsCabins];
   for (const [mi, m] of p.masts.entries()) {
     const R = (p.kind === 'ship' ? 0.24 : 0.08) * (mi === 0 ? 1 : 0.85);
     beam(o, [m.a, m.foot - 0.2, 0], [m.a, m.top, 0], R, DECK_DARK);
@@ -386,6 +459,47 @@ function sail(p: ShipPlan, a: number, yT: number, yB: number, hT: number, hB: nu
   }
   void p;
   return o;
+}
+
+/**
+ * A castle's cabin, on the main deck under its deck: the floor, its sides planked inside (and the transom aft, under
+ * the stern windows), a lantern hung from the beams, what stands in it (shipFixtures); a stove's pipe out through the
+ * deck above. Its fixtures go in an Out of their own, from the main deck up.
+ */
+function cabin(o: Out, p: ShipPlan, c: Castle, x: number, z: number, ux: number, uz: number, y: number, origin: [number, number, number], outs: Out[]): void {
+  const half = p.length / 2, aft = c === p.aft, ceil = c.y - 0.08, n = Math.max(2, Math.ceil((c.a1 - c.a0) / 0.8));
+  const a0 = aft ? Math.max(c.a0, -half + 0.12) : c.a0;
+  for (let i = 0; i < n; i++) {
+    const b0 = a0 + ((c.a1 - a0) * i) / n, b1 = a0 + ((c.a1 - a0) * (i + 1)) / n;
+    const w = (a: number, h: number) => Math.max(0, hullHalf(p, a, h) - INNER);
+    if (w(b0, p.deckY) + w(b1, p.deckY) < 0.1) continue;
+    const fl = [[b0, p.deckY, -w(b0, p.deckY)], [b1, p.deckY, -w(b1, p.deckY)], [b1, p.deckY, w(b1, p.deckY)], [b0, p.deckY, w(b0, p.deckY)]];
+    o.quad(fl, [0, 1, 0], fl.map((v) => [v[0], v[2]]), BuildingMat.Oak, DECK);
+    // The sides, in two bands (the hull flares out going up).
+    const mid = (p.deckY + ceil) / 2;
+    for (const side of [1, -1]) for (const [h0, h1] of [[p.deckY, mid], [mid, ceil]]) {
+      const q = [[b0, h0, side * w(b0, h0)], [b1, h0, side * w(b1, h0)], [b1, h1, side * w(b1, h1)], [b0, h1, side * w(b0, h1)]];
+      o.quad(q, [0, 0, -side], q.map((v) => [v[0], v[1]]), BuildingMat.Oak, DECK_DARK);
+    }
+  }
+  if (aft) {
+    const wa = Math.max(0, hullHalf(p, a0, ceil) - INNER), q = [[a0, p.deckY, -wa], [a0, p.deckY, wa], [a0, ceil, wa], [a0, ceil, -wa]];
+    o.quad(q, [1, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK);
+    // The stern windows, from inside.
+    for (const b of [-0.9, 0, 0.9]) o.box(a0, a0 + 0.03, c.y - 1.3, c.y - 0.5, b - 0.32, b + 0.32, BuildingMat.Glass, GLASS);
+  }
+  const fx = new Out(new Frame({ cx: x, cz: z, ux, uz, vx: -uz, vz: ux, y: y + p.deckY }, origin)), H = ceil - p.deckY;
+  for (const f of shipFixtures(p)) {
+    if (f.a < c.a0 || f.a > c.a1) continue;
+    drawFixture(fx, f, H);
+    if (f.kind === 'table' && aft) fx.box(f.a - 0.3, f.a + 0.25, f.h, f.h + 0.01, f.b - 0.4, f.b + 0.35, BuildingMat.Plaster, CHART);
+    if (f.kind === 'oven') beam(o, [f.a, p.deckY + H, f.b], [f.a, c.y + 0.8, f.b], 0.09, IRON, BuildingMat.Slate);
+  }
+  // The lantern over the middle of the cabin.
+  const la = (c.a0 + c.a1) / 2 + (aft ? 0.6 : -0.6);
+  beam(o, [la, ceil, 0], [la, ceil - 0.35, 0], 0.012, IRON, BuildingMat.Slate);
+  o.box(la - 0.09, la + 0.09, ceil - 0.62, ceil - 0.35, -0.09, 0.09, BuildingMat.Glass, [238, 196, 120], true);
+  outs.push(fx);
 }
 
 /** A ladder up a castle's front: its stiles (on past the top, to hold on by), its rungs. */

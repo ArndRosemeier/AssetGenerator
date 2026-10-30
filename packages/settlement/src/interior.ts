@@ -750,7 +750,7 @@ export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [numbe
     for (const s of plan.stairs) if (s.storey === k) stair(o, s);
     for (const f of plan.fixtures) if (f.storey === k && (doors || f.kind !== 'door')) {
       if (f.kind === 'hatch' && !lid) hatchShaft(o, f, hatchSides(plan, f));
-      else fixture(o, f, H);
+      else drawFixture(o, f, H);
     }
     const m = toMesh(o);
     daylight(m, b, origin, st, S.storeys[k], k === 0);
@@ -1062,7 +1062,8 @@ export function interiorSolids(plan: InteriorPlan): InteriorBox[] {
   return out;
 }
 
-function fixture(o: Out, f: InteriorFixture, H: number): void {
+/** A fixture drawn from its storey's floor up (`H`: the ceiling over it, for a hearth's breast). */
+export function drawFixture(o: Out, f: InteriorFixture, H: number): void {
   const a0 = f.a - f.w / 2, a1 = f.a + f.w / 2, b0 = f.b - f.d / 2, b1 = f.b + f.d / 2;
   const legs = (top: number, t: number, m: BuildingMat, c: RGB) => {
     for (const [a, b] of [[a0 + t, b0 + t], [a1 - t, b0 + t], [a0 + t, b1 - t], [a1 - t, b1 - t]]) o.box(a - t, a + t, 0, top, b - t, b + t, m, c);
