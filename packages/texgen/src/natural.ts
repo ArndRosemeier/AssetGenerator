@@ -1,6 +1,6 @@
 /**
  * Natural ground layers for open country (wild grass, forest floor, rock, cliff strata, scree, snow, sand,
- * mud): the terrain of fantasy and wilderness games. Same conventions as the other layers (index.ts): one
+ * mud, and the kinds of country's: heather, clay, limestone pavement, chalk turf, gravel): the terrain of fantasy and wilderness games. Same conventions as the other layers (index.ts): one
  * tile is W metres square, wraps seamlessly, row 0 = v = 0, +v is "up" (on a cliff: up the face).
  */
 import { Rng } from '@futuremagic/core';
@@ -213,6 +213,132 @@ const mud: Gen = (t) => {
   });
 };
 
+/** Short tufts: `n` per square metre, blades `len` long in `colours`, standing `z0` over the bed (shared by the turf-like layers). */
+function tufts(t: Tex, seed: number, n: number, len: [number, number], colours: RGB[], z0: number, where: (u: number, v: number) => number = () => 1): void {
+  const W = t.W, rng = new Rng(seed);
+  for (let k = 0; k < Math.round(W * W * n); k++) {
+    const x = rng.float() * W, y = rng.float() * W;
+    if (rng.float() > where(x / W, y / W)) continue;
+    const c = colours[rng.int(0, colours.length - 1)], lean = rng.float() * Math.PI * 2;
+    for (let b = rng.int(3, 7); b > 0; b--) {
+      const a = lean + rng.range(-1.2, 1.2), l = rng.range(len[0], len[1]), vk = rng.range(0.7, 1.2);
+      stroke(t, x, y, a, l, (s, idx) => {
+        const z = z0 + s * l * 0.6;
+        if (z <= t.h[idx]) return;
+        const sh = vk * (0.55 + 0.45 * s);
+        t.set(idx, c[0] * sh, c[1] * sh, c[2] * sh, 0.85, z);
+      });
+    }
+  }
+}
+
+/** Moor: heather in low dark clumps over black peat, purple where it flowers, wiry grass and moss between. */
+const heather: Gen = (t) => {
+  const W = t.W;
+  const nP = new TNoise(5901, W), nC = new TNoise(5902, W);
+  t.each((u, v, _x, _y, idx) => {
+    const wet = smooth(0.15, 0.4, nP.fbm(u, v, 0.9, 3));
+    const k = 0.85 + nP.fbm(u, v, 0.05, 3) * 0.3 + (rnd(5903, idx) - 0.5) * 0.2;
+    t.set(idx, mix(0.16, 0.08, wet) * k, mix(0.12, 0.07, wet) * k, mix(0.08, 0.05, wet) * k, mix(0.92, 0.4, wet), nP.fbm(u, v, 0.3, 3) * 0.006 - wet * 0.006);
+  });
+  // Moss and wiry grass on the peat.
+  tufts(t, 5904, 60, [0.02, 0.06], [rgb(110, 112, 60), rgb(140, 128, 70), rgb(80, 96, 44)], 0.002);
+  // The heather: clumps of woody sprigs, each a dome of short strokes, flowering in drifts.
+  const rng = new Rng(5905);
+  for (let k = 0; k < Math.round(W * W * 40); k++) {
+    const cx = rng.float() * W, cy = rng.float() * W, u = cx / W, v = cy / W;
+    if (rng.float() > smooth(-0.3, 0.3, nC.fbm(u, v, 0.8, 3)) + 0.5) continue;
+    const R = rng.range(0.1, 0.25), bloom = smooth(0.0, 0.35, nC.fbm(u + 0.5, v, 1.2, 3)) * rng.range(0.4, 1);
+    for (let s = Math.round(R * R * 14000); s > 0; s--) {
+      const a = rng.float() * Math.PI * 2, d = Math.sqrt(rng.float()) * R;
+      const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d, dome = Math.sqrt(1 - (d / R) ** 2);
+      const flower = rng.float() < bloom * 0.7, vk = rng.range(0.6, 1.2);
+      const c: RGB = flower ? [0.5 * vk, 0.24 * vk, 0.46 * vk] : rng.float() < 0.6 ? [0.22 * vk, 0.24 * vk, 0.12 * vk] : [0.3 * vk, 0.2 * vk, 0.13 * vk];
+      stroke(t, x, y, rng.float() * Math.PI * 2, rng.range(0.01, 0.025), (_q, idx) => {
+        const z = 0.01 + dome * R * 0.5 + (flower ? 0.003 : 0);
+        if (z <= t.h[idx]) return;
+        t.set(idx, c[0], c[1], c[2], 0.9, z);
+      });
+    }
+  }
+};
+
+/**
+ * Badlands: bare clay crusted by the sun, scored by little rills that run down it side by side, a few stones washed
+ * out on top. Pale and nearly grey: the land's bands of colour are laid over it by height (the terrain shader).
+ */
+const clay: Gen = (t) => {
+  const W = t.W;
+  const n1 = new TNoise(6001, W), n2 = new TNoise(6002, W), n3 = new TNoise(6003, W);
+  const rills = Math.round(W / 0.22);
+  t.each((u, v, _x, _y, idx) => {
+    const wu = u + n1.fbm(u, v, 1.2, 3) * 0.06 + n2.fbm(u, v, 0.4, 2) * 0.012;
+    const rill = Math.pow(Math.abs(Math.sin(wu * Math.PI * rills)), 0.35);
+    const deep = smooth(-0.2, 0.4, n3.fbm(u, v, 0.8, 3));
+    const h = rill * 0.012 * (0.4 + deep) + n2.fbm(u, v, 0.15, 3) * 0.006 + (rnd(6004, idx) - 0.5) * 0.001;
+    const k = (0.92 + n1.fbm(u, v, 0.6, 3) * 0.16 + (rnd(6005, idx) - 0.5) * 0.08) * (0.82 + 0.18 * rill);
+    t.set(idx, 0.70 * k, 0.62 * k, 0.54 * k, 0.93, h);
+  });
+  pebbles(t, 6006, { count: 0.06, rMin: 0.01, rMax: 0.04, height: 0.5, palette: [rgb(150, 136, 118), rgb(110, 100, 90), rgb(170, 150, 120)], fines: rgb(0, 0, 0), finesH: 0, bed: false });
+};
+
+/**
+ * Karst: limestone pavement. Pale grey blocks (clints) between deep joints (grikes) that run in two sets, nearly
+ * straight, with moss and ferns down in them; the blocks' tops fluted and pitted by rain.
+ */
+const limestone: Gen = (t) => {
+  const W = t.W;
+  const n1 = new TNoise(6101, W), n2 = new TNoise(6102, W), n3 = new TNoise(6103, W);
+  const a = Math.round(W / 1.3), b = Math.round(W / 0.9);
+  t.each((u, v, _x, _y, idx) => {
+    const j1 = Math.abs(Math.sin((u + n1.fbm(u, v, 0.6, 2) * 0.03) * Math.PI * a));
+    const j2 = Math.abs(Math.sin((v + u * 0.25 + n2.fbm(u, v, 0.6, 2) * 0.03) * Math.PI * b));
+    // The second set breaks off here and there; the first runs through.
+    const open2 = smooth(-0.15, 0.15, n3.fbm(u, v, 0.9, 2));
+    const grike = Math.max(1 - smooth(0.0, 0.07, j1), (1 - smooth(0.0, 0.06, j2)) * open2);
+    const pit = n2.ridged(u, v, 0.08, 3) * 0.004 + n1.fbm(u, v, 0.35, 3) * 0.008;
+    const tone = 0.92 + n3.fbm(u, v, 0.5, 3) * 0.14 + (rnd(6104, idx) - 0.5) * 0.1;
+    const moss = grike * smooth(-0.1, 0.3, n1.fbm(u + 0.4, v, 0.7, 3));
+    let r = 0.66 * tone, g = 0.65 * tone, bl = 0.61 * tone;
+    r = mix(r, 0.08, grike * 0.85); g = mix(g, 0.08, grike * 0.85); bl = mix(bl, 0.07, grike * 0.85);
+    r = mix(r, 0.16, moss * 0.6); g = mix(g, 0.24, moss * 0.6); bl = mix(bl, 0.08, moss * 0.6);
+    t.set(idx, r, g, bl, 0.8 + grike * 0.15, pit - grike * 0.05);
+  });
+  tufts(t, 6105, 40, [0.03, 0.08], [rgb(80, 110, 50), rgb(110, 120, 60)], -0.03, (u) => smooth(0.4, 0.9, 1 - Math.abs(Math.sin(u * Math.PI * a))));
+};
+
+/** Downs: turf grazed short and dense, fine and even, with the white chalk showing through where it is worn, and flints. */
+const chalkTurf: Gen = (t) => {
+  const W = t.W;
+  const n1 = new TNoise(6201, W), n2 = new TNoise(6202, W);
+  t.each((u, v, _x, _y, idx) => {
+    const k = 0.85 + n1.fbm(u, v, 0.1, 3) * 0.25 + (rnd(6203, idx) - 0.5) * 0.25;
+    t.set(idx, 0.18 * k, 0.24 * k, 0.09 * k, 0.92, n1.fbm(u, v, 0.2, 3) * 0.002);
+  });
+  const worn = (u: number, v: number) => smooth(0.1, 0.36, n2.fbm(u, v, 1.6, 4));
+  tufts(t, 6204, 700, [0.008, 0.022], [rgb(70, 100, 36), rgb(92, 118, 44), rgb(110, 120, 56), rgb(60, 88, 34)], 0.002, (u, v) => 1 - worn(u, v) * 0.9);
+  t.each((u, v, _x, _y, idx) => {
+    const c = worn(u, v);
+    if (c <= 0) return;
+    const k = 0.92 + (rnd(6205, idx) - 0.5) * 0.12;
+    t.r[idx] = mix(t.r[idx], 0.82 * k, c); t.g[idx] = mix(t.g[idx], 0.80 * k, c); t.b[idx] = mix(t.b[idx], 0.74 * k, c);
+    t.h[idx] = mix(t.h[idx], -0.002, c);
+  });
+  pebbles(t, 6206, { count: 0.04, rMin: 0.012, rMax: 0.035, height: 0.4, palette: [rgb(70, 66, 64), rgb(120, 110, 100), rgb(210, 205, 196)], fines: rgb(0, 0, 0), finesH: 0, bed: false, mask: (u, v) => 0.2 + worn(u, v) });
+};
+
+/** A river valley's floor: rounded pebbles and grit washed down, grass grown over in drifts between them. */
+const gravel: Gen = (t) => {
+  const W = t.W;
+  const n1 = new TNoise(6301, W);
+  pebbles(t, 6302, {
+    count: 1.1, rMin: 0.015, rMax: 0.06, height: 0.5,
+    palette: [rgb(150, 144, 132), rgb(118, 112, 104), rgb(170, 160, 140), rgb(130, 118, 100), rgb(96, 92, 88)],
+    fines: rgb(120, 110, 94), finesH: 0, dust: 0.15,
+  });
+  tufts(t, 6303, 260, [0.03, 0.08], [rgb(70, 98, 36), rgb(96, 112, 46), rgb(120, 118, 60)], 0.02, (u, v) => smooth(-0.1, 0.35, n1.fbm(u, v, 0.8, 3)));
+};
+
 /** Every natural layer, in a fixed order (index = layer number). */
 export const NATURALS: { name: string; W: number; gen: Gen; normal: number; aoK: number; aoR: [number, number] }[] = [
   { name: 'wildGrass', W: 3, gen: wildGrass, normal: 0.4, aoK: 25, aoR: [0.01, 0.05] },
@@ -223,5 +349,11 @@ export const NATURALS: { name: string; W: number; gen: Gen; normal: number; aoK:
   { name: 'snow', W: 4, gen: snow, normal: 0.6, aoK: 10, aoR: [0.03, 0.12] },
   { name: 'sand', W: 3, gen: sand, normal: 0.7, aoK: 20, aoR: [0.01, 0.05] },
   { name: 'mud', W: 3, gen: mud, normal: 0.8, aoK: 30, aoR: [0.01, 0.05] },
+  // The kinds of country's own grounds (MasterWorld D55): moor, badlands, karst, downs, a valley's floor.
+  { name: 'heather', W: 3, gen: heather, normal: 0.8, aoK: 40, aoR: [0.01, 0.05] },
+  { name: 'clay', W: 3, gen: clay, normal: 0.8, aoK: 20, aoR: [0.01, 0.05] },
+  { name: 'limestone', W: 4, gen: limestone, normal: 1, aoK: 30, aoR: [0.02, 0.08] },
+  { name: 'chalkTurf', W: 2, gen: chalkTurf, normal: 0.5, aoK: 25, aoR: [0.01, 0.04] },
+  { name: 'gravel', W: 2, gen: gravel, normal: 1, aoK: 50, aoR: [0.01, 0.04] },
 ];
 
