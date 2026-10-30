@@ -44,7 +44,9 @@ export interface HarbourPlan {
   /** The quay's front, along the waterline (x, z, …), and the way out to sea at each of its points (x, z, …). */
   edge: number[];
   out: number[];
-  /** The quay: a paved strip from its front inland (QUAY_DEPTH m), closed, counter-clockwise. */
+  /** The quay's back, inland of each front point (x, z, …): QUAY_DEPTH m past the waterline. */
+  back: number[];
+  /** The quay: a paved strip from its front to its back, closed, counter-clockwise. */
   quay: Poly;
   /** The quay's top. */
   quayY: number;
@@ -56,6 +58,8 @@ export interface HarbourPlan {
 export const QUAY_DEPTH = 12;
 /** The quay stands this high over the sea at least, m (and as high as the ground behind it, up to QUAY_TOP). */
 const QUAY_LOW = 1.4, QUAY_TOP = 3;
+/** The quay's front stands in this much water (m), so a boat comes alongside it and the sea washes its face, not a strand. */
+const QUAY_WATER = 1.2;
 /** Steps along the coast and out to sea, m. */
 const STEP = 4;
 /** A pier: as long as it takes to reach this depth (m), between these lengths. */
@@ -74,16 +78,18 @@ const SHIP_MAX = 34;
  */
 export function planHarbour(site: HarbourSite, cx: number, cz: number, R: number, height: (x: number, z: number) => number, water: (x: number, z: number) => number, reach = 1.15, minLength = 30): HarbourPlan | null {
   const tx = -site.dz, tz = site.dx;
-  // The waterline along the coast: from inland, out to sea until the first water.
-  const line: { x: number; z: number; t: number }[] = [];
+  // The quay's front along the coast: from inland, out to sea past the strand until the water is QUAY_WATER deep.
+  const line: { x: number; z: number; t: number; strand: number }[] = [];
   const span = R * reach * 1.4;
   for (let t = -span; t <= span; t += STEP) {
     const bx = site.x + tx * t - site.dx * 40, bz = site.z + tz * t - site.dz * 40;
     if (water(bx, bz) > 0) continue;
-    for (let s = 0; s < 160; s += 1) {
-      const x = bx + site.dx * s, z = bz + site.dz * s;
-      if (water(x, z) > 0) {
-        if (Math.hypot(x - cx, z - cz) <= R * reach) line.push({ x: x - site.dx * 0.5, z: z - site.dz * 0.5, t });
+    let wet = -1;
+    for (let s = 0; s < 200; s += 1) {
+      const x = bx + site.dx * s, z = bz + site.dz * s, w = water(x, z);
+      if (w > 0 && wet < 0) wet = s;
+      if (w >= QUAY_WATER) {
+        if (Math.hypot(x - cx, z - cz) <= R * reach) line.push({ x, z, t, strand: s - wet });
         break;
       }
     }
@@ -99,11 +105,12 @@ export function planHarbour(site: HarbourSite, cx: number, cz: number, R: number
   const best = runs.reduce<typeof line | null>((a, r) => (!a || lengthOf(r) > lengthOf(a) ? r : a), null);
   if (!best || lengthOf(best) < minLength) return null;
   // Smoothed (the waterline is in 1 m steps), each point with the way out to sea across the quay's own line.
-  const n = best.length, edge: number[] = [], out: number[] = [];
+  const n = best.length, edge: number[] = [], out: number[] = [], deep: number[] = [];
   for (let i = 0; i < n; i++) {
-    let x = 0, z = 0, k = 0;
-    for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) { x += best[j].x; z += best[j].z; k++; }
+    let x = 0, z = 0, d = 0, k = 0;
+    for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) { x += best[j].x; z += best[j].z; d += best[j].strand; k++; }
     edge.push(x / k, z / k);
+    deep.push(d / k + QUAY_DEPTH);
   }
   for (let i = 0; i < n; i++) {
     const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
@@ -115,12 +122,14 @@ export function planHarbour(site: HarbourSite, cx: number, cz: number, R: number
     out.push(-uz * s, ux * s);
   }
   // The quay's top: over the sea, and as high as the ground at its back.
-  let back = 0;
-  for (let i = 0; i < n; i++) back = Math.max(back, height(edge[i * 2] - out[i * 2] * QUAY_DEPTH, edge[i * 2 + 1] - out[i * 2 + 1] * QUAY_DEPTH));
-  const quayY = Math.min(QUAY_TOP, Math.max(QUAY_LOW, back));
+  const back: number[] = [];
+  for (let i = 0; i < n; i++) back.push(edge[i * 2] - out[i * 2] * deep[i], edge[i * 2 + 1] - out[i * 2 + 1] * deep[i]);
+  let ground = 0;
+  for (let i = 0; i < n; i++) ground = Math.max(ground, height(back[i * 2], back[i * 2 + 1]));
+  const quayY = Math.min(QUAY_TOP, Math.max(QUAY_LOW, ground));
   const quay: Poly = [];
   for (let i = 0; i < n; i++) quay.push(edge[i * 2], edge[i * 2 + 1]);
-  for (let i = n - 1; i >= 0; i--) quay.push(edge[i * 2] - out[i * 2] * QUAY_DEPTH, edge[i * 2 + 1] - out[i * 2 + 1] * QUAY_DEPTH);
+  for (let i = n - 1; i >= 0; i--) quay.push(back[i * 2], back[i * 2 + 1]);
   const quayCCW = ensureCCW(quay);
   // Piers, spread along the quay, out to where ships float.
   const count = Math.max(1, Math.min(PIERS_MAX, Math.floor(lengthOf(best) / PIER_EVERY)));
@@ -145,7 +154,7 @@ export function planHarbour(site: HarbourSite, cx: number, cz: number, R: number
       berths.push({ x, z, yaw: Math.atan2(oz, ox), length: shipLen, pier: id, side, depth });
     }
   }
-  return { edge, out, quay: quayCCW, quayY, piers, berths };
+  return { edge, out, back, quay: quayCCW, quayY, piers, berths };
 }
 
 /** Distance (m) from (x, z) to a pier's deck rectangle (negative inside, as far as its half width goes). */
@@ -176,7 +185,7 @@ export function harbourMesh(h: HarbourPlan, height: (x: number, z: number) => nu
   const o = new Out(new Frame({ cx: 0, cz: 0, ux: 1, uz: 0, vx: 0, vz: 1, y: 0 }, origin));
   const n = h.edge.length >> 1, y = h.quayY;
   const E = (i: number) => [h.edge[i * 2], h.edge[i * 2 + 1]];
-  const B = (i: number) => [h.edge[i * 2] - h.out[i * 2] * QUAY_DEPTH, h.edge[i * 2 + 1] - h.out[i * 2 + 1] * QUAY_DEPTH];
+  const B = (i: number) => [h.back[i * 2], h.back[i * 2 + 1]];
   const bed = (x: number, z: number) => Math.min(LOWEST, height(x, z) - SUNK);
   for (let i = 0; i < n - 1; i++) {
     const [ax, az] = E(i), [bx, bz] = E(i + 1), [cx, cz] = B(i + 1), [dx, dz] = B(i);
@@ -193,7 +202,7 @@ export function harbourMesh(h: HarbourPlan, height: (x: number, z: number) => nu
   // The quay's two ends, closed down to the bed.
   for (const [i, s] of [[0, -1], [n - 1, 1]] as const) {
     const [ax, az] = E(i), [dx, dz] = B(i), k = Math.min(n - 1, Math.max(0, i - s)), tx = h.edge[i * 2] - h.edge[k * 2], tz = h.edge[i * 2 + 1] - h.edge[k * 2 + 1];
-    o.quad([[ax, y, az], [dx, y, dz], [dx, Math.min(y, height(dx, dz) - 0.2), dz], [ax, bed(ax, az), az]], [tx, 0, tz], [[0, y], [QUAY_DEPTH, y], [QUAY_DEPTH, 0], [0, bed(ax, az)]], BuildingMat.Ashlar, QUAY_STONE);
+    o.quad([[ax, y, az], [dx, y, dz], [dx, Math.min(y, height(dx, dz) - 0.2), dz], [ax, bed(ax, az), az]], [tx, 0, tz], [[0, y], [Math.hypot(dx - ax, dz - az), y], [Math.hypot(dx - ax, dz - az), 0], [0, bed(ax, az)]], BuildingMat.Ashlar, QUAY_STONE);
   }
   const outs = [o];
   for (const p of h.piers) {

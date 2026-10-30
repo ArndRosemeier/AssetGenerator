@@ -9,12 +9,12 @@ const site = (seed: number, size: TownSite['size'] = 'village'): TownSite => ({
   seed, x: 0, z: -60, size, height, water, harbour: { x: 0, z: 0, dx: 0, dz: 1 },
 });
 
-test('harbour: a town by the sea gets a quay on the waterline, piers out to deep water and berths', () => {
+test('harbour: a town by the sea gets a quay standing in the water, piers out to deep water and berths', () => {
   for (const seed of [1, 2, 3]) for (const size of ['village', 'town'] as const) {
     const t = planTown(site(seed, size)), h = t.harbour;
     assert.ok(h, `seed ${seed} ${size}: no harbour`);
     assert.ok(h.edge.length >= 16, 'a quay of some length');
-    for (let i = 0; i < h.edge.length; i += 2) assert.ok(Math.abs(height(h.edge[i], h.edge[i + 1])) < 1, 'the quay front is on the waterline');
+    for (let i = 0; i < h.edge.length; i += 2) assert.ok(water(h.edge[i], h.edge[i + 1]) >= 1 && water(h.edge[i], h.edge[i + 1]) < 3, 'the quay front stands in the water, just past the strand');
     assert.ok(h.quayY >= 1.4);
     assert.ok(h.piers.length >= 1);
     for (const p of h.piers) assert.ok(water(p.x1, p.z1) >= 3 || Math.hypot(p.x1 - p.x0, p.z1 - p.z0) >= 70, 'a pier reaches deep water');
