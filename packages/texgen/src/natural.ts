@@ -304,7 +304,7 @@ const limestone: Gen = (t) => {
     r = mix(r, 0.16, moss * 0.6); g = mix(g, 0.24, moss * 0.6); bl = mix(bl, 0.08, moss * 0.6);
     t.set(idx, r, g, bl, 0.8 + grike * 0.15, pit - grike * 0.05);
   });
-  tufts(t, 6105, 40, [0.03, 0.08], [rgb(80, 110, 50), rgb(110, 120, 60)], -0.03, (u, v) => smooth(0.4, 0.9, 1 - Math.abs(Math.sin(u * Math.PI * a))));
+  tufts(t, 6105, 40, [0.03, 0.08], [rgb(80, 110, 50), rgb(110, 120, 60)], -0.03, (u) => smooth(0.4, 0.9, 1 - Math.abs(Math.sin(u * Math.PI * a))));
 };
 
 /** Downs: turf grazed short and dense, fine and even, with the white chalk showing through where it is worn, and flints. */
