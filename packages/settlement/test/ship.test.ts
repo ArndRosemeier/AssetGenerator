@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planShip, shipMesh, shipFloor, hullHalf, shipWall, gangplankMesh } from '../src/index';
+import { planShip, shipMesh, shipFloor, hullHalf, shipWall, gangplankMesh, shipLadders } from '../src/index';
 
 test('ship: a sailing ship has castles fore and aft, masts with yards, a hatch, and decks to walk on', () => {
   for (const seed of [1, 2, 3, 4]) {
@@ -86,4 +86,23 @@ test('ship: walking its deck: the rail and masts are walls, the gangway open, th
   }
   const plank = gangplankMesh(2.5);
   assert.ok(plank.index.length > 36 && plank.position.every(Number.isFinite));
+});
+
+test('ship: a ladder up each castle, its foot on the main deck before the castle, its top at the castle deck', () => {
+  for (const L of [22, 30]) {
+    const p = planShip(3, 'ship', L), ls = shipLadders(p);
+    assert.equal(ls.length, 2);
+    for (const l of ls) {
+      const c = l.dir === 1 ? p.aft! : p.fore!, face = l.dir === 1 ? c.a1 : c.a0;
+      assert.equal(shipFloor(p, l.a, l.b), p.deckY, 'the foot on the main deck');
+      assert.equal(l.y1, c.y);
+      // Its top line just off the castle's front; whole rungs from the foot to the top.
+      const topA = l.a - l.dir * l.lean;
+      assert.ok((topA - face) * l.dir > 0.3 && (topA - face) * l.dir < 0.6);
+      const n = (l.y1 - l.y0) / l.rung;
+      assert.ok(Math.abs(n - Math.round(n)) < 1e-9 && l.rung > 0.25 && l.rung < 0.36);
+      assert.ok(!shipWall(p, l.a + l.dir * 0.75, l.b, 0.32, p.deckY), 'room to stand at its foot');
+    }
+  }
+  assert.equal(shipLadders(planShip(3, 'boat')).length, 0);
 });

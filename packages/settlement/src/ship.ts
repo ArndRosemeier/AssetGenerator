@@ -96,6 +96,35 @@ export function shipFloor(p: ShipPlan, a: number, b: number): number | null {
   return Math.abs(b) <= hullHalf(p, a, p.deckY) - INNER ? p.deckY : null;
 }
 
+/**
+ * A ladder aboard, up a castle's front from the main deck: its rungs' line at its foot (`a`, `b`, the floor `y0`),
+ * up to the deck `y1` it climbs to. It leans back towards the castle by `lean` metres over that height; `dir` is the
+ * way from the castle's front out over the main deck (+1: along +a). Its rungs are `rung` apart, the first one rung
+ * over the foot, the last one rung under the top.
+ */
+export interface ShipLadder {
+  a: number;
+  b: number;
+  y0: number;
+  y1: number;
+  dir: 1 | -1;
+  lean: number;
+  rung: number;
+}
+
+/** The castle doors' half width (m); a castle's ladder stands beside its door. */
+const DOOR = 0.55;
+
+/** The ladders up the castles' fronts (none on a boat). */
+export function shipLadders(p: ShipPlan): ShipLadder[] {
+  const out: ShipLadder[] = [];
+  for (const c of [p.aft, p.fore]) if (c) {
+    const face = c === p.aft ? c.a1 : c.a0, dir = c === p.aft ? 1 : -1, lean = 0.35;
+    out.push({ a: face + dir * (0.45 + lean), b: DOOR + 0.45, y0: p.deckY, y1: c.y, dir, lean, rung: (c.y - p.deckY) / Math.max(3, Math.round((c.y - p.deckY) / 0.3)) });
+  }
+  return out;
+}
+
 /** The deck's floor at `a` along the ship: a castle's or the main deck. */
 function deckAt(p: ShipPlan, a: number): number {
   for (const c of [p.aft, p.fore]) if (c && a >= c.a0 - 1e-6 && a <= c.a1 + 1e-6) return c.y;
@@ -231,11 +260,12 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
   };
   const mainA0 = p.aft ? p.aft.a1 : -half, mainA1 = p.fore ? p.fore.a0 : half;
   deckStrip(mainA0, mainA1, p.deckY, p.hatch ?? undefined);
+  const ladders = shipLadders(p);
   for (const c of [p.aft, p.fore]) if (c) {
     deckStrip(c.a0 + 0.05, c.a1, c.y);
     // Its front to the main deck: a bulkhead with a door (the captain's cabin aft, the crew's forward).
     const face = c === p.aft ? c.a1 : c.a0, dir = c === p.aft ? 1 : -1, w = hullHalf(p, face, c.y) - INNER;
-    const door = 0.55, top = c.y;
+    const door = DOOR, top = c.y;
     const wall = (b0: number, b1: number, y0: number, y1: number) => { const q = [[face, y0, b0], [face, y0, b1], [face, y1, b1], [face, y1, b0]]; o.quad(q, [dir, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK); };
     wall(-w, -door, p.deckY, top);
     wall(door, w, p.deckY, top);
@@ -245,7 +275,7 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     o.quad(dq, [dir, 0, 0], dq.map((v) => [v[2], v[1]]), BuildingMat.Oak, p.hull);
     // A rail along the castle's front edge, and a ladder up beside the door.
     for (const s of [1, -1]) beam(o, [face, c.y + 0.9, s * (door + 0.9)], [face, c.y + 0.9, s * (w - 0.05)], 0.04, DECK_DARK);
-    if (detail) ladder(o, face + dir * 0.45, p.deckY, c.y, door + 0.45, dir);
+    if (detail) ladder(o, ladders[c === p.aft ? 0 : ladders.length - 1]);
     // Its underside: the cabin's ceiling below it.
     deckStrip(c.a0 + 0.05, c.a1, c.y - 0.08, undefined, true);
   }
@@ -358,14 +388,14 @@ function sail(p: ShipPlan, a: number, yT: number, yB: number, hT: number, hB: nu
   return o;
 }
 
-/** A ladder against a castle's front at `a`, from `y0` up to `y1`, its middle `b` across, leaning away by `dir`. */
-function ladder(o: Out, a: number, y0: number, y1: number, b: number, dir: number): void {
-  const lean = 0.35;
-  for (const s of [-0.25, 0.25]) beam(o, [a + dir * lean, y0, b + s], [a, y1 + 0.6, b + s], 0.035, DECK_DARK);
-  const n = Math.max(3, Math.round((y1 - y0) / 0.3));
+/** A ladder up a castle's front: its stiles (on past the top, to hold on by), its rungs. */
+function ladder(o: Out, l: ShipLadder): void {
+  const H = l.y1 - l.y0, slope = l.lean / H, top = H + 0.6;
+  for (const s of [-0.25, 0.25]) beam(o, [l.a, l.y0, l.b + s], [l.a - l.dir * slope * top, l.y0 + top, l.b + s], 0.035, DECK_DARK);
+  const n = Math.round(H / l.rung);
   for (let k = 1; k < n; k++) {
-    const f = k / n, ra = a + dir * lean * (1 - f), ry = y0 + (y1 - y0) * f;
-    beam(o, [ra, ry, b - 0.25], [ra, ry, b + 0.25], 0.022, DECK_DARK);
+    const h = k * l.rung, ra = l.a - l.dir * slope * h;
+    beam(o, [ra, l.y0 + h, l.b - 0.25], [ra, l.y0 + h, l.b + 0.25], 0.022, DECK_DARK);
   }
 }
 
