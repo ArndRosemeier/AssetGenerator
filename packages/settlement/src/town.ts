@@ -17,7 +17,7 @@ import { organicCuts } from './streets';
 import { townWall, type TownWall, type WallRules } from './walls';
 import { fixtureClear } from './fixtures';
 import { planHarbour, type HarbourPlan, type HarbourSite } from './harbour';
-import { edgeWet, polyWet, wetNear } from './wet';
+import { edgeWets, polyWet, wetNear } from './wet';
 import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
 /** How big a settlement is: an inn and a stable by the road (a waystation), a few farms round a green, a village with its temple and inn, a market town, a capital. */
@@ -984,33 +984,57 @@ function harbourFixtures(h: HarbourPlan, fix: (kind: FixtureKind, x: number, z: 
 
 /** How far (m) the edge draws back from water it crosses, and a wall beyond it (its `out` added) from water under it. */
 const DRY_BACK = 8;
+/** Each round that still finds water draws back this much further (m): a stretch that would not come dry goes faster. */
+const DRY_MORE = 4;
 /** Rounds of drawing back before the town is taken as it stands. */
-const DRY_ROUNDS = 16;
+const DRY_ROUNDS = 24;
+/** A gate's way through: water this far (m) before or behind its middle, along the road, floods it. */
+const GATE_REACH = 6;
 
 /**
  * Keeps a town's edge, and its wall if it has one (`build` makes it from the edge), off the water: the outline's rays
- * stop at the first water they meet, but a brook can still run between two rays' ends across the edge, or under the
- * wall that stands outside it. Wherever one does, the points of the outline round that way are drawn back short of the
- * water, and the wall (`out` m outside the edge) built anew, until both are dry. Changes `outline` in place (each point moved towards the middle,
- * so it stays counter-clockwise); returns the wall (null without one).
+ * stop at the first water they meet, but a brook can still run between two rays' ends across the edge, a river can run
+ * along it under the wall that stands outside it, and a road can leave a gate straight into the water. Wherever water
+ * is found (all of it each round: a river along a whole side), the points of the outline round that way are drawn back
+ * short of it, and the wall (`out` m outside the edge) built anew, until all is dry. Changes `outline` in place (each
+ * point moved towards the middle, so it stays counter-clockwise); returns the wall (null without one).
  */
 function keepDry<W extends TownWall>(outline: Poly, cx: number, cz: number, wet: (x: number, z: number) => boolean, build: ((o: Poly) => W) | null, out = 0): W | null {
   let wall = build ? build(outline) : null;
   for (let round = 0; round < DRY_ROUNDS; round++) {
-    const spots: { x: number; z: number; back: number }[] = [];
-    const e = edgeWet(outline, wet);
-    if (e) spots.push({ x: e[0], z: e[1], back: DRY_BACK });
-    if (wall) {
-      const R = wall.ring;
-      for (let i = 0; i < R.length; i += 2) if (wetNear(wet, R[i], R[i + 1], wall.thick / 2 + 1)) { spots.push({ x: R[i], z: R[i + 1], back: out + DRY_BACK }); break; }
-      for (const t of wall.towers) if (wetNear(wet, t.x, t.z, wall.towerHalf * 1.5)) { spots.push({ x: t.x, z: t.z, back: out + wall.towerHalf + DRY_BACK }); break; }
-      for (const g of wall.gates) if (wetNear(wet, g.x, g.z, g.half)) { spots.push({ x: g.x, z: g.z, back: out + DRY_BACK }); break; }
-    }
+    const spots = wetSpots(outline, wet, wall, out);
     if (!spots.length) break;
-    for (const s of spots) drawBack(outline, cx, cz, s.x, s.z, s.back);
+    for (const s of spots) drawBack(outline, cx, cz, s.x, s.z, s.back + round * DRY_MORE);
     if (build) wall = build(outline);
   }
   return wall;
+}
+
+/** Where the edge, or the wall, its towers or its gates, stand in water, and how far the edge must draw back from each. */
+function wetSpots(outline: Poly, wet: (x: number, z: number) => boolean, wall: TownWall | null, out: number): { x: number; z: number; back: number }[] {
+  const spots = edgeWets(outline, wet).map(([x, z]) => ({ x, z, back: DRY_BACK }));
+  if (!wall) return spots;
+  const add = (x: number, z: number, back: number) => {
+    const near = spots.find((s) => Math.hypot(s.x - x, s.z - z) < 12);
+    if (near) near.back = Math.max(near.back, back);
+    else spots.push({ x, z, back });
+  };
+  // The wall's foot: its ring walked (its half thickness and a metre round each step, so the steps miss nothing).
+  const R = wall.ring, n = R.length >> 1, reach = wall.thick / 2 + 1;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n, ax = R[i * 2], az = R[i * 2 + 1], bx = R[j * 2], bz = R[j * 2 + 1];
+    const k = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / (1.5 * reach)));
+    for (let s = 0; s < k; s++) {
+      const x = ax + ((bx - ax) * s) / k, z = az + ((bz - az) * s) / k;
+      if (wetNear(wet, x, z, reach)) add(x, z, out + DRY_BACK);
+    }
+  }
+  for (const t of wall.towers) if (wetNear(wet, t.x, t.z, wall.towerHalf * 1.5)) add(t.x, t.z, out + wall.towerHalf + DRY_BACK);
+  for (const g of wall.gates) {
+    const ux = Math.cos(g.angle), uz = Math.sin(g.angle), r = GATE_REACH;
+    if (wetNear(wet, g.x, g.z, g.half) || wetNear(wet, g.x + ux * r, g.z + uz * r, g.half) || wetNear(wet, g.x - ux * r, g.z - uz * r, g.half)) add(g.x, g.z, out + r + DRY_BACK);
+  }
+  return spots;
 }
 
 /** Draws the outline's points round the way of (x, z) back to `back` m short of it (no nearer the middle than 20 m). */
