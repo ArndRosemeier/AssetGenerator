@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planShip, shipMesh, shipFloor, hullHalf, shipWall, gangplankMesh, shipLadders, shipFixtures } from '../src/index';
+import { planShip, shipMesh, shipFloor, shipFloors, hullHalf, shipWall, gangplankMesh, shipLadders, shipFixtures, shipHold, shipInside, shipRoom } from '../src/index';
 
 test('ship: a sailing ship has castles fore and aft, masts with yards, a hatch, and decks to walk on', () => {
   for (const seed of [1, 2, 3, 4]) {
@@ -9,7 +9,7 @@ test('ship: a sailing ship has castles fore and aft, masts with yards, a hatch, 
     assert.ok(p.aft && p.fore && p.hatch);
     assert.ok(p.masts.length >= 2 && p.masts.every((m) => m.top > m.foot + 10 && m.yards.length >= 1));
     // The main deck amidships, the castles over it, nothing over the side or in the hatch.
-    assert.equal(shipFloor(p, p.length * 0.15, 0), p.deckY);
+    assert.equal(shipFloor(p, -p.length * 0.1, 0), p.deckY);
     assert.equal(shipFloor(p, -p.length * 0.45, 0), p.aft.y);
     assert.equal(shipFloor(p, p.length * 0.42, 0), p.fore.y);
     assert.equal(shipFloor(p, p.length * 0.15, p.beam), null);
@@ -90,7 +90,7 @@ test('ship: walking its deck: the rail and masts are walls, the gangway open, th
 
 test('ship: a ladder up each castle, its foot on the main deck before the castle, its top at the castle deck', () => {
   for (const L of [22, 30]) {
-    const p = planShip(3, 'ship', L), ls = shipLadders(p);
+    const p = planShip(3, 'ship', L), ls = shipLadders(p).filter((l) => l.lean > 0);
     assert.equal(ls.length, 2);
     for (const l of ls) {
       const c = l.dir === 1 ? p.aft! : p.fore!, face = l.dir === 1 ? c.a1 : c.a0;
@@ -124,5 +124,35 @@ test('ship: the castles\' cabins are walked into through their doors; what stand
       assert.ok(shipWall(p, face, 1.2, r, y) && shipWall(p, face, -1.2, r, y));
       assert.ok(shipWall(p, face - dir * 1, hullHalf(p, face - dir * 1, y), r, y));
     }
+  }
+});
+
+test('ship: down the companionway to the lower deck: the passengers\' cabins, the cargo, the passage between kept free', () => {
+  for (const L of [21, 26, 33]) {
+    const p = planShip(6, 'ship', L), h = p.hold!, cw = p.companion!, r = 0.32, H = shipHold(p);
+    const down = shipLadders(p).find((l) => l.lean === 0)!;
+    assert.ok(down && down.y0 === h.y && down.y1 === p.deckY, 'a ladder from the lower deck up to the main deck');
+    // In the companionway's opening only the lower deck; beside it the main deck over the lower deck.
+    assert.deepEqual(shipFloors(p, (cw.a0 + cw.a1) / 2, (cw.b0 + cw.b1) / 2), [h.y]);
+    assert.deepEqual(shipFloors(p, (cw.a0 + cw.a1) / 2, 0.2), [h.y, p.deckY]);
+    // The rail round it to a body on deck, but not on its fore side, where one gets onto the ladder.
+    assert.ok(shipWall(p, cw.a0 - 0.2, (cw.b0 + cw.b1) / 2, r, p.deckY) && shipWall(p, (cw.a0 + cw.a1) / 2, cw.b1 + 0.2, r, p.deckY));
+    assert.ok(!shipWall(p, cw.a1 + 0.5, (cw.b0 + cw.b1) / 2, r, p.deckY));
+    // Cabins and cargo on the lower deck; the way from the ladder's foot down the passage to the far end is free.
+    assert.ok(H.fixtures.filter((f) => f.kind === 'bed').length >= 2, `${L} m: berths`);
+    assert.ok(H.fixtures.some((f) => f.kind === 'barrel' || f.kind === 'chest'), `${L} m: cargo`);
+    const footA = down.a - 0.75;
+    for (let b = down.b; b < -0.1; b += 0.05) assert.ok(!shipWall(p, footA, b, r, h.y), `${L} m: from the ladder's foot to the passage, blocked at b ${b.toFixed(2)}`);
+    const masts = p.masts.filter((m) => m.foot === p.deckY);
+    for (let a = footA; a < h.a1 - 0.5; a += 0.1) {
+      const m = masts.find((k) => Math.abs(k.a - a) < 0.7), b = m ? 0.65 : 0;
+      assert.ok(!shipWall(p, a, b, r, h.y), `${L} m: the passage blocked at a ${a.toFixed(2)}`);
+      assert.ok(shipInside(p, a, b, h.y) && shipRoom(p, a, b, h.y + 1) === 'hold');
+    }
+    // Into a berth through its door.
+    const bed = H.fixtures.find((f) => f.kind === 'bed')!;
+    assert.ok(!shipWall(p, bed.a + 0.95 + 0.1 - 2.2 + 0.55, Math.sign(bed.b) * 1.1, r, h.y), 'in through the berth\'s door');
+    // The hull to a swimmer outside it, at the lower deck's height.
+    assert.ok(shipWall(p, 0, hullHalf(p, 0, h.y + 1) + 0.1, r, h.y));
   }
 });
