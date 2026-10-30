@@ -117,7 +117,8 @@ const FACE_A = 0, FACE_B = Math.PI / 2, FACE_NA = Math.PI, FACE_NB = -Math.PI / 
 /**
  * `hatch`: a trapdoor down to a cellar. `hall`: a house whose ground floor is a hall where fighting is taught
  * (a game's guild house): weapon racks on the walls, a practice post with its master's place, a bench for
- * those who watch; no family table or bed down there (the household lives upstairs).
+ * those who watch; no family table down there, nor a bed but in a house of one storey (the master sleeps in a back
+ * corner of the hall; else the household lives upstairs).
  */
 export function planInterior(b: TownBuilding, opts: { hatch?: boolean; hall?: boolean } = {}): InteriorPlan {
   const S = houseShape(b);
@@ -159,7 +160,7 @@ export function planInterior(b: TownBuilding, opts: { hatch?: boolean; hall?: bo
           case 'bakery': bakery(P, r); break;
           case 'temple': temple(P, r); break;
           case 'barn': case 'stable': break;
-          default: if (opts.hall) hall(P); else home(P, r, b.kind === 'workshop' || b.kind === 'mill' || b.trade !== '');
+          default: if (opts.hall) hall(P, !next); else home(P, r, b.kind === 'workshop' || b.kind === 'mill' || b.trade !== '');
         }
         if (opts.hatch) P.hatch();
       } else bedroom(P, r, b.kind === 'inn');
@@ -564,7 +565,8 @@ function bedroom(P: Planner, r: Rng, inn: boolean): void {
       if (put >= n) break;
       if (!P.add('bed', a, b, 1.0, 2.0, 0.55, 0.25)) continue;
       put++;
-      P.spot('sleep', a, b, FACE_NB);
+      // Facing from the pillow to the foot: the head against the wall, the chest at the foot.
+      P.spot('sleep', a, b, b < 0 ? FACE_B : FACE_NB);
       P.add('chest', a, b - Math.sign(b || 1) * 1.3, 0.9, 0.5, 0.5, 0.1);
     }
   }
@@ -602,9 +604,10 @@ function home(P: Planner, r: Rng, work: boolean): void {
 
 /**
  * A hall: the practice post nearest the room's middle with its master's place beside it (towards the door),
- * up to three weapon racks on free stretches of the side and back walls, a bench by the front wall.
+ * up to three weapon racks on free stretches of the side and back walls, a bench by the front wall. `bed`: no
+ * storey above, so the master's bed (a chest at its foot) stands in a back corner.
  */
-function hall(P: Planner): void {
+function hall(P: Planner, bed: boolean): void {
   const floor: [number, number][] = [];
   for (let b = -P.hb + 1.4; b < P.hb - 0.6; b += 0.3) for (let a = -P.ha + 0.6; a < P.ha - 0.5; a += 0.3) floor.push([a, b]);
   // Nearest a point a little behind the middle: a few steps in from the door, not at one's elbow.
@@ -619,6 +622,15 @@ function hall(P: Planner): void {
     P.fixtures.pop();
     return false;
   });
+  if (bed) {
+    for (const side of [-1, 1]) {
+      const ba = side * (P.ha - 0.5);
+      if (!P.add('bed', ba, P.hb - 1.05, 1.0, 2.0, 0.55, 0.1)) continue;
+      P.spot('sleep', ba, P.hb - 1.05, FACE_NB);
+      P.add('chest', ba, P.hb - 2.5, 0.9, 0.5, 0.5, 0.1);
+      break;
+    }
+  }
   const walls: [number, number, number, number][] = [];
   for (let t = P.hb - 1.0; t >= -P.hb + 2.0; t -= 0.3) for (const s of [-1, 1]) walls.push([s * (P.ha - 0.2), t, 0.3, 1.5]);
   for (let t = -P.ha + 1.0; t <= P.ha - 1.0; t += 0.3) walls.push([t, P.hb - 0.2, 1.5, 0.3]);
