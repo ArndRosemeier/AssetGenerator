@@ -16,6 +16,7 @@ import { perimeterLots, type Lot, type LotRules } from './lots';
 import { organicCuts } from './streets';
 import { townWall, type TownWall, type WallRules } from './walls';
 import { fixtureClear } from './fixtures';
+import { planHarbour, QUAY_DEPTH, type HarbourPlan, type HarbourSite } from './harbour';
 import { edgeWet, polyWet, wetNear } from './wet';
 import { farmlandReach, planFarmland, type Farm, type Field, type Paddock, type TownProp } from './farmland';
 
@@ -170,6 +171,8 @@ export interface TownSite {
   roads?: number[];
   /** Plan the fields, farmsteads and paddocks round the town (farmland.ts). Default true. */
   farmland?: boolean;
+  /** A town by the sea: the shore near it (harbour.ts). It gets a quay, piers and the harbour's trades. */
+  harbour?: HarbourSite;
 }
 
 /** 'track': the town's edge; 'path': a farm track out in the fields. */
@@ -242,7 +245,9 @@ export type FixtureKind =
   | 'woodpile' | 'chopblock' | 'garden' | 'washline' | 'chickens'
   | 'grave' | 'offering'
   /** Farm work: a place in a field to plough, sow, hoe or reap; a paddock's gate; hay for the stable. */
-  | 'field' | 'paddock' | 'hayrack';
+  | 'field' | 'paddock' | 'hayrack'
+  /** The harbour: a crane on the quay, stacked cargo, nets drying on their racks, a fish stall. */
+  | 'crane' | 'cargo' | 'nets' | 'fishstall';
 
 export interface Fixture {
   id: number;
@@ -296,6 +301,8 @@ export interface TownPlan {
   farms: Farm[];
   /** Fences and haystacks. */
   props: TownProp[];
+  /** Its harbour (a town by the sea): quay, piers and berths. */
+  harbour?: HarbourPlan;
 }
 
 const ROAD_W = 6;
@@ -328,16 +335,21 @@ export function planTown(site: TownSite): TownPlan {
   const roads = dirs.map((d, i) => traceRoad(site, rng.fork('road', i), cx, cz, d, roadLength));
 
   // 3. The outline: round, but grown along the roads, and stopping short of water.
-  const outline = townOutline(new Noise(deriveSeed(seed, 'outline')), cx, cz, R, dirs, wet, site.height);
+  let outline = townOutline(new Noise(deriveSeed(seed, 'outline')), cx, cz, R, dirs, wet, site.height);
   // A capital's wall, a little outside its edge, a gate on each road. Edge, wall, towers and gates stand dry: where a
   // brook between two rays still crosses them, the town draws back from it (it is built on one bank).
+  // A town by the sea: its quay along the waterline, piers out over the water, and a way down from the market to it.
+  const harbour = site.harbour ? planHarbour(site.harbour, cx, cz, R, site.height, water) ?? undefined : undefined;
   const rules = S.wall;
   const wall = keepDry(outline, cx, cz, wet, rules ? (o) => townWall(o, roads, rules, ROAD_W, site.height) : null, rules?.out) ?? undefined;
+  // The town comes down to its quay (the outline keeps short of the water, the quay runs along it).
+  if (harbour) outline = ensureCCW(union([outline, harbour.quay]).reduce((a, b) => (shapeArea(b) > shapeArea(a) ? b : a)).outer);
 
   // 4. The ground between: the outline less roads, market and edge track, split by lanes.
   const streets: TownStreet[] = roads.map((pts) => ({ kind: 'road' as const, pts, width: ROAD_W }));
   streets.push({ kind: 'track', pts: outline, width: TRACK_W, closed: true });
-  const open = union([...shapesToPolys(strokePolylines(roads, ROAD_W / 2, 'round', 'round')), market]);
+  if (harbour) streets.push({ kind: 'lane', pts: harbourWay(market, harbour), width: ROAD_W });
+  const open = union([...shapesToPolys(strokePolylines(roads, ROAD_W / 2, 'round', 'round')), market, ...(harbour ? [harbour.quay, ...shapesToPolys(strokePolylines([harbourWay(market, harbour)], ROAD_W / 2, 'round', 'round'))] : [])]);
   const sectors = difference([outline], shapesToPolys(open));
   const lanes: number[][] = [];
   const lr = rng.fork('lanes');
@@ -433,7 +445,21 @@ export function planTown(site: TownSite): TownPlan {
   const onRoad = (b: TownBuilding) => Math.min(...roads.map((r) => distToLine(r, b.door[0], b.door[1])));
   const homes = () => buildings.filter((b) => b.kind === 'house' || b.kind === 'cottage');
   const take = (b: TownBuilding | undefined, kind: BuildingKind, trade: string) => { if (b) { b.kind = kind; b.trade = trade; } return b; };
-  const inn = S.inn && take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => dist(a.cx, a.cz) - dist(b.cx, b.cz))[0], 'inn', 'innkeeper');
+  // By the sea the inn is the sailors' tavern on the quay, the harbour master keeps a hall there and cargo waits in warehouses.
+  const onQuay = (b: TownBuilding) => (harbour ? distToPoly(harbour.quay, b.door[0], b.door[1]) : Infinity);
+  // The houses fronting the quay, biggest first; where too few front it, the nearest to it after them.
+  const quayFront = () => {
+    const front = homes().filter((b) => onQuay(b) < QUAY_FRONT).sort((a, b) => b.hu * b.hv - a.hu * a.hv);
+    return front.length ? front : homes().filter((b) => onQuay(b) < QUAY_NEAR).sort((a, b) => onQuay(a) - onQuay(b));
+  };
+  const tavern = harbour && S.inn ? take(quayFront()[0], 'inn', 'innkeeper') : undefined;
+  if (tavern) { tavern.floors = Math.max(tavern.floors, 2); tavern.household = 4; }
+  const master = harbour ? take(quayFront()[0], 'hall', 'harbourmaster') : undefined;
+  if (master) { master.floors = Math.max(master.floors, 2); master.wall = 'stone'; master.household = 2; }
+  if (harbour) for (let i = 0; i < Math.min(3, harbour.piers.length + 1); i++) take(quayFront()[0], 'workshop', 'warehouse');
+  // Fisherfolk mend their nets on the quay and keep their gear in a loft by it.
+  if (harbour) for (let i = 0; i < 2; i++) take(quayFront()[0], 'workshop', 'fisher');
+  const inn = tavern || S.inn && take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => dist(a.cx, a.cz) - dist(b.cx, b.cz))[0], 'inn', 'innkeeper');
   if (inn) { inn.floors = Math.max(inn.floors, 2) + (tr.chance(0.4) ? 1 : 0); inn.household = 4; }
   const hall = S.hall && take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => nearMarket(a) - nearMarket(b))[0], 'hall', 'reeve');
   if (hall) { hall.floors = 2; hall.wall = 'timber'; hall.household = 2; }
@@ -464,6 +490,7 @@ export function planTown(site: TownSite): TownPlan {
 
   // 8. The fixtures.
   const fr = rng.fork('fixtures');
+  if (harbour) harbourFixtures(harbour, fix, fr, buildings);
   const [mx, mz] = polyCentroid(market);
   fix('well', mx + fr.range(-3, 3), mz + fr.range(-3, 3), fr.range(-Math.PI, Math.PI));
   const mn = market.length >> 1;
@@ -556,6 +583,7 @@ export function planTown(site: TownSite): TownPlan {
   return {
     seed, centre: [cx, cz], radius: R, market, outline, streets, blocks, lots, yards, templeGrounds, buildings, fixtures,
     ...(S.seat ? { seatGrounds } : {}), ...(wall ? { wall } : {}), ...(quarters ? { quarters } : {}),
+    ...(harbour ? { harbour } : {}),
     farmEdge: land.edge, furlongs: land.furlongs, fields: land.fields, paddocks: land.paddocks, farms: land.farms, props: land.props,
   };
 }
@@ -894,6 +922,63 @@ function groundUnder(poly: Poly, height: (x: number, z: number) => number): { lo
 
 /** A fixture keeps this far from water (m): a stall's legs and awning, a bench's seat. */
 const FIXTURE_REACH = 1.8;
+
+/** A house this near the quay (its door, m) fronts it: the harbour's trades take such houses. */
+const QUAY_FRONT = 6;
+/** Where none fronts it, the harbour's trades take the nearest houses within this of the quay (m). */
+const QUAY_NEAR = 30;
+
+/** The way from the market down to the quay: from the market's middle to the quay's middle, a little bent. */
+function harbourWay(market: Poly, h: HarbourPlan): number[] {
+  const [mx, mz] = polyCentroid(market), n = h.edge.length >> 1, i = n >> 1;
+  // To the quay's back edge, then a few metres onto it, so the way meets the paving.
+  const qx = h.edge[i * 2] - h.out[i * 2] * (QUAY_DEPTH - 4), qz = h.edge[i * 2 + 1] - h.out[i * 2 + 1] * (QUAY_DEPTH - 4);
+  const L = Math.hypot(qx - mx, qz - mz), k = Math.max(2, Math.round(L / 14)), pts: number[] = [];
+  for (let j = 0; j <= k; j++) {
+    const t = j / k, bend = Math.sin(t * Math.PI) * Math.min(6, L * 0.05);
+    pts.push(mx + (qx - mx) * t - ((qz - mz) / L) * bend, mz + (qz - mz) * t + ((qx - mx) / L) * bend);
+  }
+  return pts;
+}
+
+/**
+ * The harbour's fixtures on the quay: a crane by each pier's root, cargo stacked by it, nets drying along the quay and
+ * a few fish stalls in a row, all a little in from the water's edge.
+ */
+function harbourFixtures(h: HarbourPlan, fix: (kind: FixtureKind, x: number, z: number, yaw: number, building?: number) => void, r: Rng, buildings: readonly TownBuilding[]): void {
+  const n = h.edge.length >> 1;
+  // Cranes and cargo are the warehouses' work, nets the fisherfolk's: each the nearest of its trade's houses.
+  // (Where a small harbour has no house of that trade, the harbour master's people see to it.)
+  const nearestOf = (trade: string, x: number, z: number) => buildings.filter((b) => b.trade === trade).reduce<TownBuilding | null>((a, b) => (!a || Math.hypot(b.cx - x, b.cz - z) < Math.hypot(a.cx - x, a.cz - z) ? b : a), null);
+  const owner = (trade: string, x: number, z: number) => (nearestOf(trade, x, z) ?? nearestOf('harbourmaster', x, z))?.id ?? -1;
+  const at = (i: number, inland: number, along: number): [number, number, number] => {
+    const k = Math.min(n - 1, Math.max(0, i)), ox = h.out[k * 2], oz = h.out[k * 2 + 1];
+    return [h.edge[k * 2] - ox * inland - oz * along, h.edge[k * 2 + 1] - oz * inland + ox * along, Math.atan2(oz, ox)];
+  };
+  const nearest = (x: number, z: number) => { let b = 0, d = Infinity; for (let i = 0; i < n; i++) { const e = Math.hypot(h.edge[i * 2] - x, h.edge[i * 2 + 1] - z); if (e < d) { d = e; b = i; } } return b; };
+  const used: number[] = [];
+  for (const p of h.piers) {
+    const i = nearest(p.x0, p.z0);
+    used.push(i);
+    const side = r.chance(0.5) ? 1 : -1;
+    // The crane faces the water (its jib swings out over the pier's side); the cargo waits behind it.
+    const [x, z, yaw] = at(i, 3.2, side * (p.half + 3.5));
+    fix('crane', x, z, yaw, owner('warehouse', x, z));
+    const [cx, cz] = at(i, 7.5, side * (p.half + 4.5));
+    fix('cargo', cx, cz, yaw + r.range(-0.3, 0.3), owner('warehouse', cx, cz));
+    const [dx, dz] = at(i, 7.5, -side * (p.half + 5));
+    fix('cargo', dx, dz, yaw + r.range(-0.3, 0.3), owner('warehouse', dx, dz));
+  }
+  // Along the rest of the quay: nets and fish stalls, clear of the piers' roots.
+  const free = (i: number) => used.every((u) => Math.abs(u - i) * 4 > 14);
+  let stalls = 0;
+  for (let i = 2; i < n - 2; i += 3) {
+    if (!free(i)) continue;
+    const roll = r.float();
+    if (roll < 0.3 && stalls < 4) { const [x, z, yaw] = at(i, 6, 0); fix('fishstall', x, z, yaw); stalls++; }
+    else if (roll < 0.55) { const [x, z, yaw] = at(i, 4.5, 0); fix('nets', x, z, yaw, owner('fisher', x, z)); }
+  }
+}
 
 /** How far (m) the edge draws back from water it crosses, and a wall beyond it (its `out` added) from water under it. */
 const DRY_BACK = 8;

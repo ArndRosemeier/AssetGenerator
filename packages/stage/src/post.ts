@@ -32,6 +32,11 @@ export interface PostOptions {
   ao?: { radius: number; strength: number; samples?: number };
   /** A float depth buffer for the scene target (a reversed depth buffer needs one; default true). */
   floatDepth?: boolean;
+  /**
+   * A veil over the drawn scene before bloom and the tone curve (the water a camera is under, or the waterline across
+   * it): the scene's colour and its depth buffer's value in, the colour out. Built once with the chain.
+   */
+  veil?: (color: Node<'vec4'>, depth: Node<'float'>) => Node<'vec4'>;
 }
 
 /**
@@ -92,6 +97,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     color = color.mul(vec4(factor, factor, factor, 1));
     shade = { strength, radius: a.radius };
   }
+  if (opts.veil) color = opts.veil(color, texture(depth).r);
   let out = color;
   let glow: Post['bloom'] = null;
   if (opts.bloom) {
