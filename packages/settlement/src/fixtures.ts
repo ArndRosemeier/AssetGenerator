@@ -7,7 +7,7 @@
  * things on top). `fixtureBlocks` says what a walker runs into. Pure.
  */
 import { Rng, seat } from '@futuremagic/core';
-import { BuildingMat, Frame, Out, type BuildingMesh, type RGB } from './building';
+import { BuildingMat, Frame, Out, beam, type BuildingMesh, type RGB } from './building';
 import type { Poly } from './geom2';
 import type { Fixture, FixtureKind } from './town';
 
@@ -350,24 +350,6 @@ function draw(o: Out, f: Fixture, r: Rng, detail: boolean): void {
   }
 }
 
-/** A square beam `t` half thick from p0 to p1 (a, y, b), its sides turned along it. */
-function beam(o: Out, p0: number[], p1: number[], t: number, c: RGB): void {
-  const d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], L = Math.hypot(d[0], d[1], d[2]);
-  const u = d.map((v) => v / L);
-  // Two directions across it: one level where it can be, the other square to both.
-  let s = [-u[2], 0, u[0]];
-  const sl = Math.hypot(s[0], s[2]);
-  s = sl > 1e-3 ? s.map((v) => v / sl) : [1, 0, 0];
-  const w = [u[1] * s[2] - u[2] * s[1], u[2] * s[0] - u[0] * s[2], u[0] * s[1] - u[1] * s[0]];
-  const P = (e: number[], i: number, j: number) => [e[0] + (s[0] * i + w[0] * j) * t, e[1] + (s[1] * i + w[1] * j) * t, e[2] + (s[2] * i + w[2] * j) * t];
-  const corners = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
-  for (let k = 0; k < 4; k++) {
-    const [i0, j0] = corners[k], [i1, j1] = corners[(k + 1) % 4];
-    const m = [s[0] * (i0 + i1) + w[0] * (j0 + j1), s[1] * (i0 + i1) + w[1] * (j0 + j1), s[2] * (i0 + i1) + w[2] * (j0 + j1)], ml = Math.hypot(m[0], m[1], m[2]);
-    const nrm = m.map((v) => v / ml);
-    o.quad([P(p0, i0, j0), P(p0, i1, j1), P(p1, i1, j1), P(p1, i0, j0)], nrm, [[0, 0], [t * 2, 0], [t * 2, L], [0, L]], BuildingMat.Oak, c);
-  }
-}
 
 /** A flat top (a0..a1 along, b0..b1 across) from y0 to y1, with its underside. */
 function slab(o: Out, a0: number, a1: number, y0: number, y1: number, b0: number, b1: number, c: RGB): void {
