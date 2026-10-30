@@ -89,6 +89,31 @@ test('settlement: a narrow brook between the rays: edge, wall, towers, gates, pl
   }
 });
 
+test('settlement: a river along one side: the wall, its towers and gates stand on the bank, no gate opens on the water', () => {
+  // A 16 m river bending along the town's north, about 200 m out: it ran under a long stretch of a capital's wall and a
+  // gate opened onto it, as drawing back one wet spot a round never came dry (Arnd).
+  const riverZ = (x: number) => -500 + 200 + 40 * Math.sin((x - 1000) / 90);
+  const water = (x: number, z: number) => (Math.abs(z - riverZ(x)) < 8 ? 1 : 0);
+  const wet = (x: number, z: number) => water(x, z) > 0;
+  const near = (x: number, z: number, r: number) => [0, 1, 2, 3, 4, 5, 6, 7].some((a) => wet(x + Math.cos(a * Math.PI / 4) * r, z + Math.sin(a * Math.PI / 4) * r)) || wet(x, z);
+  for (const seed of [3, 4]) {
+    const t = planTown({ ...site(seed), size: 'capital', water }), w = t.wall!, tag = `seed ${seed}`;
+    const R = w.ring, n = R.length >> 1;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      for (let s = 0; s < 6; s++) {
+        const x = R[i * 2] + ((R[j * 2] - R[i * 2]) * s) / 6, z = R[i * 2 + 1] + ((R[j * 2 + 1] - R[i * 2 + 1]) * s) / 6;
+        assert.ok(!near(x, z, w.thick / 2), `${tag}: the wall in the river at ${x.toFixed(0)},${z.toFixed(0)}`);
+      }
+    }
+    for (const tw of w.towers) assert.ok(!near(tw.x, tw.z, w.towerHalf), `${tag}: a tower in the river`);
+    for (const g of w.gates) for (const k of [-6, 0, 6]) {
+      assert.ok(!near(g.x + Math.cos(g.angle) * k, g.z + Math.sin(g.angle) * k, g.half), `${tag}: the gate at ${g.x.toFixed(0)},${g.z.toFixed(0)} opens on the river`);
+    }
+    assert.ok(t.buildings.length > 250, `${tag}: still a capital (${t.buildings.length} buildings)`);
+  }
+});
+
 test('settlement: one planner makes every size, from a hamlet round its green to a capital', () => {
   const kinds = (size: SettlementSize, seed: number) => {
     const t = planTown({ ...site(seed), size });
