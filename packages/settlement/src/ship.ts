@@ -456,12 +456,14 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     o.quad(cap, [0, 1, 0], cap.map((v) => [v[0], v[2]]), BuildingMat.Oak, DECK_DARK);
   }
   // Decks: the main deck between the castles (round the hatch and the companionway), the castles' decks over them.
-  const deckStrip = (a0: number, a1: number, fy: number, holes: readonly Hole[] = [], down = false, ww = fy) => {
+  const deckStrip = (a0: number, a1: number, fy: number, holes: readonly Hole[] = [], down = false, ww = fy, at0: readonly number[] = []) => {
     const n = Math.max(1, Math.ceil((a1 - a0) / 1.2)), cuts = new Set<number>();
     for (let i = 0; i <= n; i++) cuts.add(a0 + ((a1 - a0) * i) / n);
     for (const h of holes) for (const e of [h.a0, h.a1]) if (e > a0 && e < a1) cuts.add(e);
     // (And at the rail's panels: their edges meet it along the same straight pieces.)
     for (const t of ts) if (t * half > a0 + 0.05 && t * half < a1 - 0.05) cuts.add(t * half);
+    // (And at `at0`: a lining's stations under it, so its edge never falls inside the lining's.)
+    for (const e of at0) if (e > a0 && e < a1) cuts.add(e);
     const at = [...cuts].sort((q, w) => q - w);
     for (let i = 0; i + 1 < at.length; i++) {
       const b0 = at[i], b1 = at[i + 1];
@@ -510,7 +512,8 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
   }
   // The lower deck under the main deck, its ceiling the main deck's underside; the companionway down to it.
   if (detail && p.hold) {
-    deckStrip(mainA0, mainA1, p.deckY - 0.06, holes, true, p.deckY);
+    const h = p.hold, n = holdStations(h);
+    deckStrip(mainA0, mainA1, p.deckY - 0.06, holes, true, p.deckY, Array.from({ length: n + 1 }, (_, i) => h.a0 + ((h.a1 - h.a0) * i) / n));
     lowerDeck(o, p, x, z, ux, uz, y, origin, outsCabins);
   }
   if (detail && p.companion) {
@@ -686,6 +689,9 @@ function companionRails(cw: Hole): [number, number, number, number][] {
   return [[cw.a0 - 0.05, cw.a0, cw.b0 - 0.05, cw.b1 + 0.05], [cw.a0, cw.a1, cw.b0 - 0.05, cw.b0], [cw.a0, cw.a1, cw.b1, cw.b1 + 0.05]];
 }
 
+/** How many pieces the lower deck's lining is drawn in, along the ship (the ceiling over it is cut at the same stations). */
+const holdStations = (h: { a0: number; a1: number }) => Math.max(2, Math.ceil((h.a1 - h.a0) / 0.8));
+
 /** An opening in a deck: a0..a1 along, b0..b1 across. */
 interface Hole { a0: number; a1: number; b0: number; b1: number }
 
@@ -694,7 +700,7 @@ interface Hole { a0: number; a1: number; b0: number; b1: number }
  * stands on it (shipHold) and its lanterns. The fixtures go in an Out of their own, from its floor up.
  */
 function lowerDeck(o: Out, p: ShipPlan, x: number, z: number, ux: number, uz: number, y: number, origin: [number, number, number], outs: Out[]): void {
-  const h = p.hold!, top = p.deckY - 0.06, n = Math.max(2, Math.ceil((h.a1 - h.a0) / 0.8));
+  const h = p.hold!, top = p.deckY - 0.06, n = holdStations(h);
   const w = (a: number, hh: number) => Math.max(0, hullHalf(p, a, hh) - INNER);
   const bands = [h.y, h.y + (top - h.y) / 3, h.y + (2 * (top - h.y)) / 3, top];
   for (let i = 0; i < n; i++) {
