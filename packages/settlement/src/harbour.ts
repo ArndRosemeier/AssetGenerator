@@ -240,22 +240,38 @@ export interface Mooring {
   landY: number;
 }
 
+/** The longest ship a berth takes: as long as the berth, and no deeper than the water under it (the draft is a ninth of the length). */
+export function berthLength(b: Berth): number {
+  return Math.min(b.length, (b.depth - 0.4) / 0.11);
+}
+
+/** Ship `plan` lying at berth `i`: clear of its pier, bow out to sea. */
+export function berthMooring(h: HarbourPlan, i: number, plan: ShipPlan): Mooring {
+  const b = h.berths[i], p = h.piers[b.pier], ux = Math.cos(b.yaw), uz = Math.sin(b.yaw);
+  const along = (b.x - p.x0) * ux + (b.z - p.z0) * uz, off = p.half + plan.beam / 2 + 0.6;
+  return { plan, x: p.x0 + ux * along - uz * off * b.side, z: p.z0 + uz * along + ux * off * b.side, ux, uz, side: b.side === 1 ? -1 : 1, landY: p.deckY };
+}
+
+/** The berths no ship of the harbour's own lies at (`seed` as for harbourMoorings): where a ship from elsewhere comes in. */
+export function freeBerths(h: HarbourPlan, seed: number): number[] {
+  const taken = shipBerths(h, new Rng(seed * 7919 + 4099));
+  return h.berths.map((_, i) => i).filter((i) => !taken.includes(i));
+}
+
+/** The berths the harbour's own ships lie at (about two in three, those long and deep enough), drawn from `r`. */
+function shipBerths(h: HarbourPlan, r: Rng): number[] {
+  const out: number[] = [];
+  for (const [i, b] of h.berths.entries()) if (r.chance(0.65) && berthLength(b) >= 20) out.push(i);
+  return out;
+}
+
 /**
  * The ships at the harbour's berths (about two in three taken, each as long as its berth and the water under it
  * allow) and fishing boats tied along the piers, seeded. Each lies clear of its pier, bow out to sea.
  */
 export function harbourMoorings(h: HarbourPlan, seed: number): Mooring[] {
-  const r = new Rng(seed * 7919 + 4099), out: Mooring[] = [];
-  for (const [i, b] of h.berths.entries()) {
-    if (!r.chance(0.65)) continue;
-    const p = h.piers[b.pier], ux = Math.cos(b.yaw), uz = Math.sin(b.yaw);
-    // As long as the berth, and no deeper than the water under it (the draft is a ninth of the length).
-    const len = Math.min(b.length, (b.depth - 0.4) / 0.11);
-    if (len < 20) continue;
-    const plan = planShip(seed * 31 + i, 'ship', len);
-    const along = (b.x - p.x0) * ux + (b.z - p.z0) * uz, off = p.half + plan.beam / 2 + 0.6;
-    out.push({ plan, x: p.x0 + ux * along - uz * off * b.side, z: p.z0 + uz * along + ux * off * b.side, ux, uz, side: b.side === 1 ? -1 : 1, landY: p.deckY });
-  }
+  const r = new Rng(seed * 7919 + 4099);
+  const out = shipBerths(h, r).map((i) => berthMooring(h, i, planShip(seed * 31 + i, 'ship', berthLength(h.berths[i]))));
   // Fishing boats tied along the quay's front between the piers, alongside it, bow one way or the other.
   const n = h.edge.length >> 1;
   for (let i = 2; i < n - 2; i += 3) {
