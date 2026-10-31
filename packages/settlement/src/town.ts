@@ -459,8 +459,9 @@ export function planTown(site: TownSite): TownPlan {
   const master = harbour ? take(quayFront()[0], 'hall', 'harbourmaster') : undefined;
   if (master) { master.floors = Math.max(master.floors, 2); master.wall = 'stone'; master.household = 2; }
   if (harbour) for (let i = 0; i < Math.min(3, harbour.piers.length + 1); i++) take(quayFront()[0], 'workshop', 'warehouse');
-  // Fisherfolk mend their nets on the quay and keep their gear in a loft by it.
-  if (harbour) for (let i = 0; i < 2; i++) take(quayFront()[0], 'workshop', 'fisher');
+  // Fisherfolk mend their nets on the quay and keep their gear in a loft by it; beside them the herbalist brews for
+  // the harbour (salves, and draughts to breathe under the sea).
+  if (harbour) for (let i = 0; i < 2; i++) take(quayFront()[0], 'workshop', i ? 'herbalist' : 'fisher');
   const inn = tavern || S.inn && take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => dist(a.cx, a.cz) - dist(b.cx, b.cz))[0], 'inn', 'innkeeper');
   if (inn) { inn.floors = Math.max(inn.floors, 2) + (tr.chance(0.4) ? 1 : 0); inn.household = 4; }
   const hall = S.hall && take(homes().filter((b) => nearMarket(b) < 8).sort((a, b) => b.hu * b.hv - a.hu * a.hv)[0] ?? homes().sort((a, b) => nearMarket(a) - nearMarket(b))[0], 'hall', 'reeve');
