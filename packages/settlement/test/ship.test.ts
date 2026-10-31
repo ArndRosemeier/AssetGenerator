@@ -91,7 +91,9 @@ test('ship: a harbour has ships at its berths and boats along its piers, clear o
       }
     }
     assert.deepEqual(harbourMoorings(t.harbour!, seed), ms);
-    // The free berths: a ship from elsewhere coming in to one lies clear of the harbour's own and of the piers.
+    // The free berths: a ship from elsewhere coming in to one lies clear of the harbour's own and of the piers. With two
+    // berths or more, one is always free.
+    if (t.harbour!.berths.length >= 2) assert.ok(freeBerths(t.harbour!, seed).length >= 1, `a berth kept free at ${seed}`);
     for (const i of freeBerths(t.harbour!, seed)) {
       const len = berthLength(t.harbour!.berths[i]);
       if (len < 20) continue;

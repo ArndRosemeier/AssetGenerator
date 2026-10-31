@@ -258,11 +258,16 @@ export function freeBerths(h: HarbourPlan, seed: number): number[] {
   return h.berths.map((_, i) => i).filter((i) => !taken.includes(i));
 }
 
-/** The berths the harbour's own ships lie at (about two in three, those long and deep enough), drawn from `r`. */
+/**
+ * The berths the harbour's own ships lie at (about two in three, those long and deep enough), drawn from `r`. Where
+ * that would take every berth and there are two or more, the longest is kept free for a ship from elsewhere.
+ */
 function shipBerths(h: HarbourPlan, r: Rng): number[] {
   const out: number[] = [];
   for (const [i, b] of h.berths.entries()) if (r.chance(0.65) && berthLength(b) >= 20) out.push(i);
-  return out;
+  if (out.length < 2 || out.length < h.berths.length) return out;
+  const longest = out.reduce((a, i) => (berthLength(h.berths[i]) > berthLength(h.berths[a]) ? i : a));
+  return out.filter((i) => i !== longest);
 }
 
 /**
