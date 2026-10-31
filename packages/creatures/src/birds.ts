@@ -1,10 +1,11 @@
 /**
  * Small birds for ambient life (songbirds, starlings, crows, pigeons): one low-poly body that every
- * bird shares, drawn many at once (./three/birds.ts) by one shader (../node.ts `birdMaterial`). The
+ * bird shares, drawn many at once (./three/batch.ts) by one shader (../node.ts `birdMaterial`). The
  * body faces +z, its back is +y, and it is one unit long (a bird's `size` is its length in metres).
  * Each wing vertex carries its side and how far out along the wing it sits, so the shader can beat
  * the wings (curling the outer part more) or fold them along the back. Pure (no three.js).
  */
+import { packPose, POSE_STRIDE } from './pose';
 
 /** The shared body: positions (xyz), per vertex part (side −1/0/+1, span 0..1 out along the wing), triangles. */
 export interface BirdMesh {
@@ -98,25 +99,12 @@ export interface BirdPose {
 }
 
 /** Floats per bird in each of the three instance attributes. */
-export const BIRD_STRIDE = 4;
+export const BIRD_STRIDE = POSE_STRIDE;
 
 /**
  * Writes one bird's pose into the instance arrays at `i`, positions relative to `origin`:
  * place (x, y, z, turn about y), turn (pitch, bank, size, wing), look (r, g, b, fold).
  */
 export function packBird(p: BirdPose, origin: { x: number; y: number; z: number }, place: Float32Array, turn: Float32Array, look: Float32Array, i: number): void {
-  const o = i * BIRD_STRIDE;
-  place[o] = p.x - origin.x;
-  place[o + 1] = p.y - origin.y;
-  place[o + 2] = p.z - origin.z;
-  // The body faces +z: turned by φ about y it faces (sin φ, cos φ), so φ = π/2 − heading.
-  place[o + 3] = Math.PI / 2 - p.heading;
-  turn[o] = p.pitch;
-  turn[o + 1] = p.bank;
-  turn[o + 2] = p.size;
-  turn[o + 3] = p.wing;
-  look[o] = p.r;
-  look[o + 1] = p.g;
-  look[o + 2] = p.b;
-  look[o + 3] = p.fold;
+  packPose(p, origin, [p.pitch, p.bank, p.size, p.wing], [p.r, p.g, p.b, p.fold], place, turn, look, i);
 }
