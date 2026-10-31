@@ -61,6 +61,17 @@ test('ship: every face is wound to face its normal, the deck where it narrows to
   }
 });
 
+test('ship: the lower deck\'s end bulkheads meet its lining all the way up (the hull flares: no sliver of the sea)', () => {
+  const p = planShip(1, 'ship', 22.72), m = shipMesh(p, 0, 0, 1, 0, 0, [0, 0, 0]), h = p.hold!;
+  // Heading +x from the origin: a is x, b is z, y is height. Every lining corner at an end has a bulkhead corner by it.
+  for (const [a, nx] of [[h.a0, 1], [h.a1, -1]] as const) {
+    const at = (want: (i: number) => boolean) => { const o: number[][] = []; for (let i = 0; i < m.position.length; i += 3) if (Math.abs(m.position[i] - a) < 1e-3 && m.position[i + 1] > h.y - 1e-3 && m.position[i + 1] < p.deckY && want(i)) o.push([m.position[i + 1], Math.abs(m.position[i + 2])]); return o; };
+    const wall = at((i) => Math.abs(m.normal[i] - nx) < 1e-3), lining = at((i) => Math.abs(m.normal[i + 2]) > 0.99);
+    assert.ok(lining.length > 0 && wall.length > 0);
+    for (const [y, b] of lining) assert.ok(wall.some(([wy, wb]) => Math.abs(wy - y) < 1e-3 && Math.abs(wb - b) < 1e-3), `a lining corner at ${y.toFixed(2)} m, ${b.toFixed(2)} out, has no bulkhead corner`);
+  }
+});
+
 test('ship: a harbour has ships at its berths and boats along its piers, clear of the piers and in water deep enough', async () => {
   const { planTown, harbourMoorings, pierDist } = await import('../src/index');
   const height = (x: number, z: number) => -z * 0.06 + 1.2 * Math.sin(x / 70);

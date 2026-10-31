@@ -713,9 +713,11 @@ function lowerDeck(o: Out, p: ShipPlan, x: number, z: number, ux: number, uz: nu
       o.quad(q, [0, 0, -side], q.map((v) => [v[0], v[1]]), BuildingMat.Oak, DECK_DARK);
     }
   }
-  // Its ends: the bulkheads fore and aft.
-  for (const [a, dir] of [[h.a0, 1], [h.a1, -1]] as const) {
-    const q = [[a, h.y, -w(a, h.y)], [a, h.y, w(a, h.y)], [a, top, w(a, top)], [a, top, -w(a, top)]];
+  // Its ends: the bulkheads fore and aft, in the lining's bands (the hull flares going up: one straight edge would
+  // leave a sliver of the sea between it and the lining).
+  for (const [a, dir] of [[h.a0, 1], [h.a1, -1]] as const) for (let k = 0; k < 3; k++) {
+    const h0 = bands[k], h1 = bands[k + 1];
+    const q = [[a, h0, -w(a, h0)], [a, h0, w(a, h0)], [a, h1, w(a, h1)], [a, h1, -w(a, h1)]];
     o.quad(q, [dir, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK);
   }
   // The beams under the main deck, across it.
