@@ -615,6 +615,13 @@ export function gangplankMesh(length: number): BuildingMesh {
 /** Half a gangplank's width (m). */
 export const PLANK = 0.34;
 
+/** A rope `length` long along +a from the origin (a line a hand hauls on, stretched by the caller to its ends). */
+export function ropeMesh(length: number): BuildingMesh {
+  const o = new Out(new Frame({ cx: 0, cz: 0, ux: 1, uz: 0, vx: 0, vz: 1, y: 0 }, [0, 0, 0]));
+  o.box(0, length, -0.016, 0.016, -0.016, 0.016, BuildingMat.Oak, ROPE);
+  return mergeOuts([o]);
+}
+
 /** A sail full of wind between its yard (yT, half hT) and the yard or deck below (yB, half hB), bellied forward. */
 function sail(p: ShipPlan, a: number, yT: number, yB: number, hT: number, hB: number, x: number, z: number, ux: number, uz: number, y: number, origin: [number, number, number]): Out {
   const o = new Out(new Frame({ cx: x, cz: z, ux, uz, vx: -uz, vz: ux, y }, origin));
@@ -713,9 +720,11 @@ function lowerDeck(o: Out, p: ShipPlan, x: number, z: number, ux: number, uz: nu
       o.quad(q, [0, 0, -side], q.map((v) => [v[0], v[1]]), BuildingMat.Oak, DECK_DARK);
     }
   }
-  // Its ends: the bulkheads fore and aft.
-  for (const [a, dir] of [[h.a0, 1], [h.a1, -1]] as const) {
-    const q = [[a, h.y, -w(a, h.y)], [a, h.y, w(a, h.y)], [a, top, w(a, top)], [a, top, -w(a, top)]];
+  // Its ends: the bulkheads fore and aft, in the lining's bands (the hull flares going up: one straight edge would
+  // leave a sliver of the sea between it and the lining).
+  for (const [a, dir] of [[h.a0, 1], [h.a1, -1]] as const) for (let k = 0; k < 3; k++) {
+    const h0 = bands[k], h1 = bands[k + 1];
+    const q = [[a, h0, -w(a, h0)], [a, h0, w(a, h0)], [a, h1, w(a, h1)], [a, h1, -w(a, h1)]];
     o.quad(q, [dir, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK);
   }
   // The beams under the main deck, across it.

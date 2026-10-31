@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planShip, shipMesh, shipFloor, shipFloors, hullHalf, shipWall, gangplankMesh, shipLadders, shipFixtures, shipHold, shipInside, shipRoom } from '../src/index';
+import { planShip, shipMesh, shipFloor, shipFloors, hullHalf, shipWall, gangplankMesh, ropeMesh, shipLadders, shipFixtures, shipHold, shipInside, shipRoom } from '../src/index';
 
 test('ship: a sailing ship has castles fore and aft, masts with yards, a hatch, and decks to walk on', () => {
   for (const seed of [1, 2, 3, 4]) {
@@ -61,6 +61,17 @@ test('ship: every face is wound to face its normal, the deck where it narrows to
   }
 });
 
+test('ship: the lower deck\'s end bulkheads meet its lining all the way up (the hull flares: no sliver of the sea)', () => {
+  const p = planShip(1, 'ship', 22.72), m = shipMesh(p, 0, 0, 1, 0, 0, [0, 0, 0]), h = p.hold!;
+  // Heading +x from the origin: a is x, b is z, y is height. Every lining corner at an end has a bulkhead corner by it.
+  for (const [a, nx] of [[h.a0, 1], [h.a1, -1]] as const) {
+    const at = (want: (i: number) => boolean) => { const o: number[][] = []; for (let i = 0; i < m.position.length; i += 3) if (Math.abs(m.position[i] - a) < 1e-3 && m.position[i + 1] > h.y - 1e-3 && m.position[i + 1] < p.deckY && want(i)) o.push([m.position[i + 1], Math.abs(m.position[i + 2])]); return o; };
+    const wall = at((i) => Math.abs(m.normal[i] - nx) < 1e-3), lining = at((i) => Math.abs(m.normal[i + 2]) > 0.99);
+    assert.ok(lining.length > 0 && wall.length > 0);
+    for (const [y, b] of lining) assert.ok(wall.some(([wy, wb]) => Math.abs(wy - y) < 1e-3 && Math.abs(wb - b) < 1e-3), `a lining corner at ${y.toFixed(2)} m, ${b.toFixed(2)} out, has no bulkhead corner`);
+  }
+});
+
 test('ship: a harbour has ships at its berths and boats along its piers, clear of the piers and in water deep enough', async () => {
   const { planTown, harbourMoorings, pierDist } = await import('../src/index');
   const height = (x: number, z: number) => -z * 0.06 + 1.2 * Math.sin(x / 70);
@@ -102,6 +113,9 @@ test('ship: walking its deck: the rail and masts are walls, the gangway open, th
   }
   const plank = gangplankMesh(2.5);
   assert.ok(plank.index.length > 36 && plank.position.every(Number.isFinite));
+  // A rope: thin, along +x from the origin.
+  const rope = ropeMesh(1);
+  for (let i = 0; i < rope.position.length; i += 3) assert.ok(rope.position[i] >= 0 && rope.position[i] <= 1 && Math.hypot(rope.position[i + 1], rope.position[i + 2]) < 0.03);
 });
 
 test('ship: a ladder up each castle, its foot on the main deck before the castle, its top at the castle deck', () => {
