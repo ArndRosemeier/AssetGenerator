@@ -434,6 +434,9 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     const s0 = sheerAt(p, ts[i]), s1 = sheerAt(p, ts[i + 1]);
     const w0 = halfAtDeck(p, ts[i]) - INNER, w1 = halfAtDeck(p, ts[i + 1]) - INNER;
     if (w0 <= 0.05 && w1 <= 0.05) continue;
+    // At its foot, the deck's own edge (where the hull still narrows below the rail, as up a castle near the bow), so
+    // no sliver of the sea shows between the deck and the rail.
+    const d0 = Math.max(0, hullHalf(p, a0, f0) - INNER), d1 = Math.max(0, hullHalf(p, a1, f1) - INNER);
     if (port(i)) {
       // The gangway: the deck's edge planked over, the rail's cut ends faced.
       const e = [[a0, f0, side * w0], [a1, f1, side * w1], [a1, f1, side * (w1 + INNER)], [a0, f0, side * (w0 + INNER)]];
@@ -447,7 +450,7 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
       }
       continue;
     }
-    const q = [[a0, f0, side * w0], [a1, f1, side * w1], [a1, s1, side * w1], [a0, s0, side * w0]];
+    const q = [[a0, f0, side * d0], [a1, f1, side * d1], [a1, s1, side * w1], [a0, s0, side * w0]];
     o.quad(q, [0, 0, -side], q.map((v) => [v[0], v[1]]), BuildingMat.Oak, p.hull);
     const cap = [[a0, s0 + 0.06, side * (w0 + INNER + 0.04)], [a1, s1 + 0.06, side * (w1 + INNER + 0.04)], [a1, s1 + 0.06, side * (w1 - 0.04)], [a0, s0 + 0.06, side * (w0 - 0.04)]];
     o.quad(cap, [0, 1, 0], cap.map((v) => [v[0], v[2]]), BuildingMat.Oak, DECK_DARK);
@@ -457,6 +460,8 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     const n = Math.max(1, Math.ceil((a1 - a0) / 1.2)), cuts = new Set<number>();
     for (let i = 0; i <= n; i++) cuts.add(a0 + ((a1 - a0) * i) / n);
     for (const h of holes) for (const e of [h.a0, h.a1]) if (e > a0 && e < a1) cuts.add(e);
+    // (And at the rail's panels: their edges meet it along the same straight pieces.)
+    for (const t of ts) if (t * half > a0 + 0.05 && t * half < a1 - 0.05) cuts.add(t * half);
     const at = [...cuts].sort((q, w) => q - w);
     for (let i = 0; i + 1 < at.length; i++) {
       const b0 = at[i], b1 = at[i + 1];
@@ -481,7 +486,9 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
   deckStrip(mainA0, mainA1, p.deckY, holes);
   const ladders = shipLadders(p), outsCabins: Out[] = [];
   for (const c of [p.aft, p.fore]) if (c) {
-    deckStrip(c.a0 + 0.05, c.a1, c.y);
+    // (From its front wall forward; aft, just inside the transom.)
+    const d0 = c === p.aft ? c.a0 + 0.05 : c.a0;
+    deckStrip(d0, c.a1, c.y);
     // Its front to the main deck: a bulkhead with a door (the captain's cabin aft, the crew's forward).
     const face = c === p.aft ? c.a1 : c.a0, dir = c === p.aft ? 1 : -1, w = hullHalf(p, face, c.y) - INNER;
     const door = DOOR, top = c.y;
@@ -498,8 +505,8 @@ export function shipMesh(p: ShipPlan, x: number, z: number, ux: number, uz: numb
     // A rail along the castle's front edge, and a ladder up beside the door.
     for (const s of [1, -1]) beam(o, [face, c.y + 0.9, s * (door + 0.9)], [face, c.y + 0.9, s * (w - 0.05)], 0.04, DECK_DARK);
     if (detail) ladder(o, ladders[c === p.aft ? 0 : 1]);
-    // Its underside: the cabin's ceiling below it.
-    deckStrip(c.a0 + 0.05, c.a1, c.y - 0.08, [], true);
+    // Its underside: the cabin's ceiling below it (drawn with the cabin, along its own lining's pieces).
+    if (!detail) deckStrip(d0, c.a1, c.y - 0.08, [], true);
   }
   // The lower deck under the main deck, its ceiling the main deck's underside; the companionway down to it.
   if (detail && p.hold) {
@@ -632,18 +639,27 @@ function sail(p: ShipPlan, a: number, yT: number, yB: number, hT: number, hB: nu
 function cabin(o: Out, p: ShipPlan, c: Castle, x: number, z: number, ux: number, uz: number, y: number, origin: [number, number, number], outs: Out[]): void {
   const half = p.length / 2, aft = c === p.aft, ceil = c.y - 0.08, n = Math.max(2, Math.ceil((c.a1 - c.a0) / 0.8));
   const a0 = aft ? Math.max(c.a0, -half + 0.12) : c.a0;
+  const w = (a: number, h: number) => Math.max(0, hullHalf(p, a, h) - INNER), mid = (p.deckY + ceil) / 2;
+  let end = a0;
   for (let i = 0; i < n; i++) {
     const b0 = a0 + ((c.a1 - a0) * i) / n, b1 = a0 + ((c.a1 - a0) * (i + 1)) / n;
-    const w = (a: number, h: number) => Math.max(0, hullHalf(p, a, h) - INNER);
     if (w(b0, p.deckY) + w(b1, p.deckY) < 0.1) continue;
+    end = b1;
     const fl = [[b0, p.deckY, -w(b0, p.deckY)], [b1, p.deckY, -w(b1, p.deckY)], [b1, p.deckY, w(b1, p.deckY)], [b0, p.deckY, w(b0, p.deckY)]];
     o.quad(fl, [0, 1, 0], fl.map((v) => [v[0], v[2]]), BuildingMat.Oak, DECK);
+    // The ceiling, the castle deck's underside, along the same pieces as the lining (no seam of the sea between).
+    const ce = [fl[3], fl[2], fl[1], fl[0]].map((v) => [v[0], ceil, Math.sign(v[2]) * w(v[0], ceil)]);
+    o.quad(ce, [0, -1, 0], ce.map((v) => [v[0], v[2]]), BuildingMat.Oak, DECK_DARK);
     // The sides, in two bands (the hull flares out going up).
-    const mid = (p.deckY + ceil) / 2;
     for (const side of [1, -1]) for (const [h0, h1] of [[p.deckY, mid], [mid, ceil]]) {
       const q = [[b0, h0, side * w(b0, h0)], [b1, h0, side * w(b1, h0)], [b1, h1, side * w(b1, h1)], [b0, h1, side * w(b0, h1)]];
       o.quad(q, [0, 0, -side], q.map((v) => [v[0], v[1]]), BuildingMat.Oak, DECK_DARK);
     }
+  }
+  // Forward, where the bow closes in under the floor: a bulkhead across the cabin's end.
+  if (!aft && end < c.a1 - 1e-6) for (const [h0, h1] of [[p.deckY, mid], [mid, ceil]]) {
+    const q = [[end, h0, w(end, h0)], [end, h0, -w(end, h0)], [end, h1, -w(end, h1)], [end, h1, w(end, h1)]];
+    o.quad(q, [-1, 0, 0], q.map((v) => [v[2], v[1]]), BuildingMat.Oak, DECK_DARK);
   }
   if (aft) {
     const wa = Math.max(0, hullHalf(p, a0, ceil) - INNER), q = [[a0, p.deckY, -wa], [a0, p.deckY, wa], [a0, ceil, wa], [a0, ceil, -wa]];
