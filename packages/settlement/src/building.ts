@@ -72,7 +72,8 @@ export class Out {
       this.mat.push(m);
       this.tint.push(c[0], c[1], c[2]);
     }
-    const e1 = [w[1][0] - w[0][0], w[1][1] - w[0][1], w[1][2] - w[0][2]], e2 = [w[2][0] - w[0][0], w[2][1] - w[0][1], w[2][2] - w[0][2]];
+    // Its turn from the diagonals' cross (still right when two corners meet, as where a deck narrows to a point).
+    const e1 = [w[2][0] - w[0][0], w[2][1] - w[0][1], w[2][2] - w[0][2]], e2 = [w[3][0] - w[1][0], w[3][1] - w[1][1], w[3][2] - w[1][2]];
     const cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
     if (cx * wn[0] + cy * wn[1] + cz * wn[2] >= 0) this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     else this.idx.push(base, base + 2, base + 1, base, base + 3, base + 2);

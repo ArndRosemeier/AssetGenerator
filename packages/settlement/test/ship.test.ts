@@ -45,6 +45,22 @@ test('ship: its mesh is whole, in the given frame, sails set or furled', () => {
   }
 });
 
+test('ship: every face is wound to face its normal, the deck where it narrows to a point at the bow too', () => {
+  for (const seed of [1, 2, 3]) {
+    const p = planShip(seed, 'ship', seed === 1 ? 22.72 : undefined), m = shipMesh(p, 0, 0, 1, 0, 0, [0, 0, 0]);
+    const P = m.position, N = m.normal;
+    let wrong = 0;
+    for (let k = 0; k < m.index.length; k += 3) {
+      const [a, b, c] = [m.index[k] * 3, m.index[k + 1] * 3, m.index[k + 2] * 3];
+      const e1 = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], e2 = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+      const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], len = Math.hypot(...n);
+      if (len < 1e-6) continue;
+      if ((n[0] * N[a] + n[1] * N[a + 1] + n[2] * N[a + 2]) / len < -0.05) wrong++;
+    }
+    assert.equal(wrong, 0, `seed ${seed}: ${wrong} faces turned away from their normal (unseen from the side they face)`);
+  }
+});
+
 test('ship: a harbour has ships at its berths and boats along its piers, clear of the piers and in water deep enough', async () => {
   const { planTown, harbourMoorings, pierDist } = await import('../src/index');
   const height = (x: number, z: number) => -z * 0.06 + 1.2 * Math.sin(x / 70);
