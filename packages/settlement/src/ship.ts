@@ -615,6 +615,13 @@ export function gangplankMesh(length: number): BuildingMesh {
 /** Half a gangplank's width (m). */
 export const PLANK = 0.34;
 
+/** A rope `length` long along +a from the origin (a line a hand hauls on, stretched by the caller to its ends). */
+export function ropeMesh(length: number): BuildingMesh {
+  const o = new Out(new Frame({ cx: 0, cz: 0, ux: 1, uz: 0, vx: 0, vz: 1, y: 0 }, [0, 0, 0]));
+  o.box(0, length, -0.016, 0.016, -0.016, 0.016, BuildingMat.Oak, ROPE);
+  return mergeOuts([o]);
+}
+
 /** A sail full of wind between its yard (yT, half hT) and the yard or deck below (yB, half hB), bellied forward. */
 function sail(p: ShipPlan, a: number, yT: number, yB: number, hT: number, hB: number, x: number, z: number, ux: number, uz: number, y: number, origin: [number, number, number]): Out {
   const o = new Out(new Frame({ cx: x, cz: z, ux, uz, vx: -uz, vz: ux, y }, origin));

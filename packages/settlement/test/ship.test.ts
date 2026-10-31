@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planShip, shipMesh, shipFloor, shipFloors, hullHalf, shipWall, gangplankMesh, shipLadders, shipFixtures, shipHold, shipInside, shipRoom } from '../src/index';
+import { planShip, shipMesh, shipFloor, shipFloors, hullHalf, shipWall, gangplankMesh, ropeMesh, shipLadders, shipFixtures, shipHold, shipInside, shipRoom } from '../src/index';
 
 test('ship: a sailing ship has castles fore and aft, masts with yards, a hatch, and decks to walk on', () => {
   for (const seed of [1, 2, 3, 4]) {
@@ -113,6 +113,9 @@ test('ship: walking its deck: the rail and masts are walls, the gangway open, th
   }
   const plank = gangplankMesh(2.5);
   assert.ok(plank.index.length > 36 && plank.position.every(Number.isFinite));
+  // A rope: thin, along +x from the origin.
+  const rope = ropeMesh(1);
+  for (let i = 0; i < rope.position.length; i += 3) assert.ok(rope.position[i] >= 0 && rope.position[i] <= 1 && Math.hypot(rope.position[i + 1], rope.position[i + 2]) < 0.03);
 });
 
 test('ship: a ladder up each castle, its foot on the main deck before the castle, its top at the castle deck', () => {
