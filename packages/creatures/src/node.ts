@@ -96,6 +96,30 @@ export function critterEye(): MeshStandardNodeMaterial {
  * banked, pitched, turned, sized and placed by its instance attributes. Flat shaded: at a bird's size
  * the facets read as feathers. The back's colour per bird, the belly paler, the beak dark.
  */
+/**
+ * The shader of every small fish (./fish.ts, ./three/batch.ts FishBatch): the body sweeps side to side, from
+ * nothing at the snout to `sweep` body lengths at the tail's tip, a wave running back along it (`phase`, which the
+ * game runs on); then it is rolled, pitched, turned, sized and placed. The back is the instance's colour, the flanks
+ * and belly silvered, a little metallic so a turning shoal flashes.
+ */
+export function fishMaterial(): MeshStandardNodeMaterial {
+  const m = new MeshStandardNodeMaterial({ roughness: 0.35, metalness: 0.35, flatShading: true, side: DoubleSide });
+  const place = attribute<'vec4'>('fPlace', 'vec4'), turn = attribute<'vec4'>('fTurn', 'vec4'), look = attribute<'vec4'>('fLook', 'vec4');
+  const back = attribute<'float'>('fBack', 'float'), p = positionGeometry;
+  // The swimming wave: side to side, growing towards the tail, running back along the body.
+  const q = vec3(p.x.add(look.w.mul(back.mul(back)).mul(sin(turn.w.sub(back.mul(3.4))))), p.y, p.z);
+  // Roll (about z), pitch (about x, snout up), turn (about y), then size and place.
+  const cr = turn.y.cos(), sr = turn.y.sin(), cp = turn.x.cos(), sp = turn.x.sin(), cy = place.w.cos(), sy = place.w.sin();
+  const b1 = vec3(q.x.mul(cr).sub(q.y.mul(sr)), q.x.mul(sr).add(q.y.mul(cr)), q.z);
+  const b2 = vec3(b1.x, b1.y.mul(cp).add(b1.z.mul(sp)), b1.z.mul(cp).sub(b1.y.mul(sp)));
+  const b3 = vec3(b2.x.mul(cy).add(b2.z.mul(sy)), b2.y, b2.z.mul(cy).sub(b2.x.mul(sy)));
+  m.positionNode = b3.mul(turn.z).add(place.xyz);
+  // Dark back, silver flanks and a pale belly.
+  const silver = mix(look.xyz, vec3(0.62, 0.66, 0.68), smoothstep(0.05, -0.04, p.y));
+  m.colorNode = mix(silver, vec3(0.85, 0.86, 0.84), smoothstep(-0.04, -0.1, p.y));
+  return m;
+}
+
 export function birdMaterial(): MeshStandardNodeMaterial {
   const m = new MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0, flatShading: true, side: DoubleSide });
   const place = attribute<'vec4'>('bPlace', 'vec4'), turn = attribute<'vec4'>('bTurn', 'vec4'), look = attribute<'vec4'>('bLook', 'vec4');
