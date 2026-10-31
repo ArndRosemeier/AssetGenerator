@@ -73,10 +73,10 @@ test('ship: the lower deck\'s end bulkheads meet its lining all the way up (the 
 });
 
 test('ship: a harbour has ships at its berths and boats along its piers, clear of the piers and in water deep enough', async () => {
-  const { planTown, harbourMoorings, pierDist } = await import('../src/index');
+  const { planTown, harbourMoorings, pierDist, freeBerths, berthLength, berthMooring } = await import('../src/index');
   const height = (x: number, z: number) => -z * 0.06 + 1.2 * Math.sin(x / 70);
   const water = (x: number, z: number) => Math.max(0, -height(x, z));
-  let ships = 0, boats = 0;
+  let ships = 0, boats = 0, free = 0;
   for (const seed of [1, 2, 3, 4, 5]) {
     const t = planTown({ seed, x: 0, z: -60, size: 'town', height, water, harbour: { x: 0, z: 0, dx: 0, dz: 1 } });
     const ms = harbourMoorings(t.harbour!, seed);
@@ -91,8 +91,18 @@ test('ship: a harbour has ships at its berths and boats along its piers, clear o
       }
     }
     assert.deepEqual(harbourMoorings(t.harbour!, seed), ms);
+    // The free berths: a ship from elsewhere coming in to one lies clear of the harbour's own and of the piers.
+    for (const i of freeBerths(t.harbour!, seed)) {
+      const len = berthLength(t.harbour!.berths[i]);
+      if (len < 20) continue;
+      const m = berthMooring(t.harbour!, i, planShip(99, 'ship', len));
+      for (const o of ms) assert.ok(Math.hypot(o.x - m.x, o.z - m.z) > (o.plan.beam + m.plan.beam) / 2, 'clear of the moored');
+      for (const p of t.harbour!.piers) assert.ok(pierDist(p, m.x, m.z) > m.plan.beam / 2, 'clear of the pier');
+      free++;
+    }
   }
   assert.ok(ships >= 2 && boats >= 2, `${ships} ships, ${boats} boats`);
+  assert.ok(free >= 1, 'a berth free somewhere');
 });
 
 test('ship: walking its deck: the rail and masts are walls, the gangway open, the hull solid to a swimmer', () => {
