@@ -1,6 +1,6 @@
 /**
  * Natural ground layers for open country (wild grass, forest floor, rock, cliff strata, scree, snow, sand,
- * mud, and the kinds of country's: heather, clay, limestone pavement, chalk turf, gravel): the terrain of fantasy and wilderness games. Same conventions as the other layers (index.ts): one
+ * mud, and the kinds of country's: heather, clay, limestone pavement, chalk turf, gravel, basalt): the terrain of fantasy and wilderness games. Same conventions as the other layers (index.ts): one
  * tile is W metres square, wraps seamlessly, row 0 = v = 0, +v is "up" (on a cliff: up the face).
  */
 import { Rng } from '@futuremagic/core';
@@ -337,6 +337,37 @@ const chalkTurf: Gen = (t) => {
   pebbles(t, 6206, { count: 0.04, rMin: 0.012, rMax: 0.035, height: 0.4, palette: [rgb(70, 66, 64), rgb(120, 110, 100), rgb(210, 205, 196)], fines: rgb(0, 0, 0), finesH: 0, bed: false, mask: (u, v) => 0.2 + worn(u, v) });
 };
 
+/**
+ * Volcanic country: a lava field's crust. Black-grey basalt broken into clinker blocks about 0.3 m across with dark cracks
+ * between, rough with gas pits, rusted brown where the iron weathered and ash-grey in drifts. Dark, and nothing grows on it.
+ */
+const basalt: Gen = (t) => {
+  const W = t.W;
+  const n1 = new TNoise(6401, W), n2 = new TNoise(6402, W), n3 = new TNoise(6403, W);
+  const big = newCell(), small = newCell(), huge = newCell();
+  const bf = Math.max(2, Math.round(W / 0.3)), sf = Math.max(2, Math.round(W / 0.05)), hf = Math.max(2, Math.round(W / 1.1));
+  t.each((u, v, _x, _y, idx) => {
+    const wu = u + n1.fbm(u, v, 1.2, 3) * (0.5 / bf), wv = v + n1.fbm(u + 0.5, v, 1.2, 3) * (0.5 / bf);
+    worley(6407, wu * bf, wv * bf, bf, bf, 0.9, big);
+    worley(6408, u * sf, v * sf, sf, sf, 0.9, small);
+    worley(6410, wu * hf, wv * hf, hf, hf, 0.9, huge);
+    // The cracks open here and there (a crust that broke in places), the widest between the big plates.
+    const open = smooth(-0.25, 0.25, n3.fbm(u, v, 0.8, 3));
+    const crack = Math.max((1 - smooth(0.0, 0.05, (big.f2 - big.f1) * (W / bf))) * open, 1 - smooth(0.0, 0.035, (huge.f2 - huge.f1) * (W / hf)));
+    const pit = smooth(0.0, 0.25, 0.55 - small.f1);
+    const block = Math.sqrt(Math.max(0, 1 - big.f1 * big.f1 * 0.9));
+    const rust = smooth(0.0, 0.5, n2.fbm(u, v, 0.9, 3)) * (0.4 + 0.6 * rnd(6409, big.id));
+    const ash = smooth(0.05, 0.55, n3.fbm(u + 0.3, v, 0.7, 3));
+    const h = block * 0.03 * open - crack * 0.04 - pit * 0.004 + n1.fbm(u, v, 0.2, 3) * 0.01 + (rnd(6404, idx) - 0.5) * 0.002;
+    // Each clinker block its own tone; the tops of the blocks lighter (weathered), the pits and cracks black.
+    const k = (0.95 + n1.fbm(u, v, 0.5, 3) * 0.3 + (rnd(6405, big.id) - 0.5) * 0.5 + (rnd(6406, idx) - 0.5) * 0.1) * (0.8 + 0.35 * block) * (1 - crack * 0.7 - pit * 0.25);
+    let r = 0.2 * k, g = 0.195 * k, b = 0.2 * k;
+    r = mix(r, 0.42 * k, rust * 0.6); g = mix(g, 0.22 * k, rust * 0.6); b = mix(b, 0.14 * k, rust * 0.6);
+    r = mix(r, 0.4 * k, ash * 0.7); g = mix(g, 0.39 * k, ash * 0.7); b = mix(b, 0.38 * k, ash * 0.7);
+    t.set(idx, r, g, b, 0.88 - block * 0.08, h);
+  });
+};
+
 /** A river valley's floor: rounded pebbles and grit washed down, grass grown over in drifts between them. */
 const gravel: Gen = (t) => {
   const W = t.W;
@@ -365,5 +396,7 @@ export const NATURALS: { name: string; W: number; gen: Gen; normal: number; aoK:
   { name: 'limestone', W: 4, gen: limestone, normal: 1, aoK: 30, aoR: [0.02, 0.08] },
   { name: 'chalkTurf', W: 2, gen: chalkTurf, normal: 0.5, aoK: 25, aoR: [0.01, 0.04] },
   { name: 'gravel', W: 2, gen: gravel, normal: 1, aoK: 50, aoR: [0.01, 0.04] },
+  // Volcanic country's lava field (MasterWorld K7).
+  { name: 'basalt', W: 3, gen: basalt, normal: 1, aoK: 40, aoR: [0.01, 0.06] },
 ];
 
