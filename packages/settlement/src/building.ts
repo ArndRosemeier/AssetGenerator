@@ -576,6 +576,12 @@ function doorAt(a0: number, a1: number, len: number): number {
   return a1 > a0 ? -a0 : len + a0;
 }
 
+/**
+ * How high a house door's lintel is (m, over the wall's foot): a hero is up to 2.1 m tall (MasterWorld's tallest
+ * people), hat and hair above that, so the doorway clears 2.1 m with a hand to spare.
+ */
+export const DOOR_TOP = 2.35;
+
 /** Windows (and the door) on a wall `len` long and `h` high. */
 function openings(len: number, h: number, bay: number, door: number | null, ground: boolean, kind: TownBuilding['kind'], r: Rng): Opening[] {
   const out: Opening[] = [];
@@ -583,7 +589,7 @@ function openings(len: number, h: number, bay: number, door: number | null, grou
   if (door !== null) {
     // A barn's doors take a loaded wagon.
     const w = kind === 'barn' ? 3.4 : kind === 'stable' || kind === 'smithy' || kind === 'mill' ? 1.9 : kind === 'inn' ? 1.3 : 1.05;
-    out.push({ s0: door - w / 2, s1: door + w / 2, t0: 0, t1: Math.min(h - 0.35, kind === 'barn' ? 3.4 : kind === 'stable' ? 2.5 : 2.05), door: true });
+    out.push({ s0: door - w / 2, s1: door + w / 2, t0: 0, t1: Math.min(h - 0.3, kind === 'barn' ? 3.4 : kind === 'stable' ? 2.5 : DOOR_TOP), door: true });
   }
   // Barns are dark inside: a few small vents high up, no windows.
   if (kind === 'barn') {
