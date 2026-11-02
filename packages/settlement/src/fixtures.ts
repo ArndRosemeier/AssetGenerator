@@ -7,7 +7,7 @@
  * things on top). `fixtureBlocks` says what a walker runs into. Pure.
  */
 import { Rng, seat } from '@futuremagic/core';
-import { BuildingMat, Frame, Out, beam, type BuildingMesh, type RGB } from './building';
+import { BuildingMat, Frame, Out, beam, type Box, type BuildingMesh, type RGB } from './building';
 import type { Poly } from './geom2';
 import type { Fixture, FixtureKind } from './town';
 
@@ -154,6 +154,13 @@ export function fixtureMesh(list: readonly Fixture[], height: (x: number, z: num
     position: Float32Array.from(all.pos), normal: Float32Array.from(all.nrm), uv: Float32Array.from(all.uv),
     mat: Uint8Array.from(all.mat), tint: Uint8Array.from(all.tint), index: Uint32Array.from(all.idx),
   };
+}
+
+/** The boxes a fixture is drawn of, in its own frame (a along, y up from its ground, b across): for checks that nothing floats (`looseBoxes`). */
+export function fixtureBoxes(f: Fixture, detail = true): readonly Box[] {
+  const o = new Out(new Frame({ cx: 0, cz: 0, ux: 1, uz: 0, vx: 0, vz: 1, y: 0 }, [0, 0, 0]));
+  draw(o, f, new Rng(f.id * 7919 + 17), detail);
+  return o.boxes;
 }
 
 function draw(o: Out, f: Fixture, r: Rng, detail: boolean): void {
@@ -305,11 +312,20 @@ function draw(o: Out, f: Fixture, r: Rng, detail: boolean): void {
     }
     case 'cargo': {
       // Cargo waiting on the quay: crates in two rows, stacked two high, a barrel or two, sacks.
-      const n = detail ? 9 : 6;
+      const n = detail ? 9 : 6, base: { a: number; b: number; w: number; top: number }[] = [];
       for (let i = 0; i < n; i++) {
-        const row = i % 2, a = (row ? 0.5 : -0.5) + r.range(-0.1, 0.1), b = -0.9 + (Math.floor(i / 2) % 3) * 0.9 + r.range(-0.08, 0.08), w = r.range(0.32, 0.44), h = r.range(0.5, 0.8);
-        const y = i >= 6 ? 0.82 : 0;
-        o.box(a - w, a + w, y, y + h, b - w, b + w, BuildingMat.Oak, r.pick([LIGHT_WOOD, TIMBER, [168, 138, 98] as RGB]));
+        let a: number, b: number, w: number, y = 0;
+        const h = r.range(0.5, 0.8), c = r.pick([LIGHT_WOOD, TIMBER, [168, 138, 98] as RGB]);
+        if (i < 6) {
+          const row = i % 2;
+          a = (row ? 0.5 : -0.5) + r.range(-0.1, 0.1); b = -0.9 + (Math.floor(i / 2) % 3) * 0.9 + r.range(-0.08, 0.08); w = r.range(0.32, 0.44);
+          base.push({ a, b, w, top: h });
+        } else {
+          // A crate stacked on one below: set on its top and no wider than it, so it rests fully on it.
+          const under = base[i - 6];
+          a = under.a; b = under.b; w = Math.min(under.w, r.range(0.32, 0.44)); y = under.top;
+        }
+        o.box(a - w, a + w, y, y + h, b - w, b + w, BuildingMat.Oak, c);
       }
       if (detail) {
         prism(o, 0.7, 1.0, 0.28, 0, 0.82, sides, BuildingMat.Oak, TIMBER);

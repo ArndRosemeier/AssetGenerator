@@ -51,6 +51,26 @@ const PAINTS: RGB[] = [[120, 150, 110], [150, 70, 54], [80, 104, 130], [176, 140
 const STONES: RGB[] = [[236, 228, 214], [222, 214, 200], [210, 204, 196], [232, 220, 196]];
 
 /** Collects triangles; `world` turns local (a, y, b) into positions relative to the origin. */
+/** A box in local space: a0, a1, y0, y1, b0, b1. */
+export type Box = readonly [number, number, number, number, number, number];
+
+/**
+ * The boxes (not the first `from`) that hang in the air: a box above the ground (`y0` over `tol`) with nothing under it
+ * whose top meets its bottom (within `tol`) and which overlaps its footprint. With `full`, the footprint must be covered
+ * completely by the tops that meet it (a crate on a crate rests on it, none overhangs into the air).
+ */
+export function looseBoxes(boxes: readonly Box[], full = false, tol = 0.02): Box[] {
+  return boxes.filter(([a0, a1, y0, , b0, b1]) => {
+    if (y0 <= tol) return false;
+    const under = boxes.filter((q) => Math.abs(q[3] - y0) <= tol && q[0] < a1 && q[1] > a0 && q[4] < b1 && q[5] > b0);
+    if (!under.length) return true;
+    if (!full) return false;
+    // Covered completely: the footprint's corners and edge midpoints each lie over some supporting top.
+    const xs = [a0, (a0 + a1) / 2, a1], zs = [b0, (b0 + b1) / 2, b1];
+    return !xs.every((a) => zs.every((b) => under.some((q) => a >= q[0] - tol && a <= q[1] + tol && b >= q[4] - tol && b <= q[5] + tol)));
+  });
+}
+
 export class Out {
   pos: number[] = [];
   nrm: number[] = [];
@@ -58,6 +78,8 @@ export class Out {
   mat: number[] = [];
   tint: number[] = [];
   idx: number[] = [];
+  /** Every box drawn, in local space (a0, a1, y0, y1, b0, b1), for `looseBoxes`. */
+  readonly boxes: Box[] = [];
   constructor(private readonly t: Frame) {}
 
   /** A quad from four local corners (any winding: it is turned to face `n`), uv from (s, t) metres. */
@@ -99,6 +121,7 @@ export class Out {
 
   /** An axis-aligned box in local space (a0..a1, y0..y1, b0..b1); `bottom` false leaves the underside out. */
   box(a0: number, a1: number, y0: number, y1: number, b0: number, b1: number, m: BuildingMat, c: RGB, bottom = false): void {
+    this.boxes.push([a0, a1, y0, y1, b0, b1]);
     const faces: [number[][], number[]][] = [
       [[[a0, y0, b0], [a1, y0, b0], [a1, y1, b0], [a0, y1, b0]], [0, 0, -1]],
       [[[a1, y0, b1], [a0, y0, b1], [a0, y1, b1], [a1, y1, b1]], [0, 0, 1]],

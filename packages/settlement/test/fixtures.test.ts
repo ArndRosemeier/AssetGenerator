@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { floatOf } from '@futuremagic/core';
 import assert from 'node:assert/strict';
-import { BENCH_SEAT, Footprints, buildingEntrance, buildingMesh, distToPoly, fixtureBlocks, fixtureClear, fixtureMesh, fixtureSight, fixtureStand, planTown, pointInPoly, wayRound, type FixtureKind } from '../src/index';
+import { BENCH_SEAT, Footprints, looseBoxes, type Fixture, buildingEntrance, buildingMesh, distToPoly, fixtureBlocks, fixtureClear, fixtureBoxes, fixtureMesh, fixtureSight, fixtureStand, planTown, pointInPoly, wayRound, type FixtureKind } from '../src/index';
 
 const site = (seed: number) => ({ seed, x: 0, z: 0, radius: 120, height: (x: number, z: number) => 10 + Math.sin(x * 0.02) * 2 + Math.cos(z * 0.03) });
 
@@ -108,4 +108,21 @@ test('fixtures: a stall\'s awning and a well\'s roof stand in the eye\'s way, a 
   assert.ok(fixtureSight(stall, g(stall), stall.x, g(stall) + 5, stall.z) > 2.5, 'well over it');
   assert.ok(fixtureSight(well, g(well), well.x, g(well) + 2.3, well.z) < 0, 'in the well\'s roof');
   assert.equal(fixtureSight(bench, g(bench), bench.x, g(bench) + 0.5, bench.z), Infinity);
+});
+
+test('fixtures: no box of a fixture hangs in the air, and stacked cargo rests fully on what is under it', () => {
+  const t = planTown({ ...site(3), radius: 260, size: 'capital' });
+  for (let seed = 1; seed <= 40; seed++) {
+    for (const detail of [true, false]) {
+      const o = fixtureBoxes({ id: seed, kind: 'cargo', x: 0, z: 0, yaw: 0 } as Fixture, detail);
+      assert.ok(o.length >= 6, 'cargo has crates');
+      assert.deepEqual(looseBoxes(o, true), [], `cargo ${seed} (detail ${detail}): every crate rests fully on the ground or the crate below`);
+    }
+  }
+  // Pieces drawn with parts held up by something that is not a box (a well's roof on its posts, a stack of logs, a washline, an anvil on its block) are not scanned yet.
+  const HELD = new Set<FixtureKind>(['well', 'woodpile', 'chopblock', 'washline', 'anvil', 'hayrack', 'nets', 'field', 'paddock']);
+  const harbour = ['cargo', 'fishstall'].map((kind, i) => ({ id: 50 + i, kind, x: 0, z: 0, yaw: 0 }) as Fixture);
+  for (const f of [...t.fixtures.filter((x) => !HELD.has(x.kind)), ...harbour]) {
+    assert.deepEqual(looseBoxes(fixtureBoxes(f, true)), [], `${f.kind} ${f.id}: nothing hangs with no support under it`);
+  }
 });
