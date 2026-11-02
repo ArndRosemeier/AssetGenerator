@@ -415,3 +415,9 @@ test('interior: every smithy has a bed (upstairs, or in a back corner when it ha
   assert.ok(smithies.length >= 4, 'the towns have smithies');
   for (const b of smithies) assert.ok(planInterior(b).spots.some((s) => s.kind === 'sleep'), `smithy #${b.id} (${houseShape(b).storeys.length} storeys) has a bed`);
 });
+
+test('interior: every temple has the keeper\'s cot, so its keeper can be found abed at night', () => {
+  const temples = town.buildings.filter((b) => b.kind === 'temple');
+  assert.ok(temples.length >= 4, 'the towns have temples');
+  for (const b of temples) assert.ok(planInterior(b).spots.some((s) => s.kind === 'sleep'), `temple #${b.id} has a cot`);
+});

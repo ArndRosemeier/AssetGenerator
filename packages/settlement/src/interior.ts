@@ -595,6 +595,14 @@ function temple(P: Planner, _r: Rng): void {
       if (P.add('bench', a, b, 1.5, 0.35, 0.45, 0.1)) P.spot('pray', a - side * 0.5, b, Math.atan2(0.6 - b, side * 0.5 - a));
     }
   }
+  // The keeper's cot in a back corner (they sleep by the basin, to be woken for a hurt hero), a chest at its foot.
+  for (const side of [-1, 1]) {
+    const ba = side * (P.ha - 0.5);
+    if (!P.add('bed', ba, P.hb - 1.05, 1.0, 2.0, 0.55, 0.1)) continue;
+    P.spot('sleep', ba, P.hb - 1.05, FACE_NB);
+    P.add('chest', ba, P.hb - 2.5, 0.9, 0.5, 0.5, 0.1);
+    break;
+  }
 }
 
 function home(P: Planner, r: Rng, work: boolean): void {
