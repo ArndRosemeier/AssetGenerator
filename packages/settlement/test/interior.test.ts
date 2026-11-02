@@ -421,3 +421,14 @@ test('interior: every temple has the keeper\'s cot, so its keeper can be found a
   assert.ok(temples.length >= 4, 'the towns have temples');
   for (const b of temples) assert.ok(planInterior(b).spots.some((s) => s.kind === 'sleep'), `temple #${b.id} has a cot`);
 });
+
+test('interior: every street door clears a 2.1 m hero with a hand to spare (the tallest people MasterWorld plays)', () => {
+  const low: string[] = [];
+  for (const seed of [3, 4, 5]) {
+    for (const b of planTown({ seed, x: 0, z: 0, radius: 130, height: () => 10 }).buildings) {
+      const p = planInterior(b);
+      if (p.doorH < 2.2) low.push(`${b.kind} #${b.id}: ${p.doorH.toFixed(2)} m`);
+    }
+  }
+  assert.deepEqual(low, []);
+});
