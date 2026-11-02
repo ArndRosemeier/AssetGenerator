@@ -156,7 +156,7 @@ export function planInterior(b: TownBuilding, opts: { hatch?: boolean; hall?: bo
       if (k === 0) {
         switch (b.kind) {
           case 'inn': tavern(P, r); break;
-          case 'smithy': smithy(P, S.chimney?.a ?? 1.2); break;
+          case 'smithy': smithy(P, S.chimney?.a ?? 1.2, !next); break;
           case 'bakery': bakery(P, r); break;
           case 'temple': temple(P, r); break;
           case 'barn': case 'stable': break;
@@ -538,7 +538,8 @@ function tavern(P: Planner, r: Rng): void {
   P.aisle = AISLE_NARROW;
 }
 
-function smithy(P: Planner, fa: number): void {
+/** `bed`: no storey above, so the smith sleeps in a back corner of the smithy (the one a master is found in at night). */
+function smithy(P: Planner, fa: number, bed: boolean): void {
   const side = fa < 0 ? -1 : 1;
   // The forge is in (against the back wall under the chimney): the anvil in front of it, the quench tub beside the anvil.
   P.add('anvil', fa, P.hb - 2.6, 0.4, 0.8, 0.8, 0.2);
@@ -546,6 +547,16 @@ function smithy(P: Planner, fa: number): void {
   if (P.add('tub', fa + side * 1.2, P.hb - 2.6, 0.8, 0.8, 0.6, 0.3)) P.spot('quench', fa + side * 1.2, P.hb - 3.4, FACE_B);
   if (P.add('workbench', -side * (P.ha - 0.35), 0, 0.6, 2.0, 0.9, 0.3)) P.spot('craft', -side * (P.ha - 1.1), 0, side > 0 ? FACE_NA : FACE_A);
   P.add('woodpile', side * (P.ha - 0.4), -P.hb + 2.2, 0.7, 1.4, 0.8, 0.2);
+  if (bed) {
+    // A back corner clear of the forge (on the other side from it), else the near one.
+    for (const s of [-side, side]) {
+      const ba = s * (P.ha - 0.5);
+      if (!P.add('bed', ba, P.hb - 1.05, 1.0, 2.0, 0.55, 0.1)) continue;
+      P.spot('sleep', ba, P.hb - 1.05, FACE_NB);
+      P.add('chest', ba, P.hb - 2.5, 0.9, 0.5, 0.5, 0.1);
+      break;
+    }
+  }
 }
 
 function bakery(P: Planner, r: Rng): void {
