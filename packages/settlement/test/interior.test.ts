@@ -409,3 +409,9 @@ test('interior: the floor runs on through the doorway (a threshold), so one step
     }
   }
 });
+
+test('interior: every smithy has a bed (upstairs, or in a back corner when it has one storey), so its smith can be found abed at night', () => {
+  const smithies = town.buildings.filter((b) => b.kind === 'smithy');
+  assert.ok(smithies.length >= 4, 'the towns have smithies');
+  for (const b of smithies) assert.ok(planInterior(b).spots.some((s) => s.kind === 'sleep'), `smithy #${b.id} (${houseShape(b).storeys.length} storeys) has a bed`);
+});
