@@ -8,8 +8,8 @@
  * pipeline's own quad), so everything the Stage compiled ahead at the top level was built again in
  * play, shadows included.
  */
-import { DepthTexture, FloatType, HalfFloatType, Matrix4, RenderPipeline, RenderTarget, Vector2, WebGLCoordinateSystem, type Camera, type Node, type Scene, type WebGPURenderer } from 'three/webgpu';
-import { convertToTexture, float, mix, renderOutput, texture, uniform, vec2, vec4 } from 'three/tsl';
+import { DepthTexture, FloatType, HalfFloatType, Matrix4, NodeMaterial, QuadMesh, RenderPipeline, RenderTarget, Vector2, WebGLCoordinateSystem, type Camera, type Material, type Node, type Scene, type WebGPURenderer } from 'three/webgpu';
+import { abs, convertToTexture, float, mix, positionWorld, renderOutput, texture, uniform, vec2, vec4 } from 'three/tsl';
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 import { ao as gtao } from 'three/examples/jsm/tsl/display/GTAONode.js';
 import { depthAwareBlur } from 'three/examples/jsm/tsl/display/depthAwareBlur.js';
@@ -27,7 +27,9 @@ export interface PostOptions {
   fxaa?: boolean;
   /**
    * Ambient occlusion (GTAO, half resolution, blurred along surfaces): contact shade in corners and
-   * under things. `radius` in world units; `strength` 0..1 how dark full occlusion gets.
+   * under things, on indirect light only (sky, environment), not on the sun or lamps. Lit materials read
+   * the frame before's AO (one more texture in every lit shader). `radius` in world units; `strength`
+   * 0..1 how dark full occlusion makes the indirect light.
    */
   ao?: { radius: number; strength: number; samples?: number };
   /** A float depth buffer for the scene target (a reversed depth buffer needs one; default true). */
@@ -79,7 +81,13 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
   const texel = uniform(new Vector2(1, 1));
   let shade: Post['ao'] = null;
   let fixProjection = (): void => {};
+  let hooksOff = (fn: () => void): (() => void) => fn;
+  let shadeAfter = (): void => {};
   if (opts.ao) {
+    // AO darkens indirect light only (hemisphere, environment), never the sun or lamps: three's lighting models
+    // multiply their indirect terms by the context's `getAO`. The scene's own depth has to be drawn before AO
+    // exists, so lit materials read the AO of the frame before, reprojected with that frame's camera; where the
+    // depth there does not match (newly revealed, moved), they take none. No prepass: one scene draw a frame.
     const depthNode = texture(depth);
     const a = gtao(depthNode, null as unknown as typeof depthNode, camera); // no normals: from depth
     a.resolutionScale = 0.5;
@@ -90,12 +98,46 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const across = convertToTexture(vec4(depthAwareBlur(raw, depthNode, vec2(texel.x, 0), camera, 2, opts.ao.radius)));
     const blurred = depthAwareBlur(across, depthNode, vec2(0, texel.y), camera, 2, opts.ao.radius);
     const strength = uniform(opts.ao.strength);
-    // The sky (cleared depth) gets none.
-    const d = depthNode.r;
-    const sky = renderer.reversedDepthBuffer ? d.lessThanEqual(0) : d.greaterThanEqual(1);
-    const factor = sky.select(float(1), mix(float(1), blurred, strength));
-    color = color.mul(vec4(factor, factor, factor, 1));
+    // The AO and the depth it was taken at, half resolution (zero at first: no depth matches, so no AO).
+    const held = new RenderTarget(1, 1, { type: HalfFloatType, depthBuffer: false });
+    const quad = new QuadMesh(new NodeMaterial());
+    (quad.material as NodeMaterial).fragmentNode = vec4(blurred, depthNode.r, 0, 1);
+    // The camera the held AO was taken with (origin-relative, as positionWorld is), and 0 while another view draws.
+    const heldViewProj = uniform(new Matrix4());
+    const on = uniform(1);
+    const reversed = renderer.reversedDepthBuffer, glDepth = renderer.coordinateSystem === WebGLCoordinateSystem && !reversed;
+    const sampled = texture(held.texture);
+    const factorAt = (): Node<'float'> => {
+      const clip = heldViewProj.mul(vec4(positionWorld, 1));
+      const ndc = clip.xyz.div(clip.w);
+      const uv = vec2(ndc.x.mul(0.5).add(0.5), ndc.y.mul(0.5).add(0.5).oneMinus());
+      const s = sampled.sample(uv);
+      const want = glDepth ? ndc.z.mul(0.5).add(0.5) : ndc.z;
+      // Reversed depth is about 1/distance, so a relative tolerance is one in distance too.
+      const near = reversed ? abs(s.g.sub(want)).lessThan(want.mul(0.04)) : abs(s.g.sub(want)).lessThan(0.002);
+      const inside = clip.w.greaterThan(0).and(uv.x.greaterThanEqual(0)).and(uv.x.lessThanEqual(1)).and(uv.y.greaterThanEqual(0)).and(uv.y.lessThanEqual(1));
+      return inside.and(near).select(mix(float(1), s.r, strength.mul(on)), float(1));
+    };
+    // Into the renderer's own context (as three's highPrecision does): a context node of our own instead
+    // made the hemisphere and environment light fall away on WebGL (seen, not understood).
+    const ctx = (renderer.contextNode as unknown as { value: Record<string, unknown> }).value;
+    ctx.getAO = (input: Node<'float'> | null, { material }: { material: Material & { isMeshBasicNodeMaterial?: boolean } }) => {
+      if (material.transparent || material.isMeshBasicNodeMaterial) return input; // unlit look: left alone
+      const f = factorAt();
+      return input !== null ? input.mul(f) : f;
+    };
     shade = { strength, radius: a.radius };
+    const camView = camera as Camera & { projectionMatrix: Matrix4; matrixWorldInverse: Matrix4 };
+    hooksOff = (fn) => () => { on.value = 0; try { fn(); } finally { on.value = 1; } };
+    shadeAfter = () => {
+      const w = Math.max(1, Math.floor(size.x / 2)), h = Math.max(1, Math.floor(size.y / 2));
+      if (held.width !== w || held.height !== h) held.setSize(w, h);
+      const prev = renderer.getRenderTarget();
+      renderer.setRenderTarget(held);
+      quad.render(renderer);
+      renderer.setRenderTarget(prev);
+      heldViewProj.value.multiplyMatrices(camView.projectionMatrix, camView.matrixWorldInverse);
+    };
   }
   if (opts.veil) color = opts.veil(color, texture(depth).r);
   let out = color;
@@ -115,15 +157,16 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
       renderer.getDrawingBufferSize(size);
       if (rt.width !== size.x || rt.height !== size.y) rt.setSize(size.x, size.y);
       for (const t of twins) if (t.width !== size.x || t.height !== size.y) t.setSize(size.x, size.y);
-      hooks?.before?.();
+      if (hooks?.before) hooksOff(hooks.before)();
       texel.value.set(1 / size.x, 1 / size.y);
       fixProjection();
       const prev = renderer.getRenderTarget();
       renderer.setRenderTarget(rt);
       renderer.render(scene, camera);
-      hooks?.between?.();
+      if (hooks?.between) hooksOff(hooks.between)();
       renderer.setRenderTarget(prev);
       pipeline.render();
+      shadeAfter();
     },
     twin: () => {
       const t = made();
