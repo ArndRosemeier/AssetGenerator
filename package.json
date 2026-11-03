@@ -10,7 +10,8 @@
     "test": "node --import tsx --test \"packages/*/test/*.test.ts\"",
     "test:gpu": "node tools/gpu-page.mjs packages/volume/test/gpu",
     "test:gpu:instances": "node tools/gpu-page.mjs packages/instances/test/gpu",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "bench:draw": "node tools/gpu-page.mjs packages/stage/test/bench"
   },
   "devDependencies": {
     "tsx": "^4.23.15",

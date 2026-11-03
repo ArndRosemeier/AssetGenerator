@@ -47,3 +47,6 @@ tools/_inspect_human_glb.py
 
 # npm workspaces
 node_modules/
+
+# Browser check/bench pages built by tools/gpu-page.mjs
+packages/*/test/*/out/
