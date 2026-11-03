@@ -6,8 +6,8 @@
  *
  * What a recording holds is fixed until it is recorded again: which children are visible, and which were in the
  * camera's frustum when it was recorded. So children are drawn without per-object frustum culling (the GPU drops
- * what is off screen), and `sync` records again when a child was added, removed, shown or hidden. Only for parts
- * that do not move: a moved child's matrix is not seen until the next recording (`changed`).
+ * what is off screen), and `recordIfChanged` (or `changed`) records again when a child was added, removed, shown or
+ * hidden. A moved child is fine (three refreshes its matrix on replay), but best for parts that rarely change.
  */
 import { BundleGroup, type Object3D } from 'three/webgpu';
 
@@ -29,18 +29,18 @@ export class StaticBundle extends BundleGroup {
    * per-object culling off on new ones. Cheap next to drawing them (a walk over the children, no allocation per
    * unchanged child beyond the signature string).
    */
-  sync(): boolean {
+  recordIfChanged(): boolean {
     let n = 0, h = 0;
-    const walk = (o: Object3D): void => {
+    const stack: Object3D[] = [this];
+    for (let o = stack.pop(); o; o = stack.pop()) {
       for (const c of o.children) {
         if (!c.visible) continue;
         if (c.frustumCulled) c.frustumCulled = false;
         n++;
         h = (Math.imul(h, 31) + c.id) | 0;
-        walk(c);
+        stack.push(c);
       }
-    };
-    walk(this);
+    }
     const sig = `${n}:${h}`;
     if (sig === this.sig) return false;
     this.sig = sig;
