@@ -5,7 +5,7 @@
 // InstancedMesh, as BatchedMesh and as merged geometry, on WebGPURenderer's WebGPU and WebGL2 backends and on the
 // classic WebGLRenderer. Each row: mean and median CPU ms in `renderer.render` (sun shadow map drawn every frame or
 // not), the frame interval, and draw calls. Run on a real GPU:
-//   node tools/gpu-page.mjs packages/stage/test/bench --headed        (or --serve and open it in Chrome)
+//   npm run bench:draw -- --headed     (vsync off; with --serve, start Chrome with --disable-gpu-vsync --disable-frame-rate-limit)
 // URL options: ?n=1000,4000 (object counts) &backends=webgpu,webgl2,classic &modes=meshes,bundle,... &shadow=1,0
 //   &frames=180 (measured per row) &warm=40.
 import * as T from 'three/webgpu';

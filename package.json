@@ -11,7 +11,7 @@
     "test:gpu": "node tools/gpu-page.mjs packages/volume/test/gpu",
     "test:gpu:instances": "node tools/gpu-page.mjs packages/instances/test/gpu",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "bench:draw": "node tools/gpu-page.mjs packages/stage/test/bench"
+    "bench:draw": "node tools/gpu-page.mjs packages/stage/test/bench --novsync"
   },
   "devDependencies": {
     "tsx": "^4.23.15",

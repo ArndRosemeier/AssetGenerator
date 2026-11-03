@@ -5,6 +5,7 @@
 //   node tools/gpu-page.mjs packages/volume/test/gpu                   headless (SwiftShader where there is no real GPU)
 //   ... --headed                       a visible window
 //   ... --serve                        only serve; open the printed URL in Chrome yourself
+//   ... --novsync                      no vsync and no frame-rate limit (benchmarks: frames as fast as they go)
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -35,6 +36,7 @@ else {
   if (pw) {
     const flags = ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist'];
     if (process.platform === 'linux') flags.push('--enable-features=Vulkan');
+    if (args.includes('--novsync')) flags.push('--disable-gpu-vsync', '--disable-frame-rate-limit');
     const opts = { headless: !args.includes('--headed'), args: flags, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) };
     let browser;
     // Full Chromium first: Playwright's default headless shell lacks dxcompiler.dll, so WebGPU fails on Windows.
