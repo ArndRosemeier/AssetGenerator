@@ -8,3 +8,4 @@ export { gradeAt, type GradeKey, type Rgb } from './look';
 export { createPost, type Post, type PostHooks, type PostOptions } from './post';
 export { clipNear, openingPlane, portalStep, screenRect, throughPortal } from './portal';
 export { FloatingOrigin, worldPosition, worldCamera, type OriginOptions } from './origin';
+export { StaticBundle } from './bundle';
