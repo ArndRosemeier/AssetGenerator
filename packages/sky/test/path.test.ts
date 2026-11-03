@@ -47,3 +47,16 @@ test('sun light: about white at noon, warmer and dimmer towards the horizon, and
   assert.deepEqual(sunTransmittance(1).map((v) => +v.toFixed(6)), [1, 1, 1]);
   assert.ok(noon.bounce[1] > late.bounce[1] && noon.bounce[1] > 0);
 });
+
+test('sky light: a high clear sun outweighs the sky fill (shadows read), a low or clouded one keeps it', () => {
+  const at = (h: number, wx = CLEAR) => skyLight(skyPath(h), moonAt(h, h, skyPath(h)), wx);
+  const share = (L: ReturnType<typeof skyLight>) => L.envIntensity / L.lightIntensity;
+  const noon = at(12), morning = at(7), grey = at(12, { ...CLEAR, cover: 0.9, sun: 0.25 });
+  assert.ok(share(noon) < 0.5 * share(morning), 'the sky is a smaller share at noon');
+  assert.ok(Math.abs(noon.lightIntensity - 3.2 * 1.4) < 0.15 && Math.abs(noon.envIntensity - 0.22 * 0.4) < 0.01);
+  // Morning and evening, night and overcast lose next to nothing.
+  assert.ok(morning.envIntensity > 0.21);
+  assert.ok(grey.envIntensity > 0.22 * 0.8);
+  const night = at(0);
+  assert.ok(Math.abs(night.envIntensity - 0.05) < 1e-9);
+});

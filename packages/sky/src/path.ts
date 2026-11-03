@@ -132,13 +132,17 @@ export function skyLight(sun: Vec3, moon: Moon, wx: SkyWeather = CLEAR): SkyLigh
   const overcast = smoothstep(0.55, 1, wx.cover) * 0.9;
   const skyFog = clamp(wx.fog * 1.1 + wx.rain * 0.25, 0, 1);
   const moonUp = smoothstep(-0.03, 0.2, moon.dir[1]);
+  // A high sun in a clear sky gives most of the light: the sky's share falls, so shadows read at midday
+  // (sun x1.4, sky fill x0.4 at full height). A low or clouded sun keeps the old balance: there the sky
+  // is what lights the shade.
+  const high = smoothstep(0.2, 0.7, sunUp) * wx.sun;
   let lightDir: Vec3, lightColor: Vec3, lightIntensity: number;
   if (sunUp > -0.05) {
     lightDir = [sun[0], sun[1], sun[2]];
     // The air's colour on the sunlight (a touch softened: the eye adapts to it), never quite black-red.
     const t = sunTransmittance(sunUp);
     lightColor = [t[0] ** 0.8 + 0.03, t[1] ** 0.8 + 0.02, t[2] ** 0.8 + 0.02];
-    lightIntensity = 3.2 * smoothstep(-0.05, 0.12, sunUp) * wx.sun;
+    lightIntensity = 3.2 * smoothstep(-0.05, 0.12, sunUp) * wx.sun * (1 + 0.4 * high);
   } else {
     // At night: the moon while it is up, else a faint glow from high overhead.
     const nx = moon.dir[0] * 0.5, nz = moon.dir[2] * 0.5, nl = Math.hypot(nx, 1, nz);
@@ -167,7 +171,7 @@ export function skyLight(sun: Vec3, moon: Moon, wx: SkyWeather = CLEAR): SkyLigh
     fogColor: fog,
     fogDensity: 0.00012 + 0.0062 * Math.pow(wx.fog, 2.2) + 0.0011 * wx.rain,
     exposure: lerp(1.6, 0.55, day) * (1 + 0.45 * dull * day) * (1 - 0.45 * wx.dark * day),
-    envIntensity: lerp(0.05, 0.22, day) * (1 - 0.3 * wx.dark),
+    envIntensity: lerp(0.05, 0.22, day) * (1 - 0.3 * wx.dark) * (1 - 0.6 * high),
     overcast, skyFog,
     stars: night * (1 - smoothstep(0.4, 0.85, wx.cover)) * (1 - skyFog),
     moonBright: lerp(1.5, 0.3, day),
