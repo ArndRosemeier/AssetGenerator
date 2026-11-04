@@ -18,6 +18,8 @@ export class StaticBundle extends BundleGroup {
    * records every bundle again once.
    */
   static builds: () => number = () => 0;
+  /** Read by the Stage's renderer hooks (patches.ts `fixedBundleUniforms`). */
+  readonly isStaticBundle = true;
   private sig = '';
 
   constructor(name?: string) {

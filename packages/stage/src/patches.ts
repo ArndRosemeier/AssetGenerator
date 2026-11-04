@@ -20,6 +20,7 @@ export function installShaderPolicy(renderer: WebGPURenderer, cap: ShaderCap, mo
   if (!rebindSwitchedTextures(renderer)) missing.push('texture rebind');
   if (!keepTextureUpdates()) missing.push('texture node updates');
   if (!shareShadowNodes(renderer)) missing.push('shared shadow nodes');
+  if (!fixedBundleUniforms(renderer)) missing.push('fixed bundle uniforms');
   noPerFrameUploads();
   timeGpu(monitor);
   return missing;
@@ -269,4 +270,30 @@ function shadowNodes(m: Any, transmitted: boolean): { colorNode: Any; depthNode:
   const depthNode = isNode(m.depthNode) ? m.depthNode : null;
   const positionNode = isNode(m.castShadowPositionNode) ? m.castShadowPositionNode : isNode(m.positionNode) ? m.positionNode : null;
   return { colorNode, depthNode, positionNode };
+}
+
+/**
+ * A StaticBundle's replay still refreshed every object in it fully each frame: three's NodeMaterialObserver returns
+ * FULL for any node material (`hasNode`) before it looks at bundles, so the per-object update a bundle should save
+ * ran anyway (the terrain's 291 chunks cost more bundled than not). For an object in a StaticBundle whose recording
+ * and matrix are as they were, the refresh is SHARED instead: its nodes update and the shared (render group) uniforms
+ * upload, but not its own group. So a StaticBundle's materials must keep their per-frame values in the render group
+ * (weather, sun, time); an object's own uniforms go up only when it is recorded again or moves.
+ */
+function fixedBundleUniforms(renderer: WebGPURenderer): boolean {
+  const nodes = (renderer as Any)._nodes;
+  const needsRefresh = nodes?.needsRefresh;
+  if (typeof needsRefresh !== 'function') return false;
+  const FULL = 2, SHARED = 1;
+  nodes.needsRefresh = function (this: Any, ro: Any) {
+    const r = needsRefresh.call(this, ro);
+    const b = ro?.bundle;
+    if (r !== FULL || !b?.isStaticBundle) return r;
+    const m = ro.object.matrixWorld.elements as number[];
+    const seen = ro.fixedSeen as { version: number; m: Float32Array } | undefined;
+    if (seen && seen.version === b.version && m.every((v, i) => v === seen.m[i])) return SHARED;
+    ro.fixedSeen = { version: b.version, m: Float32Array.from(m) };
+    return FULL;
+  };
+  return true;
 }
