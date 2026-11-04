@@ -28,3 +28,16 @@ test('StaticBundle draws its children without per-object culling', () => {
   b.recordIfChanged();
   assert.equal(a.frustumCulled, false);
 });
+
+test('StaticBundle records again once a shader build finishes', () => {
+  const b = new StaticBundle(), was = StaticBundle.builds;
+  let n = 0;
+  StaticBundle.builds = () => n;
+  try {
+    b.add(mesh());
+    assert.equal(b.recordIfChanged(), true);
+    assert.equal(b.recordIfChanged(), false);
+    n++;
+    assert.equal(b.recordIfChanged(), true);
+  } finally { StaticBundle.builds = was; }
+});

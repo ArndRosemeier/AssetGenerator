@@ -12,6 +12,12 @@
 import { BundleGroup, type Object3D } from 'three/webgpu';
 
 export class StaticBundle extends BundleGroup {
+  /**
+   * How many shader and pipeline builds have finished (the Stage sets it to its monitor's count). A draw whose shader
+   * or pipeline was not ready while recording is left out of the recording (three skips it), so a finished build
+   * records every bundle again once.
+   */
+  static builds: () => number = () => 0;
   private sig = '';
 
   constructor(name?: string) {
@@ -25,7 +31,8 @@ export class StaticBundle extends BundleGroup {
   }
 
   /**
-   * Once a frame before drawing: records again if the visible children differ from the last recording, and turns
+   * Once a frame before drawing: records again if the visible children differ from the last recording (or a shader
+   * finished building since: `builds`), and turns
    * per-object culling off on new ones. Cheap next to drawing them (a walk over the children, no allocation per
    * unchanged child beyond the signature string).
    */
@@ -41,7 +48,7 @@ export class StaticBundle extends BundleGroup {
         stack.push(c);
       }
     }
-    const sig = `${n}:${h}`;
+    const sig = `${n}:${h}:${StaticBundle.builds()}`;
     if (sig === this.sig) return false;
     this.sig = sig;
     this.needsUpdate = true;

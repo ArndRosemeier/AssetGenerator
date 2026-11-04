@@ -12,6 +12,7 @@ import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Vector3, type Came
 import { ShaderCap } from './cap';
 import { ShaderMonitor } from './monitor';
 import { installShaderPolicy, shadowKindOf } from './patches';
+import { StaticBundle } from './bundle';
 
 /**
  * A material kind as the Stage sees it: each game keeps its own closed registry of kinds (its
@@ -105,6 +106,8 @@ export class Stage {
     this.missingHooks = installShaderPolicy(renderer, this.cap, this.monitor);
     this.sharedShadows = !this.missingHooks.includes('shared shadow nodes');
     (globalThis as { shaders?: ShaderMonitor }).shaders = this.monitor;
+    // Render bundles record again once a build finishes (a draw not ready while recording was left out).
+    StaticBundle.builds = () => this.monitor.events.length;
   }
 
   /** Casters alike share their shadow shader (patches.ts `shareShadowNodes` is in place). */
