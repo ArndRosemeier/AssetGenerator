@@ -9,7 +9,7 @@
  * play, shadows included.
  */
 import { DepthTexture, FloatType, HalfFloatType, Matrix4, NodeMaterial, QuadMesh, RenderPipeline, RenderTarget, Vector2, WebGLCoordinateSystem, type Camera, type Material, type Node, type Scene, type WebGPURenderer } from 'three/webgpu';
-import { abs, convertToTexture, float, mix, positionWorld, renderOutput, texture, uniform, vec2, vec4 } from 'three/tsl';
+import { abs, convertToTexture, float, mix, positionWorld, renderGroup, renderOutput, texture, uniform, vec2, vec4 } from 'three/tsl';
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 import { ao as gtao } from 'three/examples/jsm/tsl/display/GTAONode.js';
 import { depthAwareBlur } from 'three/examples/jsm/tsl/display/depthAwareBlur.js';
@@ -97,14 +97,16 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const raw = a.getTextureNode();
     const across = convertToTexture(vec4(depthAwareBlur(raw, depthNode, vec2(texel.x, 0), camera, 2, opts.ao.radius)));
     const blurred = depthAwareBlur(across, depthNode, vec2(0, texel.y), camera, 2, opts.ao.radius);
-    const strength = uniform(opts.ao.strength);
+    // The AO's uniforms are read by every lit material: in the render group (one buffer per render call), not each
+    // object's own (three's default), where the camera matrix changing every frame re-uploaded every lit object's buffer.
+    const strength = uniform(opts.ao.strength).setGroup(renderGroup);
     // The AO and the depth it was taken at, half resolution (zero at first: no depth matches, so no AO).
     const held = new RenderTarget(1, 1, { type: HalfFloatType, depthBuffer: false });
     const quad = new QuadMesh(new NodeMaterial());
     (quad.material as NodeMaterial).fragmentNode = vec4(blurred, depthNode.r, 0, 1);
     // The camera the held AO was taken with (origin-relative, as positionWorld is), and 0 while another view draws.
-    const heldViewProj = uniform(new Matrix4());
-    const on = uniform(1);
+    const heldViewProj = uniform(new Matrix4()).setGroup(renderGroup);
+    const on = uniform(1).setGroup(renderGroup);
     const reversed = renderer.reversedDepthBuffer, glDepth = renderer.coordinateSystem === WebGLCoordinateSystem && !reversed;
     const sampled = texture(held.texture);
     const factorAt = (): Node<'float'> => {

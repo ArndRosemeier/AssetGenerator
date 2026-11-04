@@ -16,7 +16,7 @@
  * is `pin`ned, so its matrixWorld is the identity, and writes origin-relative positions.
  */
 import { Vector3, type Camera, type Object3D } from 'three/webgpu';
-import { cameraPosition, positionWorld, uniform } from 'three/tsl';
+import { cameraPosition, positionWorld, renderGroup, uniform } from 'three/tsl';
 
 export interface OriginOptions {
   /** The origin is a multiple of this (m). Default 1024. */
@@ -28,8 +28,8 @@ export interface OriginOptions {
 export class FloatingOrigin {
   /** The origin (world, m; y is always 0). Read it, never write it: `moveTo`. */
   readonly at = new Vector3();
-  /** The origin as a shader uniform (its value is `at`). */
-  readonly node = uniform(this.at);
+  /** The origin as a shader uniform (its value is `at`), shared by every material (the render group, not each object's). */
+  readonly node = uniform(this.at).setGroup(renderGroup);
   readonly grain: number;
   readonly reach: number;
   /** How many times it has moved (a game can tell a step from its last frame). */
