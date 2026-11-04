@@ -112,7 +112,7 @@ export function createPost(renderer: WebGPURenderer, scene: Scene, camera: Camer
     const factorAt = (): Node<'float'> => {
       const clip = heldViewProj.mul(vec4(positionWorld, 1));
       const ndc = clip.xyz.div(clip.w);
-      const uv = vec2(ndc.x.mul(0.5).add(0.5), ndc.y.mul(0.5).add(0.5).oneMinus());
+      const uv = ndc.xy.mul(vec2(0.5, -0.5)).add(0.5); // clip to texture coordinates, v down
       const s = sampled.sample(uv);
       const want = glDepth ? ndc.z.mul(0.5).add(0.5) : ndc.z;
       // Reversed depth is about 1/distance, so a relative tolerance is one in distance too.
