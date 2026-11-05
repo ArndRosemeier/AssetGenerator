@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import type { WebGPURenderer } from 'three/webgpu';
 import { NodeUpdateType, Texture } from 'three/webgpu';
 import { texture, uv } from 'three/tsl';
-import { keepTextureUpdates, rebindSwitchedTextures } from '../src/patches';
+import { balancedBindingRelease, keepTextureUpdates, rebindSwitchedTextures } from '../src/patches';
+// @ts-expect-error three ships no types for its renderer internals
+import Bindings from 'three/src/renderers/common/Bindings.js';
 
 test('rebind: a texture node switched to another texture forgets its generation, so its bind group is rebuilt', () => {
   const white = { version: 1 }, eye = { version: 1 }, seen: unknown[] = [];
@@ -97,4 +99,26 @@ test('late builds: after warm-up a draw without its shader builds only in a fram
   renderer._renderObjectDirect(a); renderer._renderObjectDirect(b);
   assert.equal(drawn.length, 6, 'the Stage\'s own warm-up draws at once');
   assert.equal(deferLateBuilds({} as WebGPURenderer, cap, monitor, () => true, () => ''), false);
+});
+
+test('binding release: a render object disposed before its bind groups were set up leaves shared groups counted', () => {
+  // three's own Bindings (r186+), with a stand-in backend: a shared group (one per shader) used by one drawn render object.
+  const freed: unknown[] = [];
+  const backend = { createUniformBuffer() {}, createBindings() {}, destroyUniformBuffer(b: unknown) { freed.push(b); }, deleteBindGroupData() {} };
+  const info = { createUniformBuffer() {}, destroyUniformBuffer() {} };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const B = new (Bindings as unknown as new (...a: unknown[]) => any)(backend, {}, {}, {}, { bindings: null }, info);
+  const sharedGroup = { bindings: [{ isUniformBuffer: true, release() {} }] };
+  const own = () => ({ bindings: [{ isUniformBuffer: true, release() {} }] });
+  const renderObject = (groups: unknown[]) => ({ getBindings: () => groups });
+  const drawn = renderObject([sharedGroup, own()]);
+  const renderer = { _bindings: B } as unknown as WebGPURenderer;
+  assert.ok(balancedBindingRelease(renderer));
+  B.getForRender(drawn);
+  for (let i = 0; i < 3; i++) B.deleteForRender(renderObject([sharedGroup, own()])); // queued, never drawn, disposed
+  assert.equal(B.get(sharedGroup).usedTimes, 1, 'the drawn object still holds the shared group');
+  assert.equal(freed.length, 0, 'nothing freed while in use');
+  B.deleteForRender(drawn);
+  assert.equal(freed.length, 2, 'the drawn object\'s release frees its own and the shared group');
+  assert.equal(balancedBindingRelease({} as WebGPURenderer), false, 'no hook without three internals');
 });
