@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "drawbench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Engine checked out next to AssetGenerator (C:\Projekte\Engine), same as the repo's root Cargo.toml.
+engine = { path = "../../../../Engine/engine" }
+
+[profile.release]
+opt-level = 3

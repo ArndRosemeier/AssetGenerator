@@ -1,0 +1,82 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>drawbench</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#8fb0cc}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"/three/three.webgpu.js","three/webgpu":"/three/three.webgpu.js"}}</script>
+<script type="module">
+// Draw-call benchmark, three.js side. Same scenes as ../engine/src/main.rs.
+import * as THREE from 'three/webgpu';
+const q = new URLSearchParams(location.search);
+const scene = q.get('scene') ?? 'unique', WARM = +(q.get('warm') ?? 300), MEASURE = +(q.get('frames') ?? 600);
+const SIDE = 100, INST_SIDE = 448;
+const color = (i) => new THREE.Color(((60 + (i * 37) % 180)) / 255, ((60 + (i * 91) % 180)) / 255, ((60 + (i * 53) % 180)) / 255).convertSRGBToLinear();
+const gridPos = (i, side, sp) => { const h = side * sp * 0.5; return [(i % side) * sp - h, 0, Math.floor(i / side) * sp - h]; };
+
+const renderer = new THREE.WebGPURenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(1);
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+await renderer.init();
+const backend = renderer.backend.isWebGPUBackend ? 'webgpu' : 'webgl2';
+
+const s = new THREE.Scene();
+s.background = new THREE.Color(0x8fb0cc);
+s.add(new THREE.AmbientLight(0xffffff, 0.3 * Math.PI));
+const sun = new THREE.DirectionalLight(0xffffff, 2.5); sun.position.set(0.4, 1.0, 0.2); s.add(sun);
+// Same orbit camera as the engine: target 0, distance 105, yaw 30, pitch 45, fov 55.
+const cam = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 500);
+{ const y = 30 * Math.PI / 180, p = 45 * Math.PI / 180, d = 105; cam.position.set(d * Math.cos(y) * Math.cos(p), d * Math.sin(p), d * Math.sin(y) * Math.cos(p)); cam.lookAt(0, 0, 0); }
+
+const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+const meshes = [];
+if (scene === 'unique' || scene === 'moving') {
+  for (let i = 0; i < SIDE * SIDE; i++) {
+    // Each box owns its geometry, like each engine entity owns its mesh buffers.
+    const g = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+    const c = color(i), cols = new Float32Array(g.attributes.position.count * 3);
+    for (let v = 0; v < cols.length; v += 3) { cols[v] = c.r; cols[v + 1] = c.g; cols[v + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    const m = new THREE.Mesh(g, mat);
+    m.position.set(...gridPos(i, SIDE, 1.2));
+    s.add(m); meshes.push(m);
+  }
+} else if (scene === 'instanced') {
+  const g = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+  const white = new Float32Array(g.attributes.position.count * 3).fill(1);
+  g.setAttribute('color', new THREE.BufferAttribute(white, 3));
+  const n = INST_SIDE * INST_SIDE, im = new THREE.InstancedMesh(g, mat, n), o = new THREE.Object3D();
+  for (let i = 0; i < n; i++) { o.position.set(...gridPos(i, INST_SIDE, 0.27)); o.scale.setScalar(0.25); o.updateMatrix(); im.setMatrixAt(i, o.matrix); im.setColorAt(i, color(i)); }
+  s.add(im);
+} else throw new Error('scene must be unique, moving or instanced');
+
+const dts = [], cpu = [];
+let frame = 0, last = 0;
+// Chromium's rAF does not wait for the GPU when vsync is off, so cap frames in flight at 2
+// (like a native swapchain): before starting frame n, wait until frame n-2's GPU work is done.
+const device = renderer.backend.device, inflight = [];
+const t0 = performance.now();
+async function tick() {
+  if (device && inflight.length >= 2) await inflight.shift();
+  const now = performance.now();
+  if (scene === 'moving') {
+    const t = (now - t0) / 1000;
+    for (let i = 0; i < meshes.length; i++) { const m = meshes[i]; m.position.y = Math.sin(t * 2 + i * 0.1) * 0.5; m.rotation.y = (t * 40 + i) * Math.PI / 180; }
+  }
+  const c0 = performance.now();
+  renderer.render(s, cam);
+  const c1 = performance.now();
+  if (device) inflight.push(device.queue.onSubmittedWorkDone());
+  frame++;
+  if (frame > WARM) { dts.push(now - last); cpu.push(c1 - c0 + (c0 - now)); }
+  last = now;
+  if (dts.length === MEASURE) {
+    const st = (a) => { const x = [...a].sort((p, q) => p - q), mean = x.reduce((p, q) => p + q, 0) / x.length; return { median: x[x.length >> 1], p95: x[Math.floor(x.length * 0.95)], mean }; };
+    const f = st(dts), u = st(cpu);
+    window.__result = { stack: 'three', backend, scene, frames: dts.length, median_ms: +f.median.toFixed(3), p95_ms: +f.p95.toFixed(3), mean_ms: +f.mean.toFixed(3), fps: +(1000 / f.mean).toFixed(1), cpu_median_ms: +u.median.toFixed(3), size: `${innerWidth}x${innerHeight}` };
+    document.title = 'done';
+    return;
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame((t) => { last = performance.now(); tick(); });
+</script>
