@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { WebGPURenderer } from 'three/webgpu';
 import { NodeUpdateType, Texture } from 'three/webgpu';
 import { texture, uv } from 'three/tsl';
-import { balancedBindingRelease, keepTextureUpdates, rebindSwitchedTextures } from '../src/patches';
+import { balancedBindingRelease, bundlesInOrder, fixedBundleUniforms, keepTextureUpdates, rebindSwitchedTextures } from '../src/patches';
 // @ts-expect-error three ships no types for its renderer internals
 import Bindings from 'three/src/renderers/common/Bindings.js';
 
@@ -121,4 +121,33 @@ test('binding release: a render object disposed before its bind groups were set 
   B.deleteForRender(drawn);
   assert.equal(freed.length, 2, 'the drawn object\'s release frees its own and the shared group');
   assert.equal(balancedBindingRelease({} as WebGPURenderer), false, 'no hook without three internals');
+});
+
+test('bundles: a bundle is executed where it is added, and the pass-state cache is cleared', () => {
+  const executed: unknown[][] = [];
+  const data = { currentPass: { executeBundles: (b: unknown[]) => executed.push(b) }, currentSets: { pipeline: 'p', attributes: { 0: 'a' }, bindingGroups: [1], index: 'i' } };
+  const backend = { get: (o: unknown) => (o === 'ctx' ? data : { bundleGPU: 'gpu' }), addBundle: (..._args: unknown[]) => { throw new Error('three\'s own: at the end of the pass'); } };
+  assert.ok(bundlesInOrder({ backend } as unknown as WebGPURenderer));
+  backend.addBundle.call(backend, 'ctx', 'bundle');
+  assert.deepEqual(executed, [['gpu']]);
+  assert.deepEqual(data.currentSets, { attributes: {}, bindingGroups: [], pipeline: null, index: null });
+  assert.ok(bundlesInOrder({ backend: { isWebGLBackend: true } } as unknown as WebGPURenderer), 'WebGL has no bundles: nothing to do');
+  assert.equal(bundlesInOrder({} as WebGPURenderer), false);
+});
+
+test('bundles: a replayed object takes the camera of the render call, not the last one that looked it up', () => {
+  const main = { name: 'main' }, twin = { name: 'twin' };
+  const renderer = { _currentRenderContext: { camera: main } } as { _currentRenderContext: { camera: unknown }; _nodes?: unknown };
+  const seen: unknown[] = [];
+  renderer._nodes = { needsRefresh: (ro: { camera: unknown }) => { seen.push(ro.camera); return 0; } };
+  assert.ok(fixedBundleUniforms(renderer as unknown as WebGPURenderer));
+  const ro = { camera: twin as unknown, bundle: { isStaticBundle: true } };
+  (renderer._nodes as { needsRefresh(ro: unknown): number }).needsRefresh(ro);
+  assert.equal(seen.pop(), main, 'set before the refresh is decided');
+  renderer._currentRenderContext.camera = twin;
+  (renderer._nodes as { needsRefresh(ro: unknown): number }).needsRefresh(ro);
+  assert.equal(ro.camera, twin);
+  const plain = { camera: main as unknown, bundle: null };
+  (renderer._nodes as { needsRefresh(ro: unknown): number }).needsRefresh(plain);
+  assert.equal(plain.camera, main, 'objects outside a bundle keep their own');
 });

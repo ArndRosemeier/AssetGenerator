@@ -22,6 +22,7 @@ export function installShaderPolicy(renderer: WebGPURenderer, cap: ShaderCap, mo
   if (!shareShadowNodes(renderer)) missing.push('shared shadow nodes');
   if (!fixedBundleUniforms(renderer)) missing.push('fixed bundle uniforms');
   if (!balancedBindingRelease(renderer)) missing.push('balanced binding release');
+  if (!bundlesInOrder(renderer)) missing.push('bundles in draw order');
   noPerFrameUploads();
   timeGpu(monitor);
   return missing;
@@ -307,15 +308,21 @@ function shadowNodes(m: Any, transmitted: boolean): { colorNode: Any; depthNode:
  * the shared uniforms are one buffer for all of them. So a StaticBundle's materials must keep their per-frame values in the render group
  * (weather, sun, time); an object's own uniforms go up only when it is recorded again or moves.
  */
-function fixedBundleUniforms(renderer: WebGPURenderer): boolean {
+export function fixedBundleUniforms(renderer: WebGPURenderer): boolean {
   const nodes = (renderer as Any)._nodes;
   const needsRefresh = nodes?.needsRefresh;
   if (typeof needsRefresh !== 'function') return false;
   const FULL = 2, SHARED = 1, NONE = 0;
   const sharedDone = new WeakMap<object, number>();
   nodes.needsRefresh = function (this: Any, ro: Any) {
-    const r = needsRefresh.call(this, ro);
     const b = ro?.bundle;
+    // A render object is shared by every render call into targets of the same formats (a portal's view is one: its
+    // twin target is made to match the scene's), and three sets its camera only when it looks the object up, which a
+    // bundle's replay does not. Without this a replay updated its camera-dependent uniforms with the camera of the
+    // last call that did look it up: the portal's view of the home town showed the main view's meadow.
+    const camera = b?.isStaticBundle ? (renderer as Any)._currentRenderContext?.camera : undefined;
+    if (camera) ro.camera = camera;
+    const r = needsRefresh.call(this, ro);
     if (r !== FULL || !b?.isStaticBundle) return r;
     const m = ro.object.matrixWorld.elements as number[];
     const seen = ro.fixedSeen as { version: number; m: Float32Array } | undefined;
@@ -328,6 +335,26 @@ function fixedBundleUniforms(renderer: WebGPURenderer): boolean {
     }
     ro.fixedSeen = { version: b.version, m: Float32Array.from(m) };
     return FULL;
+  };
+  return true;
+}
+
+/**
+ * three's WebGPU backend collects a render call's bundles and executes them when the pass finishes (`finishRender`),
+ * so a bundle's geometry is drawn AFTER everything else of the call: transparent things standing in front of it (a
+ * spell's glow on bundled terrain, a mist) were painted over, since they do not write depth. Here a bundle is
+ * executed where the renderer adds it, before the call's own objects (as `_renderBundles` goes first), and the
+ * backend's cache of what is set on the pass is cleared, as executing a bundle leaves nothing set on a pass.
+ */
+export function bundlesInOrder(renderer: WebGPURenderer): boolean {
+  const backend = (renderer as Any).backend;
+  if (backend?.isWebGLBackend) return true; // no bundles there
+  if (typeof backend?.addBundle !== 'function' || typeof backend.get !== 'function') return false;
+  backend.addBundle = function (this: Any, renderContext: Any, bundle: Any) {
+    const data = this.get(renderContext), gpu = this.get(bundle).bundleGPU;
+    if (!gpu || !data.currentPass) return;
+    data.currentPass.executeBundles([gpu]);
+    data.currentSets = { attributes: {}, bindingGroups: [], pipeline: null, index: null };
   };
   return true;
 }
