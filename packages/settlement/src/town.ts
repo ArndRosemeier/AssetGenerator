@@ -504,9 +504,11 @@ export function planTown(site: TownSite): TownPlan {
     const n = Math.floor(L / 7);
     for (let k = 0; k < n; k++) {
       if (!fr.chance(0.6)) continue;
-      const t = (k + 0.5) * (L / n);
+      const t = (k + 0.5) * (L / n), sx = ax + ux * t + inX * 3.2, sz = az + uz * t + inZ * 3.2;
+      // Not into another stall where two sides of the market meet (their counters flickered in each other).
+      if (fixtures.some((f) => f.kind === 'stall' && Math.hypot(f.x - sx, f.z - sz) < 3.4)) continue;
       // A stall faces the middle; the seller stands behind it, the buyer in front.
-      fix('stall', ax + ux * t + inX * 3.2, az + uz * t + inZ * 3.2, Math.atan2(inZ, inX));
+      fix('stall', sx, sz, Math.atan2(inZ, inX));
     }
   }
   fix('bench', mx + fr.range(-6, 6), mz + fr.range(-6, 6), fr.range(-Math.PI, Math.PI));

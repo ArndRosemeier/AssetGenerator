@@ -479,15 +479,22 @@ function farWall(c: RGB, L: Look, timbered: boolean): RGB {
   return [0, 1, 2].map((i) => Math.round((c[i] * (1 - k) + L.timber[i] * k) * dim)) as RGB;
 }
 
+/**
+ * A shut plinth's top over the floor (about 5 to 9 cm). Houses built against each other, or corner to corner, have
+ * their plinths overlap, and tops in one plane flickered there. The top's height in the world is on a 2 cm lattice,
+ * shifted by 4 mm times the house's number modulo 5: neighbours (numbers one apart) are never within 4 mm, whatever
+ * their floors.
+ */
+function plinthTop(b: TownBuilding): number {
+  return Math.ceil((b.floorY + 0.05) / 0.02) * 0.02 + 0.004 * (b.id % 5) - b.floorY;
+}
+
 function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, open: boolean, hole: FloorHole | null): void {
   const { hu, hv } = b, L = S.look;
   const plinthDown = b.floorY - b.groundY + 0.3;
   // The plinth: rubble from below the lowest ground to the floor. Opened, its top drops under the
   // room's floor boards (interior.ts FLOOR), or the two fight for the same depth.
-  // Shut, its top steps by up to 2 cm from house to house (by the golden ratio: neighbours' numbers differ by one,
-  // their steps by 7 mm or more): houses built against each other, or corner to corner, have their plinths overlap,
-  // and in one plane they flickered.
-  if (!hole) o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : 0.05 + ((b.id * 0.618034) % 1) * 0.02, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
+  if (!hole) o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : plinthTop(b), -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
   else holedTop(o, -hu - 0.06, hu + 0.06, -plinthDown, -hv - 0.06, hv + 0.06, hole, BuildingMat.Rubble, L.stone);
   // Steps up to the door.
   if (detail) drawEntrance(o, b, L);
