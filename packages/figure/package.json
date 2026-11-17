@@ -1,7 +1,7 @@
 {
   "name": "@futuremagic/figure",
   "version": "0.1.0",
-  "description": "Hands-on control of a skinned figure with game-engine bone names (Actors): a pose layer and two-bone reaching over its clips, and actions played out with it (climbing a ladder, in and out over a rim). From Dunfinity.",
+  "description": "Hands-on control of a skinned figure with game-engine bone names (Actors): a pose layer and two-bone reaching over its clips, and actions played out with it (climbing a ladder, in and out over a rim; a ship's shrouds, futtock shrouds and footropes, at sea). From Dunfinity.",
   "type": "module",
   "private": true,
   "exports": {
