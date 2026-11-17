@@ -407,7 +407,8 @@ export function buildingEntrance(b: TownBuilding): Entrance {
   }
   if (b.trade === 'ruler') {
     // A broad landing before the door, up a flight as wide; a tower at each front corner (solid).
-    const landing: EntranceBox = { u0: -3.2, u1: 3.2, v0: -b.hv - 2.4, v1: -b.hv, top: 0, mat: BuildingMat.Ashlar };
+    // (It ends at the plinth's edge: run on onto the plinth, whose top is the floor when the hall is open, it flickered.)
+    const landing: EntranceBox = { u0: -3.2, u1: 3.2, v0: -b.hv - 2.4, v1: -b.hv - 0.06, top: 0, mat: BuildingMat.Ashlar };
     return { floors: [landing, ...stepsUp(b, -b.hv - 2.4, 0, 3.2)], posts: rulerTowers(b).map((t) => ({ u0: t.a - TOWER_HALF, u1: t.a + TOWER_HALF, v0: t.b - TOWER_HALF, v1: t.b + TOWER_HALF, top: t.top, mat: BuildingMat.Ashlar })) };
   }
   return { floors: stepsUp(b, -b.hv - 0.06, 0, 0.7), posts: [] };
