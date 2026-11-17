@@ -1,0 +1,168 @@
+{
+ "spec_version": 1,
+ "id": "prop_deadeye",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "lathe": {
+     "profile": [
+      [
+       0,
+       -0.055
+      ],
+      [
+       0.1,
+       -0.055
+      ],
+      [
+       0.118,
+       -0.048
+      ],
+      [
+       0.125,
+       -0.033
+      ],
+      [
+       0.113,
+       -0.018
+      ],
+      [
+       0.113,
+       0.018
+      ],
+      [
+       0.125,
+       0.033
+      ],
+      [
+       0.118,
+       0.048
+      ],
+      [
+       0.1,
+       0.055
+      ],
+      [
+       0,
+       0.055
+      ]
+     ]
+    },
+    "slot": "wood",
+    "segments": 28
+   },
+   {
+    "cylinder": {
+     "a": [
+      0.0,
+      0.052,
+      -0.0565
+     ],
+     "b": [
+      0.0,
+      0.052,
+      0.0565
+     ],
+     "radius": 0.02
+    },
+    "slot": "hole",
+    "segments": 12
+   },
+   {
+    "cylinder": {
+     "a": [
+      -0.045,
+      -0.026,
+      -0.0565
+     ],
+     "b": [
+      -0.045,
+      -0.026,
+      0.0565
+     ],
+     "radius": 0.02
+    },
+    "slot": "hole",
+    "segments": 12
+   },
+   {
+    "cylinder": {
+     "a": [
+      0.045,
+      -0.026,
+      -0.0565
+     ],
+     "b": [
+      0.045,
+      -0.026,
+      0.0565
+     ],
+     "radius": 0.02
+    },
+    "slot": "hole",
+    "segments": 12
+   }
+  ],
+  "bevel": 0.002,
+  "detail": 1
+ },
+ "materials": {
+  "wood": {
+   "base_color": [
+    0.16,
+    0.095,
+    0.05,
+    1
+   ],
+   "roughness": 0.75,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "grain": {
+       "color": [
+        0.11,
+        0.06,
+        0.03
+       ],
+       "axis": "y",
+       "spacing": 0.006,
+       "warp": 1.5,
+       "amount": 0.6
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.24,
+        0.16,
+        0.09
+       ],
+       "radius": 0.006,
+       "amount": 0.7,
+       "breakup": 0.5
+      }
+     }
+    ]
+   }
+  },
+  "hole": {
+   "base_color": [
+    0.012,
+    0.009,
+    0.006,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0.0
+  }
+ },
+ "qa": {
+  "max_triangles": 3000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": false,
+  "max_dimension_m": 0.3
+ }
+}

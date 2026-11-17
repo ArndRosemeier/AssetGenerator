@@ -1,0 +1,238 @@
+{
+ "spec_version": 1,
+ "id": "prop_horn_lantern",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "lathe": {
+     "profile": [
+      [
+       0,
+       0
+      ],
+      [
+       0.1,
+       0
+      ],
+      [
+       0.1,
+       0.015
+      ],
+      [
+       0.093,
+       0.03
+      ],
+      [
+       0.088,
+       0.032
+      ],
+      [
+       0,
+       0.033
+      ]
+     ]
+    },
+    "slot": "tin",
+    "segments": 24
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0,
+      0.032
+     ],
+     "b": [
+      0,
+      0,
+      0.255
+     ],
+     "radius": 0.082
+    },
+    "slot": "horn",
+    "segments": 24
+   },
+   {
+    "box": {
+     "size": [
+      0.012,
+      0.012,
+      0.225
+     ]
+    },
+    "at": [
+     0.083,
+     0,
+     0.143
+    ],
+    "slot": "tin",
+    "repeat": {
+     "around": 6,
+     "start": 0
+    }
+   },
+   {
+    "torus": {
+     "centre": [
+      0,
+      0,
+      0.145
+     ],
+     "radius": 0.084,
+     "thickness": 0.006,
+     "axis": "z"
+    },
+    "slot": "tin"
+   },
+   {
+    "lathe": {
+     "profile": [
+      [
+       0,
+       0.25
+      ],
+      [
+       0.095,
+       0.25
+      ],
+      [
+       0.095,
+       0.262
+      ],
+      [
+       0.08,
+       0.27
+      ],
+      [
+       0.05,
+       0.33
+      ],
+      [
+       0.03,
+       0.36
+      ],
+      [
+       0.03,
+       0.375
+      ],
+      [
+       0,
+       0.38
+      ]
+     ]
+    },
+    "slot": "tin",
+    "segments": 24
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0,
+      0.033
+     ],
+     "b": [
+      0,
+      0,
+      0.12
+     ],
+     "radius": 0.018
+    },
+    "slot": "candle",
+    "segments": 12
+   },
+   {
+    "torus": {
+     "centre": [
+      0,
+      0,
+      0.405
+     ],
+     "radius": 0.028,
+     "thickness": 0.006,
+     "axis": "x"
+    },
+    "slot": "tin"
+   }
+  ],
+  "bevel": 0.0015,
+  "detail": 1
+ },
+ "materials": {
+  "tin": {
+   "base_color": [
+    0.12,
+    0.115,
+    0.1,
+    1
+   ],
+   "roughness": 0.45,
+   "metallic": 0.7,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.05,
+        0.045,
+        0.038
+       ],
+       "scale": 30,
+       "coverage": 0.35,
+       "contrast": 3,
+       "roughness": 0.7
+      }
+     },
+     {
+      "facing": {
+       "color": [
+        0.02,
+        0.018,
+        0.015
+       ],
+       "direction": [
+        0,
+        0,
+        1
+       ],
+       "angle": 40,
+       "soft": 30,
+       "breakup": 0.5,
+       "scale": 25,
+       "amount": 0.6,
+       "roughness": 0.8
+      }
+     }
+    ]
+   }
+  },
+  "horn": {
+   "base_color": [
+    0.75,
+    0.55,
+    0.3,
+    1
+   ],
+   "roughness": 0.5,
+   "metallic": 0.0
+  },
+  "candle": {
+   "base_color": [
+    0.9,
+    0.85,
+    0.7,
+    1
+   ],
+   "roughness": 0.6,
+   "metallic": 0.0
+  }
+ },
+ "qa": {
+  "max_triangles": 4000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": true,
+  "max_dimension_m": 0.5
+ }
+}
