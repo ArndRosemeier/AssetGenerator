@@ -308,7 +308,7 @@ function shadowNodes(m: Any, transmitted: boolean): { colorNode: Any; depthNode:
  * the shared uniforms are one buffer for all of them. So a StaticBundle's materials must keep their per-frame values in the render group
  * (weather, sun, time); an object's own uniforms go up only when it is recorded again or moves.
  */
-function fixedBundleUniforms(renderer: WebGPURenderer): boolean {
+export function fixedBundleUniforms(renderer: WebGPURenderer): boolean {
   const nodes = (renderer as Any)._nodes;
   const needsRefresh = nodes?.needsRefresh;
   if (typeof needsRefresh !== 'function') return false;
@@ -346,7 +346,7 @@ function fixedBundleUniforms(renderer: WebGPURenderer): boolean {
  * executed where the renderer adds it, before the call's own objects (as `_renderBundles` goes first), and the
  * backend's cache of what is set on the pass is cleared, as executing a bundle leaves nothing set on a pass.
  */
-function bundlesInOrder(renderer: WebGPURenderer): boolean {
+export function bundlesInOrder(renderer: WebGPURenderer): boolean {
   const backend = (renderer as Any).backend;
   if (backend?.isWebGLBackend) return true; // no bundles there
   if (typeof backend?.addBundle !== 'function' || typeof backend.get !== 'function') return false;
