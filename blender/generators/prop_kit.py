@@ -1460,14 +1460,19 @@ def _stove(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
 
 
 def _shelf(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:
-    """A cellar shelf unit: three uprights, boards at the given heights, a back rail."""
+    """A cellar shelf unit: three uprights, boards at the given heights, a back rail.
+
+    The boards and rails stop a centimetre short of the uprights' front and back faces: flush, a board's edge and a
+    post's face would lie in one plane and flicker (z-fighting).
+    """
     W, D, H = p["width"] / 2, p["depth"] / 2, p["height"]
+    inset = 0.01
     for x in (-W, 0.0, W):
         _box(b, x - 0.02, x + 0.02, -D, D, 0.0, H, "wood")
     for z in (p["board1"], p["board2"], p["board3"]):
-        _box(b, -W, W, -D, D, z - 0.015, z + 0.015, "wood")
-        _box(b, -W, W, D - 0.025, D, z + 0.015, z + 0.07, "wood")
-    _box(b, -W, W, D - 0.02, D, H - 0.1, H, "wood")
+        _box(b, -W, W, -D + inset, D - inset, z - 0.015, z + 0.015, "wood")
+        _box(b, -W, W, D - inset - 0.025, D - inset, z + 0.015, z + 0.07, "wood")
+    _box(b, -W, W, D - inset - 0.02, D - inset, H - 0.1, H, "wood")
 
 
 def _coat_stand(b: MeshBuilder, p: dict[str, float], rng: random.Random) -> None:

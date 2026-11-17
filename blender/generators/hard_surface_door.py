@@ -88,7 +88,8 @@ _GROOVE = 0.004
 _RAIL_PROUD = 0.0025
 _BIND_PROUD = 0.005
 _STRAP_PROUD = 0.004
-_HANDLE_PLATE = 0.004
+_HANDLE_PLATE = 0.006
+_BIND_TRIM = 0.002
 
 
 @dataclass(frozen=True)
@@ -578,16 +579,19 @@ def _build_sturdy(leaf: _Leaf) -> None:
 
     bind = min(0.02, sw * 0.22)
     front = -half - _BIND_PROUD
-    leaf.box(0.0, front, 0.0, bind, -half + _SINK, p.height, "hardware")
-    leaf.box(p.width - bind, front, 0.0, p.width, -half + _SINK, p.height, "hardware")
-    leaf.box(bind - _SINK, front, 0.0, p.width - bind + _SINK, -half + _SINK, bind, "hardware")
+    # The binding stops _BIND_TRIM short of the leaf's top and bottom: level with them, its ends and the wood's
+    # would lie in one plane and flicker (z-fighting).
+    z_lo, z_hi = _BIND_TRIM, p.height - _BIND_TRIM
+    leaf.box(0.0, front, z_lo, bind, -half + _SINK, z_hi, "hardware")
+    leaf.box(p.width - bind, front, z_lo, p.width, -half + _SINK, z_hi, "hardware")
+    leaf.box(bind - _SINK, front, z_lo, p.width - bind + _SINK, -half + _SINK, bind, "hardware")
     leaf.box(
         bind - _SINK,
         front,
         p.height - bind,
         p.width - bind + _SINK,
         -half + _SINK,
-        p.height,
+        z_hi,
         "hardware",
     )
 
