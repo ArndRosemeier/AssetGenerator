@@ -217,8 +217,17 @@ export class SkyRig {
     if (Math.hypot(l[0] - sun[0], l[1] - sun[1], l[2] - sun[2]) > ENV_SUN_MOVE || wxKey !== this.lastEnvWx) {
       l[0] = sun[0]; l[1] = sun[1]; l[2] = sun[2];
       this.lastEnvWx = wxKey;
-      this.pmrem.fromScene(this.envScene, 0, ENV_NEAR, ENV_FAR, { renderTarget: this.envRT } as never);
+      this.redrawEnvironment();
     }
+  }
+
+  /**
+   * Draw the environment map again now, into the same target (so no shader is built again). Call it once after the
+   * Stage's warm-up: on WebGPU, building a material that samples the map itself (a mirror, the sea) can leave it blank
+   * until the next redraw, and with the clock stopped that never comes (Nauta N1.4: seen, not understood).
+   */
+  redrawEnvironment(): void {
+    this.pmrem.fromScene(this.envScene, 0, ENV_NEAR, ENV_FAR, { renderTarget: this.envRT } as never);
   }
 
   /**
