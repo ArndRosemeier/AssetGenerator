@@ -1,0 +1,118 @@
+{
+ "spec_version": 1,
+ "id": "prop_belaying_pin",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "lathe": {
+     "profile": [
+      [
+       0,
+       0
+      ],
+      [
+       0.012,
+       0
+      ],
+      [
+       0.015,
+       0.006
+      ],
+      [
+       0.016,
+       0.2
+      ],
+      [
+       0.022,
+       0.205
+      ],
+      [
+       0.03,
+       0.215
+      ],
+      [
+       0.03,
+       0.225
+      ],
+      [
+       0.02,
+       0.235
+      ],
+      [
+       0.019,
+       0.27
+      ],
+      [
+       0.023,
+       0.33
+      ],
+      [
+       0.023,
+       0.37
+      ],
+      [
+       0.018,
+       0.39
+      ],
+      [
+       0,
+       0.395
+      ]
+     ]
+    },
+    "slot": "wood",
+    "segments": 12
+   }
+  ],
+  "bevel": 0.0,
+  "detail": 1
+ },
+ "materials": {
+  "wood": {
+   "base_color": [
+    0.11,
+    0.06,
+    0.03,
+    1
+   ],
+   "roughness": 0.55,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "grain": {
+       "color": [
+        0.07,
+        0.035,
+        0.018
+       ],
+       "axis": "z",
+       "spacing": 0.004,
+       "warp": 1,
+       "amount": 0.5
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.2,
+        0.13,
+        0.07
+       ],
+       "radius": 0.004,
+       "amount": 0.5
+      }
+     }
+    ]
+   }
+  }
+ },
+ "qa": {
+  "max_triangles": 600,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": true,
+  "max_dimension_m": 0.45
+ }
+}
