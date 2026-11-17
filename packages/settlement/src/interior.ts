@@ -754,7 +754,11 @@ export function interiorMesh(plan: InteriorPlan, b: TownBuilding, origin: [numbe
     // The ceiling and its joists, less the hole up; the hole's sides through the floor between.
     const up = wellRects(plan, k + 1);
     for (const q of rectMinus(room, up)) gridQuad(o, q, H, [0, -1, 0], BuildingMat.Oak, TIMBER);
-    for (let a = st.a0 + 0.6; a < st.a1 - 0.3; a += 1.1) {
+    // (A joist whose side would lie in the face of a flue or a chimney breast, which go up to the ceiling, is moved
+    // off it by a few centimetres: in one plane the two flickered.)
+    const stacks = plan.fixtures.filter((f) => f.storey === k).flatMap((f) => (f.kind === 'flue' ? [f.a - f.w / 2, f.a + f.w / 2] : f.kind === 'hearth' || f.kind === 'forge' || f.kind === 'oven' ? [f.a - breastHalf(f)[0], f.a + breastHalf(f)[0]] : []));
+    for (let a0 = st.a0 + 0.6; a0 < st.a1 - 0.3; a0 += 1.1) {
+      const a = stacks.some((x) => Math.abs(Math.abs(x - a0) - 0.09) < 0.01) ? a0 + 0.03 : a0;
       for (const q of rectMinus({ a0: a - 0.09, a1: a + 0.09, b0: st.b0, b1: st.b1 }, up)) o.box(q.a0, q.a1, H - 0.2, H, q.b0, q.b1, BuildingMat.Oak, DARK, true);
     }
     for (const w of up) {
@@ -1082,6 +1086,11 @@ export function interiorSolids(plan: InteriorPlan): InteriorBox[] {
 }
 
 /** A fixture drawn from its storey's floor up (`H`: the ceiling over it, for a hearth's breast). */
+/** Half the width and depth of the chimney breast over a hearth, forge or oven (up to the ceiling). */
+function breastHalf(f: InteriorFixture): [number, number] {
+  return [Math.min(f.w / 2, f.w > f.d ? 0.6 : 0.35), Math.min(f.d / 2, f.d > f.w ? 0.6 : 0.35)];
+}
+
 export function drawFixture(o: Out, f: InteriorFixture, H: number): void {
   const a0 = f.a - f.w / 2, a1 = f.a + f.w / 2, b0 = f.b - f.d / 2, b1 = f.b + f.d / 2;
   const legs = (top: number, t: number, m: BuildingMat, c: RGB) => {
@@ -1120,7 +1129,7 @@ export function drawFixture(o: Out, f: InteriorFixture, H: number): void {
       o.box(a0, a1, 0, f.h, b0, b1, BuildingMat.Rubble, SOOT);
       // The breast above it, up to the ceiling (the chimney's stack goes on through the roof).
       {
-        const wa = Math.min(f.w / 2, f.w > f.d ? 0.6 : 0.35), wb = Math.min(f.d / 2, f.d > f.w ? 0.6 : 0.35);
+        const [wa, wb] = breastHalf(f);
         o.box(f.a - wa, f.a + wa, f.h, H, f.b - wb, f.b + wb, BuildingMat.Rubble, SOOT);
       }
       // A dark mouth on the side facing the room.
@@ -1146,7 +1155,8 @@ export function drawFixture(o: Out, f: InteriorFixture, H: number): void {
       for (const t of [-len / 2 + 0.05, len / 2 - 0.05]) { const [pa, pb] = at(t); o.box(pa - 0.05, pa + 0.05, 0, f.h, pb - 0.05, pb + 0.05, BuildingMat.Oak, DARK); }
       const tall = f.h > 1.5;
       for (const y of [0.3, tall ? 1.15 : f.h - 0.06]) {
-        const [p0a, p0b] = at(-len / 2), [p1a, p1b] = at(len / 2);
+        // The bars end a centimetre inside the uprights' outer faces: flush with them, their ends flickered there.
+        const [p0a, p0b] = at(-len / 2 + 0.01), [p1a, p1b] = at(len / 2 - 0.01);
         o.box(Math.min(p0a, p1a) - (along ? 0 : 0.04), Math.max(p0a, p1a) + (along ? 0 : 0.04), y, y + 0.06, Math.min(p0b, p1b) - (along ? 0.04 : 0), Math.max(p0b, p1b) + (along ? 0.04 : 0), BuildingMat.Oak, TIMBER);
       }
       for (let i = 0; i < 5; i++) {

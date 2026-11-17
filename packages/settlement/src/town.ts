@@ -551,7 +551,8 @@ export function planTown(site: TownSite): TownPlan {
     if (b.kind !== 'smithy' && b.kind !== 'bakery' && b.kind !== 'inn') fix('woodpile', backX - ux * (b.hu - 1) * side, backZ - uz * (b.hu - 1) * side, yaw, b.id);
     const gx = b.cx + b.vx * (b.hv + 4), gz = b.cz + b.vz * (b.hv + 4);
     if (inYard(yards, lots, gx, gz)) {
-      fix('garden', gx, gz, yaw + Math.PI, b.id);
+      // Not into a neighbour's garden (two laid into each other flickered where their greens met).
+      if (!fixtures.some((f) => f.kind === 'garden' && Math.hypot(f.x - gx, f.z - gz) < 3)) fix('garden', gx, gz, yaw + Math.PI, b.id);
       if (fr.chance(0.4)) fix('washline', gx + ux * 3 * side, gz + uz * 3 * side, b.angle, b.id);
       if (b.kind === 'cottage' && fr.chance(0.5)) fix('chickens', gx - ux * 3 * side, gz - uz * 3 * side, yaw, b.id);
       if (fr.chance(0.3)) fix('chopblock', backX + ux * 1.5 * side, backZ + uz * 1.5 * side, yaw, b.id);
