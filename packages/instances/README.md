@@ -14,7 +14,7 @@ const draws = createInstanceDraws(renderer, [
   ] },
 ], { horizontal: true, shadow: { dir: sunDirection, reach: 60 } });
 
-const data = new Float32Array(n * RECORD);   // per instance: matrix (16, column-major), kind, dither 0..1, 2 spare
+const data = new Float32Array(n * RECORD);   // per instance: matrix (16, column-major), kind, dither 0..1, frame, 1 spare
 draws.set(data, n);                          // when the instances change (new cells streamed in)
 await draws.ready();                         // behind the loading screen: builds the compute shaders
 scene.add(draws.group);
@@ -24,6 +24,30 @@ draws.update(camera);
 
 Materials read the instance matrix from the vertex attributes `iM0..iM3` (its columns), as the
 `@futuremagic/vegetation` materials do. `instancedGeometry` and `batchCap` (one batch on the CPU) live here too.
+
+## Instances in a moving frame
+
+A ship's fittings (blocks, deadeyes, pins, coils, guns) are set once in her own frame and move with her pose.
+Give the frames as matrices (frame to world, the camera's space; not origin-relative) and say in each record
+which frame its matrix is in:
+
+```ts
+const ship = new Matrix4(), gun = new Matrix4();
+const draws = createInstanceDraws(renderer, kinds, { frames: [ship, gun], origin });
+data[o + FRAME] = 1;             // this record's matrix is in frames[0] (the ship); 0 (the default) is the world
+draws.set(data, n);              // once: the fittings never change place in her
+// every frame: move the frames, nothing else
+ship.compose(pos, quat, one);    // her pose from the simulation
+gun.multiplyMatrices(ship, slide); // a frame in a frame: the game multiplies (a gun on its slide, a door on its hinges)
+draws.update(camera);
+```
+
+The GPU path carries each record through its frame in the cull pass (one more matrix product per instance; the
+frames are one uniform, at most a few hundred). The CPU path writes the framed instances again when only the
+frames moved, and chooses their levels again once a frame has gone `step` metres. Frames are rigid (turn and
+move, no scale); their number is fixed when the draws are made. With a floating origin the frames stay in world
+space too: their positions are taken relative to the origin in doubles, so a ship far from zero keeps her
+fittings exact.
 
 ## The two paths
 
@@ -47,5 +71,5 @@ out of view, and changes levels every frame instead of every `step` metres.
   materials; do not use it for blended ones that need sorting.
 - **Counts:** `counts()` reads the drawn counts back (GPU path); for checks and HUDs, not every frame.
 - **Check:** `npm i --no-save playwright` once, then `npm run test:gpu:instances`: the GPU counts must equal
-  the rules in `select.ts`, the image must equal the CPU path's, with no WebGPU errors; it also times the cull
-  of 100k instances.
+  the rules in `select.ts`, the image must equal the CPU path's, with no WebGPU errors, also for two ships far
+  from zero whose fittings are in their own moving frames; it also times the cull of 100k instances.

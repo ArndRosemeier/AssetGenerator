@@ -12,6 +12,9 @@
  * The lists share one output buffer, and every part's geometry reads its matrices from it as iM0..iM3 (the
  * vertex attributes materials already use), starting at its list's first slot. So materials need no change.
  *
+ * Records in a moving frame (FRAME, DrawOptions.frames) are carried into the world by their frame's matrix
+ * first, in the cull pass: one more matrix product per instance, and the frames are a uniform set every update.
+ *
  * A list gets room for every instance of its kind, so it never overflows; the layout is made on `set`.
  * Needs WebGPU with 'indirect-first-instance' (each draw starts at its list's slot).
  */
@@ -19,9 +22,9 @@ import {
   Frustum, Group, MathUtils, Matrix4, Mesh, Sphere, StorageBufferAttribute, StorageInstancedBufferAttribute, IndirectStorageBufferAttribute,
   InterleavedBufferAttribute, Vector3, Vector4, type Camera, type InstancedBufferGeometry, type WebGPURenderer,
 } from 'three/webgpu';
-import { Fn, If, Loop, atomicAdd, atomicLoad, atomicStore, dot, instanceIndex, length, max, min, smoothstep, storage, uint, uniform, uniformArray, vec3, vec4 } from 'three/tsl';
+import { Fn, If, Loop, atomicAdd, atomicLoad, atomicStore, dot, instanceIndex, length, max, min, select, smoothstep, storage, uint, uniform, uniformArray, vec3, vec4 } from 'three/tsl';
 import { instancedFrom } from './geometry';
-import { KIND, RECORD, listLayout, listsInUse, type LodRange } from './select';
+import { FRAME, KIND, RECORD, frameAt, listLayout, listsInUse, recordSphere, type LodRange } from './select';
 import type { DrawKind, DrawOptions, InstanceDraws } from './types';
 
 /** vec4s per record. */
@@ -74,6 +77,14 @@ export class GpuInstanceDraws implements InstanceDraws {
   private readonly uSweep = uniform(new Vector3());
   /** The floating origin (opts.origin): instances are culled and drawn relative to it. */
   private readonly uOrigin = uniform(new Vector3());
+  /** The frames' columns, relative to the origin: frame 0 the world (the identity), frame k opts.frames[k - 1]. */
+  private readonly frameCols: Vector4[];
+  private readonly uFrames: any;
+  /** opts.frames in the world, read on every update (16 per frame, frame k at (k - 1) * 16). */
+  private readonly frames: Float64Array;
+  /** The frames when the lists in use were last found, and how far each frame's instances reach from its own origin. */
+  private readonly framesChecked: Float64Array;
+  private readonly frameReach: Float64Array;
   private readonly frustum = new Frustum();
   private readonly pv = new Matrix4();
   private readonly listsOfKind: number[];
@@ -86,6 +97,13 @@ export class GpuInstanceDraws implements InstanceDraws {
   private readonly eye = new Vector3();
 
   constructor(private readonly renderer: WebGPURenderer, private readonly kinds: DrawKind[], private readonly opts: DrawOptions = {}) {
+    const nFrames = opts.frames?.length ?? 0;
+    // Columns of the identity until a frame is read.
+    this.frameCols = Array.from({ length: (nFrames + 1) * 4 }, (_, i) => new Vector4(+(i % 4 === 0), +(i % 4 === 1), +(i % 4 === 2), +(i % 4 === 3)));
+    this.uFrames = uniformArray(this.frameCols);
+    this.frames = new Float64Array(nFrames * 16);
+    this.framesChecked = new Float64Array(nFrames * 16).fill(NaN);
+    this.frameReach = new Float64Array(nFrames);
     this.listsOfKind = kinds.map((k) => k.lods.length);
     this.nLists = this.listsOfKind.reduce((a, b) => a + b, 0);
     const kt = new Float32Array(kinds.length * 8);
@@ -163,16 +181,25 @@ export class GpuInstanceDraws implements InstanceDraws {
     const counters = storage(this.counters, 'uint', this.counters.count).toAtomic();
     const ind = storage(this.indirect, 'uint', this.indirect.count * 5);
     const horizontal = !!this.opts.horizontal;
-    const planes = this.uPlanes, cam = this.uCam, sweep = this.uSweep, origin = this.uOrigin;
+    const planes = this.uPlanes, cam = this.uCam, sweep = this.uSweep, origin = this.uOrigin, frames = this.uFrames;
+    const nFrames = this.frameCols.length / 4 - 1;
 
     const reset = Fn(() => { atomicStore(counters.element(instanceIndex), uint(0)); })().compute(nLists);
 
     const cull = Fn(() => {
       const b = instanceIndex.mul(R4);
-      const c0 = input.element(b).toVar(), c1 = input.element(b.add(1)).toVar(), c2 = input.element(b.add(2)).toVar();
-      // Relative to the origin before anything else (both near it: an exact float32 difference).
-      const c3 = vec4(input.element(b.add(3)).xyz.sub(origin), 1).toVar();
       const ex = input.element(b.add(KIND / 4)).toVar();
+      // Its frame (FRAME: 0 the world, k opts.frames[k - 1]; one not given is the world).
+      const fk = uint(ex.z).toVar();
+      const fr = select(fk.lessThanEqual(uint(nFrames)), fk, uint(0)).mul(4).toVar();
+      const F0 = frames.element(fr).toVar(), F1 = frames.element(fr.add(1)).toVar(), F2 = frames.element(fr.add(2)).toVar(), F3 = frames.element(fr.add(3)).toVar();
+      const carry = (c) => F0.mul(c.x).add(F1.mul(c.y)).add(F2.mul(c.z)).add(F3.mul(c.w));
+      // In the world, relative to the origin before anything else: a world record takes the origin off its own
+      // position (both near it: an exact float32 difference) and goes through the identity unchanged; a framed
+      // one is near its frame's origin and goes through its frame, whose position is already origin-relative.
+      const own = select(fr.equal(uint(0)), origin, vec3(0, 0, 0));
+      const c0 = carry(input.element(b)).toVar(), c1 = carry(input.element(b.add(1))).toVar(), c2 = carry(input.element(b.add(2))).toVar();
+      const c3 = carry(vec4(input.element(b.add(3)).xyz.sub(own), 1)).toVar();
       const kind = uint(ex.x).toVar();
       const ks = kinds.element(kind.mul(2)).toVar(), kl = kinds.element(kind.mul(2).add(1)).toVar();
       const center = c0.xyz.mul(ks.x).add(c1.xyz.mul(ks.y)).add(c2.xyz.mul(ks.z)).add(c3.xyz).toVar();
@@ -246,6 +273,15 @@ export class GpuInstanceDraws implements InstanceDraws {
     this.input.needsUpdate = true;
     this.count = count;
     this.checkedAt.set(NaN, NaN, NaN);
+    // How far each frame's instances reach from its own origin (spheres in the frame): a frame turned by an
+    // angle moves them by at most that much times this.
+    this.frameReach.fill(0);
+    for (let i = 0; i < count; i++) {
+      const o = i * RECORD, k = data[o + FRAME], kind = data[o + KIND];
+      if (frameAt(data, o, this.frames.length ? this.frames : undefined) < 0 || !(kind >= 0 && kind < this.spheres.length)) continue;
+      const [x, y, z, r] = recordSphere(data, o, this.spheres[kind]);
+      this.frameReach[k - 1] = Math.max(this.frameReach[k - 1], Math.hypot(x, y, z) + r);
+    }
   }
 
   /**
@@ -254,10 +290,18 @@ export class GpuInstanceDraws implements InstanceDraws {
    */
   private skipEmpty(eye: Vector3): void {
     const c = this.checkedAt, horizontal = !!this.opts.horizontal;
-    const moved = horizontal ? Math.hypot(eye.x - c.x, eye.z - c.z) : eye.distanceTo(c);
+    let moved = horizontal ? Math.hypot(eye.x - c.x, eye.z - c.z) : eye.distanceTo(c);
+    // A moving frame moves its instances by at most its own move plus its turn times their reach.
+    const F = this.frames, C = this.framesChecked;
+    for (let f = 0; f < F.length && !(moved >= RECHECK); f += 16) {
+      let turn = 0;
+      for (const i of [0, 1, 2, 4, 5, 6, 8, 9, 10]) turn += (F[f + i] - C[f + i]) ** 2;
+      moved = Math.max(moved, Math.hypot(F[f + 12] - C[f + 12], F[f + 13] - C[f + 13], F[f + 14] - C[f + 14]) + Math.sqrt(turn) * this.frameReach[f / 16]);
+    }
     if (moved < RECHECK) return; // NaN (not checked yet) is never below
     c.copy(eye);
-    const used = listsInUse(this.input.array as Float32Array, this.count, this.spheres, this.ranges, this.listsOfKind, [eye.x, eye.y, eye.z], horizontal, RECHECK * 2);
+    C.set(F);
+    const used = listsInUse(this.input.array as Float32Array, this.count, this.spheres, this.ranges, this.listsOfKind, [eye.x, eye.y, eye.z], horizontal, RECHECK * 2, F.length ? F : undefined);
     for (const d of this.draws) d.mesh.visible = used[d.list];
   }
 
@@ -270,6 +314,13 @@ export class GpuInstanceDraws implements InstanceDraws {
     // World space, then relative to the origin (in doubles: a plane moves by its normal along the origin).
     const o = this.opts.origin;
     if (o) this.uOrigin.value.copy(o);
+    // The frames: in the world for the lists in use, origin-relative (in doubles) for the cull.
+    this.opts.frames?.forEach((m, k) => {
+      const e = m.elements, cols = this.frameCols;
+      this.frames.set(e, k * 16);
+      for (let j = 0; j < 4; j++) cols[(k + 1) * 4 + j].set(e[j * 4], e[j * 4 + 1], e[j * 4 + 2], e[j * 4 + 3]);
+      if (o) cols[(k + 1) * 4 + 3].set(e[12] - o.x, e[13] - o.y, e[14] - o.z, 1);
+    });
     if (o) for (const p of this.planes) p.w += p.x * o.x + p.y * o.y + p.z * o.z;
     camera.getWorldPosition(this.uCam.value);
     this.skipEmpty(this.eye.copy(this.uCam.value));

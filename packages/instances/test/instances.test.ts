@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BoxGeometry, Matrix4, MeshBasicNodeMaterial, PerspectiveCamera, Vector3 } from 'three/webgpu';
-import { CpuInstanceDraws, RECORD, KIND, DITHER, inLod, listLayout, listsInUse, recordSphere, sphereVisible } from '../src/index';
+import { CpuInstanceDraws, RECORD, KIND, DITHER, FRAME, frameAt, inLod, listLayout, listsInUse, recordSphere, sphereVisible, worldMatrix } from '../src/index';
 
 test('a level holds from near up to far, and dithers out over its fade', () => {
   const l = { near: 10, far: 100, fade: [60, 100] as const };
@@ -107,4 +107,54 @@ test('a level list is in use only while an instance of its kind is within its ra
   assert.deepEqual(listsInUse(rec, 2, local, ranges, [2, 1, 1], [0, 0, 0], true, 8), [true, true, true, false]);
   // Only `count` records count.
   assert.deepEqual(listsInUse(rec, 1, local, ranges, [2, 1, 1], [0, 0, 0], true, 8), [true, true, false, false]);
+});
+
+test('a record in a moving frame is in the world where its frame carries it; frame 0 is the world', () => {
+  const ship = new Matrix4().makeRotationY(Math.PI / 2).setPosition(1000, 2, 500);
+  const frames = new Float64Array(ship.elements);
+  const rec = new Float32Array(RECORD * 2);
+  rec.set(new Matrix4().setPosition(3, 1, 0).elements, 0);
+  rec[FRAME] = 1;
+  rec.set(new Matrix4().setPosition(3, 1, 0).elements, RECORD);
+  assert.equal(frameAt(rec, 0, frames), 0);
+  assert.equal(frameAt(rec, RECORD, frames), -1, 'frame 0: the world');
+  assert.equal(frameAt(rec, 0, undefined), -1, 'no frames given: the world');
+  const m = new Float64Array(16);
+  worldMatrix(rec, 0, frames, m);
+  // Turned a quarter round y, 3 m along her x is 3 m along the world's -z.
+  assert.deepEqual([...m.slice(12, 15)].map((v) => Math.round(v * 1e6) / 1e6), [1000, 3, 497]);
+  assert.deepEqual(recordSphere(rec, 0, [0, 0, 0, 1], frames).map((v) => Math.round(v * 1e6) / 1e6), [1000, 3, 497, 1]);
+  assert.deepEqual(recordSphere(rec, RECORD, [0, 0, 0, 1], frames), [3, 1, 0, 1]);
+  // The lists in use measure from where the frame has carried it.
+  assert.deepEqual(listsInUse(rec, 1, [[0, 0, 0, 1]], [{ far: 50 }, { near: 50, far: 5000 }], [2], [1000, 0, 500], true, 1, frames), [true, false]);
+});
+
+test('the CPU path carries framed instances with their frame each update, without set, and chooses levels where they are', () => {
+  const geo = new BoxGeometry(), mat = new MeshBasicNodeMaterial();
+  const ship = new Matrix4().setPosition(5000, 0, 0);
+  const origin = new Vector3(4096, 0, 0);
+  const draws = new CpuInstanceDraws([{ lods: [{ far: 50, parts: [{ geometry: geo, material: mat }] }, { near: 50, far: 900, parts: [{ geometry: geo, material: mat }] }] }], { horizontal: true, frames: [ship], origin });
+  const data = new Float32Array(RECORD * 2);
+  data.set(new Matrix4().setPosition(2, 1, 0).elements, 0);
+  data[FRAME] = 1;
+  data.set(new Matrix4().setPosition(4100, 0, 0).elements, RECORD); // a world record beside her
+  draws.set(data, 2);
+  const cam = new PerspectiveCamera();
+  cam.position.set(4990, 3, 0);
+  const near = (i: number) => (draws.group.children[i] as unknown as { geometry: { instanceCount: number; getAttribute(n: string): { data: { array: Float32Array } } } }).geometry;
+  draws.update(cam);
+  assert.equal(near(0).instanceCount, 1, 'her fitting: near level (12 m off)');
+  assert.equal(near(1).instanceCount, 1, 'the world record: far level (890 m off)');
+  assert.deepEqual([...near(0).getAttribute('iM3').data.array.slice(12, 15)], [906, 1, 0], 'drawn relative to the origin');
+  // She heels 0.2 rad round her length (x) and moves 1 m: the fitting follows, no set needed.
+  ship.makeRotationX(0.2).setPosition(5001, 0, 0);
+  draws.update(cam);
+  const a = near(0).getAttribute('iM3').data.array;
+  assert.deepEqual([a[12], a[13], a[14]].map((v) => Math.round(v * 1e4) / 1e4), [907, Math.round(Math.cos(0.2) * 1e4) / 1e4, Math.round(Math.sin(0.2) * 1e4) / 1e4]);
+  assert.equal(Math.round(a[5] * 1e4) / 1e4, Math.round(Math.cos(0.2) * 1e4) / 1e4, 'turned with her');
+  // She sails off: once she is 50 m away her fitting takes the far level, the camera never having moved.
+  ship.identity().setPosition(5100, 0, 0);
+  draws.update(cam);
+  assert.equal(near(0).instanceCount, 0);
+  assert.equal(near(1).instanceCount, 2);
 });

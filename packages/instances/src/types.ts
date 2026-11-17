@@ -1,4 +1,4 @@
-import type { BufferGeometry, Camera, Group, Material, Vector3 } from 'three/webgpu';
+import type { BufferGeometry, Camera, Group, Material, Matrix4, Vector3 } from 'three/webgpu';
 import type { LodRange } from './select';
 
 /** One mesh drawn per instance of a level: a geometry and its material (the material reads iM0..iM3). */
@@ -38,6 +38,14 @@ export interface DrawOptions {
    * drawn relative to this point (their group must then draw at the identity: @futuremagic/stage FloatingOrigin.pin).
    */
   origin?: Vector3;
+  /**
+   * Moving frames (a ship, a gun on its slide, a door on its hinges), read on every update: each a matrix from
+   * the frame to the world (the same space as the camera, not origin-relative). A record whose FRAME is k is
+   * given in `frames[k - 1]` and drawn wherever that frame is now, so a ship's fittings are set once in her own
+   * frame and the game only moves the frame. Their number is fixed here (the GPU path's uniform); a frame nests
+   * in another by the game multiplying them (`gun = ship × slide`). Rigid frames (turn and move, no scale).
+   */
+  frames?: readonly Matrix4[];
 }
 
 /** Instances of several kinds, each drawn at the level its distance asks for. */

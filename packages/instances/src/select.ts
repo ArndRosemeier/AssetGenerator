@@ -4,10 +4,37 @@
  */
 import { smoothstep } from '@futuremagic/core';
 
-/** Floats per instance record: a 4x4 matrix (column-major, like Matrix4.elements), kind, dither value, two spare. */
+/** Floats per instance record: a 4x4 matrix (column-major, like Matrix4.elements), kind, dither value, frame, one spare. */
 export const RECORD = 20;
-/** Offsets in a record. */
-export const KIND = 16, DITHER = 17;
+/**
+ * Offsets in a record. FRAME: the moving frame the matrix is given in (DrawOptions.frames): 0 the world (as
+ * before frames were added: old records keep working), k the frame `frames[k - 1]`, so a ship's fittings are
+ * placed once in her own frame and move with her pose.
+ */
+export const KIND = 16, DITHER = 17, FRAME = 18;
+
+/**
+ * Where record `o`'s frame starts in `frames` (16 floats per frame, column-major, frame k at (k - 1) * 16), or -1
+ * when the record is in the world (frame 0, or one not given).
+ */
+export function frameAt(rec: ArrayLike<number>, o: number, frames?: ArrayLike<number>): number {
+  const k = rec[o + FRAME];
+  return frames && k >= 1 && k * 16 <= frames.length && k === Math.floor(k) ? (k - 1) * 16 : -1;
+}
+
+/**
+ * Record `o`'s matrix in the world: its frame's matrix times its own (16 floats into `out` at `at`). In the
+ * world frame, a copy.
+ */
+export function worldMatrix(rec: ArrayLike<number>, o: number, frames: ArrayLike<number> | undefined, out: { [i: number]: number }, at = 0): void {
+  const f = frameAt(rec, o, frames);
+  if (f < 0) { for (let i = 0; i < 16; i++) out[at + i] = rec[o + i]; return; }
+  const F = frames!;
+  for (let c = 0; c < 4; c++) {
+    const x = rec[o + c * 4], y = rec[o + c * 4 + 1], z = rec[o + c * 4 + 2], w = rec[o + c * 4 + 3];
+    for (let r = 0; r < 4; r++) out[at + c * 4 + r] = F[f + r] * x + F[f + 4 + r] * y + F[f + 8 + r] * z + F[f + 12 + r] * w;
+  }
+}
 
 /** A level of detail: drawn from `near` (default 0) up to `far` metres, optionally dithered out over `fade`. */
 export interface LodRange {
@@ -40,8 +67,12 @@ export function sphereVisible(planes: ArrayLike<number>, x: number, y: number, z
   return true;
 }
 
-/** A record's bounding sphere: the kind's local sphere (cx, cy, cz, r) through the record's matrix. */
-export function recordSphere(rec: ArrayLike<number>, o: number, local: readonly [number, number, number, number]): [number, number, number, number] {
+/** A record's bounding sphere: the kind's local sphere (cx, cy, cz, r) through the record's matrix (and its frame's, given `frames`). */
+export function recordSphere(rec: ArrayLike<number>, o: number, local: readonly [number, number, number, number], frames?: ArrayLike<number>): [number, number, number, number] {
+  if (frameAt(rec, o, frames) >= 0) {
+    worldMatrix(rec, o, frames, _m);
+    return recordSphere(_m, 0, local);
+  }
   const [cx, cy, cz, r] = local;
   const x = rec[o] * cx + rec[o + 4] * cy + rec[o + 8] * cz + rec[o + 12];
   const y = rec[o + 1] * cx + rec[o + 5] * cy + rec[o + 9] * cz + rec[o + 13];
@@ -49,6 +80,8 @@ export function recordSphere(rec: ArrayLike<number>, o: number, local: readonly 
   const s = Math.max(Math.hypot(rec[o], rec[o + 1], rec[o + 2]), Math.hypot(rec[o + 4], rec[o + 5], rec[o + 6]), Math.hypot(rec[o + 8], rec[o + 9], rec[o + 10]));
   return [x, y, z, r * s];
 }
+
+const _m = new Float64Array(16);
 
 /** Distance from the camera to a point: in 3D, or across the ground (x, z) when `horizontal`. */
 export function viewDistance(cam: readonly [number, number, number], x: number, y: number, z: number, horizontal: boolean): number {
@@ -75,11 +108,13 @@ export function listLayout(counts: readonly number[], lists: readonly number[]):
  * [near - slack, far + slack). The view is not tested (shadow casters outside it are drawn too). The GPU
  * path hides the parts of the lists not in use, so they cost no draw call: a town in a clearing had 40 of
  * its 70 tree draws empty, each a draw in the view and another in the sun's shadow map.
- * `local[k]` is kind k's local sphere, `ranges[l]` list l's levels, `listsOf[k]` the levels of kind k.
+ * `local[k]` is kind k's local sphere, `ranges[l]` list l's levels, `listsOf[k]` the levels of kind k, `frames`
+ * the moving frames as they stand now (see FRAME).
  */
 export function listsInUse(
   rec: ArrayLike<number>, count: number, local: readonly (readonly [number, number, number, number])[],
   ranges: readonly LodRange[], listsOf: readonly number[], cam: readonly [number, number, number], horizontal: boolean, slack: number,
+  frames?: ArrayLike<number>,
 ): boolean[] {
   const first: number[] = [];
   let l = 0;
@@ -89,7 +124,7 @@ export function listsInUse(
   for (let i = 0; i < count && left > 0; i++) {
     const o = i * RECORD, k = rec[o + KIND];
     if (!(k >= 0 && k < listsOf.length)) continue;
-    const [x, y, z] = recordSphere(rec, o, local[k]);
+    const [x, y, z] = recordSphere(rec, o, local[k], frames);
     const d = viewDistance(cam, x, y, z, horizontal);
     for (let j = first[k], end = first[k] + listsOf[k]; j < end; j++) {
       if (used[j]) continue;
