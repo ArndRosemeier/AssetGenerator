@@ -504,9 +504,11 @@ export function planTown(site: TownSite): TownPlan {
     const n = Math.floor(L / 7);
     for (let k = 0; k < n; k++) {
       if (!fr.chance(0.6)) continue;
-      const t = (k + 0.5) * (L / n);
+      const t = (k + 0.5) * (L / n), sx = ax + ux * t + inX * 3.2, sz = az + uz * t + inZ * 3.2;
+      // Not into another stall where two sides of the market meet (their counters flickered in each other).
+      if (fixtures.some((f) => f.kind === 'stall' && Math.hypot(f.x - sx, f.z - sz) < 3.4)) continue;
       // A stall faces the middle; the seller stands behind it, the buyer in front.
-      fix('stall', ax + ux * t + inX * 3.2, az + uz * t + inZ * 3.2, Math.atan2(inZ, inX));
+      fix('stall', sx, sz, Math.atan2(inZ, inX));
     }
   }
   fix('bench', mx + fr.range(-6, 6), mz + fr.range(-6, 6), fr.range(-Math.PI, Math.PI));
@@ -551,7 +553,8 @@ export function planTown(site: TownSite): TownPlan {
     if (b.kind !== 'smithy' && b.kind !== 'bakery' && b.kind !== 'inn') fix('woodpile', backX - ux * (b.hu - 1) * side, backZ - uz * (b.hu - 1) * side, yaw, b.id);
     const gx = b.cx + b.vx * (b.hv + 4), gz = b.cz + b.vz * (b.hv + 4);
     if (inYard(yards, lots, gx, gz)) {
-      fix('garden', gx, gz, yaw + Math.PI, b.id);
+      // Not into a neighbour's garden (two laid into each other flickered where their greens met).
+      if (!fixtures.some((f) => f.kind === 'garden' && Math.hypot(f.x - gx, f.z - gz) < 3)) fix('garden', gx, gz, yaw + Math.PI, b.id);
       if (fr.chance(0.4)) fix('washline', gx + ux * 3 * side, gz + uz * 3 * side, b.angle, b.id);
       if (b.kind === 'cottage' && fr.chance(0.5)) fix('chickens', gx - ux * 3 * side, gz - uz * 3 * side, yaw, b.id);
       if (fr.chance(0.3)) fix('chopblock', backX + ux * 1.5 * side, backZ + uz * 1.5 * side, yaw, b.id);

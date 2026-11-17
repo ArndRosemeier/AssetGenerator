@@ -407,7 +407,8 @@ export function buildingEntrance(b: TownBuilding): Entrance {
   }
   if (b.trade === 'ruler') {
     // A broad landing before the door, up a flight as wide; a tower at each front corner (solid).
-    const landing: EntranceBox = { u0: -3.2, u1: 3.2, v0: -b.hv - 2.4, v1: -b.hv, top: 0, mat: BuildingMat.Ashlar };
+    // (It ends at the plinth's edge: run on onto the plinth, whose top is the floor when the hall is open, it flickered.)
+    const landing: EntranceBox = { u0: -3.2, u1: 3.2, v0: -b.hv - 2.4, v1: -b.hv - 0.06, top: 0, mat: BuildingMat.Ashlar };
     return { floors: [landing, ...stepsUp(b, -b.hv - 2.4, 0, 3.2)], posts: rulerTowers(b).map((t) => ({ u0: t.a - TOWER_HALF, u1: t.a + TOWER_HALF, v0: t.b - TOWER_HALF, v1: t.b + TOWER_HALF, top: t.top, mat: BuildingMat.Ashlar })) };
   }
   return { floors: stepsUp(b, -b.hv - 0.06, 0, 0.7), posts: [] };
@@ -478,12 +479,22 @@ function farWall(c: RGB, L: Look, timbered: boolean): RGB {
   return [0, 1, 2].map((i) => Math.round((c[i] * (1 - k) + L.timber[i] * k) * dim)) as RGB;
 }
 
+/**
+ * A shut plinth's top over the floor (about 5 to 9 cm). Houses built against each other, or corner to corner, have
+ * their plinths overlap, and tops in one plane flickered there. The top's height in the world is on a 2 cm lattice,
+ * shifted by 4 mm times the house's number modulo 5: neighbours (numbers one apart) are never within 4 mm, whatever
+ * their floors.
+ */
+function plinthTop(b: TownBuilding): number {
+  return Math.ceil((b.floorY + 0.05) / 0.02) * 0.02 + 0.004 * (b.id % 5) - b.floorY;
+}
+
 function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, open: boolean, hole: FloorHole | null): void {
   const { hu, hv } = b, L = S.look;
   const plinthDown = b.floorY - b.groundY + 0.3;
   // The plinth: rubble from below the lowest ground to the floor. Opened, its top drops under the
   // room's floor boards (interior.ts FLOOR), or the two fight for the same depth.
-  if (!hole) o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : 0.05, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
+  if (!hole) o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : plinthTop(b), -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
   else holedTop(o, -hu - 0.06, hu + 0.06, -plinthDown, -hv - 0.06, hv + 0.06, hole, BuildingMat.Rubble, L.stone);
   // Steps up to the door.
   if (detail) drawEntrance(o, b, L);
