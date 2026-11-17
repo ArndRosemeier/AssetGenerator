@@ -126,7 +126,7 @@ test('binding release: a render object disposed before its bind groups were set 
 test('bundles: a bundle is executed where it is added, and the pass-state cache is cleared', () => {
   const executed: unknown[][] = [];
   const data = { currentPass: { executeBundles: (b: unknown[]) => executed.push(b) }, currentSets: { pipeline: 'p', attributes: { 0: 'a' }, bindingGroups: [1], index: 'i' } };
-  const backend = { get: (o: unknown) => (o === 'ctx' ? data : { bundleGPU: 'gpu' }), addBundle: () => { throw new Error('three\'s own: at the end of the pass'); } };
+  const backend = { get: (o: unknown) => (o === 'ctx' ? data : { bundleGPU: 'gpu' }), addBundle: (..._args: unknown[]) => { throw new Error('three\'s own: at the end of the pass'); } };
   assert.ok(bundlesInOrder({ backend } as unknown as WebGPURenderer));
   backend.addBundle.call(backend, 'ctx', 'bundle');
   assert.deepEqual(executed, [['gpu']]);
