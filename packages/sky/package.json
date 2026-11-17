@@ -1,12 +1,13 @@
 {
   "name": "@futuremagic/sky",
   "version": "0.1.0",
-  "description": "A physical sky for three.js WebGPURenderer games: Rayleigh/Mie sky with sun disc, phased moon, clouds, weather and horizon fog (TSL), stars, and the sun/moon path and light rig as pure numbers. From Scale.",
+  "description": "A physical sky for three.js WebGPURenderer games: Rayleigh/Mie sky with sun disc, phased moon, clouds, weather and horizon fog (TSL), stars, the sun/moon path and light as pure numbers, and the light rig the games share (SkyRig: physical albedos, sky fill through the environment map, eye adaptation, cloud shadows, grade over the day). From Scale and MasterWorld.",
   "type": "module",
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./node": "./src/node.ts"
+    "./node": "./src/node.ts",
+    "./rig": "./src/rig.ts"
   },
   "peerDependencies": {
     "three": ">=0.186.0"
