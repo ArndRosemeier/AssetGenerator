@@ -484,9 +484,10 @@ function house(o: Out, b: TownBuilding, S: HouseShape, r: Rng, detail: boolean, 
   const plinthDown = b.floorY - b.groundY + 0.3;
   // The plinth: rubble from below the lowest ground to the floor. Opened, its top drops under the
   // room's floor boards (interior.ts FLOOR), or the two fight for the same depth.
-  // Shut, its top steps by a few millimetres from house to house: a row of houses built against each other have
-  // their plinths overlap between them, in one plane they flickered.
-  if (!hole) o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : 0.05 + (b.id % 4) * 0.005, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
+  // Shut, its top steps by up to 2 cm from house to house (by the golden ratio: neighbours' numbers differ by one,
+  // their steps by 7 mm or more): houses built against each other, or corner to corner, have their plinths overlap,
+  // and in one plane they flickered.
+  if (!hole) o.box(-hu - 0.06, hu + 0.06, -plinthDown, open ? 0 : 0.05 + ((b.id * 0.618034) % 1) * 0.02, -hv - 0.06, hv + 0.06, BuildingMat.Rubble, L.stone);
   else holedTop(o, -hu - 0.06, hu + 0.06, -plinthDown, -hv - 0.06, hv + 0.06, hole, BuildingMat.Rubble, L.stone);
   // Steps up to the door.
   if (detail) drawEntrance(o, b, L);

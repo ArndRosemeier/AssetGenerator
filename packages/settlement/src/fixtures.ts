@@ -248,7 +248,8 @@ function draw(o: Out, f: Fixture, r: Rng, detail: boolean): void {
       break;
     case 'chopblock':
       prism(o, 0, 0, 0.28, 0, 0.45, sides, BuildingMat.Oak, TIMBER);
-      if (detail) { o.box(-0.03, 0.03, 0.45, 0.62, -0.02, 0.02, BuildingMat.Oak, LIGHT_WOOD); o.box(-0.06, 0.06, 0.6, 0.66, -0.02, 0.1, BuildingMat.Slate, IRON); }
+      // (The haft a little thinner than the head: their sides in one plane flickered.)
+      if (detail) { o.box(-0.03, 0.03, 0.45, 0.62, -0.015, 0.015, BuildingMat.Oak, LIGHT_WOOD); o.box(-0.06, 0.06, 0.6, 0.66, -0.02, 0.1, BuildingMat.Slate, IRON); }
       break;
     case 'garden':
       // Two beds of dug earth with rows of greens.
