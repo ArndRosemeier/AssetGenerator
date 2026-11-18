@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three/webgpu';
-import { HOLD_RATE, LadderClimb, RATLINE, footropeY, shroudWays, type ClimbStep, type Yard } from '../src/index';
+import { HOLD_RATE, LadderClimb, RATLINE, faceYaw, footropeY, shroudWays, type ClimbStep, type Yard } from '../src/index';
 
 const BODY = { height: 1.8, hipHeight: 0.93 };
 /** A brig's main shrouds to starboard, in her frame (x forward, y up from the waterline, z to starboard; the mast at x = z = 0). */
@@ -167,4 +167,62 @@ test('rigging: a steered climb (cling) reports its pace, slower on the futtock s
   c.cling(futtock, 0.5, true, BODY, 1 / 30);
   assert.ok(onShrouds === 1 && c.pace < 0.9 && c.pace > 0.2, `${onShrouds} ${c.pace}`);
   assert.ok(c.limbs && c.pose);
+});
+
+test('rigging: from the shrouds across onto the footrope and back onto them, hands and feet moving one at a time, without a jump', () => {
+  const c = new LadderClimb();
+  const { shroud } = shroudWays(RIG);
+  // Hanging on the shrouds with the feet near the yard's footrope, as a climb the game steers leaves them.
+  const h = 9.6, from = { ladder: shroud, h };
+  c.cling(shroud, h, true, BODY);
+  const startPos = c.pos.clone(), startYaw = c.yaw;
+  c.play([
+    { kind: 'footrope', yard: YARD, dir: 'on', at: 1.6, from },
+    { kind: 'footrope', yard: YARD, dir: 'off', at: 1.6, from },
+  ], c.pos.x, c.pos.y, c.pos.z, c.yaw, BODY);
+  let onRope = 0;
+  const r = run(c, (c, t) => {
+    if (Math.abs(t - 2.2) < 0.02) {
+      // On the rope: both feet on it, both hands on the jackstay, facing the yard.
+      const L = c.limbs!;
+      for (const f of [L.footL!, L.footR!]) if (Math.abs(f.p.y - 0.07 - footropeY(YARD, f.p.z)) < 0.08) onRope++;
+      assert.ok(Math.abs(Math.atan2(Math.sin(c.yaw - Math.atan2(-YARD.nx, -YARD.nz)), Math.cos(c.yaw - Math.atan2(-YARD.nx, -YARD.nz)))) < 1e-6);
+    }
+  });
+  assert.equal(onRope, 2, 'both feet on the rope');
+  assert.ok(r.body < 0.06 && r.limb < 0.1, `body ${r.body.toFixed(3)} m, limb ${r.limb.toFixed(3)} m in a frame`);
+  // Back on the shrouds where it got off, facing them: the steered climb takes over from there.
+  assert.ok(c.pos.distanceTo(startPos) < 1e-6 && Math.abs(c.yaw - startYaw) < 1e-6);
+});
+
+test('rigging: a sloping spar (a jib-boom) is sidled out along with the feet on its rising footrope and the hands on its jackstay', () => {
+  const RISE = 0.3, JIB: Yard = { x: 0, y: 9, z: -20, ax: 0, az: -1, reach: 7, nx: -1, nz: 0, drop: 0.9, rise: RISE };
+  const c = new LadderClimb();
+  let feet = 0, hands = 0;
+  c.play([{ kind: 'yard', yard: JIB, from: 0.8, to: 6.5 }], 0.5, 8, -20.8, 0, BODY);
+  run(c, (c) => {
+    const L = c.limbs;
+    if (!L) return;
+    for (const f of [L.footL!, L.footR!]) feet = Math.max(feet, Math.abs(f.p.y - 0.07 - footropeY(JIB, JIB.z - f.p.z)));
+    for (const k of [L.L!, L.R!]) hands = Math.max(hands, Math.abs(k.p.y - JIB.y - RISE * (JIB.z - k.p.z)));
+  });
+  assert.ok(feet < 0.06, `feet on the rope (${feet.toFixed(3)})`);
+  assert.ok(hands < 0.09, `hands on the jackstay (${hands.toFixed(3)})`);
+  assert.ok(c.pos.y > 9 + RISE * 6 - 1.2, `risen with the spar (${c.pos.y.toFixed(2)})`);
+});
+
+test('rigging: onto the shrouds from the deck under the rail, rising and turning to them as the hands take hold', () => {
+  const c = new LadderClimb();
+  const { shroud } = shroudWays(RIG);
+  // Standing on her deck 1.1 m under the rail, a little inboard, facing out to the shrouds.
+  const deck = shroud.floor - 1.1;
+  c.play([{ kind: 'foot', ladder: shroud, dir: 'on' }], -0.6, deck, 3.4, Math.PI / 2, BODY);
+  const r = run(c);
+  assert.ok(r.t > 1.4 && r.t < 2.2, `${r.t.toFixed(2)} s`);
+  assert.ok(r.body < 0.1, `body ${r.body.toFixed(3)} m in a frame`);
+  assert.ok(Math.abs(c.yaw - faceYaw(shroud)) < 1e-6, 'facing the shrouds');
+  // Hanging on them as a climb from their floor would.
+  const k = new LadderClimb();
+  k.cling(shroud, 0, true, BODY);
+  assert.ok(c.pos.distanceTo(k.pos) < 1e-6);
 });
