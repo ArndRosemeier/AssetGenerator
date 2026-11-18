@@ -1,0 +1,259 @@
+{
+ "spec_version": 1,
+ "id": "prop_galley_chimney",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "box": {
+     "lower": [
+      -0.3,
+      -0.3,
+      0
+     ],
+     "upper": [
+      0.3,
+      0.3,
+      0.02
+     ]
+    },
+    "slot": "iron"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0,
+      0
+     ],
+     "b": [
+      0,
+      0,
+      0.09
+     ],
+     "radius": 0.16
+    },
+    "slot": "iron"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0,
+      0.05
+     ],
+     "b": [
+      0,
+      0,
+      0.75
+     ],
+     "radius": 0.115
+    },
+    "slot": "iron"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0,
+      0.35
+     ],
+     "b": [
+      0,
+      0,
+      0.38
+     ],
+     "radius": 0.125
+    },
+    "slot": "iron"
+   },
+   {
+    "tube": {
+     "path": [
+      [
+       0,
+       0,
+       0.74
+      ],
+      [
+       0,
+       0,
+       0.86
+      ],
+      [
+       0,
+       0.04,
+       0.94
+      ],
+      [
+       0,
+       0.16,
+       0.98
+      ],
+      [
+       0,
+       0.26,
+       0.98
+      ]
+     ],
+     "radius": 0.115
+    },
+    "slot": "iron"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0.255,
+      0.98
+     ],
+     "b": [
+      0,
+      0.3,
+      0.98
+     ],
+     "radius": 0.13
+    },
+    "slot": "iron"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0.29,
+      0.98
+     ],
+     "b": [
+      0,
+      0.302,
+      0.98
+     ],
+     "radius": 0.1
+    },
+    "slot": "soot"
+   },
+   {
+    "box": {
+     "lower": [
+      -0.005,
+      -0.32,
+      0.88
+     ],
+     "upper": [
+      0.005,
+      -0.08,
+      1.08
+     ]
+    },
+    "slot": "iron"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0.25,
+      0.25,
+      0.015
+     ],
+     "b": [
+      0.25,
+      0.25,
+      0.03
+     ],
+     "radius": 0.015
+    },
+    "slot": "iron",
+    "mirror": "x"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0.25,
+      -0.25,
+      0.015
+     ],
+     "b": [
+      0.25,
+      -0.25,
+      0.03
+     ],
+     "radius": 0.015
+    },
+    "slot": "iron",
+    "mirror": "x"
+   }
+  ],
+  "bevel": 0.003,
+  "detail": 1
+ },
+ "materials": {
+  "iron": {
+   "base_color": [
+    0.032,
+    0.032,
+    0.035,
+    1
+   ],
+   "roughness": 0.55,
+   "metallic": 0.35,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.05,
+        0.048,
+        0.046
+       ],
+       "scale": 9,
+       "coverage": 0.45,
+       "contrast": 2,
+       "roughness": 0.65
+      }
+     },
+     {
+      "cavities": {
+       "color": [
+        0.075,
+        0.035,
+        0.018
+       ],
+       "radius": 0.02,
+       "amount": 0.6,
+       "roughness": 0.9
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.12,
+        0.115,
+        0.11
+       ],
+       "radius": 0.006,
+       "breakup": 0.5,
+       "amount": 0.7,
+       "roughness": 0.35
+      }
+     }
+    ]
+   }
+  },
+  "soot": {
+   "base_color": [
+    0.012,
+    0.009,
+    0.006,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0.0
+  }
+ },
+ "qa": {
+  "max_triangles": 5000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": true,
+  "max_dimension_m": 1.2
+ }
+}

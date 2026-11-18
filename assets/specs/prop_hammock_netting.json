@@ -1,0 +1,335 @@
+{
+ "spec_version": 1,
+ "id": "prop_hammock_netting",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "box": {
+     "lower": [
+      -0.17,
+      -1.0,
+      0
+     ],
+     "upper": [
+      0.17,
+      1.0,
+      0.36
+     ]
+    },
+    "slot": "cloth"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      -1.0,
+      0.36
+     ],
+     "b": [
+      0,
+      1.0,
+      0.36
+     ],
+     "radius": 0.17
+    },
+    "slot": "cloth",
+    "segments": 24
+   },
+   {
+    "box": {
+     "lower": [
+      -0.2,
+      -0.512,
+      0
+     ],
+     "upper": [
+      -0.176,
+      -0.488,
+      0.47
+     ]
+    },
+    "slot": "iron"
+   },
+   {
+    "box": {
+     "lower": [
+      0.176,
+      -0.512,
+      0
+     ],
+     "upper": [
+      0.2,
+      -0.488,
+      0.47
+     ]
+    },
+    "slot": "iron"
+   },
+   {
+    "box": {
+     "lower": [
+      -0.2,
+      -0.512,
+      0
+     ],
+     "upper": [
+      0.2,
+      -0.488,
+      0.025
+     ]
+    },
+    "slot": "iron"
+   },
+   {
+    "sphere": {
+     "centre": [
+      -0.188,
+      -0.5,
+      0.48
+     ],
+     "radius": 0.018
+    },
+    "slot": "iron"
+   },
+   {
+    "sphere": {
+     "centre": [
+      0.188,
+      -0.5,
+      0.48
+     ],
+     "radius": 0.018
+    },
+    "slot": "iron"
+   },
+   {
+    "box": {
+     "lower": [
+      -0.2,
+      0.488,
+      0
+     ],
+     "upper": [
+      -0.176,
+      0.512,
+      0.47
+     ]
+    },
+    "slot": "iron"
+   },
+   {
+    "box": {
+     "lower": [
+      0.176,
+      0.488,
+      0
+     ],
+     "upper": [
+      0.2,
+      0.512,
+      0.47
+     ]
+    },
+    "slot": "iron"
+   },
+   {
+    "box": {
+     "lower": [
+      -0.2,
+      0.488,
+      0
+     ],
+     "upper": [
+      0.2,
+      0.512,
+      0.025
+     ]
+    },
+    "slot": "iron"
+   },
+   {
+    "sphere": {
+     "centre": [
+      -0.188,
+      0.5,
+      0.48
+     ],
+     "radius": 0.018
+    },
+    "slot": "iron"
+   },
+   {
+    "sphere": {
+     "centre": [
+      0.188,
+      0.5,
+      0.48
+     ],
+     "radius": 0.018
+    },
+    "slot": "iron"
+   },
+   {
+    "cylinder": {
+     "a": [
+      -0.19,
+      -1.0,
+      0.44
+     ],
+     "b": [
+      -0.19,
+      1.0,
+      0.44
+     ],
+     "radius": 0.008
+    },
+    "slot": "rope"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0.19,
+      -1.0,
+      0.44
+     ],
+     "b": [
+      0.19,
+      1.0,
+      0.44
+     ],
+     "radius": 0.008
+    },
+    "slot": "rope"
+   }
+  ],
+  "bevel": 0.004,
+  "detail": 1,
+  "settle": false
+ },
+ "materials": {
+  "cloth": {
+   "base_color": [
+    0.025,
+    0.024,
+    0.023,
+    1
+   ],
+   "roughness": 0.6,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.04,
+        0.038,
+        0.035
+       ],
+       "scale": 8,
+       "coverage": 0.4,
+       "contrast": 2
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.12,
+        0.1,
+        0.08
+       ],
+       "radius": 0.008,
+       "breakup": 0.6,
+       "amount": 0.6
+      }
+     }
+    ]
+   }
+  },
+  "iron": {
+   "base_color": [
+    0.032,
+    0.032,
+    0.035,
+    1
+   ],
+   "roughness": 0.55,
+   "metallic": 0.35,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.05,
+        0.048,
+        0.046
+       ],
+       "scale": 9,
+       "coverage": 0.45,
+       "contrast": 2,
+       "roughness": 0.65
+      }
+     },
+     {
+      "cavities": {
+       "color": [
+        0.075,
+        0.035,
+        0.018
+       ],
+       "radius": 0.02,
+       "amount": 0.6,
+       "roughness": 0.9
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.12,
+        0.115,
+        0.11
+       ],
+       "radius": 0.006,
+       "breakup": 0.5,
+       "amount": 0.7,
+       "roughness": 0.35
+      }
+     }
+    ]
+   }
+  },
+  "rope": {
+   "base_color": [
+    0.05,
+    0.04,
+    0.03,
+    1
+   ],
+   "roughness": 0.8,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.09,
+        0.07,
+        0.045
+       ],
+       "scale": 25,
+       "coverage": 0.35,
+       "contrast": 2
+      }
+     }
+    ]
+   }
+  }
+ },
+ "qa": {
+  "max_triangles": 3000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": false,
+  "max_dimension_m": 2.1
+ }
+}

@@ -14,7 +14,9 @@ Shapes (metres; Z up; front is -Y):
     box       {"size": [x, y, z]} round the origin, or {"lower": [..], "upper": [..]}
     cylinder  {"a": [..], "b": [..], "radius": r, "radius_b": r?}  a rod or cone between points
     sphere    {"centre": [..], "radius": r}
-    torus     {"centre": [..], "radius": R, "thickness": t, "axis": "x" | "y" | "z"}  a ring, hoop, handle
+    torus     {"centre": [..], "radius": R, "thickness": t, "axis": "x" | "y" | "z"}  a ring, hoop, handle;
+              {"section": [[out, up], ...]} for `thickness` turns any closed section about the ring
+              (out from R, up the axis): a wheel's rim, a flat hoop, a moulded collar
     lathe     {"profile": [[r, z], ...]}  turned about Z: caps, bases, bottles, bowls (open ends
               are closed to the axis)
     tube      {"path": [[x, y, z], ...], "radius": r, "smooth": true?}  a bent rod along a path
@@ -47,7 +49,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 
-from assetkit.shells import Shell, Vec, lathe, ring
+from assetkit.shells import Shell, Vec, lathe, ring, triangulate
 
 SPACING = 0.012  # metres of arc per side of a round shape, by default
 BEVEL_ROOM = 8.0  # a piece this many bevel widths thick (or more) is bevelled
@@ -176,6 +178,21 @@ def _arrange(shells: list[Piece], node: dict, path: str) -> list[Piece]:
 # --------------------------------------------------------------------------------------------
 
 
+def _section(raw: object, big: float, path: str) -> list[tuple[float, float]]:
+    """A ring's section: [[out, up], ...] about its circle (out from the radius, up the axis), a
+    closed loop, turned counter-clockwise; it must stay off the axis."""
+    if not isinstance(raw, list) or len(raw) < 3:
+        raise AssemblyError(f"{path}: expected [[out, up], ...], three points or more")
+    pts = [_pair(p, f"{path}[{i}]") for i, p in enumerate(raw)]
+    loop = [(big + o, u) for o, u in pts]
+    if min(r for r, _ in loop) <= 0:
+        raise AssemblyError(f"{path}: reaches the axis (an `out` of -radius or less)")
+    area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(loop, loop[1:] + loop[:1], strict=True))
+    if abs(area) < 1e-12:
+        raise AssemblyError(f"{path}: encloses no area")
+    return loop if area > 0 else loop[::-1]
+
+
 def _shape(kind: str, f: dict, path: str, segments: int | None, opts: tuple[float, float]) -> Shell:
     detail = opts[0]
 
@@ -222,19 +239,25 @@ def _shape(kind: str, f: dict, path: str, segments: int | None, opts: tuple[floa
         verts, faces = lathe(profile, n)
         return [(x + c[0], y + c[1], z + c[2]) for x, y, z in verts], faces
     if kind == "torus":
-        _only(f, ("centre", "radius", "thickness", "axis"), path)
+        _only(f, ("centre", "radius", "thickness", "axis", "section"), path)
         c = _vec(f, "centre", path)
-        big, t = _num(f, "radius", path, positive=True), _num(f, "thickness", path, positive=True)
-        if t / 2 >= big:
-            raise AssemblyError(f"{path}: `thickness` must be under twice the `radius`")
+        big = _num(f, "radius", path, positive=True)
         axis = f.get("axis", "z")
         if axis not in ("x", "y", "z"):
             raise AssemblyError(f"{path}.axis: expected 'x', 'y' or 'z'")
-        minor = sides(t / 2, None, low=12, high=16)
-        section = [
-            (big + t / 2 * math.cos(math.tau * k / minor), t / 2 * math.sin(math.tau * k / minor))
-            for k in range(minor)
-        ]
+        if ("thickness" in f) == ("section" in f):
+            raise AssemblyError(f"{path}: give `thickness` (a round ring) or `section` (any other)")
+        if "section" in f:
+            section = _section(f["section"], big, f"{path}.section")
+        else:
+            t = _num(f, "thickness", path, positive=True)
+            if t / 2 >= big:
+                raise AssemblyError(f"{path}: `thickness` must be under twice the `radius`")
+            minor = sides(t / 2, None, low=12, high=16)
+            section = [
+                (big + t / 2 * math.cos(math.tau * k / minor), t / 2 * math.sin(math.tau * k / minor))
+                for k in range(minor)
+            ]
         verts, faces = ring(section, sides(big))
         verts = [_axis_from_z(v, axis) for v in verts]
         return [(x + c[0], y + c[1], z + c[2]) for x, y, z in verts], faces
@@ -391,7 +414,12 @@ def _extrude(outline: list[tuple[float, float]], h: float) -> Shell:
         outline = list(reversed(outline))
     n = len(outline)
     verts = [(x, y, 0.0) for x, y in outline] + [(x, y, h) for x, y in outline]
-    faces = [list(reversed(range(n))), [n + k for k in range(n)]]
+    # The caps as triangles (an outline may be concave; tangent frames need triangles or quads).
+    try:
+        caps = triangulate(outline)
+    except ValueError as exc:
+        raise AssemblyError(f"extrude: {exc}") from exc
+    faces = [[c, b, a] for a, b, c in caps] + [[n + a, n + b, n + c] for a, b, c in caps]
     for k in range(n):
         k1 = (k + 1) % n
         faces.append([k, k1, n + k1, n + k])

@@ -49,6 +49,18 @@ move, no scale); their number is fixed when the draws are made. With a floating 
 space too: their positions are taken relative to the origin in doubles, so a ship far from zero keeps her
 fittings exact.
 
+Materials that shade in the frame's own space (a ship's light below deck, grain laid along her) give
+`geometryInstancing(material, space)` the frame's inverse as a uniform: `positionLocal` and `normalLocal` are then
+in her frame. Pose the draws' group by the frame (a child of her group), so the mesh takes them back to the world:
+
+```ts
+const toShip = uniform(new Matrix4());
+geometryInstancing(material, toShip);
+shipGroup.add(draws.group);
+// every frame, after her group is posed:
+ship.copy(shipGroup.matrixWorld); toShip.value.copy(ship).invert();
+```
+
 ## The two paths
 
 | | When | What happens per frame |

@@ -1,0 +1,284 @@
+{
+ "spec_version": 1,
+ "id": "prop_cot",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "box": {
+     "lower": [
+      -0.36,
+      -0.92,
+      0.55
+     ],
+     "upper": [
+      0.36,
+      0.92,
+      0.59
+     ]
+    },
+    "slot": "wood"
+   },
+   {
+    "box": {
+     "lower": [
+      -0.37,
+      -0.93,
+      0.58
+     ],
+     "upper": [
+      0.37,
+      0.93,
+      0.91
+     ]
+    },
+    "slot": "canvas"
+   },
+   {
+    "box": {
+     "lower": [
+      -0.33,
+      -0.89,
+      0.85
+     ],
+     "upper": [
+      0.33,
+      0.89,
+      0.915
+     ]
+    },
+    "slot": "blanket"
+   },
+   {
+    "box": {
+     "lower": [
+      -0.3,
+      0.62,
+      0.88
+     ],
+     "upper": [
+      0.3,
+      0.86,
+      0.97
+     ]
+    },
+    "slot": "canvas"
+   },
+   {
+    "cylinder": {
+     "a": [
+      -0.37,
+      -0.93,
+      0.91
+     ],
+     "b": [
+      -0.037,
+      -0.9858,
+      1.6
+     ],
+     "radius": 0.007
+    },
+    "slot": "rope"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0.37,
+      -0.93,
+      0.91
+     ],
+     "b": [
+      0.037,
+      -0.9858,
+      1.6
+     ],
+     "radius": 0.007
+    },
+    "slot": "rope"
+   },
+   {
+    "cylinder": {
+     "a": [
+      -0.37,
+      0.93,
+      0.91
+     ],
+     "b": [
+      -0.037,
+      0.9858,
+      1.6
+     ],
+     "radius": 0.007
+    },
+    "slot": "rope"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0.37,
+      0.93,
+      0.91
+     ],
+     "b": [
+      0.037,
+      0.9858,
+      1.6
+     ],
+     "radius": 0.007
+    },
+    "slot": "rope"
+   }
+  ],
+  "bevel": 0.004,
+  "detail": 1,
+  "settle": false
+ },
+ "materials": {
+  "wood": {
+   "base_color": [
+    0.4,
+    0.29,
+    0.17,
+    1
+   ],
+   "roughness": 0.8,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "grain": {
+       "color": [
+        0.28,
+        0.18,
+        0.09
+       ],
+       "axis": "y",
+       "spacing": 0.01,
+       "warp": 1.5,
+       "amount": 0.5
+      }
+     },
+     {
+      "mottle": {
+       "color": [
+        0.24,
+        0.17,
+        0.1
+       ],
+       "scale": 4,
+       "coverage": 0.3,
+       "contrast": 2
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.48,
+        0.38,
+        0.25
+       ],
+       "radius": 0.006,
+       "breakup": 0.6,
+       "amount": 0.5
+      }
+     }
+    ]
+   }
+  },
+  "canvas": {
+   "base_color": [
+    0.55,
+    0.5,
+    0.4,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.4,
+        0.36,
+        0.28
+       ],
+       "scale": 6,
+       "coverage": 0.4,
+       "contrast": 2
+      }
+     },
+     {
+      "cavities": {
+       "color": [
+        0.25,
+        0.22,
+        0.16
+       ],
+       "radius": 0.02,
+       "amount": 0.6
+      }
+     }
+    ]
+   }
+  },
+  "blanket": {
+   "base_color": [
+    0.25,
+    0.22,
+    0.16,
+    1
+   ],
+   "roughness": 0.95,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.15,
+        0.13,
+        0.1
+       ],
+       "scale": 10,
+       "coverage": 0.5
+      }
+     }
+    ]
+   }
+  },
+  "rope": {
+   "base_color": [
+    0.3,
+    0.2,
+    0.1,
+    1
+   ],
+   "roughness": 0.88,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.2,
+        0.13,
+        0.07
+       ],
+       "scale": 30,
+       "coverage": 0.4,
+       "contrast": 2
+      }
+     }
+    ]
+   }
+  }
+ },
+ "qa": {
+  "max_triangles": 2000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": false,
+  "max_dimension_m": 2.2
+ }
+}

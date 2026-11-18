@@ -71,6 +71,12 @@ class AssemblyTests(unittest.TestCase):
                 2 * math.pi**2 * 0.1 * 0.01**2,
                 0.05,
             ),
+            (
+                {"torus": {"centre": [0, 0, 0], "radius": 0.1, "axis": "x",
+                           "section": [[-0.01, -0.02], [0.01, -0.02], [0.01, 0.02], [-0.01, 0.02]]}},
+                2 * math.pi * 0.1 * 0.02 * 0.04,
+                0.03,
+            ),
             ({"lathe": {"profile": [[0.1, 0], [0.1, 0.2]]}}, math.pi * 0.01 * 0.2, 0.03),
             ({"tube": {"path": [[0, 0, 0], [0.1, 0, 0.1], [0.2, 0, 0]], "radius": 0.01}}, None, 0),
             (
@@ -174,6 +180,8 @@ class AssemblyTests(unittest.TestCase):
                 "p[0].repeat.count",
             ),
             ([{"torus": {"centre": [0, 0, 0], "radius": 0.01, "thickness": 0.05}, "slot": "a"}], "thickness"),
+            ([{"torus": {"centre": [0, 0, 0], "radius": 0.1, "thickness": 0.02, "section": [[0, 0], [0.01, 0], [0, 0.01]]}, "slot": "a"}], "`section`"),
+            ([{"torus": {"centre": [0, 0, 0], "radius": 0.1, "section": [[-0.2, 0], [0.01, 0], [0, 0.01]]}, "slot": "a"}], "axis"),
             ([{"box": {"size": [1, 1, 1]}, "slot": "a", "spin": 3}], "unknown key(s) ['spin']"),
         ]
         for pieces, message in cases:

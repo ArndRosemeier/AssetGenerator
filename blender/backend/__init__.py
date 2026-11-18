@@ -206,6 +206,21 @@ def _realize_part(part: Part, textures: TextureSpec) -> bpy.types.Object:
     return obj
 
 
+def _triangulate_ngons(mesh: bpy.types.Mesh) -> None:
+    """Faces of five corners or more (an extruded outline's caps after a bevel) cut into
+    triangles, as the glTF export would: tangent frames are only defined on triangles and quads."""
+    import bmesh
+
+    if not any(len(p.vertices) > 4 for p in mesh.polygons):
+        return
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+
+
 def _paint(obj: bpy.types.Object, part: Part, textures: TextureSpec) -> None:
     """Bake the part's material patterns on its final mesh and UVs (assetkit/texbake.py), into
     one colour and one roughness texture, wired into every patterned slot's material (plain
@@ -219,6 +234,7 @@ def _paint(obj: bpy.types.Object, part: Part, textures: TextureSpec) -> None:
     mesh = obj.data
     if mesh.uv_layers.active is None:
         raise RuntimeError(f"Part '{part.name}': a pattern needs UVs; Unwrap must run first")
+    _triangulate_ngons(mesh)
     mesh.calc_loop_triangles()
     count = len(mesh.loop_triangles)
     positions = np.empty(len(mesh.vertices) * 3)

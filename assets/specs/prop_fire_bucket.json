@@ -1,0 +1,229 @@
+{
+ "spec_version": 1,
+ "id": "prop_fire_bucket",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "lathe": {
+     "profile": [
+      [
+       0,
+       0
+      ],
+      [
+       0.105,
+       0
+      ],
+      [
+       0.11,
+       0.01
+      ],
+      [
+       0.13,
+       0.3
+      ],
+      [
+       0.138,
+       0.305
+      ],
+      [
+       0.138,
+       0.325
+      ],
+      [
+       0.122,
+       0.325
+      ],
+      [
+       0.112,
+       0.03
+      ],
+      [
+       0,
+       0.03
+      ]
+     ]
+    },
+    "slot": "leather",
+    "segments": 28,
+    "bevel": false
+   },
+   {
+    "torus": {
+     "centre": [
+      0,
+      0,
+      0.312
+     ],
+     "radius": 0.133,
+     "axis": "z",
+     "section": [
+      [
+       -0.006,
+       -0.014
+      ],
+      [
+       0.008,
+       -0.014
+      ],
+      [
+       0.008,
+       0.014
+      ],
+      [
+       -0.006,
+       0.014
+      ]
+     ]
+    },
+    "slot": "leather",
+    "segments": 28,
+    "bevel": false
+   },
+   {
+    "tube": {
+     "path": [
+      [
+       -0.135,
+       0,
+       0.3
+      ],
+      [
+       -0.12,
+       0,
+       0.42
+      ],
+      [
+       -0.05,
+       0,
+       0.47
+      ],
+      [
+       0.05,
+       0,
+       0.47
+      ],
+      [
+       0.12,
+       0,
+       0.42
+      ],
+      [
+       0.135,
+       0,
+       0.3
+      ]
+     ],
+     "radius": 0.008
+    },
+    "slot": "rope"
+   },
+   {
+    "box": {
+     "lower": [
+      -0.05,
+      -0.128,
+      0.11
+     ],
+     "upper": [
+      0.05,
+      -0.116,
+      0.2
+     ]
+    },
+    "slot": "paint",
+    "rotate": [
+     0,
+     0,
+     0
+    ]
+   }
+  ],
+  "bevel": 0.0,
+  "detail": 1
+ },
+ "materials": {
+  "leather": {
+   "base_color": [
+    0.08,
+    0.035,
+    0.018,
+    1
+   ],
+   "roughness": 0.6,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.05,
+        0.022,
+        0.012
+       ],
+       "scale": 20,
+       "coverage": 0.45,
+       "contrast": 2
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.16,
+        0.09,
+        0.05
+       ],
+       "radius": 0.006,
+       "breakup": 0.6,
+       "amount": 0.6
+      }
+     }
+    ]
+   }
+  },
+  "rope": {
+   "base_color": [
+    0.3,
+    0.2,
+    0.1,
+    1
+   ],
+   "roughness": 0.88,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.2,
+        0.13,
+        0.07
+       ],
+       "scale": 30,
+       "coverage": 0.4,
+       "contrast": 2
+      }
+     }
+    ]
+   }
+  },
+  "paint": {
+   "base_color": [
+    0.6,
+    0.45,
+    0.12,
+    1
+   ],
+   "roughness": 0.6,
+   "metallic": 0.0
+  }
+ },
+ "qa": {
+  "max_triangles": 3000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": true,
+  "max_dimension_m": 0.6
+ }
+}

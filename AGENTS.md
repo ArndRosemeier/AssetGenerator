@@ -31,6 +31,7 @@ animation, materials, the inspection sheet).
 | Wheels, doors, cranks; cloth, banners, sails | a `rig` in a `prop.assembly` spec: pieces tied to a `bone` (rigid) or `bones` (bending); `spin`, `wave` | "Moving parts", `prop_mill_waterwheel.json`, `prop_hanging_banner.json` |
 | A close-up version and distant ones | a high `max_triangles` and `textures`, and `lods` levels in the spec | "LODs and close-ups", `sculpt_clay_urn.json`, `sculpt_cave_toad.json` |
 | Trunks, roots, branches, tails; urns, bottles, barrels | `sweep` and `loft` in an `organic.sculpt` shape; `layer` for moss or a crust | "Sculpting organic forms", `sculpt_driftwood_log.json`, `sculpt_clay_urn.json` |
+| Ship's boats: clinker hulls from their lines | a `prop.boat` spec: hull curves, strakes, thwarts; oars as pieces | "Ship's boats", `prop_boat_cutter.json` |
 | Walls, floors, fences: tiles that fit together | `prop.assembly` with `settle: false`, patterns with a `period` (`bricks`), and a kit `assets/kits/<name>.json` | "Tiles that fit together", "Kits", `tile_brick_wall.json`, `brick_wall_run.json` |
 
 ## Rules

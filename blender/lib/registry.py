@@ -40,6 +40,7 @@ GENERATORS: Final[dict[str, str]] = {
     "creature.mushroom": "blender.generators.mushroom_creature",
     "organic.sculpt": "blender.generators.organic_sculpt",
     "prop.assembly": "blender.generators.prop_assembly",
+    "prop.boat": "blender.generators.prop_boat",
 }
 
 
@@ -48,7 +49,7 @@ GENERATORS: Final[dict[str, str]] = {
 # tests/test_assetkit.py holds every one of them to that; tools/backend_matrix.py builds their specs
 # on each supported Blender version and requires the same result.
 KIT_GENERATORS: Final[frozenset[str]] = frozenset(
-    {"hard_surface.crate", "prop.kit", "organic.sculpt", "prop.assembly"}
+    {"hard_surface.crate", "prop.kit", "organic.sculpt", "prop.assembly", "prop.boat"}
 )
 
 

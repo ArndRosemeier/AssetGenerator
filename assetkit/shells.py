@@ -132,6 +132,36 @@ def sweep(
     return verts, faces
 
 
+def triangulate(outline: Sequence[tuple[float, float]]) -> list[tuple[int, int, int]]:
+    """A simple counter-clockwise polygon cut into triangles (counter-clockwise), by clipping ears."""
+    left = list(range(len(outline)))
+    out: list[tuple[int, int, int]] = []
+
+    def cross(o: int, a: int, b: int) -> float:
+        (ox, oy), (ax, ay), (bx, by) = outline[o], outline[a], outline[b]
+        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
+
+    def inside(p: int, a: int, b: int, c: int) -> bool:
+        return cross(a, b, p) >= 0 and cross(b, c, p) >= 0 and cross(c, a, p) >= 0
+
+    guard = len(left) ** 2 + 8
+    while len(left) > 3 and guard > 0:
+        guard -= 1
+        for i in range(len(left)):
+            a, b, c = left[i - 1], left[i], left[(i + 1) % len(left)]
+            if cross(a, b, c) <= 1e-15:
+                continue  # a reflex (or straight) corner is no ear
+            if any(inside(p, a, b, c) for p in left if p not in (a, b, c) and outline[p] not in (outline[a], outline[b], outline[c])):
+                continue
+            out.append((a, b, c))
+            del left[i]
+            break
+        else:
+            raise ValueError("the outline crosses itself")
+    out.append((left[0], left[1], left[2]))
+    return out
+
+
 def circle(radius: float, segments: int) -> list[tuple[float, float]]:
     return [
         (radius * math.cos(math.tau * k / segments), radius * math.sin(math.tau * k / segments))
