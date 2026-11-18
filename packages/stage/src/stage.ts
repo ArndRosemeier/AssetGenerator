@@ -8,7 +8,7 @@
  *     queued build under the cap) and only then puts it into the scene. Nothing ever draws with a
  *     shader that is not ready, so nothing compiles on the render path.
  */
-import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Vector3, type Camera, type InstancedMesh, type Material, type Object3D, type RenderTarget, type Scene, type WebGPURenderer } from 'three/webgpu';
+import { BufferGeometry, Float32BufferAttribute, Group, Mesh, Vector3, Vector4, type Camera, type InstancedMesh, type Material, type Object3D, type RenderTarget, type Scene, type WebGPURenderer } from 'three/webgpu';
 import { ShaderCap } from './cap';
 import { ShaderMonitor } from './monitor';
 import { installShaderPolicy, shadowKindOf } from './patches';
@@ -95,6 +95,32 @@ function newNodeFrame(renderer: WebGPURenderer): void {
   (renderer as unknown as { _nodes?: { nodeFrame?: { update?: () => void } } })._nodes?.nodeFrame?.update?.();
 }
 
+/** What `drawOnePixel` needs of the renderer. */
+type Scissored = Pick<WebGPURenderer, 'getScissor' | 'getScissorTest' | 'setScissor' | 'setScissorTest'>;
+
+/**
+ * Runs `draw` with only one pixel of the view drawn (a scissor of 1 × 1 on the renderer and on `target`, the post
+ * chain's scene pass if there is one), then puts the scissors back as they were. The warm-up draws this way: shaders
+ * are built as by any frame (the scissor is no part of any shader's key) and the shadow map is drawn whole (its own
+ * target, not scissored). On a GPU a whole frame there costs little; on the software GPU of the headless checks each
+ * cost as long as a real frame, seconds, and the eight of the shadow warm-up came to half a minute behind the loading
+ * screen (Nauta, 2026-11-18).
+ */
+export function drawOnePixel(renderer: Scissored, target: RenderTarget | null, draw: () => void): void {
+  const box = renderer.getScissor(new Vector4()), test = renderer.getScissorTest();
+  const targetBox = target?.scissor.clone(), targetTest = target?.scissorTest ?? false;
+  renderer.setScissor(0, 0, 1, 1);
+  renderer.setScissorTest(true);
+  if (target) { target.scissor.set(0, 0, 1, 1); target.scissorTest = true; }
+  try {
+    draw();
+  } finally {
+    renderer.setScissor(box);
+    renderer.setScissorTest(test);
+    if (target && targetBox) { target.scissor.copy(targetBox); target.scissorTest = targetTest; }
+  }
+}
+
 export class Stage {
   readonly cap = new ShaderCap();
   readonly monitor = new ShaderMonitor();
@@ -166,7 +192,7 @@ export class Stage {
     await new Promise((r) => setTimeout(r, SETTLE_MS));
     for (let k = 0; k < WARM_FRAMES; k++) {
       this.redrawShadow();
-      this.onTarget(() => this.renderer.render(this.scene, this.camera));
+      this.warmDraw();
       await new Promise((r) => setTimeout(r, 30));
     }
     this.scene.remove(group);
@@ -241,7 +267,7 @@ export class Stage {
       for (const c of this.scene.children) if (c !== obj && c.visible && !(c as { isLight?: boolean }).isLight) { others.push(c); c.visible = false; }
       newNodeFrame(this.renderer); // the shadow map is drawn once a frame, and the view may have drawn this one
       this.redrawShadow();
-      try { this.onTarget(() => this.renderer.render(this.scene, this.camera)); } finally { for (const c of others) c.visible = true; }
+      try { this.warmDraw(); } finally { for (const c of others) c.visible = true; }
       this.redrawShadow(); // it holds only this caster now: the next frame draws it whole again
       this.scene.remove(obj);
       m.layers.disableAll();
@@ -307,6 +333,11 @@ export class Stage {
     const s = this.monitor.summary();
     return `shaders ${s.warmup} warm-up + ${s.run} later · worst ${s.worstMs.toFixed(0)} ms · ${s.violations ? `${s.violations} POLICY VIOLATIONS (shaders.report())` : 'policy ok'}${s.repeats ? ` · ${s.repeats} built again alike (shaders.repeats())` : ''}`
       + (this.missingHooks.length ? `\nshader hooks missing: ${this.missingHooks.join(', ')}` : '');
+  }
+
+  /** A warm-up draw of the scene, one pixel of it drawn (`drawOnePixel`). */
+  private warmDraw(): void {
+    drawOnePixel(this.renderer, this.opts.target?.() ?? null, () => this.onTarget(() => this.renderer.render(this.scene, this.camera)));
   }
 
   /** One frame the game's way (its post chain, if any). */
