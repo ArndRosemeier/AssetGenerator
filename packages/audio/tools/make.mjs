@@ -12,6 +12,8 @@
  *  - `loop`: the same for a sound with a place, cut to its middle `seconds` (default 8);
  *  - `steps`: a take of separate hits (footsteps, hooves, rungs), cut into its `count` clearest;
  *  - `call`: one sound, trimmed (quieter than `trim` of its loudest moment, 0.03 by default), peak at −3 dBFS.
+ *  - `calls`: a take of separate sounds with silence between them (slaps, crests, knocks), cut at its silences into its
+ *    `count` loudest, each one as a `call` (at most `most` s; `quiet`, `gap`: what counts as silence).
  * A piece of music is `{ id, prompt, out, model?: "clip", mono? }`, levelled to −16 LUFS (only a take whose `out` is
  * set goes into the game). `from` (a list of files in the raw folder) takes sounds made before (another game's) instead
  * of asking a model: `steps` and `call` cut each file as one take, `bed` and `loop` use the first.
@@ -198,6 +200,27 @@ function steps(x, count, tail = 350) {
   return cuts.slice(0, count).map(({ x: c }) => fade(scale(c, dB(-3) / Math.max(peakOf(c), 1e-6)), 0.004, 0.06));
 }
 
+/**
+ * Separate sounds out of one take (slaps, crests, knocks: hits too long for `steps`). The take is cut at its silences,
+ * runs quieter than `quiet` of its loudest 5 ms (0.01, −40 dB, by default) that last at least `gap` s (0.4); every piece
+ * longer than 0.15 s is a call (`call`: trimmed, peak at −3 dBFS, at most `most` s). The `count` loudest are kept.
+ */
+function calls(x, count, most, quiet = 0.01, gap = 0.4) {
+  const { env, frame } = envelope(x);
+  const on = env.reduce((m, v) => Math.max(m, v), 0) * quiet, need = Math.round(gap / 0.005);
+  const pieces = [];
+  let a = -1, still = 0;
+  for (let f = 0; f <= env.length; f++) {
+    if (f < env.length && env[f] >= on) { if (a < 0) a = f; still = 0; continue; }
+    if (a < 0) continue;
+    still++;
+    if (still >= need || f === env.length) { pieces.push(x.slice(Math.max(0, (a - 4) * frame), Math.min(x.length, (f - still + 9) * frame))); a = -1; still = 0; }
+  }
+  const kept = pieces.filter((p) => p.length > 0.15 * RATE).map((p, i) => ({ i, p, peak: peakOf(p) }));
+  kept.sort((p, q) => q.peak - p.peak);
+  return kept.slice(0, count).sort((p, q) => p.i - q.i).map(({ p }) => call(p, most, quiet));
+}
+
 /** Music stays at 44.1 kHz (it streams, never decoded whole), levelled to −16 LUFS: stereo, or mono for music played at a place. */
 function music(raw, file, mono, kbps) {
   mkdirSync(dirname(file), { recursive: true });
@@ -223,6 +246,7 @@ function cut(s, raw) {
   }
   const x = decode(raw);
   if (s.kind === 'steps') return steps(x, s.count, s.tail);
+  if (s.kind === 'calls') return calls(x, s.count, s.most, s.quiet, s.gap);
   if (s.kind === 'bed') return [bed(x)];
   if (s.kind === 'loop') return [loop(x, s.seconds ?? 8)];
   return [call(x, s.most, s.trim)];
@@ -264,8 +288,8 @@ async function main() {
       continue;
     }
     const takes = cut(s, raw);
-    if (s.kind === 'steps' && !s.from && takes.length < s.count) console.warn(`  ${s.id}: only ${takes.length} of ${s.count} steps found`);
-    const files = takes.map((t, i) => (takes.length > 1 || s.kind === 'steps' ? `${s.id}-${i + 1}.mp3` : `${s.id}.mp3`));
+    if ((s.kind === 'steps' || s.kind === 'calls') && !s.from && takes.length < s.count) console.warn(`  ${s.id}: only ${takes.length} of ${s.count} steps found`);
+    const files = takes.map((t, i) => (takes.length > 1 || s.kind === 'steps' || s.kind === 'calls' ? `${s.id}-${i + 1}.mp3` : `${s.id}.mp3`));
     takes.forEach((t, i) => encode(t, join(OUT, files[i]), s.kind === 'bed' || s.kind === 'loop' ? 64 : 80));
     index.sounds[s.id] = { kind: s.kind, files, seconds: takes.map(seconds) };
     const bytes = files.reduce((n, f) => n + statSync(join(OUT, f)).size, 0);

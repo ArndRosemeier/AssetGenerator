@@ -15,8 +15,9 @@
  * volume under the master. Decoded audio is 32-bit float, so takes are stored at `index.rate` (32 kHz mono) and the
  * context runs at that rate; past `budget` bytes the least recently heard takes go.
  *
- * Browsers start sound only after the person's first click or key: `unlock` (called from such an event, or by the
- * engine's own listener) opens the context; what was asked before (music, beds) starts then.
+ * Browsers start sound only after the person's first click, tap or key: `unlock` (called from such an event, or by the
+ * engine's own listener, which also resumes a context the browser suspended) opens the context; what was asked before
+ * (music, beds) starts then.
  * From Solarpolis `src/audio/sound.ts`.
  */
 import { hashString, hashToFloat } from '@futuremagic/core';
@@ -77,6 +78,8 @@ const XFADE = 1.5, LAY_AHEAD = 2;
 const QUIET_STOP = 12;
 /** Most one-shots at once. */
 const MOST_SHOTS = 24;
+/** The presses that may start sound: each browser accepts some of them (Safari: a tap's end, a click, a key). */
+const UNLOCK_EVENTS = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const;
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -109,15 +112,10 @@ export class AudioEngine {
     this.budget = opts.budget ?? 24 * MB;
     this.ready = fetch(`${opts.base}index.json`).then((r) => (r.ok ? r.json() : null)).then((i: SoundIndex | null) => (this.index = i)).catch(() => (this.index = null));
     const target = opts.unlockOn === undefined ? (typeof window === 'undefined' ? null : window) : opts.unlockOn;
-    if (target) {
-      const unlock = (): void => {
-        target.removeEventListener('pointerdown', unlock, true);
-        target.removeEventListener('keydown', unlock, true);
-        this.unlock();
-      };
-      target.addEventListener('pointerdown', unlock, true);
-      target.addEventListener('keydown', unlock, true);
-    }
+    // Every press is listened to for the page's life: Safari on iPad and iPhone counts only some events as a press
+    // that may start sound (a tap's end, not the touch that begins a drag), and it suspends a running context when the
+    // page goes to the background, to be resumed by the next press.
+    if (target) for (const type of UNLOCK_EVENTS) target.addEventListener(type, () => this.unlock(), { capture: true, passive: true });
   }
 
   /** Whether sound can play (after the first press). */
@@ -136,9 +134,12 @@ export class AudioEngine {
 
   volume(bus: Bus | 'master'): number { return this.levels[bus]; }
 
-  /** Open the context (from a press). */
+  /** Open the context, or resume it if the browser suspended it (from a press). */
   unlock(): void {
-    if (this.ctx) return;
+    if (this.ctx) {
+      if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => undefined);
+      return;
+    }
     let ctx: AudioContext;
     try { ctx = new AudioContext({ sampleRate: this.index?.rate ?? 32000 }); } catch { ctx = new AudioContext(); }
     this.ctx = ctx;
@@ -163,7 +164,12 @@ export class AudioEngine {
       if (b === 'world' || b === 'body') g.connect(this.echoIn);
       this.buses.set(b, g);
     }
-    void ctx.resume();
+    void ctx.resume().catch(() => undefined);
+    // A silent sample started within the press: Safari opens its audio output only for sound started in a press.
+    const hush = ctx.createBufferSource();
+    hush.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    hush.connect(ctx.destination);
+    hush.start();
     void this.ready.then(() => {
       this.preload(this.early);
       this.early = [];
