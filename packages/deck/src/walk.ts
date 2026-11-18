@@ -93,14 +93,15 @@ export function stepDeckBody<P>(b: DeckBody<P>, intent: DeckIntent, gait: DeckGa
     if (alongX && (xFirst || !alongZ)) { at = alongX; x += dx; vz = 0; } else if (alongZ) { at = alongZ; z += dz; vx = 0; } else { vx = 0; vz = 0; break; }
   }
 
-  const room = Math.min(clearAt(ground, gait, at, x, z), clearAt(ground, gait, at, x + vx * gait.ahead, z + vz * gait.ahead));
+  const here = ground.headroom ? ground.headroom(x, z, at) - gait.clear : Infinity;
+  const room = Math.min(here, clearAt(ground, gait, at, x + vx * gait.ahead, z + vz * gait.ahead));
   const want = Math.max(gait.least, Math.min(gait.tall, room));
   const height = b.height + (want - b.height) * (1 - Math.exp(-gait.stoop * dt));
   // Never through the beams, however quickly it is asked to stoop.
   return { place: at.place, floor: at.floor, x, z, vx, vz, height: Math.min(height, Math.max(gait.least, room)) };
 }
 
-/** The room for a body's height at (x, z), coming from `at`: the headroom less what its head keeps clear (Infinity where it cannot stand). */
+/** The room for a body's height at (x, z) ahead of it, coming from `at`: the headroom less what its head keeps clear (Infinity where it cannot stand). */
 function clearAt<P>(ground: DeckGround<P>, gait: DeckGait, at: Standing<P>, x: number, z: number): number {
   if (!ground.headroom) return Infinity;
   const s = ground.stand(x, z, at);
