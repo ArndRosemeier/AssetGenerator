@@ -20,8 +20,8 @@
  */
 import { Vector3 } from 'three/webgpu';
 import { clamp, lerpAngle, smoothstep as smooth } from '@futuremagic/core';
-import { kf, type LimbGoal, type LimbGoals, type Pose } from './rig';
-import { FOOTROPE_AFT, footropeY, yardPoint, type Yard } from './rigging';
+import { kf, type LimbGoal, type LimbGoals, type Pose, type Side } from './rig';
+import { FOOTROPE_AFT, footropeY, jackstayY, yardPoint, type Yard } from './rigging';
 
 /** A ladder: its rungs, the wall behind them and the floor one gets on or off at. */
 export interface Ladder {
@@ -76,16 +76,22 @@ export const RUNG = 0.3;
 /** A rim with no ladder under it (a ledge to pull up over): where, which way into it, its top. */
 export interface Ledge { x: number; z: number; nx: number; nz: number; floor: number }
 
+/** A climber hanging on a ladder with the feet `h` over its base (as `cling` puts them). */
+export interface OnLadder { readonly ladder: Ladder; readonly h: number }
+
 /** The body that climbs: its standing height and its hips' height over the feet (m). */
 export interface Climber { height: number; hipHeight: number }
 
-/** Climbing speed, metres per second (for a 1.8 m climber). */
-const CLIMB_V = 1.15;
-/** Along a footrope: speed (m/s) and how far the feet move each stride (m), for a 1.8 m climber. */
-const SIDLE_V = 0.55;
+/** Climbing speed, metres per second (for a 1.8 m climber): a climb the game steers (`cling`) goes at this times `pace`. */
+export const CLIMB_V = 1.15;
+/** Along a footrope: speed (m/s; a way along a yard the game steers, `sidle`, goes at this times `pace`) and how far the feet move each stride (m), for a 1.8 m climber. */
+export const SIDLE_V = 0.55;
 const SIDLE_STEP = 0.45;
-/** Seconds onto (or off) a footrope. */
-const FOOTROPE_DUR = 2.2;
+/** Seconds onto (or off) a footrope (at its own pace, whatever the sea). */
+export const FOOTROPE_DUR = 2.2;
+/** Seconds onto (or off) a ladder at its floor, and more for each metre the climber rises (or drops) getting on from a floor beside it (a deck under a ship's rail). */
+const FOOT_DUR = 0.45;
+const FOOT_RISE_DUR = 1.1;
 /** A ladder hanging over the climber further than this from gravity's up (rad) is too steep to go on: hold on. */
 const HANG_MAX = 1.15;
 /** A yard sloping along its length more than this (sine of the angle) is too steep to go along: hold on. */
@@ -108,9 +114,11 @@ export type ClimbStep =
   | { kind: 'ledge'; ledge: Ledge; feet: number }
   /**
    * Onto a yard's footrope at `at` (metres out along it) from where the climber stands (`from`: a top, the
-   * crosstrees, a ratline), or off it back there: hands to the jackstay, a foot down onto the rope, the other.
+   * crosstrees, the end of a bowsprit), or off it back there: hands to the jackstay, a foot down onto the rope, the
+   * other. Or from a ladder the climber hangs on (`from`: the shrouds, the feet `h` over its base, as `cling`) and
+   * back onto it: a hand across to the jackstay, the near foot onto the rope, the other foot, the other hand.
    */
-  | { kind: 'footrope'; yard: Yard; dir: 'on' | 'off'; at: number; from: readonly [number, number, number] }
+  | { kind: 'footrope'; yard: Yard; dir: 'on' | 'off'; at: number; from: readonly [number, number, number] | OnLadder }
   /** Out (or in) along a yard on its footrope, from `from` to `to` metres out along it, sidling. */
   | { kind: 'yard'; yard: Yard; from: number; to: number }
   | { kind: 'call'; then: () => void }
@@ -136,7 +144,7 @@ export const HOLD_RATE = 0.25;
 /** Seconds of calm before a climber who held on goes on. */
 const HOLD_EASE = 0.4;
 
-const _v = new Vector3(), _w = new Vector3(), _u = new Vector3();
+const _v = new Vector3(), _w = new Vector3(), _u = new Vector3(), _from = new Vector3();
 /** Where a rim's hands and feet start: the climb's last holds. */
 const _held = { L: new Vector3(), R: new Vector3(), footL: new Vector3(), footR: new Vector3() };
 
@@ -203,6 +211,8 @@ export class LadderClimb {
     footL: { p: new Vector3(), w: 0, pole: [0.2, 0.2, 1] }, footR: { p: new Vector3(), w: 0, pole: [0.2, 0.2, 1] },
     curl: { L: 1.2, R: 1.2 }, curlW: 0,
   };
+  /** The stance the last cling or footrope put the body in (its pose's turns), for a move from one to the other. */
+  private stance: Stance | null = null;
   /** The climber's scale (1 at 1.8 m) and rest hip height. */
   private k = 1;
   private hipW = 0.93;
@@ -323,20 +333,31 @@ export class LadderClimb {
         return { dur: LEDGE_DUR, pose: (u) => this.rim(edge, u) };
       }
       case 'foot': {
-        let from: Vector3 | null = null;
-        return {
-          dur: 0.45, pose: (u) => {
-            const on = s.dir === 'on', w = on ? smooth(0, 1, u) : 1 - smooth(0, 1, u);
-            from ??= this.pos.clone();
+        let from: Vector3 | null = null, fromYaw = 0;
+        const on = s.dir === 'on';
+        const seg: Segment = {
+          dur: FOOT_DUR, pose: (u) => {
+            if (!from) {
+              from = this.pos.clone();
+              fromYaw = this.yaw;
+              // Getting on from a floor above or below the ladder's (a deck under the rail the shrouds are got on from) takes longer.
+              if (on) seg.dur = FOOT_DUR + FOOT_RISE_DUR * Math.abs(s.ladder.floor - from.y);
+              u = 0;
+            }
+            const w = on ? smooth(0, 1, u) : 1 - smooth(0, 1, u);
             this.climbAt(s.ladder, 0, on);
             // (On the ladder the knees stay bent: the body straightens onto the floor.) Getting on, the body comes
-            // from where the walk left it, in to where it hangs.
-            if (on) this.pos.set(from.x + (this.pos.x - from.x) * w, this.pos.y, from.z + (this.pos.z - from.z) * w);
-            this.pos.y += (s.ladder.floor - this.pos.y) * (1 - w);
+            // from where it stood (on the ladder's floor, or one beside it), in and up to where it hangs, turning to it.
+            if (on) {
+              this.pos.set(from.x + (this.pos.x - from.x) * w, this.pos.y, from.z + (this.pos.z - from.z) * w);
+              this.pos.y += (from.y - this.pos.y) * (1 - w);
+              this.yaw = lerpAngle(fromYaw, this.yaw, w);
+            } else this.pos.y += (s.ladder.floor - this.pos.y) * (1 - w);
             this.overW = w;
             this.fadeGoals(w);
           },
         };
+        return seg;
       }
       case 'climb': {
         const base = this.base(s.ladder);
@@ -350,7 +371,10 @@ export class LadderClimb {
         dur: Math.max(0.3, Math.abs(s.to - s.from) / (SIDLE_V * Math.sqrt(this.k))),
         pose: (u) => this.yardAt(s.yard, s.from + (s.to - s.from) * u), pace: (up) => this.yardPace(s.yard, up),
       };
-      case 'footrope': return { dur: FOOTROPE_DUR, pose: (u) => this.footrope(s.yard, s.at, s.from, s.dir === 'on' ? u : 1 - u) };
+      case 'footrope': {
+        const from = s.from;
+        return { dur: FOOTROPE_DUR, pose: (u) => (isOnLadder(from) ? this.footropeFromLadder(s.yard, s.at, from, s.dir === 'on' ? u : 1 - u) : this.footrope(s.yard, s.at, from, s.dir === 'on' ? u : 1 - u)) };
+      }
       case 'wait': {
         return { dur: 1e-3, fade: 'dark', until: s.ready, pose: () => undefined };
       }
@@ -448,14 +472,8 @@ export class LadderClimb {
     // Leaning out over the climber (futtock shrouds), the back arches and the head goes back to see the holds.
     const over = Math.max(0, -(l.lean ?? 0));
     const look = up ? 0.3 + 0.4 * over : -0.35, spine = -0.12 + 0.25 * over - 0.15 * grip;
-    this.poseFn = (p) => {
-      p.spine(spine);
-      p.neck(look);
-      for (const s of ['L', 'R'] as const) {
-        p.arm(s, 2.2, 0.3, 0, 1.0, 0.5);
-        p.leg(s, 1.0, 0.12, 0, 1.4, -0.3);
-      }
-    };
+    this.stance = { spine, neck: look, arm: CLING_ARM, leg: CLING_LEG };
+    this.poseFn = stancePose(this.stance);
     this.overW = 1;
   }
 
@@ -499,7 +517,7 @@ export class LadderClimb {
 
   /** How fast a man goes along `yard` with gravity's up `up`: slower as it slopes along its length, still past YARD_SLOPE_MAX. */
   private yardPace(yard: Yard, up: Vector3): number {
-    const un = _u.copy(up).normalize(), slope = Math.abs(yard.ax * un.x + yard.az * un.z);
+    const rise = yard.rise ?? 0, un = _u.copy(up).normalize(), slope = Math.abs(yard.ax * un.x + rise * un.y + yard.az * un.z) / Math.hypot(1, rise);
     if (slope > YARD_SLOPE_MAX) return 0;
     return clamp(1 - 1.6 * slope, 0.2, 1);
   }
@@ -549,7 +567,7 @@ export class LadderClimb {
       const along = (n + a + o - 0.25 + (lead ? 1 : -1) * (hand ? handsW : feetW)) * SIDLE_STEP;
       const goal = g[key] as LimbGoal;
       if (hand) {
-        yardPoint(yard, along, FOOTROPE_AFT + 0.06, yard.y + 0.03 + 0.05 * swing * (1 - grip), goal.p);
+        yardPoint(yard, along, FOOTROPE_AFT + 0.06, jackstayY(yard, along) + 0.03 + 0.05 * swing * (1 - grip), goal.p);
         g.curl![key as 'L' | 'R'] = 1.2 + 0.3 * grip;
       } else {
         // The foot slides along the rope, barely lifted; the rope dips under the one bearing the man.
@@ -564,15 +582,8 @@ export class LadderClimb {
     yardPoint(yard, mid, -0.12 * k, rope + 0.84 * this.hipW - this.hipW, this.pos);
     this.sway(0.25 * k);
     this.yaw = Math.atan2(-yard.nx, -yard.nz);
-    const lean = -0.75 - 0.15 * grip;
-    this.poseFn = (p) => {
-      p.spine(lean);
-      p.neck(0.55);
-      for (const sd of ['L', 'R'] as const) {
-        p.arm(sd, 1.2, 0.25, 0, 0.7, 0.4);
-        p.leg(sd, 0.35, 0.15, 0, 0.5, 0);
-      }
-    };
+    this.stance = { spine: -0.75 - 0.15 * grip, neck: 0.55, arm: YARD_ARM, leg: YARD_LEG };
+    this.poseFn = stancePose(this.stance);
     this.overW = 1;
   }
 
@@ -609,6 +620,43 @@ export class LadderClimb {
       if (w > 0) stance(p);
     };
     this.overW = w;
+  }
+
+  /**
+   * Between hanging on a ladder (u = 0: the feet `on.h` over its base, as `cling`) and on `yard`'s footrope at `at`
+   * (u = 1): the hand nearer the yard across to the jackstay, the near foot from its ratline onto the rope, the
+   * other foot, the other hand; the body swings across and turns from the ladder to the yard. Getting back onto the
+   * ladder plays it backwards.
+   */
+  private footropeFromLadder(yard: Yard, at: number, on: OnLadder, u: number): void {
+    const g = this.goals;
+    // Where it starts: hanging on the ladder, its holds kept.
+    this.climbAt(on.ladder, on.h, true);
+    for (const key of ['L', 'R', 'footL', 'footR'] as const) _held[key].copy(g[key]!.p);
+    const cling = this.stance!, start = _from.copy(this.pos), startYaw = this.yaw;
+    // Where it ends: the stance on the rope.
+    this.yardAt(yard, at);
+    const stance = this.stance!;
+    // Which way the yard is from the climber facing the ladder: its near hand and foot go first.
+    const rx = -on.ladder.nz, rz = on.ladder.nx;
+    yardPoint(yard, at, 0, yard.y, _v);
+    const near: Side = (_v.x - start.x) * rx + (_v.z - start.z) * rz >= 0 ? 'R' : 'L', far: Side = near === 'R' ? 'L' : 'R';
+    const order: ['L' | 'R' | 'footL' | 'footR', number, number][] = [
+      [near, 0, 0.3], [near === 'R' ? 'footR' : 'footL', 0.25, 0.55], [near === 'R' ? 'footL' : 'footR', 0.5, 0.8], [far, 0.7, 1],
+    ];
+    for (const [key, t0, t1] of order) {
+      const goal = g[key]!, f = smooth(t0, t1, u);
+      goal.p.lerpVectors(_held[key], goal.p, f);
+      goal.p.y += 0.15 * Math.sin(Math.PI * f);
+      goal.w = 1;
+    }
+    g.curlW = 1;
+    const b = smooth(0.2, 0.85, u);
+    this.pos.lerpVectors(start, this.pos, b);
+    this.yaw = lerpAngle(startYaw, this.yaw, smooth(0.1, 0.7, u));
+    this.stance = blendStance(cling, stance, b);
+    this.poseFn = stancePose(this.stance);
+    this.overW = 1;
   }
 
   /**
@@ -709,6 +757,41 @@ export class LadderClimb {
     g.curlW = (g.curlW ?? 0) * w;
   }
 }
+
+/**
+ * A stance's pose: the spine's and the neck's bend and the turns of each arm (forward, out, twist, elbow, forearm)
+ * and leg (flex, out, twist, knee, ankle), the same on both sides.
+ */
+interface Stance {
+  readonly spine: number;
+  readonly neck: number;
+  readonly arm: readonly [number, number, number, number, number];
+  readonly leg: readonly [number, number, number, number, number];
+}
+/** Hanging on a ladder: arms up to the holds, knees bent onto the rungs. */
+const CLING_ARM = [2.2, 0.3, 0, 1.0, 0.5] as const;
+const CLING_LEG = [1.0, 0.12, 0, 1.4, -0.3] as const;
+/** On a footrope: leaning over the yard, the arms forward along it, the legs a little bent. */
+const YARD_ARM = [1.2, 0.25, 0, 0.7, 0.4] as const;
+const YARD_LEG = [0.35, 0.15, 0, 0.5, 0] as const;
+
+function stancePose(s: Stance): (p: Pose) => void {
+  return (p) => {
+    p.spine(s.spine);
+    p.neck(s.neck);
+    for (const sd of ['L', 'R'] as const) {
+      p.arm(sd, ...s.arm);
+      p.leg(sd, ...s.leg);
+    }
+  };
+}
+
+const lerp5 = (a: readonly number[], b: readonly number[], t: number) => a.map((x, i) => x + (b[i]! - x) * t) as unknown as readonly [number, number, number, number, number];
+function blendStance(a: Stance, b: Stance, t: number): Stance {
+  return { spine: a.spine + (b.spine - a.spine) * t, neck: a.neck + (b.neck - a.neck) * t, arm: lerp5(a.arm, b.arm, t), leg: lerp5(a.leg, b.leg, t) };
+}
+
+const isOnLadder = (f: readonly [number, number, number] | OnLadder): f is OnLadder => !Array.isArray(f);
 
 /** The ladder of `l`'s chain (`above`, `below`) at height y. */
 function ladderAt(l: Ladder, y: number): Ladder {

@@ -38,6 +38,11 @@ export interface Yard {
   inner?: number;
   /** How far a foot pushes the rope down under the man's weight (m, default 0.05). */
   give?: number;
+  /**
+   * How far the spar rises for each metre out along (ax, az) (default 0: a yard, level). A jib-boom's footropes
+   * (its horses) run out and up along it: its jackstay, its footrope and the men on it rise with it.
+   */
+  rise?: number;
 }
 
 /** A footrope's usual drop under the jackstay (m). */
@@ -50,7 +55,12 @@ export function footropeY(yard: Yard, s: number): number {
   const drop = yard.drop ?? FOOTROPE_DROP, sag = yard.sag ?? 0.1, st = yard.stirrup ?? 2.4, inner = yard.inner ?? 0.5;
   // Between two stirrups (or the slings and the first) the rope hangs in a curve.
   const f = Math.max(0, Math.abs(s) - inner) / st, u = f - Math.floor(f);
-  return yard.y - drop - sag * 4 * u * (1 - u);
+  return jackstayY(yard, s) - drop - sag * 4 * u * (1 - u);
+}
+
+/** The top of the spar (the jackstay) at `s` metres out along it: the yard's `y`, risen along a sloping spar. */
+export function jackstayY(yard: Yard, s: number): number {
+  return yard.y + (yard.rise ?? 0) * s;
 }
 
 /**
