@@ -87,8 +87,8 @@ export const CLIMB_V = 1.15;
 /** Along a footrope: speed (m/s; a way along a yard the game steers, `sidle`, goes at this times `pace`) and how far the feet move each stride (m), for a 1.8 m climber. */
 export const SIDLE_V = 0.55;
 const SIDLE_STEP = 0.45;
-/** Seconds onto (or off) a footrope. */
-const FOOTROPE_DUR = 2.2;
+/** Seconds onto (or off) a footrope (at its own pace, whatever the sea). */
+export const FOOTROPE_DUR = 2.2;
 /** Seconds onto (or off) a ladder at its floor, and more for each metre the climber rises (or drops) getting on from a floor beside it (a deck under a ship's rail). */
 const FOOT_DUR = 0.45;
 const FOOT_RISE_DUR = 1.1;
