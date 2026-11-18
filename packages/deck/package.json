@@ -1,0 +1,12 @@
+{
+  "name": "@futuremagic/deck",
+  "version": "0.1.0",
+  "description": "A body on a moving deck: a ship's frame on the water and the world, the floor under a body's feet on a tilted deck, a body carried as the deck rises, pitches, rolls and sails, and walking in the deck's own frame. Pure. From MasterWorld's ships (src/world/deck.ts); first used by Nauta.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "license": "MIT"
+}
