@@ -67,6 +67,13 @@ def build(spec: AssetSpec) -> Asset:
     except AssemblyError as exc:
         raise SpecError(str(exc)) from exc
 
+    return assemble(spec, pieces, raw)
+
+
+def assemble(spec: AssetSpec, pieces: list, raw: dict) -> Asset:
+    """The asset from its pieces (closed shells with their slots, bevel marks and bones) and the
+    params that finish it (`bevel`, `sharp_angle`, `settle`, `rig`): shared with prop.boat."""
+    bevel = as_float(raw.get("bevel", 0.0), "params.bevel")
     used = list(dict.fromkeys(slot for _, slot, _, _ in pieces))
     unknown = [s for s in used if s not in spec.materials]
     if unknown:

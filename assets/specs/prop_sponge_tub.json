@@ -1,0 +1,290 @@
+{
+ "spec_version": 1,
+ "id": "prop_sponge_tub",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "lathe": {
+     "profile": [
+      [
+       0,
+       0
+      ],
+      [
+       0.22,
+       0
+      ],
+      [
+       0.24,
+       0.38
+      ],
+      [
+       0.215,
+       0.38
+      ],
+      [
+       0.2,
+       0.03
+      ],
+      [
+       0,
+       0.03
+      ]
+     ]
+    },
+    "slot": "wood",
+    "segments": 18,
+    "bevel": false
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0,
+      0.03
+     ],
+     "b": [
+      0,
+      0,
+      0.3
+     ],
+     "radius": 0.205
+    },
+    "slot": "water",
+    "segments": 32
+   },
+   {
+    "torus": {
+     "centre": [
+      0,
+      0,
+      0.08
+     ],
+     "radius": 0.226,
+     "axis": "z",
+     "section": [
+      [
+       -0.004,
+       -0.02
+      ],
+      [
+       0.006,
+       -0.02
+      ],
+      [
+       0.006,
+       0.02
+      ],
+      [
+       -0.004,
+       0.02
+      ]
+     ]
+    },
+    "slot": "iron",
+    "segments": 40,
+    "bevel": false
+   },
+   {
+    "torus": {
+     "centre": [
+      0,
+      0,
+      0.33
+     ],
+     "radius": 0.236,
+     "axis": "z",
+     "section": [
+      [
+       -0.004,
+       -0.02
+      ],
+      [
+       0.006,
+       -0.02
+      ],
+      [
+       0.006,
+       0.02
+      ],
+      [
+       -0.004,
+       0.02
+      ]
+     ]
+    },
+    "slot": "iron",
+    "segments": 40,
+    "bevel": false
+   },
+   {
+    "box": {
+     "lower": [
+      0.22,
+      -0.045,
+      0.3
+     ],
+     "upper": [
+      0.29,
+      0.045,
+      0.46
+     ]
+    },
+    "slot": "wood",
+    "mirror": "x"
+   },
+   {
+    "cylinder": {
+     "a": [
+      0.255,
+      -0.05,
+      0.42
+     ],
+     "b": [
+      0.255,
+      0.05,
+      0.42
+     ],
+     "radius": 0.018
+    },
+    "slot": "hole",
+    "mirror": "x"
+   }
+  ],
+  "bevel": 0.0,
+  "detail": 1
+ },
+ "materials": {
+  "wood": {
+   "base_color": [
+    0.2,
+    0.125,
+    0.065,
+    1
+   ],
+   "roughness": 0.75,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "grain": {
+       "color": [
+        0.12,
+        0.07,
+        0.035
+       ],
+       "axis": "z",
+       "spacing": 0.008,
+       "warp": 1.5,
+       "amount": 0.55
+      }
+     },
+     {
+      "mottle": {
+       "color": [
+        0.1,
+        0.065,
+        0.035
+       ],
+       "scale": 5,
+       "coverage": 0.35,
+       "contrast": 2
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.3,
+        0.21,
+        0.12
+       ],
+       "radius": 0.008,
+       "breakup": 0.6,
+       "amount": 0.6
+      }
+     }
+    ]
+   }
+  },
+  "iron": {
+   "base_color": [
+    0.032,
+    0.032,
+    0.035,
+    1
+   ],
+   "roughness": 0.55,
+   "metallic": 0.35,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.05,
+        0.048,
+        0.046
+       ],
+       "scale": 9,
+       "coverage": 0.45,
+       "contrast": 2,
+       "roughness": 0.65
+      }
+     },
+     {
+      "cavities": {
+       "color": [
+        0.075,
+        0.035,
+        0.018
+       ],
+       "radius": 0.02,
+       "amount": 0.6,
+       "roughness": 0.9
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.12,
+        0.115,
+        0.11
+       ],
+       "radius": 0.006,
+       "breakup": 0.5,
+       "amount": 0.7,
+       "roughness": 0.35
+      }
+     }
+    ]
+   }
+  },
+  "hole": {
+   "base_color": [
+    0.012,
+    0.009,
+    0.006,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0.0
+  },
+  "water": {
+   "base_color": [
+    0.02,
+    0.03,
+    0.03,
+    1
+   ],
+   "roughness": 0.05,
+   "metallic": 0.0
+  }
+ },
+ "qa": {
+  "max_triangles": 4000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": true,
+  "max_dimension_m": 0.7
+ }
+}

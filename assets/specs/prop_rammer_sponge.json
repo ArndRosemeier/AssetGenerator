@@ -1,0 +1,248 @@
+{
+ "spec_version": 1,
+ "id": "prop_rammer_sponge",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "cylinder": {
+     "a": [
+      0,
+      -0.82,
+      0.08
+     ],
+     "b": [
+      0,
+      0.82,
+      0.08
+     ],
+     "radius": 0.02
+    },
+    "slot": "wood",
+    "segments": 12
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      -0.95,
+      0.08
+     ],
+     "b": [
+      0,
+      -0.8,
+      0.08
+     ],
+     "radius": 0.078
+    },
+    "slot": "wood",
+    "segments": 24
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      -0.81,
+      0.08
+     ],
+     "b": [
+      0,
+      -0.79,
+      0.08
+     ],
+     "radius": 0.081
+    },
+    "slot": "iron",
+    "segments": 24,
+    "bevel": false
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0.79,
+      0.08
+     ],
+     "b": [
+      0,
+      0.97,
+      0.08
+     ],
+     "radius": 0.074
+    },
+    "slot": "fleece",
+    "segments": 20
+   },
+   {
+    "sphere": {
+     "centre": [
+      0,
+      0.97,
+      0.08
+     ],
+     "radius": 0.074
+    },
+    "slot": "fleece",
+    "segments": 20
+   },
+   {
+    "cylinder": {
+     "a": [
+      0,
+      0.78,
+      0.08
+     ],
+     "b": [
+      0,
+      0.8,
+      0.08
+     ],
+     "radius": 0.077
+    },
+    "slot": "iron",
+    "segments": 24,
+    "bevel": false
+   }
+  ],
+  "bevel": 0.0,
+  "detail": 1
+ },
+ "materials": {
+  "wood": {
+   "base_color": [
+    0.4,
+    0.29,
+    0.17,
+    1
+   ],
+   "roughness": 0.8,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "grain": {
+       "color": [
+        0.28,
+        0.18,
+        0.09
+       ],
+       "axis": "y",
+       "spacing": 0.01,
+       "warp": 1.5,
+       "amount": 0.5
+      }
+     },
+     {
+      "mottle": {
+       "color": [
+        0.24,
+        0.17,
+        0.1
+       ],
+       "scale": 4,
+       "coverage": 0.3,
+       "contrast": 2
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.48,
+        0.38,
+        0.25
+       ],
+       "radius": 0.006,
+       "breakup": 0.6,
+       "amount": 0.5
+      }
+     }
+    ]
+   }
+  },
+  "iron": {
+   "base_color": [
+    0.032,
+    0.032,
+    0.035,
+    1
+   ],
+   "roughness": 0.55,
+   "metallic": 0.35,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.05,
+        0.048,
+        0.046
+       ],
+       "scale": 9,
+       "coverage": 0.45,
+       "contrast": 2,
+       "roughness": 0.65
+      }
+     },
+     {
+      "cavities": {
+       "color": [
+        0.075,
+        0.035,
+        0.018
+       ],
+       "radius": 0.02,
+       "amount": 0.6,
+       "roughness": 0.9
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.12,
+        0.115,
+        0.11
+       ],
+       "radius": 0.006,
+       "breakup": 0.5,
+       "amount": 0.7,
+       "roughness": 0.35
+      }
+     }
+    ]
+   }
+  },
+  "fleece": {
+   "base_color": [
+    0.32,
+    0.29,
+    0.24,
+    1
+   ],
+   "roughness": 0.95,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.12,
+        0.11,
+        0.09
+       ],
+       "scale": 40,
+       "coverage": 0.5,
+       "contrast": 3
+      }
+     }
+    ]
+   }
+  }
+ },
+ "qa": {
+  "max_triangles": 3000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": true,
+  "max_dimension_m": 2.1
+ }
+}

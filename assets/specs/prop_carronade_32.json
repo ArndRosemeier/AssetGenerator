@@ -627,5 +627,21 @@
   "require_manifold": true,
   "require_origin_at_base": true,
   "max_dimension_m": 2.4
- }
+ },
+ "lods": [
+  {
+   "max_triangles": 5000,
+   "params": {
+    "detail": 0.5,
+    "bevel": 0
+   }
+  },
+  {
+   "max_triangles": 4000,
+   "params": {
+    "detail": 0.25,
+    "bevel": 0
+   }
+  }
+ ]
 }

@@ -1,0 +1,376 @@
+{
+ "spec_version": 1,
+ "id": "prop_match_tub",
+ "generator": "prop.assembly",
+ "params": {
+  "pieces": [
+   {
+    "lathe": {
+     "profile": [
+      [
+       0,
+       0
+      ],
+      [
+       0.18,
+       0
+      ],
+      [
+       0.19,
+       0.42
+      ],
+      [
+       0,
+       0.42
+      ]
+     ]
+    },
+    "slot": "wood",
+    "segments": 18,
+    "bevel": false
+   },
+   {
+    "lathe": {
+     "profile": [
+      [
+       0,
+       0.415
+      ],
+      [
+       0.2,
+       0.415
+      ],
+      [
+       0.2,
+       0.445
+      ],
+      [
+       0,
+       0.445
+      ]
+     ]
+    },
+    "slot": "wood",
+    "segments": 18,
+    "bevel": false
+   },
+   {
+    "torus": {
+     "centre": [
+      0,
+      0,
+      0.07
+     ],
+     "radius": 0.183,
+     "axis": "z",
+     "section": [
+      [
+       -0.004,
+       -0.02
+      ],
+      [
+       0.006,
+       -0.02
+      ],
+      [
+       0.006,
+       0.02
+      ],
+      [
+       -0.004,
+       0.02
+      ]
+     ]
+    },
+    "slot": "iron",
+    "segments": 40,
+    "bevel": false
+   },
+   {
+    "torus": {
+     "centre": [
+      0,
+      0,
+      0.35
+     ],
+     "radius": 0.19,
+     "axis": "z",
+     "section": [
+      [
+       -0.004,
+       -0.02
+      ],
+      [
+       0.006,
+       -0.02
+      ],
+      [
+       0.006,
+       0.02
+      ],
+      [
+       -0.004,
+       0.02
+      ]
+     ]
+    },
+    "slot": "iron",
+    "segments": 40,
+    "bevel": false
+   },
+   {
+    "tube": {
+     "path": [
+      [
+       0.19,
+       0,
+       0.47
+      ],
+      [
+       0.15,
+       0,
+       0.45
+      ],
+      [
+       0.05,
+       0,
+       0.47
+      ],
+      [
+       -0.05,
+       0.02,
+       0.5
+      ],
+      [
+       -0.12,
+       0.05,
+       0.56
+      ]
+     ],
+     "radius": 0.007
+    },
+    "slot": "match"
+   },
+   {
+    "sphere": {
+     "centre": [
+      -0.12,
+      0.05,
+      0.56
+     ],
+     "radius": 0.01
+    },
+    "slot": "glow"
+   },
+   {
+    "tube": {
+     "path": [
+      [
+       0,
+       0.19,
+       0.47
+      ],
+      [
+       0,
+       0.14,
+       0.45
+      ],
+      [
+       0.03,
+       0.05,
+       0.47
+      ],
+      [
+       0.07,
+       -0.05,
+       0.51
+      ],
+      [
+       0.1,
+       -0.11,
+       0.57
+      ]
+     ],
+     "radius": 0.007
+    },
+    "slot": "match"
+   },
+   {
+    "sphere": {
+     "centre": [
+      0.1,
+      -0.11,
+      0.57
+     ],
+     "radius": 0.01
+    },
+    "slot": "glow"
+   },
+   {
+    "box": {
+     "lower": [
+      0.17,
+      -0.02,
+      0.43
+     ],
+     "upper": [
+      0.205,
+      0.02,
+      0.46
+     ]
+    },
+    "slot": "wood"
+   }
+  ],
+  "bevel": 0.0,
+  "detail": 1
+ },
+ "materials": {
+  "wood": {
+   "base_color": [
+    0.2,
+    0.125,
+    0.065,
+    1
+   ],
+   "roughness": 0.75,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "grain": {
+       "color": [
+        0.12,
+        0.07,
+        0.035
+       ],
+       "axis": "z",
+       "spacing": 0.008,
+       "warp": 1.5,
+       "amount": 0.55
+      }
+     },
+     {
+      "mottle": {
+       "color": [
+        0.1,
+        0.065,
+        0.035
+       ],
+       "scale": 5,
+       "coverage": 0.35,
+       "contrast": 2
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.3,
+        0.21,
+        0.12
+       ],
+       "radius": 0.008,
+       "breakup": 0.6,
+       "amount": 0.6
+      }
+     }
+    ]
+   }
+  },
+  "iron": {
+   "base_color": [
+    0.032,
+    0.032,
+    0.035,
+    1
+   ],
+   "roughness": 0.55,
+   "metallic": 0.35,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.05,
+        0.048,
+        0.046
+       ],
+       "scale": 9,
+       "coverage": 0.45,
+       "contrast": 2,
+       "roughness": 0.65
+      }
+     },
+     {
+      "cavities": {
+       "color": [
+        0.075,
+        0.035,
+        0.018
+       ],
+       "radius": 0.02,
+       "amount": 0.6,
+       "roughness": 0.9
+      }
+     },
+     {
+      "edges": {
+       "color": [
+        0.12,
+        0.115,
+        0.11
+       ],
+       "radius": 0.006,
+       "breakup": 0.5,
+       "amount": 0.7,
+       "roughness": 0.35
+      }
+     }
+    ]
+   }
+  },
+  "match": {
+   "base_color": [
+    0.3,
+    0.2,
+    0.1,
+    1
+   ],
+   "roughness": 0.88,
+   "metallic": 0.0,
+   "pattern": {
+    "layers": [
+     {
+      "mottle": {
+       "color": [
+        0.2,
+        0.13,
+        0.07
+       ],
+       "scale": 30,
+       "coverage": 0.4,
+       "contrast": 2
+      }
+     }
+    ]
+   }
+  },
+  "glow": {
+   "base_color": [
+    1.0,
+    0.4,
+    0.08,
+    1
+   ],
+   "roughness": 0.9,
+   "metallic": 0.0
+  }
+ },
+ "qa": {
+  "max_triangles": 4000,
+  "require_uvs": true,
+  "require_manifold": true,
+  "require_origin_at_base": true,
+  "max_dimension_m": 0.7
+ }
+}

@@ -233,10 +233,10 @@ with its own material slot, placed, repeated, mirrored and grouped. A new prop i
 | `box` | `size` round the origin, or `lower` and `upper` corners |
 | `cylinder` | `a`, `b`, `radius`, `radius_b` (a cone; 0 for a point): a rod between two points |
 | `sphere` | `centre`, `radius` |
-| `torus` | `centre`, `radius`, `thickness`, `axis` x, y or z: rings, hoops, handles |
+| `torus` | `centre`, `radius`, `thickness`, `axis` x, y or z: rings, hoops, handles. `section` [[out, up], ...] in place of `thickness` turns any closed section about the ring (out from `radius`, up the axis): a wheel's flat rim, a cask's hoop, a moulded collar |
 | `lathe` | `profile` [[r, z], ...] turned about Z (open ends close to the axis): caps, bases, bottles |
 | `tube` | `path` [[x, y, z], ...], `radius`, `smooth` (default true): bent rods, bails, wires |
-| `extrude` | `outline` [[x, y], ...] raised `height` from z = 0: plates, blades, brackets |
+| `extrude` | `outline` [[x, y], ...] raised `height` from z = 0: plates, blades, brackets. Any simple outline, concave too (its caps are cut into triangles) |
 | `sheet` | `size` [w, h], `thickness` (4 mm), `divisions` [nx, nz] (about 6 cm squares): a thin panel facing -Y, centred on the origin: cloth, banners, sails, paper. Divided so it can bend when rigged |
 
 Every piece takes `slot`, `scale`, `rotate` (degrees, X then Y then Z), `at`, `repeat`
@@ -279,6 +279,33 @@ below, and two made for mechanisms:
 
 Examples: `prop_mill_waterwheel` (a wheel on a frame), `prop_hanging_banner` (cloth on six
 bones). `generate` holds Blender's skinning to the kit's (`rig_matches_kit`).
+
+### Ship's boats: `prop.boat`
+
+A clinker-built boat (cutter, jolly boat, gig, launch) follows a curved hull no assembly piece
+can describe. `prop.boat` lays her from her lines: `hull` gives `length`, `beam`, `depth` and
+four curves along her (`t` 0 at the stem, 1 at the transom): `breadth` (of the beam), `keel`
+and `sheer` (heights above her lowest point, of `depth`) and `fullness` (0 a sharp V, 1 a
+round bilge). `build` lays the overlapping strakes, keel, stem, transom, timbers, gunwales,
+thwarts, floor boards and thole pins on them, and `slots` names the material of the
+`planks`, the `timber` and the painted `gunwale` (the sheer strake). Oars, a rudder or ring
+bolts are ordinary assembly `pieces` on top, as in `prop.assembly`.
+
+```json
+"generator": "prop.boat",
+"params": {
+  "hull": {"length": 5.5, "beam": 1.75, "depth": 0.72,
+           "breadth": [[0, 0.02], [0.35, 0.92], [0.55, 1.0], [1, 0.7]],
+           "keel": [[0, 0.42], [0.1, 0.12], [0.8, 0.07], [1, 0.1]],
+           "sheer": [[0, 0.98], [0.3, 0.76], [1, 0.84]],
+           "fullness": [[0, 0.1], [0.3, 0.8], [1, 0.6]]},
+  "build": {"strakes": 8, "thwarts": [[0.3, 0.28], [0.5, 0.28]]},
+  "slots": {"planks": "hull", "timber": "wood", "gunwale": "paint"}
+}
+```
+
+Examples: `prop_boat_cutter`, `prop_boat_jolly`, `prop_boat_gig`. The reference is at the top
+of `blender/generators/prop_boat.py`; the shells come from `assetkit/boat.py`.
 
 ### Tiles that fit together
 
